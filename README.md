@@ -1,12 +1,5 @@
 # Lade
 
-- https://github.com/hwchen/keyring-rs
-
-doppler://api.doppler.com/project/env/var
-
-doppler --api-host https://api.doppler.com run --project cloud --config prd
---mount secrets.json -- cat secrets.json
-
 op://Personal/gitlab_token/password
 
 echo "test: op://Personal/gitlab_token/password" | op inject

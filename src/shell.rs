@@ -36,7 +36,7 @@ impl Shell {
     pub fn on(&self) -> String {
         match self {
             Shell::Bash => format!(
-                "{};{}",
+                "{}\n{}",
                 import!("../scripts/bash-preexec.sh"),
                 import!("../scripts/on.bash")
             ),
