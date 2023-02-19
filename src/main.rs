@@ -1,14 +1,16 @@
 use anyhow::Result;
 use clap::Subcommand;
+use clap_verbosity_flag::Verbosity;
 use self_update::cargo_crate_version;
-use std::{collections::HashMap, env};
+use std::env;
 mod config;
 mod providers;
 mod shell;
+
 use clap::Parser;
 use shell::Shell;
 
-use config::Config;
+use config::LadeFile;
 
 #[derive(Subcommand, Debug)]
 pub enum SelfCommand {
@@ -28,10 +30,8 @@ pub enum Command {
     #[clap(subcommand)]
     _Self(SelfCommand),
     /// Enable execution hooks.
-    #[clap(subcommand)]
     On,
     /// Disable execution hooks.
-    #[clap(subcommand)]
     Off,
     /// Set environment for shell.
     Set(EvalCommand),
@@ -44,14 +44,21 @@ pub enum Command {
 struct Args {
     #[clap(subcommand)]
     command: Command,
+
+    #[command(flatten)]
+    verbose: Verbosity,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
     let current_dir = env::current_dir()?;
-    let envs = Config::build_envs(current_dir)?;
+    let config = LadeFile::build(current_dir)?;
     let shell = Shell::from_env()?;
+
+    env_logger::Builder::new()
+        .filter_level(args.verbose.log_level_filter())
+        .init();
 
     match args.command {
         Command::_Self(SelfCommand::Upgrade) => {
@@ -68,24 +75,23 @@ async fn main() -> Result<()> {
         }
         Command::Set(EvalCommand { commands }) => {
             let command = commands.join(" ");
-            let mut vars = HashMap::default();
-
-            for (regex, env) in envs {
-                if regex.is_match(&command) {
-                    vars.extend(env);
-                }
-            }
-
-            println!("Eval: {:?}", shell.set(vars));
-            let resp = reqwest::get("https://httpbin.org/ip")
-                .await?
-                .json::<HashMap<String, String>>()
-                .await?;
-            println!("{:#?}", resp);
+            let vars = config.collect(command).await?;
+            println!("{}", shell.set(vars));
             Ok(())
         }
-        Command::Unset(_) => Ok(()),
-        Command::On => Ok(()),
-        Command::Off => Ok(()),
+        Command::Unset(EvalCommand { commands }) => {
+            let command = commands.join(" ");
+            let vars = config.collect(command).await?;
+            println!("{}", shell.unset(vars));
+            Ok(())
+        }
+        Command::On => {
+            println!("{};{}", shell.off(), shell.on());
+            Ok(())
+        }
+        Command::Off => {
+            println!("{}", shell.off());
+            Ok(())
+        }
     }
 }

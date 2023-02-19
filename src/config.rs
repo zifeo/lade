@@ -4,32 +4,35 @@ use std::{
 };
 
 use anyhow::Result;
+use indexmap::IndexMap;
+use lade_sdk::hydrate;
 use regex::Regex;
 use serde::Deserialize;
-
 use std::fs::File;
 
 #[derive(Deserialize, Debug)]
-pub struct Config {
+pub struct LadeFile {
     #[serde(flatten)]
-    pub commands: HashMap<String, HashMap<String, String>>,
+    pub commands: IndexMap<String, HashMap<String, String>>,
 }
 
-impl Config {
-    pub fn from_path(path: &Path) -> Result<Config> {
-        let file = File::open(&path).unwrap();
-        let config = serde_yaml::from_reader(file)?;
+impl LadeFile {
+    pub fn from_path(path: &Path) -> Result<LadeFile> {
+        let file = File::open(path).unwrap();
+        let mut config: serde_yaml::Value = serde_yaml::from_reader(file)?;
+        config.apply_merge()?;
+        let config: LadeFile = serde_yaml::from_value(config)?;
         Ok(config)
     }
 
-    pub fn build_envs(path: PathBuf) -> Result<Vec<(Regex, HashMap<String, String>)>> {
-        let mut configs: Vec<Config> = Vec::default();
+    pub fn build(path: PathBuf) -> Result<Config> {
+        let mut configs: Vec<LadeFile> = Vec::default();
         let mut path = path;
 
         while {
             let config_path = path.join("lade.yaml");
             if config_path.exists() {
-                configs.push(Config::from_path(&config_path)?);
+                configs.push(LadeFile::from_path(&config_path)?);
             }
 
             match path.parent() {
@@ -41,15 +44,33 @@ impl Config {
             }
         } {}
 
-        let mut ret: Vec<(Regex, HashMap<String, String>)> = Vec::default();
+        let mut matches = Vec::default();
 
         configs.reverse();
         for config in configs.into_iter() {
             for (key, value) in config.commands.into_iter() {
-                ret.push((Regex::new(&key)?, value));
+                matches.push((Regex::new(&key)?, value));
             }
         }
 
-        Ok(ret)
+        Ok(Config { matches })
+    }
+}
+
+pub struct Config {
+    matches: Vec<(Regex, HashMap<String, String>)>,
+}
+
+impl Config {
+    pub async fn collect(&self, command: String) -> Result<HashMap<String, String>> {
+        let mut ret: HashMap<String, String> = HashMap::default();
+
+        for (regex, env) in self.matches.iter() {
+            if regex.is_match(&command) {
+                ret.extend(env.clone());
+            }
+        }
+
+        hydrate(ret).await
     }
 }

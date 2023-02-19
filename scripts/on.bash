@@ -1,12 +1,10 @@
-source bash-preexec.sh
-source off.bash
 
 preexec_lade() { 
     if [ "$1" = "source off.bash" ]; then
         return
     fi
-    LADE=$1
-    echo lade on $1
+    LADE="$1"
+    eval (lade set $argv)
 }
 
 preexec_functions+=(preexec_lade)
@@ -17,8 +15,7 @@ precmd_lade() {
     elif [ "$LADE" = "source on.bash" ]; then
         return
     fi 
-    unset -v A
-    echo lade off $LADE
+    eval (lade unset $argv)
     unset -v LADE
 }
 
