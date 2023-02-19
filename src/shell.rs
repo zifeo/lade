@@ -13,7 +13,7 @@ macro_rules! import {
 #[cfg(not(debug_assertions))]
 macro_rules! import {
     ($x:expr) => {
-        include_str!($x)
+        include_str!($x).to_string()
     };
 }
 

@@ -1,10 +1,10 @@
-use anyhow::{bail, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
+use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
 use serde::Deserialize;
-use std::process::{Command, Stdio};
 use std::{collections::HashMap, fs::File, io::Write};
 use tempfile::tempdir;
 use url::Url;
@@ -99,14 +99,22 @@ impl Provider for Infisical {
                                         .current_dir(temp_dir.path())
                                         .stdout(Stdio::piped())
                                         .output()
-                                        //.await
+                                        .await
                                         .expect("error running infisical");
 
                                     temp_dir.close()?;
 
                                     let loaded = serde_json::from_slice::<Vec<InfisicalExport>>(
                                         &child.stdout,
-                                    )?
+                                    )
+                                    .map_err(|_| {
+                                        anyhow!(
+                                            "Doppler error: {:?}",
+                                            serde_json::from_slice::<serde_json::Value>(
+                                                &child.stdout,
+                                            )
+                                        )
+                                    })?
                                     .into_iter()
                                     .map(|e| (e.key, e.value))
                                     .collect::<Hydration>();

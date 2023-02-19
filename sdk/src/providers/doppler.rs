@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use crate::Hydration;
-use anyhow::{bail, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
 use url::Url;
+use uuid::Uuid;
 
 use super::Provider;
 
@@ -62,6 +63,7 @@ impl Provider for Doppler {
 
                                 let host = host.clone();
                                 async move {
+                                    let secret = format!("{}.json", Uuid::new_v4());
                                     let cmd = [
                                         "doppler",
                                         "--api-host",
@@ -72,10 +74,12 @@ impl Provider for Doppler {
                                         "--config",
                                         env,
                                         "--mount",
-                                        "secrets.json",
+                                        &secret,
+                                        "--mount-format",
+                                        "json",
                                         "--",
                                         "cat",
-                                        "secrets.json",
+                                        &secret,
                                     ];
                                     info!("{}", cmd.join(" "));
 
@@ -87,7 +91,14 @@ impl Provider for Doppler {
                                         .expect("error running doppler");
 
                                     let loaded = serde_json::from_slice::<Hydration>(&child.stdout)
-                                        .expect("ss");
+                                        .map_err(|_| {
+                                            anyhow!(
+                                                "Doppler error: {:?}",
+                                                serde_json::from_slice::<serde_json::Value>(
+                                                    &child.stdout,
+                                                )
+                                            )
+                                        })?;
 
                                     let hydration = vars
                                         .into_iter()
