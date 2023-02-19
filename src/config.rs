@@ -62,15 +62,21 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn collect(&self, command: String) -> Result<HashMap<String, String>> {
+    fn collect(&self, command: String) -> Result<HashMap<String, String>> {
         let mut ret: HashMap<String, String> = HashMap::default();
-
         for (regex, env) in self.matches.iter() {
             if regex.is_match(&command) {
                 ret.extend(env.clone());
             }
         }
+        Ok(ret)
+    }
 
-        hydrate(ret).await
+    pub async fn collect_hydrate(&self, command: String) -> Result<HashMap<String, String>> {
+        hydrate(self.collect(command)?).await
+    }
+
+    pub fn collect_keys(&self, command: String) -> Result<Vec<String>> {
+        Ok(self.collect(command)?.keys().cloned().collect())
     }
 }
