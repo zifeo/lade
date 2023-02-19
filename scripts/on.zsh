@@ -1,12 +1,10 @@
-source off.zsh
 
 preexec_lade() { 
     if [ "$1" = "source off.zsh" ]; then
         return
     fi
     LADE=$1
-    echo lade on $1
-    declare -g A=1
+    eval (lade set $argv)
 }
 
 preexec_functions+=(preexec_lade)
@@ -17,8 +15,7 @@ precmd_lade() {
     elif [ "$LADE" = "source on.zsh" ]; then
         return
     fi 
-    unset -v A
-    echo lade off $LADE
+    eval (lade unset $argv)
     unset -v LADE
 }
 

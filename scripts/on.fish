@@ -1,17 +1,17 @@
-source off.fish
 
 function preexec_lade --on-event fish_preexec
     if [ $argv = "source off.fish" ]
         return
     end
-    echo lade on $argv
-    set --global A 1
+    set --global LADE "$argv"
+    eval (lade set $argv)
 end
 
 function postexec_lade --on-event fish_postexec
-    if [ $argv = "source on.fish" ]
+    # $argv also exists here in fish, but keeping LADE for consistency
+    if [ "$LADE" = "source on.fish" ]
         return
     end
-    set --global --erase A
-    echo lade off $argv
+    eval (lade unset $argv)
+    set --global --erase LADE
 end

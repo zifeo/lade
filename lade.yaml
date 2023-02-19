@@ -3,3 +3,6 @@
 
 ^echo a:
   A: "1"
+  B: doppler://api.doppler.com/lade/dev/DOPPLER_A
+  C: op://Personal/gitlab_token/password
+  #D: infisical://app.infisical.com/workspace-63a2290a0edf8bf1f65e3784/env/var

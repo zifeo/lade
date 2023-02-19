@@ -1,6 +1,22 @@
 use anyhow::{bail, Result};
 use std::{collections::HashMap, env};
 
+#[cfg(debug_assertions)]
+macro_rules! import {
+    ($x:expr) => {
+        include_str!($x)
+            .replace("lade set", "cargo run -- set")
+            .replace("lade unset", "cargo run -- unset")
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! import {
+    ($x:expr) => {
+        include_str!($x)
+    };
+}
+
 pub enum Shell {
     Bash,
     Zsh,
@@ -17,18 +33,22 @@ impl Shell {
             _ => bail!("Unsupported shell"),
         }
     }
-    pub fn on(&self) -> &str {
+    pub fn on(&self) -> String {
         match self {
-            Shell::Bash => include_str!("../scripts/on.bash"),
-            Shell::Zsh => include_str!("../scripts/on.zsh"),
-            Shell::Fish => include_str!("../scripts/on.fish"),
+            Shell::Bash => format!(
+                "{};{}",
+                import!("../scripts/bash-preexec.sh"),
+                import!("../scripts/on.bash")
+            ),
+            Shell::Zsh => import!("../scripts/on.zsh"),
+            Shell::Fish => import!("../scripts/on.fish"),
         }
     }
-    pub fn off(&self) -> &str {
+    pub fn off(&self) -> String {
         match self {
-            Shell::Bash => include_str!("../scripts/off.bash"),
-            Shell::Zsh => include_str!("../scripts/off.zsh"),
-            Shell::Fish => include_str!("../scripts/off.fish"),
+            Shell::Bash => import!("../scripts/off.bash"),
+            Shell::Zsh => import!("../scripts/off.zsh"),
+            Shell::Fish => import!("../scripts/off.fish"),
         }
     }
     pub fn set(&self, env: HashMap<String, String>) -> String {
