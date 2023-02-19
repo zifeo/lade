@@ -75,13 +75,13 @@ async fn main() -> Result<()> {
         }
         Command::Set(EvalCommand { commands }) => {
             let command = commands.join(" ");
-            let vars = config.collect(command).await?;
+            let vars = config.collect_hydrate(command).await?;
             println!("{}", shell.set(vars));
             Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
-            let vars = config.collect(command).await?;
+            let vars = config.collect_keys(command)?;
             println!("{}", shell.unset(vars));
             Ok(())
         }

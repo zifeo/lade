@@ -58,15 +58,11 @@ impl Shell {
         };
         env.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
-    pub fn unset(&self, env: HashMap<String, String>) -> String {
+    pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
             Shell::Zsh | Shell::Bash => |k| format!("unset -v ${k}"),
             Shell::Fish => |k| format!("set --global --erase {k}"),
         };
-        env.keys()
-            .into_iter()
-            .map(format)
-            .collect::<Vec<_>>()
-            .join(";")
+        keys.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
 }
