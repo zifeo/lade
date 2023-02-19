@@ -1,8 +1,13 @@
 ^echo:
-  B: "2"
+  A2: "2"
 
 ^echo a:
-  A: "1"
-  B: doppler://api.doppler.com/lade/dev/DOPPLER_A
-  C: op://Personal/gitlab_token/password
-  #D: infisical://app.infisical.com/workspace-63a2290a0edf8bf1f65e3784/env/var
+  A1: "1"
+  B1: doppler://api.doppler.com/lade/dev/DOPPLER_A
+  B2: doppler://api.doppler.com/lade/dev/DOPPLER_B
+  B3: doppler://api.doppler.com/lade/prd/DOPPLER_B
+  C1: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_A
+  C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
+  C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
+  D1: op://Personal/Lade/username
+  D2: op://Personal/Lade/password
