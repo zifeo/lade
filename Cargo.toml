@@ -13,7 +13,7 @@ license = "MPL-2.0"
 
 [dependencies]
 anyhow = "1.0.68"
-self_update = { version = "0.34.0", features = ["archive-zip", "rustls", "compression-zip-deflate"] }
+self_update = { version = "0.35.0", features = ["archive-zip", "rustls", "compression-zip-deflate"] }
 serde = { version = "1.0.152", features = ["derive"] }
 serde_yaml = "0.9.17"
 clap = { version = "4.1.4", features = ["derive"] }
