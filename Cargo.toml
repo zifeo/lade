@@ -18,9 +18,10 @@ serde = { version = "1.0.152", features = ["derive"] }
 serde_yaml = "0.9.17"
 clap = { version = "4.1.4", features = ["derive"] }
 regex = "1.7.1"
-lade-sdk = { path = "./sdk", dev = true }
+lade-sdk = { path = "./sdk", version = "0.1.1" }
 tokio = { version = "1", features = ["full"] }
 indexmap = { version = "1.9.2", features = ["serde"] }
 clap-verbosity-flag = "2.0.0"
 env_logger = "0.10.0"
 openssl = { version = "0.10.45", features = ["vendored"] }
+
