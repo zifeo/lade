@@ -52,11 +52,17 @@ impl Shell {
         }
     }
     pub fn set(&self, env: HashMap<String, String>) -> String {
-        let format = match self {
-            Shell::Zsh | Shell::Bash => |(k, v)| format!("declare -g {k}={v}"),
-            Shell::Fish => |(k, v)| format!("set --global {k} {v}"),
-        };
-        env.into_iter().map(format).collect::<Vec<_>>().join(";")
+        env.into_iter()
+            .map(|(k, v)| match self {
+                Shell::Zsh | Shell::Bash => {
+                    format!("declare -g -x {k}='{v}'")
+                }
+                Shell::Fish => {
+                    format!("set --global --export {k} '{v}'")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(";")
     }
     pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
