@@ -6,7 +6,7 @@ resolver = "2"
 
 [package]
 name = "lade"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Load automatically env variables from different sources."
 license = "MPL-2.0"
