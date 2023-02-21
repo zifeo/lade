@@ -30,9 +30,14 @@ impl LadeFile {
         let mut path = path;
 
         while {
-            let config_path = path.join("lade.yaml");
-            if config_path.exists() {
-                configs.push(LadeFile::from_path(&config_path)?);
+            let yaml = path.join("lade.yaml");
+            if yaml.exists() {
+                configs.push(LadeFile::from_path(&yaml)?);
+            } else {
+                let yml = path.join("lade.yml");
+                if yml.exists() {
+                    configs.push(LadeFile::from_path(&yml)?);
+                }
             }
 
             match path.parent() {
