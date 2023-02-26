@@ -95,3 +95,19 @@ async fn main() -> Result<()> {
         }
     }
 }
+
+#[test]
+fn verify_cli() {
+    use crate::Args;
+    use clap::CommandFactory;
+    Args::command().debug_assert()
+}
+
+#[test]
+fn end_to_end() {
+    // need build before running this test
+    use assert_cmd::Command;
+
+    let mut cmd = Command::cargo_bin("lade").unwrap();
+    cmd.arg("-h").assert().success();
+}
