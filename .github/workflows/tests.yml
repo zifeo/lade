@@ -21,4 +21,5 @@ jobs:
         with:
           key: ${{ runner.os }}
       - run: |
+          cargo run -- --help
           cargo test

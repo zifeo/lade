@@ -32,3 +32,6 @@ env_logger = "0.10.0"
 openssl = { version = "0.10.45", features = ["vendored"] }
 serde_json = "1.0.93"
 
+[dev-dependencies]
+assert_cmd = "2.0.8"
+
