@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Ok, Result};
 use futures::future::try_join_all;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use providers::Provider;
 use regex::Regex;
 
@@ -37,6 +37,14 @@ impl Hydrater {
     }
 }
 
+pub async fn hydrate_one(value: String) -> Result<String> {
+    let mut hydrater = Hydrater::new();
+    hydrater.add(value.clone())?;
+    let hydration = hydrater.resolve().await?;
+    let hydrated = hydration.get(&value).unwrap().to_owned();
+    Ok(hydrated)
+}
+
 pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, String>> {
     let mut hydrater = Hydrater::new();
     for value_or_uri in env.values() {
@@ -53,9 +61,7 @@ pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, Str
     Ok(ret)
 }
 
-lazy_static! {
-    static ref VAR: Regex = Regex::new(r"(\$\{?(\w+)\}?)").unwrap();
-}
+static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\$\{?(\w+)\}?)").unwrap());
 
 pub fn resolve_env(
     kvs: &HashMap<String, String>,
