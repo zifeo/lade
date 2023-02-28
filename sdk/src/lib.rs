@@ -37,14 +37,6 @@ impl Hydrater {
     }
 }
 
-pub async fn hydrate_one(value: String) -> Result<String> {
-    let mut hydrater = Hydrater::new();
-    hydrater.add(value.clone())?;
-    let hydration = hydrater.resolve().await?;
-    let hydrated = hydration.get(&value).unwrap().to_owned();
-    Ok(hydrated)
-}
-
 pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, String>> {
     let mut hydrater = Hydrater::new();
     for value_or_uri in env.values() {
@@ -61,20 +53,27 @@ pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, Str
     Ok(ret)
 }
 
+pub async fn hydrate_one(value: String) -> Result<String> {
+    let mut hydrater = Hydrater::new();
+    hydrater.add(value.clone())?;
+    let hydration = hydrater.resolve().await?;
+    let hydrated = hydration.get(&value).unwrap().to_owned();
+    Ok(hydrated)
+}
+
 static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\$\{?(\w+)\}?)").unwrap());
 
-pub fn resolve_env(
+pub fn resolve(
     kvs: &HashMap<String, String>,
     existing_vars: &HashMap<String, String>,
 ) -> Result<HashMap<String, String>> {
-    let ret = kvs
-        .iter()
-        .map(|(key, value)| {
-            let hydration = VAR.captures_iter(value).fold(value.clone(), |agg, c| {
-                agg.replace(&c[1], existing_vars.get(&c[2]).unwrap_or(&"".to_string()))
-            });
-            (key.clone(), hydration)
-        })
-        .collect();
-    Ok(ret)
+    kvs.iter()
+        .map(|(key, value)| resolve_one(value, existing_vars).map(|v| (key.clone(), v)))
+        .collect()
+}
+
+pub fn resolve_one(value: &str, existing_vars: &HashMap<String, String>) -> Result<String> {
+    Ok(VAR.captures_iter(value).fold(value.to_string(), |agg, c| {
+        agg.replace(&c[1], existing_vars.get(&c[2]).unwrap_or(&"".to_string()))
+    }))
 }
