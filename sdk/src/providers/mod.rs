@@ -14,7 +14,7 @@ pub trait Provider: Sync {
     async fn resolve(&self) -> Result<Hydration>;
 }
 
-pub fn providers() -> Vec<Box<dyn Provider>> {
+pub fn providers() -> Vec<Box<dyn Provider + Send>> {
     vec![
         Box::new(doppler::Doppler::new()),
         Box::new(infisical::Infisical::new()),

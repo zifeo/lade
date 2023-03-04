@@ -11,7 +11,7 @@ type Hydration = HashMap<String, String>;
 mod providers;
 
 pub struct Hydrater {
-    providers: Vec<Box<dyn Provider>>,
+    providers: Vec<Box<dyn Provider + Send>>,
 }
 
 impl Hydrater {
