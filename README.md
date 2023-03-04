@@ -1,16 +1,11 @@
 # Lade
 
-Automatically load secrets from your preferred vault as environment variables,
-and clear them once your shell command is over.
+Lade started as a way to load secrets into
+[Metatype](https://github.com/metatypedev/metatype). This repository contains an
+extension supporting popular shells and allow users to load secrets from their
+preferred vault into environment variables in a breeze.
 
 ![Demo](./examples/demo.gif)
-
-Compatible shells: [Fish](https://fishshell.com),
-[Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io)
-
-Compatible Vault services: [Infisical](https://infisical.com),
-[1Password CLI](https://1password.com/downloads/command-line/),
-[Doppler](https://www.doppler.com)
 
 ## Getting started
 
@@ -29,6 +24,13 @@ cargo install --git https://github.com/zifeo/lade --locked
 # upgrade
 lade self upgrade
 ```
+
+Compatible shells: [Fish](https://fishshell.com),
+[Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io)
+
+Compatible vaults: [Infisical](https://infisical.com),
+[1Password CLI](https://1password.com/downloads/command-line/),
+[Doppler](https://www.doppler.com)
 
 ## Usage
 
