@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::AsyncWriteExt;
@@ -51,19 +51,25 @@ impl Provider for OnePassword {
         let f = async move {
             let cmd = &["op", "inject"];
             info!("{}", cmd.join(" "));
-            let mut child = Command::new(cmd[0])
+            let mut process = Command::new(cmd[0])
                 .args(&cmd[1..])
                 .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .stdin(Stdio::piped())
                 .spawn()?;
 
             debug!("stdin: {:?}", json);
 
-            let mut stdin = child.stdin.take().expect("Failed to open stdin");
+            let mut stdin = process.stdin.take().expect("Failed to open stdin");
             stdin.write_all(json.as_bytes()).await?;
             drop(stdin);
 
-            let loaded = serde_json::from_slice::<Hydration>(&child.output().await?.stdout)?;
+            let child = process.output().await?;
+
+            let loaded = serde_json::from_slice::<Hydration>(&child.stdout).map_err(|_| {
+                let err = String::from_utf8_lossy(&child.stderr);
+                anyhow!("Doppler error: {err}",)
+            })?;
 
             let hydration = vars
                 .into_iter()

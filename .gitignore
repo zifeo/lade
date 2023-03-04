@@ -4,3 +4,9 @@ debug/
 target/
 Cargo.lock
 **/*.rs.bk
+
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars

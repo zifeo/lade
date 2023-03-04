@@ -1,0 +1,2 @@
+terraform:
+  TF_VAR_parent_dir: "hello"

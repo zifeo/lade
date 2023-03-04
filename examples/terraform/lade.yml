@@ -1,0 +1,2 @@
+terraform:
+  TF_VAR_current_dir: "world"

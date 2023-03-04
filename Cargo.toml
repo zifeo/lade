@@ -8,7 +8,7 @@ resolver = "2"
 name = "lade"
 version = "0.2.2"
 edition = "2021"
-description = "Load automatically and hierarchically env variables from secret stores (Infisical/Dopper/1Password)."
+description = "Automatically load secrets from your preferred vault as environment variables, and clear them once your shell command is over."
 license = "MPL-2.0"
 
 [dependencies]

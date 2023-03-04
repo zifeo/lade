@@ -2,7 +2,7 @@
 name = "lade-sdk"
 version = "0.2.2"
 edition = "2021"
-description = "Load automatically and hierarchically env variables from secret stores (Infisical/Dopper/1Password)."
+description = "Lade SDK"
 license = "MPL-2.0"
 
 [dependencies]
