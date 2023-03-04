@@ -4,7 +4,6 @@ use clap_verbosity_flag::Verbosity;
 use self_update::cargo_crate_version;
 use std::env;
 mod config;
-mod providers;
 mod shell;
 
 use clap::Parser;
