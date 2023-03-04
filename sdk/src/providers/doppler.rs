@@ -86,18 +86,15 @@ impl Provider for Doppler {
                                     let child = Command::new(cmd[0])
                                         .args(&cmd[1..])
                                         .stdout(Stdio::piped())
+                                        .stderr(Stdio::piped())
                                         .output()
                                         .await
                                         .expect("error running doppler");
 
                                     let loaded = serde_json::from_slice::<Hydration>(&child.stdout)
                                         .map_err(|_| {
-                                            anyhow!(
-                                                "Doppler error: {:?}",
-                                                serde_json::from_slice::<serde_json::Value>(
-                                                    &child.stdout,
-                                                )
-                                            )
+                                            let err = String::from_utf8_lossy(&child.stderr);
+                                            anyhow!("Doppler error: {err}",)
                                         })?;
 
                                     let hydration = vars

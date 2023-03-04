@@ -98,6 +98,7 @@ impl Provider for Infisical {
                                         .args(&cmd[1..])
                                         .current_dir(temp_dir.path())
                                         .stdout(Stdio::piped())
+                                        .stderr(Stdio::piped())
                                         .output()
                                         .await
                                         .expect("error running infisical");
@@ -108,12 +109,14 @@ impl Provider for Infisical {
                                         &child.stdout,
                                     )
                                     .map_err(|_| {
-                                        anyhow!(
-                                            "Doppler error: {:?}",
-                                            serde_json::from_slice::<serde_json::Value>(
-                                                &child.stdout,
+                                        let err = String::from_utf8_lossy(&child.stderr);
+                                        if err.contains("login expired") {
+                                            anyhow!(
+                                                "Login expired for Infisical instance {host}: {err}",
                                             )
-                                        )
+                                        } else {
+                                            anyhow!( "Infisical error: {err}")
+                                        }
                                     })?
                                     .into_iter()
                                     .map(|e| (e.key, e.value))
