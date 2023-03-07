@@ -52,7 +52,7 @@ impl Provider for Doppler {
                             .into_iter()
                             .map(|(env, group)| {
                                 let vars = group
-                                    .into_iter()
+                                    .iter()
                                     .map(|u| {
                                         (
                                             u.path().split('/').nth(3).expect("Missing variable"),
