@@ -57,7 +57,9 @@ impl Provider for OnePassword {
                     let json = serde_json::to_string(
                         &vars
                             .iter()
-                            .map(|(k, v)| (k, v.replace(&format!("{host}/"), "")))
+                            .map(|(k, v)| {
+                                (k, v.replace(&format!("{host}/"), "").replace("%20", " "))
+                            })
                             .collect::<HashMap<_, _>>(),
                     )?;
                     let cmd = &["op", "inject", "--account", &host.to_string()];
