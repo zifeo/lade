@@ -64,6 +64,8 @@ command regex:
     EXPORTED_ENV_VAR: infisical://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
 ```
 
+Frequent domain(s): `app.infisical.com`.
+
 Note: the `/api` is automatically added to the DOMAIN. This source currently
 only support a single domain (you cannot be logged into multiple ones).
 
@@ -71,15 +73,19 @@ only support a single domain (you cannot be logged into multiple ones).
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: op://VAULT_NAME/SECRET_NAME/FIELD_NAME
+    EXPORTED_ENV_VAR: op://DOMAIN/VAULT_NAME/SECRET_NAME/FIELD_NAME
 ```
+
+Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
 
 ### Doppler loader
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: doppler://api.doppler.com/PROJECT_NAME/ENV_NAME/SECRET_NAME
+    EXPORTED_ENV_VAR: doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
 ```
+
+Frequent domain(s): `api.doppler.com`.
 
 ### Raw loader
 
