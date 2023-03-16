@@ -45,7 +45,13 @@ impl Provider for Infisical {
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|u| u.host().expect("Missing host"))
+            .into_group_map_by(|u| {
+                let port = match u.port() {
+                    Some(port) => format!(":{}", port),
+                    None => "".to_string(),
+                };
+                format!("{}{}", u.host().expect("Missing host"), port)
+            })
             .into_iter()
             .flat_map(|(host, group)| {
                 group

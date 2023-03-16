@@ -7,6 +7,7 @@ mod doppler;
 mod infisical;
 mod onepassword;
 mod raw;
+mod vault;
 
 #[async_trait]
 pub trait Provider: Sync {
@@ -19,6 +20,7 @@ pub fn providers() -> Vec<Box<dyn Provider + Send>> {
         Box::new(doppler::Doppler::new()),
         Box::new(infisical::Infisical::new()),
         Box::new(onepassword::OnePassword::new()),
+        Box::new(vault::Vault::new()),
         Box::new(raw::Raw::new()),
     ]
 }
