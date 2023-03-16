@@ -11,3 +11,5 @@
   C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
   D1: op://my.1password.eu/Personal/Lade/username
   D2: op://my.1password.eu/Personal/Lade/password
+  E1: vault://127.0.0.1:8200/secret/password/value1
+  E2: vault://127.0.0.1:8200/secret/password/value2
