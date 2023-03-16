@@ -87,6 +87,13 @@ command regex:
 
 Frequent domain(s): `api.doppler.com`.
 
+### Vault loader
+
+```yaml
+command regex:
+    EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
+```
+
 ### Raw loader
 
 ```yaml

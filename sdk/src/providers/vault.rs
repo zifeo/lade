@@ -1,37 +1,47 @@
-use std::collections::HashMap;
-
-use crate::Hydration;
 use anyhow::{anyhow, bail, Ok, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
+use serde::Deserialize;
+use std::collections::HashMap;
 use url::Url;
-use uuid::Uuid;
+
+use crate::Hydration;
 
 use super::Provider;
 
 #[derive(Default)]
-pub struct Doppler {
+pub struct Vault {
     urls: Vec<Url>,
 }
 
-impl Doppler {
+impl Vault {
     pub fn new() -> Self {
         Default::default()
     }
 }
 
+#[derive(Deserialize)]
+struct VaultGetKVData {
+    data: HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct VaultGetKV {
+    data: VaultGetKVData,
+}
+
 #[async_trait]
-impl Provider for Doppler {
+impl Provider for Vault {
     fn add(&mut self, value: String) -> Result<()> {
         match Url::parse(&value) {
-            std::result::Result::Ok(url) if url.scheme() == "doppler" => {
+            std::result::Result::Ok(url) if url.scheme() == "vault" => {
                 self.urls.push(url);
                 Ok(())
             }
-            _ => bail!("Not a doppler scheme"),
+            _ => bail!("Not an vault scheme"),
         }
     }
     async fn resolve(&self) -> Result<Hydration> {
@@ -51,41 +61,27 @@ impl Provider for Doppler {
                     .into_iter()
                     .into_group_map_by(|u| u.path().split('/').nth(1).expect("Missing project"))
                     .into_iter()
-                    .flat_map(|(project, group)| {
+                    .flat_map(|(mount, group)| {
                         group
                             .into_iter()
-                            .into_group_map_by(|u| u.path().split('/').nth(2).expect("Missing env"))
+                            .into_group_map_by(|u| {
+                                (u.path().split('/').nth(2)).expect("Missing env")
+                            })
                             .into_iter()
-                            .map(|(env, group)| {
-                                let vars = group
-                                    .iter()
-                                    .map(|u| {
-                                        (
-                                            u.path().split('/').nth(3).expect("Missing variable"),
-                                            u.to_string(),
-                                        )
-                                    })
-                                    .collect::<HashMap<_, _>>();
-
+                            .map(|(key, group)| {
                                 let host = host.clone();
                                 async move {
-                                    let secret = format!("{}.json", Uuid::new_v4());
                                     let cmd = [
-                                        "doppler",
-                                        "--api-host",
-                                        &format!("https://{}", host),
-                                        "run",
-                                        "--project",
-                                        project,
-                                        "--config",
-                                        env,
-                                        "--mount",
-                                        &secret,
-                                        "--mount-format",
-                                        "json",
-                                        "--",
-                                        "cat",
-                                        &secret,
+                                        "vault",
+                                        "kv",
+                                        "get",
+                                        #[cfg(debug_assertions)]
+                                        &format!("-address=http://{}", host),
+                                        #[cfg(not(debug_assertions))]
+                                        &format!("-address=https://{}", host),
+                                        &format!("-mount={}", mount),
+                                        "-format=json",
+                                        key,
                                     ];
                                     info!("{}", cmd.join(" "));
 
@@ -95,21 +91,29 @@ impl Provider for Doppler {
                                         .stderr(Stdio::piped())
                                         .output()
                                         .await
-                                        .expect("error running Doppler");
+                                        .expect("error running Vault");
 
-                                    let loaded = serde_json::from_slice::<Hydration>(&child.stdout)
-                                        .map_err(|_| {
-                                            let err = String::from_utf8_lossy(&child.stderr);
-                                            anyhow!("Doppler error: {err}",)
-                                        })?;
+                                    let loaded =
+                                        serde_json::from_slice::<VaultGetKV>(&child.stdout)
+                                            .map_err(|_| {
+                                                let err = String::from_utf8_lossy(&child.stderr);
+                                                anyhow!("Vault error: {err}")
+                                            })?
+                                            .data
+                                            .data;
 
-                                    let hydration = vars
+                                    let hydration = group
                                         .into_iter()
-                                        .map(|(key, var)| {
+                                        .map(|u| {
                                             (
-                                                var,
+                                                u.to_string(),
                                                 loaded
-                                                    .get(key)
+                                                    .get(
+                                                        u.path()
+                                                            .split('/')
+                                                            .nth(3)
+                                                            .expect("Missing variable"),
+                                                    )
                                                     .expect("Variable not found")
                                                     .clone(),
                                             )
