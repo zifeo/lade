@@ -1,5 +1,7 @@
 # Lade
 
+![Crates.io](https://img.shields.io/crates/v/lade)
+
 > Lade is part of the
 > [Metatype ecosystem](https://github.com/metatypedev/metatype). Consider
 > checking out how this component integrates with the whole ecosystem and browse
