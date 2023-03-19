@@ -1,9 +1,15 @@
 # Lade
 
-Lade started as a way to load secrets into
-[Metatype](https://github.com/metatypedev/metatype). This repository contains an
-extension supporting popular shells and allow users to load secrets from their
-preferred vault into environment variables in a breeze.
+> Lade is part of the
+> [Metatype ecosystem](https://github.com/metatypedev/metatype). Consider
+> checking out how this component integrates with the whole ecosystem and browse
+> the
+> [documentation](https://metatype.dev?utm_source=github&utm_medium=readme&utm_campaign=lade)
+> to see more examples.
+
+Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
+preferred vault into environment variables. It limits the exposure of secrets to
+the time the command requiring the secrets lives.
 
 ![Demo](./examples/demo.gif)
 
@@ -30,14 +36,14 @@ Compatible shells: [Fish](https://fishshell.com),
 
 Compatible vaults: [Infisical](https://infisical.com),
 [1Password CLI](https://1password.com/downloads/command-line/),
-[Doppler](https://www.doppler.com)
+[Doppler](https://www.doppler.com), [Vault](https://github.com/hashicorp/vault)
 
 ## Usage
 
 Lade will run before and after any command you run in your shell. On each run,
 it will recursively look for `lade.yml` files in the current directory and its
-parents. It will then load any secrets matching the command you are running
-using a regex.
+parents. It will then aggregate any secrets matching the command you are running
+using a regex and load them into environment variables for the time of the run.
 
 ```
 eval "$(lade on)"
@@ -49,10 +55,14 @@ terraform apply
 eval "$(lade off)"
 ```
 
-Note: most of the vault loaders use the corresponding native CLI to operate.
-This means you must have them installed locally and your login/credentials must
-be valid. Lade may evolve by integrating directly with the corresponding API and
-is left as future work.
+You can also add `eval "$(lade on)"` to your shell configuration file (e.g.
+`~/.bashrc` or `~/.config/fish/config.fish`) to automatically enable Lade on
+each shell session.
+
+Note: most of the vault loaders use their native CLI to operate. This means you
+must have them installed locally and your login/credentials must be valid. Lade
+may evolve by integrating directly with the corresponding API but this is left
+as future work.
 
 See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
 cases.
