@@ -12,7 +12,7 @@ description = "Automatically load secrets from your preferred vault as environme
 license = "MPL-2.0"
 
 [dependencies]
-anyhow = "1.0.69"
+anyhow = "1.0.70"
 self_update = { version = "0.36.0", features = [
   "archive-tar",
   "archive-zip",
@@ -20,17 +20,17 @@ self_update = { version = "0.36.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.156", features = ["derive"] }
+serde = { version = "1.0.159", features = ["derive"] }
 serde_yaml = "0.9.19"
-clap = { version = "4.1.8", features = ["derive"] }
-regex = "1.7.1"
+clap = { version = "4.2.1", features = ["derive"] }
+regex = "1.7.3"
 lade-sdk = { path = "./sdk", version = "0.4.1-beta.1" }
 tokio = { version = "1", features = ["full"] }
-indexmap = { version = "1.9.2", features = ["serde"] }
-clap-verbosity-flag = "2.0.0"
+indexmap = { version = "1.9.3", features = ["serde"] }
+clap-verbosity-flag = "2.0.1"
 env_logger = "0.10.0"
-openssl = { version = "0.10.46", features = ["vendored"] }
-serde_json = "1.0.94"
+openssl = { version = "0.10.49", features = ["vendored"] }
+serde_json = "1.0.95"
 
 [dev-dependencies]
-assert_cmd = "2.0.9"
+assert_cmd = "2.0.10"
