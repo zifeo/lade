@@ -6,7 +6,7 @@ resolver = "2"
 
 [package]
 name = "lade"
-version = "0.4.1-beta.1"
+version = "0.5.0"
 edition = "2021"
 description = "Automatically load secrets from your preferred vault as environment variables, and clear them once your shell command is over."
 license = "MPL-2.0"
@@ -24,7 +24,7 @@ serde = { version = "1.0.159", features = ["derive"] }
 serde_yaml = "0.9.19"
 clap = { version = "4.2.1", features = ["derive"] }
 regex = "1.7.3"
-lade-sdk = { path = "./sdk", version = "0.4.1-beta.1" }
+lade-sdk = { path = "./sdk", version = "0.5.0" }
 tokio = { version = "1", features = ["full"] }
 indexmap = { version = "1.9.3", features = ["serde"] }
 clap-verbosity-flag = "2.0.1"
