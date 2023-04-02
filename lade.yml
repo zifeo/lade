@@ -13,3 +13,7 @@
   D2: op://my.1password.eu/Personal/Lade/password
   E1: vault://127.0.0.1:8200/secret/password/value1
   E2: vault://127.0.0.1:8200/secret/password/value2
+  F1: file://../lade/examples/sources/config.ini?query=.format
+  F2: file://./examples/sources/config.json?query=.format
+  F3: file://~/Documents/github/lade/examples/sources/config.toml?query=.format
+  F4: file://$HOME/Documents/github/lade/examples/sources/config.yaml?query=.format

@@ -106,6 +106,15 @@ command regex:
     EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
 ```
 
+### File loader
+
+Supports INI, JSON, YAML and TOML files.
+
+```yaml
+command regex:
+    EXPORTED_ENV_VAR: file://PATH?query=.fields[0].field
+```
+
 ### Raw loader
 
 ```yaml

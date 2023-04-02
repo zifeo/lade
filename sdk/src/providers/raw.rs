@@ -18,6 +18,11 @@ impl Raw {
 #[async_trait]
 impl Provider for Raw {
     fn add(&mut self, value: String) -> Result<()> {
+        let mut value = value;
+        // escape the first ! if it exists
+        if value.starts_with('!') {
+            value.remove(0);
+        }
         self.values.push(value);
         Ok(())
     }
