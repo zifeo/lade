@@ -1,0 +1,5 @@
+format: yaml
+nested:
+  foo: bar
+list:
+  - a

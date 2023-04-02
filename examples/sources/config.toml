@@ -1,0 +1,4 @@
+format = "toml"
+[nested]
+foo = "bar"
+list = [ "a" ]

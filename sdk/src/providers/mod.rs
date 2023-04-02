@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use crate::Hydration;
 
 mod doppler;
+mod file;
 mod infisical;
 mod onepassword;
 mod raw;
@@ -21,6 +22,7 @@ pub fn providers() -> Vec<Box<dyn Provider + Send>> {
         Box::new(infisical::Infisical::new()),
         Box::new(onepassword::OnePassword::new()),
         Box::new(vault::Vault::new()),
+        Box::new(file::File::new()),
         Box::new(raw::Raw::new()),
     ]
 }
