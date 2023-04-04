@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
-            let vars = config.collect_keys(command)?;
+            let vars = config.collect_keys(command);
             println!("{}", shell.unset(vars));
             Ok(())
         }

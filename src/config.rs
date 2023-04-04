@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use futures::future::try_join_all;
 use indexmap::IndexMap;
 use lade_sdk::hydrate;
 use regex::Regex;
@@ -26,17 +27,17 @@ impl LadeFile {
     }
 
     pub fn build(path: PathBuf) -> Result<Config> {
-        let mut configs: Vec<LadeFile> = Vec::default();
+        let mut configs: Vec<(PathBuf, LadeFile)> = Vec::default();
         let mut path = path;
 
         while {
             let yaml = path.join("lade.yaml");
             if yaml.exists() {
-                configs.push(LadeFile::from_path(&yaml)?);
+                configs.push((path.clone(), LadeFile::from_path(&yaml)?));
             } else {
                 let yml = path.join("lade.yml");
                 if yml.exists() {
-                    configs.push(LadeFile::from_path(&yml)?);
+                    configs.push((path.clone(), LadeFile::from_path(&yml)?));
                 }
             }
 
@@ -52,9 +53,9 @@ impl LadeFile {
         let mut matches = Vec::default();
 
         configs.reverse();
-        for config in configs.into_iter() {
+        for (path, config) in configs.into_iter() {
             for (key, value) in config.commands.into_iter() {
-                matches.push((Regex::new(&key)?, value));
+                matches.push((Regex::new(&key)?, path.clone(), value));
             }
         }
 
@@ -63,25 +64,38 @@ impl LadeFile {
 }
 
 pub struct Config {
-    matches: Vec<(Regex, HashMap<String, String>)>,
+    matches: Vec<(Regex, PathBuf, HashMap<String, String>)>,
 }
 
 impl Config {
-    fn collect(&self, command: String) -> Result<HashMap<String, String>> {
-        let mut ret: HashMap<String, String> = HashMap::default();
-        for (regex, env) in self.matches.iter() {
-            if regex.is_match(&command) {
-                ret.extend(env.clone());
-            }
-        }
-        Ok(ret)
+    fn collect(&self, command: String) -> Vec<(PathBuf, HashMap<String, String>)> {
+        self.matches
+            .clone()
+            .into_iter()
+            .filter(|(regex, _, _)| regex.is_match(&command))
+            .map(|(_, path, env)| (path, env))
+            .collect()
     }
 
     pub async fn collect_hydrate(&self, command: String) -> Result<HashMap<String, String>> {
-        hydrate(self.collect(command)?).await
+        let ret = try_join_all(
+            self.collect(command)
+                .into_iter()
+                .map(|(path, env)| hydrate(env, path)),
+        )
+        .await?
+        .into_iter()
+        .fold(HashMap::default(), |mut acc, map| {
+            acc.extend(map);
+            acc
+        });
+        Ok(ret)
     }
 
-    pub fn collect_keys(&self, command: String) -> Result<Vec<String>> {
-        Ok(self.collect(command)?.keys().cloned().collect())
+    pub fn collect_keys(&self, command: String) -> Vec<String> {
+        self.collect(command)
+            .into_iter()
+            .flat_map(|(_, env)| env.keys().cloned().collect::<Vec<_>>())
+            .collect()
     }
 }
