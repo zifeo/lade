@@ -1,12 +1,11 @@
 use std::{
     collections::HashMap,
-    env,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
 use access_json::JSONQuery;
-use anyhow::{bail, Context, Ok, Result};
+use anyhow::{bail, Ok, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use ini::Ini;
@@ -44,84 +43,82 @@ impl Provider for File {
         }
     }
     async fn resolve(&self, cwd: &Path) -> Result<Hydration> {
-        let home = env::var("HOME").context("getting $HOME")?;
         let fetches = self
             .urls
             .iter()
             .into_group_map_by(|u| {
-                let u = Url::parse(u).unwrap();
-                let port = match u.port() {
-                    Some(port) => format!(":{}", port),
-                    None => "".to_string(),
+                let url = Url::parse(u).unwrap();
+                let url = u
+                    .to_string()
+                    .replace("file://", "")
+                    .replace(&format!("?{}", url.query().unwrap()), "");
+                let home = dirs::home_dir().expect("cannot get HOME location");
+
+                let path = if url.starts_with("~/") {
+                    home.join(url.chars().skip(2).collect::<String>())
+                } else if url.starts_with("$HOME/") {
+                    home.join(url.chars().skip(6).collect::<String>())
+                } else {
+                    cwd.join(url)
                 };
-                format!(
-                    "{}{}{}",
-                    u.host()
-                        .map(|h| h.to_string().replace("$home", &home).replace('~', &home))
-                        .unwrap_or("".to_string()),
-                    port,
-                    u.path()
-                )
+
+                path
             })
             .into_iter()
-            .map(|(file, group)| {
-                let mut path = PathBuf::from_str(&file).unwrap();
-                if !file.starts_with('/') {
+            .map(|(mut path, group)| async move {
+                if !path.starts_with(PathBuf::from_str("/")?) {
                     path = cwd.join(path);
                 }
-                let format = file
-                    .split('.')
-                    .last()
+                let format = path
+                    .extension()
                     .expect("no file format found")
-                    .to_string();
+                    .to_str()
+                    .expect("cannot get file format");
+                let str = fs::read_to_string(&path)
+                    .await
+                    .unwrap_or_else(|_| panic!("cannot read file {}", path.display()));
+                let json = match format {
+                    "yaml" | "yml" => serde_yaml::from_str::<Value>(&str)?,
+                    "json" => serde_json::from_str::<Value>(&str)?,
+                    "toml" => {
+                        let values = toml::from_str::<toml::Value>(&str)?;
+                        toml2json(values)
+                    }
+                    "ini" => {
+                        let values = Ini::load_from_str(&str)?;
+                        ini2json(values)
+                    }
+                    _ => bail!("unsupported file format: {}", format),
+                };
 
-                async move {
-                    let str = fs::read_to_string(&path)
-                        .await
-                        .unwrap_or_else(|_| panic!("cannot read file {}", path.display()));
-                    let json = match format.as_str() {
-                        "yaml" | "yml" => serde_yaml::from_str::<Value>(&str)?,
-                        "json" => serde_json::from_str::<Value>(&str)?,
-                        "toml" => {
-                            let values = toml::from_str::<toml::Value>(&str)?;
-                            toml2json(values)
-                        }
-                        "ini" => {
-                            let values = Ini::load_from_str(&str)?;
-                            ini2json(values)
-                        }
-                        _ => bail!("unsupported file format: {}", format),
-                    };
+                let hydration = group
+                    .into_iter()
+                    .map(|u| {
+                        let url = Url::parse(u.as_str()).unwrap();
+                        let query = url
+                            .query_pairs()
+                            .into_iter()
+                            .find(|(k, _v)| k == "query")
+                            .unwrap()
+                            .1;
 
-                    let hydration = group
-                        .into_iter()
-                        .map(|u| {
-                            let url = Url::parse(u).unwrap();
-                            let query = url
-                                .query_pairs()
-                                .into_iter()
-                                .find(|(k, _v)| k == "query")
-                                .unwrap()
-                                .1;
+                        let compiled = JSONQuery::parse(&query)
+                            .unwrap_or_else(|_| panic!("cannot compile query {}", query));
+                        let res = compiled
+                            .execute(&json)
+                            .unwrap()
+                            .unwrap_or_else(|| panic!("no query result for {}", query));
 
-                            let compiled = JSONQuery::parse(&query)
-                                .unwrap_or_else(|_| panic!("cannot compile query {}", query));
-                            let res = compiled
-                                .execute(&json)
-                                .unwrap()
-                                .unwrap_or_else(|| panic!("no query result for {}", query));
+                        let output = match res {
+                            Value::String(s) => s,
+                            x => x.to_string(),
+                        };
 
-                            let output = match res {
-                                Value::String(s) => s,
-                                x => x.to_string(),
-                            };
+                        (u.to_string(), output)
+                    })
+                    .collect::<Hydration>();
 
-                            (u.to_string(), output)
-                        })
-                        .collect::<Hydration>();
-
-                    Ok(hydration)
-                }
+                Ok(hydration)
             })
             .collect::<Vec<_>>();
 
