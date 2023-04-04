@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{anyhow, bail, Ok, Result};
 use async_process::{Command, Stdio};
@@ -35,7 +35,7 @@ impl Provider for OnePassword {
             _ => bail!("Not a onepassword scheme"),
         }
     }
-    async fn resolve(&self) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()

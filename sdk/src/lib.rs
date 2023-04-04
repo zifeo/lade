@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Ok, Result};
 use futures::future::try_join_all;
@@ -28,8 +31,8 @@ impl Hydrater {
         }
         bail!("No provider found")
     }
-    async fn resolve(&self) -> Result<Hydration> {
-        Ok(try_join_all(self.providers.iter().map(|p| p.resolve()))
+    async fn resolve(&self, cwd: &Path) -> Result<Hydration> {
+        Ok(try_join_all(self.providers.iter().map(|p| p.resolve(cwd)))
             .await?
             .into_iter()
             .flatten()
@@ -37,13 +40,16 @@ impl Hydrater {
     }
 }
 
-pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, String>> {
+pub async fn hydrate(
+    env: HashMap<String, String>,
+    cwd: PathBuf,
+) -> Result<HashMap<String, String>> {
     let mut hydrater = Hydrater::new();
     for value_or_uri in env.values() {
         hydrater.add(value_or_uri.clone())?
     }
 
-    let hydration = hydrater.resolve().await?;
+    let hydration = hydrater.resolve(&cwd).await?;
 
     let mut ret: HashMap<String, String> = HashMap::default();
     for (key, value_or_uri) in env.iter() {
@@ -53,10 +59,10 @@ pub async fn hydrate(env: HashMap<String, String>) -> Result<HashMap<String, Str
     Ok(ret)
 }
 
-pub async fn hydrate_one(value: String) -> Result<String> {
+pub async fn hydrate_one(value: String, cwd: &Path) -> Result<String> {
     let mut hydrater = Hydrater::new();
     hydrater.add(value.clone())?;
-    let hydration = hydrater.resolve().await?;
+    let hydration = hydrater.resolve(cwd).await?;
     let hydrated = hydration.get(&value).unwrap().to_owned();
     Ok(hydrated)
 }

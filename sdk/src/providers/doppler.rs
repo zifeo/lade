@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use crate::Hydration;
 use anyhow::{anyhow, bail, Ok, Result};
@@ -34,7 +34,7 @@ impl Provider for Doppler {
             _ => bail!("Not a doppler scheme"),
         }
     }
-    async fn resolve(&self) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()

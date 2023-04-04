@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -13,7 +15,7 @@ mod vault;
 #[async_trait]
 pub trait Provider: Sync {
     fn add(&mut self, value: String) -> Result<()>;
-    async fn resolve(&self) -> Result<Hydration>;
+    async fn resolve(&self, cwd: &Path) -> Result<Hydration>;
 }
 
 pub fn providers() -> Vec<Box<dyn Provider + Send>> {

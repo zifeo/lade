@@ -5,7 +5,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
 use serde::Deserialize;
-use std::{collections::HashMap, fs::File, io::Write};
+use std::{collections::HashMap, fs::File, io::Write, path::Path};
 use tempfile::tempdir;
 use url::Url;
 
@@ -41,7 +41,7 @@ impl Provider for Infisical {
             _ => bail!("Not an infisical scheme"),
         }
     }
-    async fn resolve(&self) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()
