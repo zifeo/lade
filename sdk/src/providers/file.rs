@@ -1,4 +1,9 @@
-use std::{collections::HashMap, env, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    env,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use access_json::JSONQuery;
 use anyhow::{bail, Context, Ok, Result};
@@ -38,7 +43,7 @@ impl Provider for File {
             _ => bail!("Not an file scheme or missing ?query=.field part"),
         }
     }
-    async fn resolve(&self) -> Result<Hydration> {
+    async fn resolve(&self, cwd: &Path) -> Result<Hydration> {
         let home = env::var("HOME").context("getting $HOME")?;
         let fetches = self
             .urls
@@ -60,7 +65,10 @@ impl Provider for File {
             })
             .into_iter()
             .map(|(file, group)| {
-                let path = PathBuf::from_str(&file).unwrap();
+                let mut path = PathBuf::from_str(&file).unwrap();
+                if !file.starts_with('/') {
+                    path = cwd.join(path);
+                }
                 let format = file
                     .split('.')
                     .last()

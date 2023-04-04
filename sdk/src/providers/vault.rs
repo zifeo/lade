@@ -5,7 +5,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 use url::Url;
 
 use crate::Hydration;
@@ -44,7 +44,7 @@ impl Provider for Vault {
             _ => bail!("Not an vault scheme"),
         }
     }
-    async fn resolve(&self) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()

@@ -3,16 +3,26 @@
 
 ^echo a:
   A1: "1"
+
+^echo b:
   B1: doppler://api.doppler.com/lade/dev/DOPPLER_A
   B2: doppler://api.doppler.com/lade/dev/DOPPLER_B
   B3: doppler://api.doppler.com/lade/prd/DOPPLER_B
+
+^echo c:
   C1: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_A
   C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
   C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
+
+^echo d:
   D1: op://my.1password.eu/Personal/Lade/username
   D2: op://my.1password.eu/Personal/Lade/password
+
+^echo e:
   E1: vault://127.0.0.1:8200/secret/password/value1
   E2: vault://127.0.0.1:8200/secret/password/value2
+
+^echo f:
   F1: file://../lade/examples/sources/config.ini?query=.format
   F2: file://./examples/sources/config.json?query=.format
   F3: file://~/Documents/github/lade/examples/sources/config.toml?query=.format

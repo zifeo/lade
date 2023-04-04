@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
 
@@ -18,16 +20,22 @@ impl Raw {
 #[async_trait]
 impl Provider for Raw {
     fn add(&mut self, value: String) -> Result<()> {
-        let mut value = value;
-        // escape the first ! if it exists
-        if value.starts_with('!') {
-            value.remove(0);
-        }
         self.values.push(value);
         Ok(())
     }
-    async fn resolve(&self) -> Result<Hydration> {
-        let ret = self.values.iter().map(|v| (v.clone(), v.clone())).collect();
+    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+        let ret = self
+            .values
+            .iter()
+            .map(|v| {
+                let mut value = v.clone();
+                // escape the first ! if it exists
+                if value.starts_with('!') {
+                    value.remove(0);
+                }
+                (v.clone(), value)
+            })
+            .collect();
         Ok(ret)
     }
 }

@@ -122,6 +122,9 @@ command regex:
     EXPORTED_ENV_VAR: "value"
 ```
 
+Escaping a value with ! enforces the use of the raw loader and double !! escapes
+itself.
+
 ## Development
 
 ```
