@@ -81,9 +81,9 @@ impl Provider for OnePassword {
                     let child = process.output().await?;
 
                     let loaded =
-                        serde_json::from_slice::<Hydration>(&child.stdout).map_err(|_| {
-                            let err = String::from_utf8_lossy(&child.stderr);
-                            anyhow!("1Password error: {err}",)
+                        serde_json::from_slice::<Hydration>(&child.stdout).map_err(|err| {
+                            let stderr = String::from_utf8_lossy(&child.stderr);
+                            anyhow!("1Password error: {err} (stderr: {stderr})",)
                         })?;
 
                     let hydration = vars

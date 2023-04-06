@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, info};
+use serde::Deserialize;
 use url::Url;
-use uuid::Uuid;
 
 use super::Provider;
 
@@ -21,6 +21,11 @@ impl Doppler {
     pub fn new() -> Self {
         Default::default()
     }
+}
+
+#[derive(Deserialize)]
+struct DopplerExport {
+    computed: String,
 }
 
 #[async_trait]
@@ -69,23 +74,16 @@ impl Provider for Doppler {
 
                                 let host = host.clone();
                                 async move {
-                                    let secret = format!("{}.json", Uuid::new_v4());
                                     let cmd = [
                                         "doppler",
                                         "--api-host",
                                         &format!("https://{}", host),
-                                        "run",
+                                        "secrets",
                                         "--project",
                                         project,
                                         "--config",
                                         env,
-                                        "--mount",
-                                        &secret,
-                                        "--mount-format",
-                                        "json",
-                                        "--",
-                                        "cat",
-                                        &secret,
+                                        "--json",
                                     ];
                                     info!("{}", cmd.join(" "));
 
@@ -97,11 +95,15 @@ impl Provider for Doppler {
                                         .await
                                         .expect("error running Doppler");
 
-                                    let loaded = serde_json::from_slice::<Hydration>(&child.stdout)
-                                        .map_err(|_| {
-                                            let err = String::from_utf8_lossy(&child.stderr);
-                                            anyhow!("Doppler error: {err}",)
-                                        })?;
+                                    let loaded = serde_json::from_slice::<
+                                        HashMap<String, DopplerExport>,
+                                    >(
+                                        &child.stdout
+                                    )
+                                    .map_err(|err| {
+                                        let stderr = String::from_utf8_lossy(&child.stderr);
+                                        anyhow!("Doppler error: {err} (stderr: {stderr})",)
+                                    })?;
 
                                     let hydration = vars
                                         .into_iter()
@@ -111,6 +113,7 @@ impl Provider for Doppler {
                                                 loaded
                                                     .get(key)
                                                     .expect("Variable not found")
+                                                    .computed
                                                     .clone(),
                                             )
                                         })

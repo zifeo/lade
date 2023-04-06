@@ -29,7 +29,7 @@ struct VaultGetKVData {
 }
 
 #[derive(Deserialize)]
-struct VaultGetKV {
+struct VaultExport {
     data: VaultGetKVData,
 }
 
@@ -94,10 +94,10 @@ impl Provider for Vault {
                                         .expect("error running Vault");
 
                                     let loaded =
-                                        serde_json::from_slice::<VaultGetKV>(&child.stdout)
-                                            .map_err(|_| {
-                                                let err = String::from_utf8_lossy(&child.stderr);
-                                                anyhow!("Vault error: {err}")
+                                        serde_json::from_slice::<VaultExport>(&child.stdout)
+                                            .map_err(|err| {
+                                                let stderr = String::from_utf8_lossy(&child.stderr);
+                                                anyhow!("Vault error: {err} (stderr: {stderr})")
                                             })?
                                             .data
                                             .data;
