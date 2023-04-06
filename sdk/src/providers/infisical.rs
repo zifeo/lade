@@ -114,14 +114,14 @@ impl Provider for Infisical {
                                     let loaded = serde_json::from_slice::<Vec<InfisicalExport>>(
                                         &child.stdout,
                                     )
-                                    .map_err(|_| {
-                                        let err = String::from_utf8_lossy(&child.stderr);
-                                        if err.contains("login expired") {
+                                    .map_err(|err| {
+                                        let stderr = String::from_utf8_lossy(&child.stderr);
+                                        if stderr.contains("login expired") {
                                             anyhow!(
-                                                "Login expired for Infisical instance {host}: {err}",
+                                                "Login expired for Infisical instance {host}: {stderr}",
                                             )
                                         } else {
-                                            anyhow!( "Infisical error: {err}")
+                                            anyhow!("Infisical error: {err} (stderr: {stderr})")
                                         }
                                     })?
                                     .into_iter()
