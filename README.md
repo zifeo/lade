@@ -2,18 +2,18 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
+Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
+preferred vault into environment variables. It limits the exposure of secrets to
+the time the command requiring the secrets lives.
+
+![Demo](./examples/demo.gif)
+
 > Lade is part of the
 > [Metatype ecosystem](https://github.com/metatypedev/metatype). Consider
 > checking out how this component integrates with the whole ecosystem and browse
 > the
 > [documentation](https://metatype.dev?utm_source=github&utm_medium=readme&utm_campaign=lade)
 > to see more examples.
-
-Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
-preferred vault into environment variables. It limits the exposure of secrets to
-the time the command requiring the secrets lives.
-
-![Demo](./examples/demo.gif)
 
 ## Getting started
 
