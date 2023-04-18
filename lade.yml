@@ -28,3 +28,6 @@
   F3: file://~/Documents/github/lade/examples/sources/config.toml?query=.format
   F4: file://$HOME/Documents/github/lade/examples/sources/config.yaml?query=.format
   F5: file://Cargo.toml?query=.package.version
+
+^echo z:
+  DEBUG: "true"

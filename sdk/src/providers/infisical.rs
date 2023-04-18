@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -100,14 +100,22 @@ impl Provider for Infisical {
                                     write!(file, "{}", serde_json::to_string(&config)?)?;
                                     drop(file);
 
-                                    let child = Command::new(cmd[0])
+                                    let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
                                         .current_dir(temp_dir.path())
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()
                                         .await
-                                        .expect("error running infisical");
+                                         {
+                                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                                bail!("Infisical CLI not found. Make sure the binary is in your PATH or install it from https://infisical.com/docs/cli/overview.")
+                                            },
+                                            Err(e) => {
+                                                bail!("Infisical error: {e}")
+                                            },
+                                            Ok(child) => child,
+                                        };
 
                                     temp_dir.close()?;
 
@@ -135,7 +143,7 @@ impl Provider for Infisical {
                                                 var,
                                                 loaded
                                                     .get(key)
-                                                    .expect("Variable not found")
+                                                    .unwrap_or_else(|| panic!("Variable not found in Infisical: {}", key))
                                                     .clone(),
                                             )
                                         })

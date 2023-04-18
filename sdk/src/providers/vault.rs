@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -85,13 +85,20 @@ impl Provider for Vault {
                                     ];
                                     info!("{}", cmd.join(" "));
 
-                                    let child = Command::new(cmd[0])
+                                    let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()
-                                        .await
-                                        .expect("error running Vault");
+                                        .await {
+                                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                                bail!("Vault CLI not found. Make sure the binary is in your PATH or install it from https://developer.hashicorp.com/vault/docs/commands.")
+                                            },
+                                            Err(e) => {
+                                                bail!("Vault error: {e}")
+                                            },
+                                            Ok(child) => child,
+                                        };
 
                                     let loaded =
                                         serde_json::from_slice::<VaultExport>(&child.stdout)
@@ -114,7 +121,10 @@ impl Provider for Vault {
                                                             .nth(3)
                                                             .expect("Missing variable"),
                                                     )
-                                                    .expect("Variable not found")
+                                                    .unwrap_or_else(|| panic!(
+                                                        "Variable not found in Vault: {}",
+                                                        key
+                                                    ))
                                                     .clone(),
                                             )
                                         })
