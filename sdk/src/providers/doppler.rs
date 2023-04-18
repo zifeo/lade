@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 
 use crate::Hydration;
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -87,13 +87,20 @@ impl Provider for Doppler {
                                     ];
                                     info!("{}", cmd.join(" "));
 
-                                    let child = Command::new(cmd[0])
+                                    let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()
-                                        .await
-                                        .expect("error running Doppler");
+                                        .await {
+                                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                                bail!("Doppler CLI not found. Make sure the binary is in your PATH or install it from https://docs.doppler.com/docs/install-cli.")
+                                            },
+                                            Err(e) => {
+                                                bail!("Doppler error: {e}")
+                                            },
+                                            Ok(child) => child,
+                                        };
 
                                     let loaded = serde_json::from_slice::<
                                         HashMap<String, DopplerExport>,
@@ -112,7 +119,10 @@ impl Provider for Doppler {
                                                 var,
                                                 loaded
                                                     .get(key)
-                                                    .expect("Variable not found")
+                                                    .unwrap_or_else(|| panic!(
+                                                        "Variable not found in Doppler: {}",
+                                                        key
+                                                    ))
                                                     .computed
                                                     .clone(),
                                             )

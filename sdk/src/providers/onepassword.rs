@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::{future::try_join_all, AsyncWriteExt};
@@ -54,14 +54,10 @@ impl Provider for OnePassword {
                         return Ok(HashMap::new());
                     }
 
-                    let json = serde_json::to_string(
-                        &vars
-                            .iter()
-                            .map(|(k, v)| {
-                                (k, v.replace(&format!("{host}/"), "").replace("%20", " "))
-                            })
-                            .collect::<HashMap<_, _>>(),
-                    )?;
+                    let json = &vars
+                        .iter()
+                        .map(|(k, v)| (k, v.replace(&format!("{host}/"), "").replace("%20", " ")))
+                        .collect::<HashMap<_, _>>();
                     let cmd = &["op", "inject", "--account", &host.to_string()];
                     info!("{}", cmd.join(" "));
 
@@ -75,10 +71,20 @@ impl Provider for OnePassword {
                     debug!("stdin: {:?}", json);
 
                     let mut stdin = process.stdin.take().expect("Failed to open stdin");
-                    stdin.write_all(json.as_bytes()).await?;
+                    stdin
+                        .write_all(serde_json::to_string(&json)?.as_bytes())
+                        .await?;
                     drop(stdin);
 
-                    let child = process.output().await?;
+                    let child = match process.output().await  {
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            bail!("1Password CLI not found. Make sure the binary is in your PATH or install it from https://1password.com/downloads/command-line/.")
+                        },
+                        Err(e) => {
+                            bail!("1Password error: {e}")
+                        },
+                        Ok(child) => child,
+                    };
 
                     let loaded =
                         serde_json::from_slice::<Hydration>(&child.stdout).map_err(|err| {
@@ -87,9 +93,20 @@ impl Provider for OnePassword {
                         })?;
 
                     let hydration = vars
-                        .into_iter()
+                        .iter()
                         .map(|(key, var)| {
-                            (var, loaded.get(&key).expect("Variable not found").clone())
+                            let value = match (loaded.get(key), json.get(key)) {
+                                (Some(loaded), Some(original)) if loaded == original => None,
+                                (Some(loaded), _) => Some(loaded),
+                                _ => None,
+                            };
+
+                            (
+                                var.clone(),
+                                value
+                                    .unwrap_or_else(|| panic!("Variable not found in 1Password: {}", key))
+                                    .clone(),
+                            )
                         })
                         .collect::<Hydration>();
 
