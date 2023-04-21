@@ -1,86 +1,18 @@
 use anyhow::{Ok, Result};
-use chrono::{DateTime, Duration, Utc};
-use clap::Subcommand;
-use clap_verbosity_flag::Verbosity;
+use chrono::{Duration, Utc};
 use log::{debug, info};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
-use serde::{Deserialize, Serialize};
-use std::{env, path::Path};
+use std::env;
 mod config;
 mod shell;
 use clap::Parser;
 use shell::Shell;
-use tokio::fs;
+mod args;
+mod global_config;
+use args::{Args, Command, EvalCommand};
+use global_config::GlobalConfig;
 
 use config::LadeFile;
-
-#[derive(Parser, Debug)]
-pub struct UpgradeCommand {
-    /// Upgrade to specific version (e.g. 1.0.0)
-    #[clap(long)]
-    version: Option<String>,
-
-    /// Do not ask for version confirmation
-    #[clap(short, long, default_value_t = false)]
-    yes: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct EvalCommand {
-    #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
-    commands: Vec<String>,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum Command {
-    /// Upgrade Lade.
-    Upgrade(UpgradeCommand),
-    /// Enable execution hooks.
-    On,
-    /// Disable execution hooks.
-    Off,
-    /// Set environment for shell.
-    Set(EvalCommand),
-    /// Unset environment for shell.
-    Unset(EvalCommand),
-}
-
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    #[clap(subcommand)]
-    command: Command,
-
-    #[command(flatten)]
-    verbose: Verbosity,
-}
-
-#[derive(Deserialize, Serialize)]
-struct LocalConfig {
-    update_check: DateTime<Utc>,
-}
-
-impl LocalConfig {
-    async fn from<P: AsRef<Path>>(path: P) -> Result<Self> {
-        if path.as_ref().exists() {
-            let config_str = fs::read_to_string(path).await?;
-            let config: LocalConfig = serde_json::from_str(&config_str)?;
-            Ok(config)
-        } else {
-            let config = LocalConfig {
-                update_check: Utc::now(),
-            };
-            config.save(path).await?;
-            Ok(config)
-        }
-    }
-    async fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let config_str = serde_json::to_string_pretty(&self)?;
-        fs::create_dir_all(path.as_ref().parent().unwrap()).await?;
-        fs::write(path, config_str).await?;
-        Ok(())
-    }
-}
 
 async fn upgrade_check() -> Result<()> {
     let project = directories::ProjectDirs::from("com", "zifeo", "lade")
@@ -88,7 +20,7 @@ async fn upgrade_check() -> Result<()> {
 
     let config_path = project.config_local_dir().join("config.json");
     debug!("config_path: {:?}", config_path);
-    let mut local_config = LocalConfig::from(config_path.clone()).await?;
+    let mut local_config = GlobalConfig::load(config_path.clone()).await?;
 
     if local_config.update_check + Duration::days(1) < Utc::now() {
         debug!("checking for update");
