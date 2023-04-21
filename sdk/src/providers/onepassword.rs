@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::{future::try_join_all, AsyncWriteExt};
 
 use itertools::Itertools;
-use log::{debug, info};
+use log::debug;
 use url::Url;
 
 use crate::Hydration;
@@ -59,7 +59,7 @@ impl Provider for OnePassword {
                         .map(|(k, v)| (k, v.replace(&format!("{host}/"), "").replace("%20", " ")))
                         .collect::<HashMap<_, _>>();
                     let cmd = &["op", "inject", "--account", &host.to_string()];
-                    info!("{}", cmd.join(" "));
+                    debug!("Lade run: {}", cmd.join(" "));
 
                     let mut process = Command::new(cmd[0])
                         .args(&cmd[1..])

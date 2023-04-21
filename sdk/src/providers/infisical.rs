@@ -3,7 +3,7 @@ use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use log::{debug, info};
+use log::debug;
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io::Write, path::Path};
 use tempfile::tempdir;
@@ -88,7 +88,7 @@ impl Provider for Infisical {
                                         "--format",
                                         "json",
                                     ];
-                                    info!("{}", cmd.join(" "));
+                                    debug!("Lade run: {}", cmd.join(" "));
 
                                     let temp_dir = tempdir()?;
                                     let config = HashMap::from([

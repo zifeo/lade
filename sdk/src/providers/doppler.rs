@@ -6,7 +6,7 @@ use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use log::{debug, info};
+use log::debug;
 use serde::Deserialize;
 use url::Url;
 
@@ -85,7 +85,7 @@ impl Provider for Doppler {
                                         env,
                                         "--json",
                                     ];
-                                    info!("{}", cmd.join(" "));
+                                    debug!("Lade run: {}", cmd.join(" "));
 
                                     let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
