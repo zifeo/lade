@@ -52,12 +52,14 @@ impl Provider for File {
                     .to_string()
                     .replace("file://", "")
                     .replace(&format!("?{}", url.query().unwrap()), "");
-                let home = dirs::home_dir().expect("cannot get HOME location");
+                let user = directories::UserDirs::new().expect("cannot get HOME location");
 
                 let path = if url.starts_with("~/") {
-                    home.join(url.chars().skip(2).collect::<String>())
+                    user.home_dir()
+                        .join(url.chars().skip(2).collect::<String>())
                 } else if url.starts_with("$HOME/") {
-                    home.join(url.chars().skip(6).collect::<String>())
+                    user.home_dir()
+                        .join(url.chars().skip(6).collect::<String>())
                 } else {
                     cwd.join(url)
                 };
