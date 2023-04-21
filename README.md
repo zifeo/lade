@@ -18,7 +18,7 @@ the time the command requiring the secrets lives.
 ## Getting started
 
 You can download the binary executable from
-[releases page](https://github.com/zifeo/lade/releases/) on Github, make it
+[releases page](https://github.com/zifeo/lade/releases/) on GitHub, make it
 executable and add it to your `$PATH` or use
 [eget](https://github.com/zyedidia/eget) to automate those steps.
 
@@ -115,6 +115,10 @@ command regex:
     EXPORTED_ENV_VAR: file://PATH?query=.fields[0].field
 ```
 
+`PATH` can be relative to the lade directory, start with `~`/`$HOME` or absolute
+(not recommended when sharing the project with others as they likely have
+different paths).
+
 ### Raw loader
 
 ```yaml
@@ -122,8 +126,8 @@ command regex:
     EXPORTED_ENV_VAR: "value"
 ```
 
-Escaping a value with ! enforces the use of the raw loader and double !! escapes
-itself.
+Escaping a value with `!` enforces the use of the raw loader and double `!!`
+escapes itself.
 
 ## Development
 
