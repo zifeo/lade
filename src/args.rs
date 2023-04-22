@@ -22,7 +22,7 @@ pub struct EvalCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Upgrade Lade.
+    /// Upgrade lade.
     Upgrade(UpgradeCommand),
     /// Enable execution hooks.
     On,

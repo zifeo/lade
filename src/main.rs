@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result};
 use chrono::{Duration, Utc};
-use log::{debug, info};
+use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use std::env;
 mod config;
@@ -24,26 +24,24 @@ async fn upgrade_check() -> Result<()> {
 
     if local_config.update_check + Duration::days(1) < Utc::now() {
         debug!("checking for update");
-        tokio::task::spawn_blocking(move || {
+        let current_version = cargo_crate_version!();
+        let latest = tokio::task::spawn_blocking(move || {
             let update = Update::configure()
                 .repo_owner("zifeo")
                 .repo_name("lade")
                 .bin_name("lade")
-                .current_version(cargo_crate_version!())
+                .current_version(current_version)
                 .build()?;
 
-            let latest = update.get_latest_release()?;
-            if latest.version != update.current_version() {
-                println!(
-                    "New lade update available: {} -> {} (use: lade upgrade)",
-                    update.current_version(),
-                    latest.version
-                );
-            }
-
-            Ok(())
+            Ok(update.get_latest_release()?)
         })
         .await??;
+        if latest.version != current_version {
+            println!(
+                "New lade update available: {} -> {} (use: lade upgrade)",
+                current_version, latest.version
+            );
+        }
 
         local_config.update_check = Utc::now();
         local_config.save(config_path).await?;
@@ -61,7 +59,7 @@ async fn main() -> Result<()> {
 
     upgrade_check()
         .await
-        .unwrap_or_else(|e| info!("cannot check for update: {}", e));
+        .unwrap_or_else(|e| warn!("cannot check for update: {}", e));
 
     let current_dir = env::current_dir()?;
     let config = LadeFile::build(current_dir)?;
