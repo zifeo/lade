@@ -1,5 +1,9 @@
 use anyhow::{bail, Result};
-use std::{collections::HashMap, env};
+use std::{
+    collections::HashMap,
+    env,
+    path::{Path, PathBuf},
+};
 
 #[cfg(debug_assertions)]
 macro_rules! import {
@@ -71,4 +75,37 @@ impl Shell {
         };
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
+    pub fn install(&self) -> String {
+        self.configure_auto_launch(true).display().to_string()
+    }
+    pub fn uninstall(&self) -> String {
+        self.configure_auto_launch(false).display().to_string()
+    }
+    fn configure_auto_launch(&self, install: bool) -> PathBuf {
+        let user = directories::UserDirs::new().expect("cannot get HOME location");
+        let home_dir = user.home_dir();
+        let curr_exe = std::env::current_exe().expect("cannot get current executable path");
+        let command = format!("eval \"$({} on)\"", curr_exe.display());
+        let marker = "lade-do-not-edit".to_string();
+        let config_file = match self {
+            Shell::Bash => home_dir.join(".bashrc"),
+            Shell::Zsh => home_dir.join(".zshrc"),
+            Shell::Fish => home_dir.join(".config/fish/config.fish"),
+        };
+        edit_config(&config_file, command, marker, install);
+        config_file
+    }
+}
+
+fn edit_config<P: AsRef<Path>>(config_file: P, line: String, marker: String, install: bool) {
+    let old_config = std::fs::read_to_string(&config_file).unwrap_or_default();
+    let mut new_config = old_config
+        .lines()
+        .filter(|l| !l.contains(&marker))
+        .collect::<Vec<_>>();
+    let new_line = format!("{}  # {}", line, marker);
+    if install {
+        new_config.push(&new_line);
+    }
+    std::fs::write(config_file, new_config.join("\n")).expect("cannot write to config file");
 }
