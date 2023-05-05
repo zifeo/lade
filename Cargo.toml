@@ -6,13 +6,13 @@ resolver = "2"
 
 [package]
 name = "lade"
-version = "0.5.6-beta.1"
+version = "0.5.6"
 edition = "2021"
 description = "Automatically load secrets from your preferred vault as environment variables, and clear them once your shell command is over."
 license = "MPL-2.0"
 
 [dependencies]
-anyhow = "1.0.70"
+anyhow = "1.0.71"
 self_update = { version = "0.36.0", features = [
   "archive-tar",
   "archive-zip",
@@ -20,20 +20,20 @@ self_update = { version = "0.36.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.160", features = ["derive"] }
+serde = { version = "1.0.162", features = ["derive"] }
 serde_yaml = "0.9.21"
-clap = { version = "4.2.4", features = ["derive"] }
+clap = { version = "4.2.7", features = ["derive"] }
 regex = "1.8.1"
-lade-sdk = { path = "./sdk", version = "0.5.6-beta.1" }
+lade-sdk = { path = "./sdk", version = "0.5.6" }
 tokio = { version = "1", features = ["full"] }
 indexmap = { version = "1.9.3", features = ["serde"] }
 clap-verbosity-flag = "2.0.1"
 env_logger = "0.10.0"
-openssl = { version = "0.10.51", features = ["vendored"] }
+openssl = { version = "0.10.52", features = ["vendored"] }
 serde_json = "1.0.96"
 futures = "0.3.28"
 path-clean = "1.0.1"
-directories = "5.0.0"
+directories = "5.0.1"
 chrono = { version = "0.4.24", features = ["serde"] }
 log = "0.4.17"
 

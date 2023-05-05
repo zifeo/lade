@@ -53,7 +53,23 @@ pub async fn hydrate(
 
     let mut ret: HashMap<String, String> = HashMap::default();
     for (key, value_or_uri) in env.iter() {
-        ret.insert(key.clone(), hydration.get(value_or_uri).unwrap().clone());
+        ret.insert(
+            key.clone(),
+            hydration
+                .get(value_or_uri)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Cannot find {} in {}",
+                        value_or_uri,
+                        hydration
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    )
+                })
+                .clone(),
+        );
     }
 
     Ok(ret)

@@ -19,7 +19,7 @@ use crate::Hydration;
 
 #[derive(Default)]
 pub struct File {
-    urls: Vec<String>,
+    urls: HashMap<Url, String>,
 }
 
 impl File {
@@ -36,7 +36,7 @@ impl Provider for File {
                 if url.scheme() == "file"
                     && url.query_pairs().into_iter().any(|(k, _v)| k == "query") =>
             {
-                self.urls.push(value);
+                self.urls.insert(url, value);
                 Ok(())
             }
             _ => bail!("Not an file scheme or missing ?query=.field part"),
@@ -46,12 +46,10 @@ impl Provider for File {
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|u| {
-                let url = Url::parse(u).unwrap();
-                let url = u
-                    .to_string()
+            .into_group_map_by(|(raw_url, value)| {
+                let url = value
                     .replace("file://", "")
-                    .replace(&format!("?{}", url.query().unwrap()), "");
+                    .replace(&format!("?{}", raw_url.query().unwrap()), "");
                 let user = directories::UserDirs::new().expect("cannot get HOME location");
 
                 let path = if url.starts_with("~/") {
@@ -95,8 +93,7 @@ impl Provider for File {
 
                 let hydration = group
                     .into_iter()
-                    .map(|u| {
-                        let url = Url::parse(u.as_str()).unwrap();
+                    .map(|(url, value)| {
                         let query = url
                             .query_pairs()
                             .into_iter()
@@ -116,7 +113,7 @@ impl Provider for File {
                             x => x.to_string(),
                         };
 
-                        (u.to_string(), output)
+                        (value.clone(), output)
                     })
                     .collect::<Hydration>();
 

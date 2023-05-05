@@ -15,7 +15,7 @@ use super::Provider;
 
 #[derive(Default)]
 pub struct Infisical {
-    urls: Vec<Url>,
+    urls: HashMap<Url, String>,
 }
 
 impl Infisical {
@@ -35,7 +35,7 @@ impl Provider for Infisical {
     fn add(&mut self, value: String) -> Result<()> {
         match Url::parse(&value) {
             std::result::Result::Ok(url) if url.scheme() == "infisical" => {
-                self.urls.push(url);
+                self.urls.insert(url, value);
                 Ok(())
             }
             _ => bail!("Not an infisical scheme"),
@@ -45,33 +45,33 @@ impl Provider for Infisical {
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|u| {
-                let port = match u.port() {
+            .into_group_map_by(|(url, _)| {
+                let port = match url.port() {
                     Some(port) => format!(":{}", port),
                     None => "".to_string(),
                 };
-                format!("{}{}", u.host().expect("Missing host"), port)
+                format!("{}{}", url.host().expect("Missing host"), port)
             })
             .into_iter()
             .flat_map(|(host, group)| {
                 group
                     .into_iter()
-                    .into_group_map_by(|u| u.path().split('/').nth(1).expect("Missing project"))
+                    .into_group_map_by(|(url, _)| url.path().split('/').nth(1).expect("Missing project"))
                     .into_iter()
                     .flat_map(|(project, group)| {
                         group
                             .into_iter()
-                            .into_group_map_by(|u| {
-                                (u.path().split('/').nth(2)).expect("Missing env")
+                            .into_group_map_by(|(url, _)| {
+                                (url.path().split('/').nth(2)).expect("Missing env")
                             })
                             .into_iter()
                             .map(|(env, group)| {
                                 let vars = group
                                     .iter()
-                                    .map(|u| {
+                                    .map(|(url, value)| {
                                         (
-                                            u.path().split('/').nth(3).expect("Missing variable"),
-                                            u.to_string(),
+                                            url.path().split('/').nth(3).expect("Missing variable"),
+                                            (*value).clone(),
                                         )
                                     })
                                     .collect::<HashMap<_, _>>();
@@ -138,9 +138,9 @@ impl Provider for Infisical {
 
                                     let hydration = vars
                                         .into_iter()
-                                        .map(|(key, var)| {
+                                        .map(|(key, value)| {
                                             (
-                                                var,
+                                                value,
                                                 loaded
                                                     .get(key)
                                                     .unwrap_or_else(|| panic!("Variable not found in Infisical: {}", key))
