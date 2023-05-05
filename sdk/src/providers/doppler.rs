@@ -14,7 +14,7 @@ use super::Provider;
 
 #[derive(Default)]
 pub struct Doppler {
-    urls: Vec<Url>,
+    urls: HashMap<Url, String>,
 }
 
 impl Doppler {
@@ -33,7 +33,7 @@ impl Provider for Doppler {
     fn add(&mut self, value: String) -> Result<()> {
         match Url::parse(&value) {
             std::result::Result::Ok(url) if url.scheme() == "doppler" => {
-                self.urls.push(url);
+                self.urls.insert(url, value);
                 Ok(())
             }
             _ => bail!("Not a doppler scheme"),
@@ -43,31 +43,31 @@ impl Provider for Doppler {
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|u| {
-                let port = match u.port() {
+            .into_group_map_by(|(url, _)| {
+                let port = match url.port() {
                     Some(port) => format!(":{}", port),
                     None => "".to_string(),
                 };
-                format!("{}{}", u.host().expect("Missing host"), port)
+                format!("{}{}", url.host().expect("Missing host"), port)
             })
             .into_iter()
             .flat_map(|(host, group)| {
                 group
                     .into_iter()
-                    .into_group_map_by(|u| u.path().split('/').nth(1).expect("Missing project"))
+                    .into_group_map_by(|(url, _)| url.path().split('/').nth(1).expect("Missing project"))
                     .into_iter()
                     .flat_map(|(project, group)| {
                         group
                             .into_iter()
-                            .into_group_map_by(|u| u.path().split('/').nth(2).expect("Missing env"))
+                            .into_group_map_by(|(url, _)| url.path().split('/').nth(2).expect("Missing env"))
                             .into_iter()
                             .map(|(env, group)| {
                                 let vars = group
                                     .iter()
-                                    .map(|u| {
+                                    .map(|(u, value)| {
                                         (
                                             u.path().split('/').nth(3).expect("Missing variable"),
-                                            u.to_string(),
+                                            (*value).clone(),
                                         )
                                     })
                                     .collect::<HashMap<_, _>>();
@@ -114,9 +114,9 @@ impl Provider for Doppler {
 
                                     let hydration = vars
                                         .into_iter()
-                                        .map(|(key, var)| {
+                                        .map(|(key, value)| {
                                             (
-                                                var,
+                                                value,
                                                 loaded
                                                     .get(key)
                                                     .unwrap_or_else(|| panic!(
