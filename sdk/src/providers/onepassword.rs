@@ -15,7 +15,7 @@ use super::Provider;
 
 #[derive(Default)]
 pub struct OnePassword {
-    urls: Vec<Url>,
+    urls: HashMap<Url, String>,
 }
 
 impl OnePassword {
@@ -29,7 +29,7 @@ impl Provider for OnePassword {
     fn add(&mut self, value: String) -> Result<()> {
         match Url::parse(&value) {
             std::result::Result::Ok(url) if url.scheme() == "op" => {
-                self.urls.push(url);
+                self.urls.insert(url, value);
                 Ok(())
             }
             _ => bail!("Not a onepassword scheme"),
@@ -39,13 +39,13 @@ impl Provider for OnePassword {
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|u| u.host().expect("Missing host"))
+            .into_group_map_by(|(url, _)| url.host().expect("Missing host"))
             .into_iter()
             .map(|(host, group)| {
                 let vars = group
-                    .iter()
+                    .into_iter()
                     .enumerate()
-                    .map(|(idx, u)| (idx.to_string(), u.to_string()))
+                    .map(|(idx, (_, value))| (idx.to_string(), value.clone()))
                     .collect::<HashMap<_, _>>();
 
                 let host = host.clone();
@@ -94,16 +94,16 @@ impl Provider for OnePassword {
 
                     let hydration = vars
                         .iter()
-                        .map(|(key, var)| {
-                            let value = match (loaded.get(key), json.get(key)) {
+                        .map(|(key, value)| {
+                            let var = match (loaded.get(key), json.get(key)) {
                                 (Some(loaded), Some(original)) if loaded == original => None,
                                 (Some(loaded), _) => Some(loaded),
                                 _ => None,
                             };
 
                             (
-                                var.clone(),
-                                value
+                                value.clone(),
+                                var
                                     .unwrap_or_else(|| panic!("Variable not found in 1Password: {}", key))
                                     .clone(),
                             )
