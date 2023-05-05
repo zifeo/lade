@@ -30,7 +30,11 @@ cargo install lade --locked
 cargo install --git https://github.com/zifeo/lade --locked
 
 # upgrade
-lade self upgrade
+lade upgrade
+
+# install/uninstall shell auto launch (see below)
+lade install
+lade uninstall
 ```
 
 Compatible shells: [Fish](https://fishshell.com),
@@ -58,12 +62,12 @@ eval "$(lade off)"
 ```
 
 You can also add `eval "$(lade on)"` to your shell configuration file (e.g.
-`~/.bashrc` or `~/.config/fish/config.fish`) to automatically enable Lade on
-each shell session.
+`~/.bashrc`, `~/.zshrc` or `~/.config/fish/config.fish`) to automatically enable
+Lade on each shell session (`lade install` will configure this for you).
 
 Note: most of the vault loaders use their native CLI to operate. This means you
 must have them installed locally and your login/credentials must be valid. Lade
-may evolve by integrating directly with the corresponding API but this is left
+may evolve by integrating directly with the corresponding API, but this is left
 as future work.
 
 See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
