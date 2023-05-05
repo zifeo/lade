@@ -28,6 +28,10 @@ pub enum Command {
     On,
     /// Disable execution hooks.
     Off,
+    /// Install auto launcher in shell profile.
+    Install,
+    /// Uninstall auto launcher in shell profile.
+    Uninstall,
     /// Set environment for shell.
     Set(EvalCommand),
     /// Unset environment for shell.

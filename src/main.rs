@@ -116,6 +116,14 @@ async fn main() -> Result<()> {
             println!("{}", shell.off());
             Ok(())
         }
+        Command::Install => {
+            println!("Auto launcher installed in {}", shell.install());
+            Ok(())
+        }
+        Command::Uninstall => {
+            println!("Auto launcher uninstalled in {}", shell.uninstall());
+            Ok(())
+        }
     }
 }
 
