@@ -2,6 +2,7 @@ use anyhow::{Ok, Result};
 use chrono::{Duration, Utc};
 use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
+use semver::Version;
 use std::env;
 mod config;
 mod shell;
@@ -36,7 +37,7 @@ async fn upgrade_check() -> Result<()> {
             Ok(update.get_latest_release()?)
         })
         .await??;
-        if latest.version != current_version {
+        if Version::parse(&latest.version)? > Version::parse(current_version)? {
             println!(
                 "New lade update available: {} -> {} (use: lade upgrade)",
                 current_version, latest.version
@@ -57,9 +58,14 @@ async fn main() -> Result<()> {
         .filter_level(args.verbose.log_level_filter())
         .init();
 
-    upgrade_check()
-        .await
-        .unwrap_or_else(|e| warn!("cannot check for update: {}", e));
+    match args.command {
+        Command::On | Command::Off => {}
+        _ => {
+            upgrade_check()
+                .await
+                .unwrap_or_else(|e| warn!("cannot check for update: {}", e));
+        }
+    }
 
     let current_dir = env::current_dir()?;
     let config = LadeFile::build(current_dir)?;
