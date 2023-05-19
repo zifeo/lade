@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::On => {
-            println!("{};{}", shell.off(), shell.on());
+            println!("{}\n{}", shell.off(), shell.on());
             Ok(())
         }
         Command::Off => {

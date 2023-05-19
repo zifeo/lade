@@ -4,7 +4,7 @@ function preexec_lade --on-event fish_preexec
         return
     end
     set --global LADE "$argv"
-    eval (lade set $argv)
+    eval $(lade set $argv)
 end
 
 function postexec_lade --on-event fish_postexec
@@ -12,6 +12,6 @@ function postexec_lade --on-event fish_postexec
     if [ "$LADE" = "source on.fish" ]
         return
     end
-    eval (lade unset $argv)
+    eval $(lade unset $argv)
     set --global --erase LADE
 end

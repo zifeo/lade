@@ -4,7 +4,11 @@ preexec_lade() {
         return
     fi
     LADE=$1
-    eval (lade set $argv)
+    if [ "$(uname)" = "Darwin" ]; then
+        # bugfix: macOs seems to triple argv
+        argv=${argv:1:$(( ${#argv[@]} / 3 ))}
+    fi
+    eval $(lade set $argv)
 }
 
 preexec_functions+=(preexec_lade)
@@ -14,8 +18,12 @@ precmd_lade() {
         return # ensure only runs at postexec 
     elif [ "$LADE" = "source on.zsh" ]; then
         return
-    fi 
-    eval (lade unset $argv)
+    fi
+    if [ "$(uname)" = "Darwin" ]; then
+        # bugfix: macOs seems to triple argv
+        argv=${argv:1:$(( ${#argv[@]} / 3 ))}
+    fi
+    eval $(lade unset $argv)
     unset -v LADE
 }
 
