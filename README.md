@@ -23,16 +23,17 @@ executable and add it to your `$PATH` or use
 [eget](https://github.com/zyedidia/eget) to automate those steps.
 
 ```
-eget zifeo/lade --to $HOME/.local/bin
+# via eget, make sure $HOME/.local/bin/ is in $PATH or choose another directory
+eget zifeo/lade --to $HOME/.local/bin/
 
 # via cargo
-cargo install lade --locked
+cargo install lade --locked 
 cargo install --git https://github.com/zifeo/lade --locked
 
 # upgrade
 lade upgrade
 
-# install/uninstall shell auto launch (see below)
+# install/uninstall shell auto launch (only required once, see below)
 lade install
 lade uninstall
 ```
@@ -54,8 +55,8 @@ using a regex and load them into environment variables for the time of the run.
 ```
 eval "$(lade on)"
 
-cd examples/terraform
-terraform apply
+cd examples/terraform terraform apply
+
 # example = "hello world"
 
 eval "$(lade off)"

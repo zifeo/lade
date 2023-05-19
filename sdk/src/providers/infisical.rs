@@ -128,6 +128,10 @@ impl Provider for Infisical {
                                             anyhow!(
                                                 "Login expired for Infisical instance {host}: {stderr}",
                                             )
+                                        } else if stderr.contains("unable to validate environment") {
+                                            anyhow!(
+                                                "Workspace seems not accessible from logged account on {host}: {stderr}",
+                                            )
                                         } else {
                                             anyhow!("Infisical error: {err} (stderr: {stderr})")
                                         }
