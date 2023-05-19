@@ -1,7 +1,6 @@
 use anyhow::{bail, Result};
 use std::{
     collections::HashMap,
-    env,
     path::{Path, PathBuf},
 };
 
@@ -28,12 +27,11 @@ pub enum Shell {
 }
 
 impl Shell {
-    pub fn from_env() -> Result<Shell> {
-        let bin = env::var("SHELL")?;
-        match bin.split('/').last() {
-            Some("bash") => Ok(Shell::Bash),
-            Some("zsh") => Ok(Shell::Zsh),
-            Some("fish") => Ok(Shell::Fish),
+    pub fn detect() -> Result<Shell> {
+        match get_shell::get_shell()? {
+            get_shell::Shell::Bash => Ok(Shell::Bash),
+            get_shell::Shell::Zsh => Ok(Shell::Zsh),
+            get_shell::Shell::Fish => Ok(Shell::Fish),
             _ => bail!("Unsupported shell"),
         }
     }

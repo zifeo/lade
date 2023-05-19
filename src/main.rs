@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
 
     let current_dir = env::current_dir()?;
     let config = LadeFile::build(current_dir)?;
-    let shell = Shell::from_env()?;
+    let shell = Shell::detect()?;
 
     match args.command {
         Command::Upgrade(opts) => {
