@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
 
 #[cfg(debug_assertions)]
 macro_rules! import {
@@ -28,10 +29,20 @@ pub enum Shell {
 
 impl Shell {
     pub fn detect() -> Result<Shell> {
-        match get_shell::get_shell()? {
-            get_shell::Shell::Bash => Ok(Shell::Bash),
-            get_shell::Shell::Zsh => Ok(Shell::Zsh),
-            get_shell::Shell::Fish => Ok(Shell::Fish),
+        let sys = System::new_all();
+        let process = sys
+            .process(get_current_pid().expect("no pid"))
+            .expect("pid does not exist");
+        let parent = sys
+            .process(process.parent().expect("no parent pid"))
+            .expect("parent pid does not exist");
+        let shell = parent.name().trim().to_lowercase();
+        let shell = shell.strip_suffix(".exe").unwrap_or(&shell); // windows bad
+
+        match shell {
+            "bash" => Ok(Shell::Bash),
+            "zsh" => Ok(Shell::Zsh),
+            "fish" => Ok(Shell::Fish),
             _ => bail!("Unsupported shell"),
         }
     }
