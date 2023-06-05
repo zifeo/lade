@@ -20,7 +20,7 @@ jobs:
         run: |
           VERSION=$(cargo run -- --version | cut -d' ' -f2)
           if [[ "${{ github.ref_name }}" != "v$VERSION" ]]; then
-            echo "Tag does not match code version, stopping."
+            echo "Tag does not match code version v$VERSION, stopping."
             exit -1
           fi
           echo "Releasing v$VERSION"

@@ -39,8 +39,14 @@ pub enum Command {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(name="lade", about, long_about = None, disable_version_flag = true, disable_help_flag = true)]
 pub struct Args {
+    #[clap(long, value_parser)]
+    pub version: bool,
+
+    #[clap(short, long, value_parser)]
+    pub help: bool,
+
     #[clap(subcommand)]
     pub command: Option<Command>,
 
