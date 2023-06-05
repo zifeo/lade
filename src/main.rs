@@ -6,7 +6,7 @@ use semver::Version;
 use std::env;
 mod config;
 mod shell;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use shell::Shell;
 mod args;
 mod global_config;
@@ -52,13 +52,21 @@ async fn upgrade_check() -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = Args::try_parse()?;
 
     env_logger::Builder::new()
         .filter_level(args.verbose.log_level_filter())
         .init();
 
-    match args.command {
+    let command = match args.command {
+        Some(command) => command,
+        None => {
+            Args::command().print_help()?;
+            return Ok(());
+        }
+    };
+
+    match command {
         Command::On | Command::Off => {}
         _ => {
             upgrade_check()
@@ -71,7 +79,7 @@ async fn main() -> Result<()> {
     let config = LadeFile::build(current_dir)?;
     let shell = Shell::detect()?;
 
-    match args.command {
+    match command {
         Command::Upgrade(opts) => {
             tokio::task::spawn_blocking(move || {
                 let mut update = Update::configure();

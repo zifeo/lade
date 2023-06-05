@@ -22,7 +22,7 @@ You can download the binary executable from
 executable and add it to your `$PATH` or use
 [eget](https://github.com/zyedidia/eget) to automate those steps.
 
-```
+```bash
 # via eget, make sure $HOME/.local/bin/ is in $PATH or choose another directory
 eget zifeo/lade --to $HOME/.local/bin/
 
@@ -52,7 +52,7 @@ it will recursively look for `lade.yml` files in the current directory and its
 parents. It will then aggregate any secrets matching the command you are running
 using a regex and load them into environment variables for the time of the run.
 
-```
+```bash
 eval "$(lade on)"
 
 cd examples/terraform terraform apply
@@ -136,7 +136,7 @@ escapes itself.
 
 ## Development
 
-```
+```bash
 eval "$(cargo run -- on)"
 echo a $A1 $A2 $B1 $B2 $B3 $C1 $C2 $C3
 cargo run -- -vvv set echo a
