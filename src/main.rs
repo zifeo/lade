@@ -58,6 +58,16 @@ async fn main() -> Result<()> {
         .filter_level(args.verbose.log_level_filter())
         .init();
 
+    if args.version {
+        println!("lade {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if args.help {
+        Args::command().print_help()?;
+        return Ok(());
+    }
+
     let command = match args.command {
         Some(command) => command,
         None => {
