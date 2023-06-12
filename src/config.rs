@@ -11,10 +11,20 @@ use regex::Regex;
 use serde::Deserialize;
 use std::fs::File;
 
+pub type Output = Option<PathBuf>;
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LadeRule {
+    #[serde(rename = ".")]
+    pub output: Output,
+    #[serde(flatten)]
+    pub secrets: HashMap<String, String>,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct LadeFile {
     #[serde(flatten)]
-    pub commands: IndexMap<String, HashMap<String, String>>,
+    pub commands: IndexMap<String, LadeRule>,
 }
 
 impl LadeFile {
@@ -64,11 +74,11 @@ impl LadeFile {
 }
 
 pub struct Config {
-    matches: Vec<(Regex, PathBuf, HashMap<String, String>)>,
+    matches: Vec<(Regex, PathBuf, LadeRule)>,
 }
 
 impl Config {
-    fn collect(&self, command: String) -> Vec<(PathBuf, HashMap<String, String>)> {
+    fn collect(&self, command: String) -> Vec<(PathBuf, LadeRule)> {
         self.matches
             .clone()
             .into_iter()
@@ -77,25 +87,38 @@ impl Config {
             .collect()
     }
 
-    pub async fn collect_hydrate(&self, command: String) -> Result<HashMap<String, String>> {
+    async fn hydrate_output(
+        &self,
+        path: PathBuf,
+        rule: LadeRule,
+    ) -> Result<(Output, HashMap<String, String>)> {
+        hydrate(rule.secrets, path).await.map(|x| (rule.output, x))
+    }
+
+    pub async fn collect_hydrate(
+        &self,
+        command: String,
+    ) -> Result<HashMap<Output, HashMap<String, String>>> {
         let ret = try_join_all(
             self.collect(command)
                 .into_iter()
-                .map(|(path, env)| hydrate(env, path)),
+                .map(|(path, rule)| self.hydrate_output(path, rule)),
         )
         .await?
         .into_iter()
-        .fold(HashMap::default(), |mut acc, map| {
-            acc.extend(map);
+        .fold(HashMap::default(), |mut acc, (output, map)| {
+            acc.entry(output)
+                .or_insert_with(HashMap::default)
+                .extend(map);
             acc
         });
         Ok(ret)
     }
 
-    pub fn collect_keys(&self, command: String) -> Vec<String> {
+    pub fn collect_keys(&self, command: String) -> HashMap<Output, Vec<String>> {
         self.collect(command)
             .into_iter()
-            .flat_map(|(_, env)| env.keys().cloned().collect::<Vec<_>>())
+            .map(|(_, env)| (env.output, env.secrets.keys().cloned().collect::<Vec<_>>()))
             .collect()
     }
 }

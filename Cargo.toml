@@ -20,9 +20,9 @@ self_update = { version = "0.37.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.163", features = ["derive"] }
+serde = { version = "1.0.164", features = ["derive"] }
 serde_yaml = "0.9.21"
-clap = { version = "4.3.2", features = ["derive"] }
+clap = { version = "4.3.3", features = ["derive"] }
 regex = "1.8.4"
 lade-sdk = { path = "./sdk", version = "0.6.3-beta.1" }
 tokio = { version = "1", features = ["full"] }
@@ -35,9 +35,9 @@ futures = "0.3.28"
 path-clean = "1.0.1"
 directories = "5.0.1"
 chrono = { version = "0.4.26", features = ["serde"] }
-log = "0.4.18"
+log = "0.4.19"
 semver = "1.0.17"
-sysinfo = "0.29.0"
+sysinfo = "0.29.2"
 
 [dev-dependencies]
 assert_cmd = "2.0.11"

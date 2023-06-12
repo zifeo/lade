@@ -1,9 +1,9 @@
-use anyhow::{Ok, Result};
+use anyhow::{bail, Ok, Result};
 use chrono::{Duration, Utc};
 use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
-use std::env;
+use std::{env, ffi::OsStr, fs};
 mod config;
 mod shell;
 use clap::{CommandFactory, Parser};
@@ -121,15 +121,49 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Set(EvalCommand { commands }) => {
+            debug!("setting: {:?}", commands);
             let command = commands.join(" ");
-            let vars = config.collect_hydrate(command).await?;
-            println!("{}", shell.set(vars));
+            for (output, vars) in config.collect_hydrate(command).await? {
+                match output {
+                    Some(path) => {
+                        if path.exists() {
+                            bail!("file already exists: {:?}", path)
+                        }
+                        debug!("writing file: {:?}", path);
+                        let content: String =
+                            match path.extension().and_then(OsStr::to_str).unwrap_or_else(|| {
+                                panic!("cannot get extension of file: {:?}", path.display())
+                            }) {
+                                "json" => serde_json::to_string(&vars)?,
+                                "yaml" | "yml" => serde_yaml::to_string(&vars)?,
+                                _ => bail!("unsupported file extension: {:?}", path.extension()),
+                            };
+                        fs::write(path, content)?;
+                    }
+                    None => {
+                        println!("{}", shell.set(vars));
+                    }
+                }
+            }
             Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
+            debug!("unsetting: {:?}", commands);
             let command = commands.join(" ");
-            let vars = config.collect_keys(command);
-            println!("{}", shell.unset(vars));
+            for (output, vars) in config.collect_keys(command) {
+                match output {
+                    Some(path) => {
+                        debug!("removing file: {:?}", path);
+                        if !path.exists() {
+                            bail!("file should have existed: {:?}", path)
+                        }
+                        fs::remove_file(path)?;
+                    }
+                    None => {
+                        println!("{}", shell.unset(vars));
+                    }
+                }
+            }
             Ok(())
         }
         Command::On => {
