@@ -3,8 +3,8 @@
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
 Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
-preferred vault into environment variables. It limits the exposure of secrets to
-the time the command requiring the secrets lives.
+preferred vault into environment variables or files. It limits the exposure of
+secrets to the time the command requiring the secrets lives.
 
 ![Demo](./examples/demo.gif)
 
@@ -50,7 +50,8 @@ Compatible vaults: [Infisical](https://infisical.com),
 Lade will run before and after any command you run in your shell. On each run,
 it will recursively look for `lade.yml` files in the current directory and its
 parents. It will then aggregate any secrets matching the command you are running
-using a regex and load them into environment variables for the time of the run.
+using a regex and load them into environment variables or files for the time of
+the run.
 
 ```bash
 eval "$(lade on)"
@@ -66,13 +67,27 @@ You can also add `eval "$(lade on)"` to your shell configuration file (e.g.
 `~/.bashrc`, `~/.zshrc` or `~/.config/fish/config.fish`) to automatically enable
 Lade on each shell session (`lade install` will configure this for you).
 
-Note: most of the vault loaders use their native CLI to operate. This means you
-must have them installed locally and your login/credentials must be valid. Lade
-may evolve by integrating directly with the corresponding API, but this is left
-as future work.
-
 See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
 cases.
+
+### Outputting as files
+
+By default, Lade will load secrets into environment variables. You can change
+this by setting the `.` to the desired file name. The content will be created
+based on the extension. Currently, only YAML and JSON are supported.
+
+```yaml
+command regex:
+  .: file.yml
+  ...
+```
+
+## Loaders
+
+Most of the vault loaders use their native CLI to operate. This means you must
+have them installed locally and your login/credentials must be valid. Lade may
+evolve by integrating directly with the corresponding API, but this is left as
+future work.
 
 ### Infisical loader
 
@@ -131,8 +146,8 @@ command regex:
     EXPORTED_ENV_VAR: "value"
 ```
 
-Escaping a value with `!` enforces the use of the raw loader and double `!!`
-escapes itself.
+Escaping a value with the `!` prefix enforces the use of the raw loader and
+double `!!` escapes itself.
 
 ## Development
 
