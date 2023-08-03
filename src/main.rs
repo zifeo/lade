@@ -4,6 +4,7 @@ use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
 use std::{env, ffi::OsStr, fs};
+use tokio::time;
 mod config;
 mod shell;
 use clap::{CommandFactory, Parser};
@@ -123,7 +124,35 @@ async fn main() -> Result<()> {
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
             let command = commands.join(" ");
-            for (output, vars) in config.collect_hydrate(command).await? {
+
+            let hydration = match config.collect_hydrate(command).await {
+                std::result::Result::Ok(hydration) => hydration,
+                Err(e) => {
+                    let width = 80;
+                    let wrap_width = width - 4;
+
+                    let header = "Lade could not get secrets from one loader:";
+                    let error = e.to_string();
+                    let hint =
+                        "Hint: check whether the loader is connected? to the correct? vault.";
+                    let wait = "Waiting 5 seconds before continuing...";
+
+                    eprintln!("┌{}┐", "-".repeat(width - 2));
+                    eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()),);
+                    for line in textwrap::wrap(error.trim(), wrap_width - 2) {
+                        eprintln!("| > {} {}|", line, " ".repeat(wrap_width - 2 - line.len()),);
+                    }
+                    eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
+                    eprintln!("| {} {}|", wait, " ".repeat(wrap_width - wait.len()));
+                    eprintln!("└{}┘", "-".repeat(width - 2));
+                    time::sleep(time::Duration::from_secs(5)).await;
+                    std::process::exit(1);
+                }
+            };
+
+            let mut names = vec![];
+            for (output, vars) in hydration {
+                names.extend(vars.keys().cloned());
                 match output {
                     Some(path) => {
                         if path.exists() {
@@ -144,6 +173,9 @@ async fn main() -> Result<()> {
                         println!("{}", shell.set(vars));
                     }
                 }
+            }
+            if !names.is_empty() {
+                eprintln!("Lade loaded: {}.", names.join(", "));
             }
             Ok(())
         }

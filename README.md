@@ -24,7 +24,6 @@ steps.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
-sudo mv whiz /usr/local/bin # or any other directory in your $PATH
 
 # via cargo
 cargo install lade --locked 
@@ -152,8 +151,10 @@ double `!!` escapes itself.
 ## Development
 
 ```bash
+eval "$(lade off)"
 eval "$(cargo run -- on)"
 echo a $A1 $A2 $B1 $B2 $B3 $C1 $C2 $C3
 cargo run -- -vvv set echo a
 eval "$(cargo run -- off)"
+eval "$(lade on)"
 ```

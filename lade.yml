@@ -10,7 +10,7 @@
   B3: doppler://api.doppler.com/lade/prd/DOPPLER_B
 
 ^echo c:
-  C1: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_A
+  C1: infisical://infisical.exponent.ch/63fd114968d64dec0823ac52/test/STORE_FILE
   C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
   C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
 

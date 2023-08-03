@@ -46,6 +46,7 @@ impl Shell {
             _ => bail!("Unsupported shell"),
         }
     }
+
     pub fn on(&self) -> String {
         match self {
             Shell::Bash => format!(
@@ -57,6 +58,7 @@ impl Shell {
             Shell::Fish => import!("../scripts/on.fish"),
         }
     }
+
     pub fn off(&self) -> String {
         match self {
             Shell::Bash => import!("../scripts/off.bash"),
@@ -64,6 +66,7 @@ impl Shell {
             Shell::Fish => import!("../scripts/off.fish"),
         }
     }
+
     pub fn set(&self, env: HashMap<String, String>) -> String {
         env.into_iter()
             .map(|(k, v)| match self {
@@ -77,6 +80,7 @@ impl Shell {
             .collect::<Vec<_>>()
             .join(";")
     }
+
     pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
             Shell::Zsh | Shell::Bash => |k| format!("unset -v ${k}"),
@@ -84,12 +88,15 @@ impl Shell {
         };
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
+
     pub fn install(&self) -> String {
         self.configure_auto_launch(true).display().to_string()
     }
+
     pub fn uninstall(&self) -> String {
         self.configure_auto_launch(false).display().to_string()
     }
+
     fn configure_auto_launch(&self, install: bool) -> PathBuf {
         let user = directories::UserDirs::new().expect("cannot get HOME location");
         let home_dir = user.home_dir();
