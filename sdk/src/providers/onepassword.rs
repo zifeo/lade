@@ -89,7 +89,14 @@ impl Provider for OnePassword {
                     let loaded =
                         serde_json::from_slice::<Hydration>(&child.stdout).map_err(|err| {
                             let stderr = String::from_utf8_lossy(&child.stderr);
-                            anyhow!("1Password error: {err} (stderr: {stderr})",)
+                            if stderr.contains("could not resolve item UUID") {
+                                anyhow!(
+                                    "One item does not seem to exist in the vault: {stderr}",
+                                )
+                            } else {
+                                anyhow!("1Password error: {err} (stderr: {stderr})",)
+                            }
+
                         })?;
 
                     let hydration = vars

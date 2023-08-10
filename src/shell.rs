@@ -101,7 +101,11 @@ impl Shell {
         let user = directories::UserDirs::new().expect("cannot get HOME location");
         let home_dir = user.home_dir();
         let curr_exe = std::env::current_exe().expect("cannot get current executable path");
-        let command = format!("eval \"$({} on)\"", curr_exe.display());
+        let command = match self {
+            Shell::Bash => format!("source <(echo \"$({} on)\")", curr_exe.display()),
+            Shell::Zsh => format!("eval \"$({} on)\"", curr_exe.display()),
+            Shell::Fish => format!("eval \"$({} on)\"", curr_exe.display()),
+        };
         let marker = "lade-do-not-edit".to_string();
         let config_file = match self {
             Shell::Bash => home_dir.join(".bashrc"),
