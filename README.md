@@ -32,9 +32,8 @@ cargo install --git https://github.com/zifeo/lade --locked
 # upgrade
 lade upgrade
 
-# install/uninstall shell auto launch (only required once, see below)
+# install shell hooks (only required once)
 lade install
-lade uninstall
 ```
 
 Compatible shells: [Fish](https://fishshell.com),
@@ -53,18 +52,10 @@ using a regex and load them into environment variables or files for the time of
 the run.
 
 ```bash
-eval "$(lade on)"
-
-cd examples/terraform terraform apply
-
+cd examples/terraform
+terraform apply
 # example = "hello world"
-
-eval "$(lade off)"
 ```
-
-You can also add `eval "$(lade on)"` to your shell configuration file (e.g.
-`~/.bashrc`, `~/.zshrc` or `~/.config/fish/config.fish`) to automatically enable
-Lade on each shell session (`lade install` will configure this for you).
 
 See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
 cases.
