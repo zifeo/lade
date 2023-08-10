@@ -53,13 +53,8 @@ using a regex and load them into environment variables or files for the time of
 the run.
 
 ```bash
-eval "$(lade on)"
-
 cd examples/terraform terraform apply
-
 # example = "hello world"
-
-eval "$(lade off)"
 ```
 
 You can also add `eval "$(lade on)"` to your shell configuration file (e.g.
