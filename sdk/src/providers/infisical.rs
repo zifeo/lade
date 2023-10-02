@@ -9,7 +9,7 @@ use std::{collections::HashMap, fs::File, io::Write, path::Path};
 use tempfile::tempdir;
 use url::Url;
 
-use crate::Hydration;
+use crate::{providers::envs, Hydration};
 
 use super::Provider;
 
@@ -103,6 +103,7 @@ impl Provider for Infisical {
                                     let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
                                         .current_dir(temp_dir.path())
+                                        .envs(envs())
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::Hydration;
+use crate::{providers::envs, Hydration};
 use anyhow::{anyhow, bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
@@ -89,6 +89,7 @@ impl Provider for Doppler {
 
                                     let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
+                                        .envs(envs())
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()
