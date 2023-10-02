@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -27,4 +27,8 @@ pub fn providers() -> Vec<Box<dyn Provider + Send>> {
         Box::new(file::File::new()),
         Box::new(raw::Raw::new()),
     ]
+}
+
+pub fn envs() -> HashMap<String, String> {
+    std::env::vars().collect()
 }

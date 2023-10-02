@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 use url::Url;
 
-use crate::Hydration;
+use crate::{providers::envs, Hydration};
 
 use super::Provider;
 
@@ -87,6 +87,7 @@ impl Provider for Vault {
 
                                     let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
+                                        .envs(envs())
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()
