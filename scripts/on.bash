@@ -4,7 +4,7 @@ preexec_lade() {
         return
     fi
     LADE="$1"
-    eval $(lade set $argv)
+    eval $(lade set $@)
 }
 
 preexec_functions+=(preexec_lade)
@@ -15,7 +15,7 @@ precmd_lade() {
     elif [ "$LADE" = "source on.bash" ]; then
         return
     fi 
-    eval $(lade unset $argv)
+    eval $(lade unset $@)
     unset -v LADE
 }
 
