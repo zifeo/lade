@@ -78,11 +78,11 @@ pub struct Config {
 }
 
 impl Config {
-    fn collect(&self, command: String) -> Vec<(PathBuf, LadeRule)> {
+    fn collect(&self, command: &str) -> Vec<(PathBuf, LadeRule)> {
         self.matches
             .clone()
             .into_iter()
-            .filter(|(regex, _, _)| regex.is_match(&command))
+            .filter(|(regex, _, _)| regex.is_match(command))
             .map(|(_, path, env)| (path, env))
             .collect()
     }
@@ -97,7 +97,7 @@ impl Config {
 
     pub async fn collect_hydrate(
         &self,
-        command: String,
+        command: &str,
     ) -> Result<HashMap<Output, HashMap<String, String>>> {
         let ret = try_join_all(
             self.collect(command)
@@ -115,7 +115,7 @@ impl Config {
         Ok(ret)
     }
 
-    pub fn collect_keys(&self, command: String) -> HashMap<Output, Vec<String>> {
+    pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {
         self.collect(command)
             .into_iter()
             .map(|(_, env)| (env.output, env.secrets.keys().cloned().collect::<Vec<_>>()))

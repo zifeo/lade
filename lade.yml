@@ -35,5 +35,8 @@
   .: a.yaml
   A1: "1"
 
+^printenv:
+  SHELL: "overriden"
+
 ^echo z:
   DEBUG: "true"

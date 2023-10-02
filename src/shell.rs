@@ -28,6 +28,14 @@ pub enum Shell {
 }
 
 impl Shell {
+    pub fn bin(&self) -> &str {
+        match self {
+            Shell::Bash => "bash",
+            Shell::Zsh => "zsh",
+            Shell::Fish => "fish",
+        }
+    }
+
     pub fn detect() -> Result<Shell> {
         let sys = System::new_all();
         let process = sys
