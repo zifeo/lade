@@ -45,11 +45,11 @@ Compatible vaults: [Infisical](https://infisical.com),
 
 ## Usage
 
-Lade will run before and after any command you run in your shell. On each run,
-it will recursively look for `lade.yml` files in the current directory and its
-parents. It will then aggregate any secrets matching the command you are running
-using a regex and load them into environment variables or files for the time of
-the run.
+Lade will run before and after any command you run in your shell thanks to
+command hooks installed by `lade install`. On each run, it will recursively look
+for `lade.yml` files in the current directory and its parents. It will then
+aggregate any secrets matching the command you are running using a regex and
+load them into environment variables or files for the time of the run.
 
 ```bash
 cd examples/terraform
@@ -59,6 +59,19 @@ terraform apply
 
 See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
 cases.
+
+### Manual injections
+
+In case you prefer to decide when to load secrets, you can manually decide when
+to inject them using the `inject` command. Note that when running scripts or a
+non-interactive shell session, there is no guarantee that the shell hooks will
+be triggered. In that case, the `inject` command is the only way to load
+secrets.
+
+```bash
+cd examples/terraform
+lade inject terraform apply
+```
 
 ### Outputting as files
 

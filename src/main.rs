@@ -3,7 +3,14 @@ use chrono::{Duration, Utc};
 use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
-use std::{env, ffi::OsStr, fs};
+use std::{
+    collections::{hash_map::Keys, HashMap},
+    env,
+    ffi::OsStr,
+    fs,
+    path::PathBuf,
+    process::Command as ProcessCommand,
+};
 use tokio::time;
 mod config;
 mod shell;
@@ -14,7 +21,7 @@ mod global_config;
 use args::{Args, Command, EvalCommand};
 use global_config::GlobalConfig;
 
-use config::LadeFile;
+use config::{Config, LadeFile, Output};
 
 async fn upgrade_check() -> Result<()> {
     let project = directories::ProjectDirs::from("com", "zifeo", "lade")
@@ -49,6 +56,92 @@ async fn upgrade_check() -> Result<()> {
         local_config.save(config_path).await?;
     }
     Ok(())
+}
+
+async fn hydration_or_exit(
+    config: &Config,
+    command: &str,
+) -> HashMap<Output, HashMap<String, String>> {
+    match config.collect_hydrate(command).await {
+        std::result::Result::Ok(hydration) => hydration,
+        Err(e) => {
+            let width = 80;
+            let wrap_width = width - 4;
+
+            let header = "Lade could not get secrets from one loader:";
+            let error = e.to_string();
+            let hint = "Hint: check whether the loader is connected? to the correct? vault.";
+            let wait = "Waiting 5 seconds before continuing...";
+
+            eprintln!("┌{}┐", "-".repeat(width - 2));
+            eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()),);
+            for line in textwrap::wrap(error.trim(), wrap_width - 2) {
+                eprintln!("| > {} {}|", line, " ".repeat(wrap_width - 2 - line.len()),);
+            }
+            eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
+            eprintln!("| {} {}|", wait, " ".repeat(wrap_width - wait.len()));
+            eprintln!("└{}┘", "-".repeat(width - 2));
+            time::sleep(time::Duration::from_secs(5)).await;
+            std::process::exit(1);
+        }
+    }
+}
+
+fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {
+    let mut names = vec![];
+
+    for (path, vars) in hydration {
+        names.extend(vars.keys().cloned());
+
+        if path.exists() {
+            bail!("file already exists: {:?}", path)
+        }
+        debug!("writing file: {:?}", path);
+        let content: String = match path
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or_else(|| panic!("cannot get extension of file: {:?}", path.display()))
+        {
+            "json" => serde_json::to_string(&vars)?,
+            "yaml" | "yml" => serde_yaml::to_string(&vars)?,
+            _ => bail!("unsupported file extension: {:?}", path.extension()),
+        };
+        fs::write(path, content)?;
+    }
+    Ok(names)
+}
+
+fn remove_files<T>(files: &mut Keys<PathBuf, T>) -> Result<()> {
+    for path in files {
+        debug!("removing file: {:?}", path);
+        if !path.exists() {
+            bail!("file should have existed: {:?}", path)
+        }
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn split_env_files<T: Default + ToOwned>(
+    hydration: &mut HashMap<Output, T>,
+) -> Result<(T, HashMap<PathBuf, T>)>
+where
+    HashMap<PathBuf, T>: FromIterator<(PathBuf, <T as ToOwned>::Owned)>,
+{
+    let env = hydration
+        .remove(&None::<PathBuf>)
+        .unwrap_or_else(|| Default::default());
+    let files = hydration
+        .iter_mut()
+        .filter(|(path, _)| path.is_some())
+        .map(|(path, vars)| {
+            (
+                path.to_owned().unwrap(), // cannot panic as None has been removed above
+                vars.to_owned(),
+            )
+        })
+        .collect();
+    Ok((env, files))
 }
 
 #[tokio::main]
@@ -87,7 +180,7 @@ async fn main() -> Result<()> {
     }
 
     let current_dir = env::current_dir()?;
-    let config = LadeFile::build(current_dir)?;
+    let config = LadeFile::build(current_dir.clone())?;
     let shell = Shell::detect()?;
 
     match command {
@@ -121,81 +214,63 @@ async fn main() -> Result<()> {
             .await??;
             Ok(())
         }
+        Command::Inject(EvalCommand { commands }) => {
+            debug!("injecting: {:?}", commands);
+            let command = commands.join(" ");
+
+            let mut hydration = hydration_or_exit(&config, &command).await;
+            let (env, files) = split_env_files(&mut hydration)?;
+
+            let mut names = write_files(&files)?;
+
+            names.extend(env.keys().cloned());
+            if !names.is_empty() {
+                eprintln!("Lade loaded: {}.", names.join(", "));
+            }
+
+            let status = ProcessCommand::new(shell.bin())
+                .args(["-c", &command])
+                .current_dir(current_dir)
+                .envs(env::vars())
+                .envs(env)
+                .status();
+
+            remove_files(&mut files.keys())?;
+
+            let status = status.expect("failed to execute command");
+            if !status.success() {
+                eprintln!("command failed");
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
             let command = commands.join(" ");
 
-            let hydration = match config.collect_hydrate(command).await {
-                std::result::Result::Ok(hydration) => hydration,
-                Err(e) => {
-                    let width = 80;
-                    let wrap_width = width - 4;
+            let mut hydration = hydration_or_exit(&config, &command).await;
+            let (env, files) = split_env_files(&mut hydration)?;
 
-                    let header = "Lade could not get secrets from one loader:";
-                    let error = e.to_string();
-                    let hint =
-                        "Hint: check whether the loader is connected? to the correct? vault.";
-                    let wait = "Waiting 5 seconds before continuing...";
+            let mut names = write_files(&files)?;
 
-                    eprintln!("┌{}┐", "-".repeat(width - 2));
-                    eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()),);
-                    for line in textwrap::wrap(error.trim(), wrap_width - 2) {
-                        eprintln!("| > {} {}|", line, " ".repeat(wrap_width - 2 - line.len()),);
-                    }
-                    eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
-                    eprintln!("| {} {}|", wait, " ".repeat(wrap_width - wait.len()));
-                    eprintln!("└{}┘", "-".repeat(width - 2));
-                    time::sleep(time::Duration::from_secs(5)).await;
-                    std::process::exit(1);
-                }
-            };
-
-            let mut names = vec![];
-            for (output, vars) in hydration {
-                names.extend(vars.keys().cloned());
-                match output {
-                    Some(path) => {
-                        if path.exists() {
-                            bail!("file already exists: {:?}", path)
-                        }
-                        debug!("writing file: {:?}", path);
-                        let content: String =
-                            match path.extension().and_then(OsStr::to_str).unwrap_or_else(|| {
-                                panic!("cannot get extension of file: {:?}", path.display())
-                            }) {
-                                "json" => serde_json::to_string(&vars)?,
-                                "yaml" | "yml" => serde_yaml::to_string(&vars)?,
-                                _ => bail!("unsupported file extension: {:?}", path.extension()),
-                            };
-                        fs::write(path, content)?;
-                    }
-                    None => {
-                        println!("{}", shell.set(vars));
-                    }
-                }
-            }
+            names.extend(env.keys().cloned());
             if !names.is_empty() {
                 eprintln!("Lade loaded: {}.", names.join(", "));
             }
+
+            println!("{}", shell.set(env));
             Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
             debug!("unsetting: {:?}", commands);
             let command = commands.join(" ");
-            for (output, vars) in config.collect_keys(command) {
-                match output {
-                    Some(path) => {
-                        debug!("removing file: {:?}", path);
-                        if !path.exists() {
-                            bail!("file should have existed: {:?}", path)
-                        }
-                        fs::remove_file(path)?;
-                    }
-                    None => {
-                        println!("{}", shell.unset(vars));
-                    }
-                }
-            }
+
+            let mut keys = config.collect_keys(&command);
+            let (env, files) = split_env_files(&mut keys)?;
+
+            remove_files(&mut files.keys())?;
+            println!("{}", shell.unset(env));
+
             Ok(())
         }
         Command::On => {
