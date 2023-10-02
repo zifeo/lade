@@ -9,7 +9,7 @@ use itertools::Itertools;
 use log::debug;
 use url::Url;
 
-use crate::Hydration;
+use crate::{providers::envs, Hydration};
 
 use super::Provider;
 
@@ -63,6 +63,7 @@ impl Provider for OnePassword {
 
                     let mut process = Command::new(cmd[0])
                         .args(&cmd[1..])
+                        .envs(envs())
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .stdin(Stdio::piped())
