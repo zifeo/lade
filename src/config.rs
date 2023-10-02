@@ -92,7 +92,9 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
     ) -> Result<(Output, HashMap<String, String>)> {
-        hydrate(rule.secrets, path).await.map(|x| (rule.output, x))
+        hydrate(rule.secrets, path.clone())
+            .await
+            .map(|x| (rule.output.map(|subpath| path.clone().join(subpath)), x))
     }
 
     pub async fn collect_hydrate(
