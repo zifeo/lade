@@ -32,6 +32,8 @@ pub enum Command {
     Install,
     /// Uninstall auto launcher in shell profile.
     Uninstall,
+    /// Inject environment into nested command.
+    Inject(EvalCommand),
     /// Set environment for shell.
     Set(EvalCommand),
     /// Unset environment for shell.
