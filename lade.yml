@@ -31,7 +31,7 @@
   F4: file://$HOME/Documents/github/lade/examples/sources/config.yaml?query=.format
   F5: file://Cargo.toml?query=.package.version
 
-^cat a.yml:
+^ls:
   .: a.yaml
   A1: "1"
 
