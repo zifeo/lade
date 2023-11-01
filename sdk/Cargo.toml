@@ -8,7 +8,7 @@ license = "MPL-2.0"
 [dependencies]
 access-json = "0.1.0"
 anyhow = "1.0.75"
-async-process = "1.7.0"
+async-process = "2.0.0"
 async-trait = "0.1.73"
 directories = "5.0.1"
 futures = "0.3.28"
