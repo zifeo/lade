@@ -81,7 +81,7 @@ impl Provider for Vault {
                                         &format!("-address=https://{}", host),
                                         &format!("-mount={}", mount),
                                         "-format=json",
-                                        key,
+                                        &urlencoding::decode(key).expect("Invalid URL key decoding"),
                                     ];
                                     debug!("Lade run: {}", cmd.join(" "));
 
@@ -113,14 +113,15 @@ impl Provider for Vault {
                                     let hydration = group
                                         .into_iter()
                                         .map(|(url, value)| {
+                                            let var = url.path()
+                                                            .split('/')
+                                                            .nth(3)
+                                                            .expect("Missing variable");
                                             (
                                                 value.clone(),
                                                 loaded
                                                     .get(
-                                                        url.path()
-                                                            .split('/')
-                                                            .nth(3)
-                                                            .expect("Missing variable"),
+                                                        urlencoding::decode(var).expect("Invalid URL field decoding").as_ref(),
                                                     )
                                                     .unwrap_or_else(|| panic!(
                                                         "Variable not found in Vault: {}",
