@@ -21,8 +21,10 @@
 
 ^echo e:
   # vault kv put -address=http://127.0.0.1:8200 -mount=secret password value1=itsasecret value2=itsanotsecret
+  # vault kv put -address=http://127.0.0.1:8200 -mount=secret org/team value=secret
   E1: vault://127.0.0.1:8200/secret/password/value1
   E2: vault://127.0.0.1:8200/secret/password/value2
+  E3: vault://127.0.0.1:8200/secret/org%2Fteam/value
 
 ^echo f:
   F1: file://../lade/examples/sources/config.ini?query=.format
