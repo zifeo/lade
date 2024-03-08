@@ -1,5 +1,5 @@
 use anyhow::{bail, Ok, Result};
-use chrono::{Duration, Utc};
+use chrono::{TimeDelta, Utc};
 use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
@@ -31,7 +31,7 @@ async fn upgrade_check() -> Result<()> {
     debug!("config_path: {:?}", config_path);
     let mut local_config = GlobalConfig::load(config_path.clone()).await?;
 
-    if local_config.update_check + Duration::days(1) < Utc::now() {
+    if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
         debug!("checking for update");
         let current_version = cargo_crate_version!();
         let latest = tokio::task::spawn_blocking(move || {

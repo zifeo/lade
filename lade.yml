@@ -8,23 +8,28 @@
   B1: doppler://api.doppler.com/lade/dev/DOPPLER_A
   B2: doppler://api.doppler.com/lade/dev/DOPPLER_B
   B3: doppler://api.doppler.com/lade/prd/DOPPLER_B
+  B4: doppler://api.doppler.com/lade/dev/MULTILINE
 
 ^echo c:
-  C1: infisical://infisical.exponent.ch/63fd114968d64dec0823ac52/test/STORE_FILE
+  C1: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_A
   C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
   C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
+  C4: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/MULTILINE
 
 ^echo d:
   D1: op://my.1password.eu/Personal/Lade/username
   D2: op://my.1password.eu/Personal/Lade/password
   D3: op://my.1password.eu/Personal/Lade/with space
+  D4: op://my.1password.eu/Personal/Lade/file
 
 ^echo e:
-  # vault kv put -address=http://127.0.0.1:8200 -mount=secret password value1=itsasecret value2=itsanotsecret
+  # export VAULT_TOKEN=token
+  # vault kv put -address=http://127.0.0.1:8200 -mount=secret password value1=itsasecret value2=itsanotsecret multiline="a\nb"
   # vault kv put -address=http://127.0.0.1:8200 -mount=secret org/team value=secret
   E1: vault://127.0.0.1:8200/secret/password/value1
   E2: vault://127.0.0.1:8200/secret/password/value2
   E3: vault://127.0.0.1:8200/secret/org%2Fteam/value
+  E4: vault://127.0.0.1:8200/secret/password/multiline
 
 ^echo f:
   F1: file://../lade/examples/sources/config.ini?query=.format
