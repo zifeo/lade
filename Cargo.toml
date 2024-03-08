@@ -12,7 +12,7 @@ description = "Automatically load secrets from your preferred vault as environme
 license = "MPL-2.0"
 
 [dependencies]
-anyhow = "1.0.75"
+anyhow = "1.0.79"
 self_update = { version = "0.39.0", features = [
   "archive-tar",
   "archive-zip",
@@ -20,25 +20,25 @@ self_update = { version = "0.39.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.188", features = ["derive"] }
-serde_yaml = "0.9.25"
-clap = { version = "4.4.6", features = ["derive"] }
-regex = "1.9.6"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_yaml = "0.9.31"
+clap = { version = "4.4.18", features = ["derive"] }
+regex = "1.10.3"
 lade-sdk = { path = "./sdk", version = "0.9.2-beta.1" }
 tokio = { version = "1", features = ["full"] }
-indexmap = { version = "2.0.2", features = ["serde"] }
-clap-verbosity-flag = "2.0.1"
+indexmap = { version = "2.2.2", features = ["serde"] }
+clap-verbosity-flag = "2.1.2"
 env_logger = "0.11.1"
-openssl = { version = "0.10.57", features = ["vendored"] }
-serde_json = "1.0.107"
-futures = "0.3.28"
+openssl = { version = "0.10.63", features = ["vendored"] }
+serde_json = "1.0.113"
+futures = "0.3.30"
 path-clean = "1.0.1"
 directories = "5.0.1"
-chrono = { version = "0.4.31", features = ["serde"] }
+chrono = { version = "0.4.33", features = ["serde"] }
 log = "0.4.20"
-semver = "1.0.19"
-sysinfo = "0.29.10"
+semver = "1.0.21"
+sysinfo = "0.30.5"
 textwrap = "0.16.0"
 
 [dev-dependencies]
-assert_cmd = "2.0.12"
+assert_cmd = "2.0.13"
