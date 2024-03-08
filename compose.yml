@@ -1,31 +1,23 @@
 services:
   vault:
-    image: hashicorp/vault:1.12
+    image: hashicorp/vault:1.15
     ports:
       - "8200:8200"
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: "token"
 
   infisical:
-    image: infisical/backend:5c55e6e
+    image: infisical/infisical:v0.43.19
     ports:
       - "4000:4000"
     environment:
       - SITE_URL=http://localhost:4000
       - ENCRYPTION_KEY=6c1fe4e407b8911c104518103505b218
-      - JWT_SIGNUP_SECRET=3679e04ca949f914c03332aaaeba805a
-      - JWT_REFRESH_SECRET=5f2f3c8f0159068dc2bbb3a652a716ff
-      - JWT_AUTH_SECRET=4be6ba5602e0fa0ac6ac05c3cd4d247f
+      - AUTH_SECRET=5lrMXKKWCVocS/uerPsl7V+TX/aaUaI7iDkgl3tSmLE=
       - JWT_SERVICE_SECRET=f32f716d70a42c5703f4656015e76200
       - MONGO_URL=mongodb://root:password@mongo:27017/?authSource=admin
+      - REDIS_URL=redis://redis:6379
 
-  infisical_web:
-    image: infisical/frontend:5c55e6e
-    ports:
-      - "3000:3000"
-    environment:
-      - SITE_URL=http://localhost:4000
-  
   mongo:
     image: mongo:6
     ports:
@@ -33,3 +25,10 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=password
+
+  redis:
+    image: redis
+    ports:
+      - 6379:6379
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes

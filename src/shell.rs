@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
+use sysinfo::{get_current_pid, System};
 
 #[cfg(debug_assertions)]
 macro_rules! import {

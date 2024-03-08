@@ -108,12 +108,13 @@ impl Config {
         )
         .await?
         .into_iter()
-        .fold(HashMap::default(), |mut acc, (output, map)| {
-            acc.entry(output)
-                .or_insert_with(HashMap::default)
-                .extend(map);
-            acc
-        });
+        .fold(
+            HashMap::default(),
+            |mut acc: HashMap<Option<PathBuf>, HashMap<String, String>>, (output, map)| {
+                acc.entry(output).or_default().extend(map);
+                acc
+            },
+        );
         Ok(ret)
     }
 
