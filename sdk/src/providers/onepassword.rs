@@ -87,8 +87,9 @@ impl Provider for OnePassword {
                         Ok(child) => child,
                     };
 
+                    let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
                     let loaded =
-                        serde_json::from_slice::<Hydration>(&child.stdout).map_err(|err| {
+                        serde_json::from_str::<Hydration>(&output).map_err(|err| {
                             let stderr = String::from_utf8_lossy(&child.stderr);
                             if stderr.contains("could not resolve item UUID") {
                                 anyhow!(
