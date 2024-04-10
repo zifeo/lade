@@ -26,7 +26,7 @@ steps.
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 
 # via cargo
-cargo install lade --locked 
+cargo install lade --locked
 cargo install --git https://github.com/zifeo/lade --locked
 
 # upgrade
@@ -96,7 +96,7 @@ future work.
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: infisical://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
+  EXPORTED_ENV_VAR: infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME
 ```
 
 Frequent domain(s): `app.infisical.com`.
@@ -108,7 +108,7 @@ only support a single domain (you cannot be logged into multiple ones).
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: op://DOMAIN/VAULT_NAME/SECRET_NAME/FIELD_NAME
+  EXPORTED_ENV_VAR: op://DOMAIN/VAULT_NAME/SECRET_NAME/FIELD_NAME
 ```
 
 Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
@@ -117,7 +117,7 @@ Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
+  EXPORTED_ENV_VAR: doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
 ```
 
 Frequent domain(s): `api.doppler.com`.
@@ -126,7 +126,14 @@ Frequent domain(s): `api.doppler.com`.
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
+  EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
+```
+
+### Passbolt loader
+
+```yaml
+command regex:
+  EXPORTED_ENV_VAR: passbolt://DOMAIN/RESOURCE_ID/FIELD
 ```
 
 ### File loader
@@ -135,7 +142,7 @@ Supports INI, JSON, YAML and TOML files.
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: file://PATH?query=.fields[0].field
+  EXPORTED_ENV_VAR: file://PATH?query=.fields[0].field
 ```
 
 `PATH` can be relative to the lade directory, start with `~`/`$HOME` or absolute
@@ -146,7 +153,7 @@ different paths).
 
 ```yaml
 command regex:
-    EXPORTED_ENV_VAR: "value"
+  EXPORTED_ENV_VAR: "value"
 ```
 
 Escaping a value with the `!` prefix enforces the use of the raw loader and

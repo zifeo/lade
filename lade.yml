@@ -38,6 +38,9 @@
   F4: file://$HOME/Documents/github/lade/examples/sources/config.yaml?query=.format
   F5: file://Cargo.toml?query=.package.version
 
+^echo g:
+  G1: passbolt://127.0.0.1:8000/5a4b9cd0-5880-4f90-b0ce-e757980cb150/password
+
 ^ls:
   .: a.yaml
   A1: "1"
