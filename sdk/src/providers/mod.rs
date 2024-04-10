@@ -9,6 +9,7 @@ mod doppler;
 mod file;
 mod infisical;
 mod onepassword;
+mod passbolt;
 mod raw;
 mod vault;
 
@@ -24,6 +25,7 @@ pub fn providers() -> Vec<Box<dyn Provider + Send>> {
         Box::new(infisical::Infisical::new()),
         Box::new(onepassword::OnePassword::new()),
         Box::new(vault::Vault::new()),
+        Box::new(passbolt::Passbolt::new()),
         Box::new(file::File::new()),
         Box::new(raw::Raw::new()),
     ]

@@ -44,6 +44,7 @@ impl Provider for Vault {
             _ => bail!("Not an vault scheme"),
         }
     }
+
     async fn resolve(&self, _: &Path) -> Result<Hydration> {
         let fetches = self
             .urls

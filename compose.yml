@@ -6,25 +6,40 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: "token"
 
-  infisical:
-    image: infisical/infisical:v0.43.19
+  # docker exec lade-passbolt-1 su -s /bin/bash -c "./bin/cake passbolt register_user -u test@test.com -f test -l test -r admin" www-data
+  passbolt:
+    image: passbolt/passbolt:latest-ce
     ports:
-      - "4000:4000"
+      - "8000:80"
     environment:
+      APP_FULL_BASE_URL: http://localhost:8000
+      DATASOURCES_DEFAULT_DRIVER: Cake\Database\Driver\Postgres
+      DATASOURCES_DEFAULT_ENCODING: "utf8"
+      DATASOURCES_DEFAULT_URL: "postgres://lade:lade@postgres:5432/lade?schema=passbolt"
+
+  infisical:
+    image: infisical/infisical:v0.51.9-postgres
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
       - SITE_URL=http://localhost:4000
       - ENCRYPTION_KEY=6c1fe4e407b8911c104518103505b218
       - AUTH_SECRET=5lrMXKKWCVocS/uerPsl7V+TX/aaUaI7iDkgl3tSmLE=
-      - JWT_SERVICE_SECRET=f32f716d70a42c5703f4656015e76200
-      - MONGO_URL=mongodb://root:password@mongo:27017/?authSource=admin
+      - DB_CONNECTION_URI=postgres://lade:lade@postgres:5432/lade?schema=infisical
       - REDIS_URL=redis://redis:6379
+    command: >-
+      /bin/sh -c "
+        npm run migration:latest &&
+        ./standalone-entrypoint.sh
+      "
 
-  mongo:
-    image: mongo:6
-    ports:
-      - "27017:27017"
+  postgres:
+    image: postgres:14-alpine
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=root
-      - MONGO_INITDB_ROOT_PASSWORD=password
+      - POSTGRES_PASSWORD=lade
+      - POSTGRES_USER=lade
+      - POSTGRES_DB=lade
 
   redis:
     image: redis
