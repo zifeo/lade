@@ -78,8 +78,8 @@ impl Shell {
     pub fn set(&self, env: HashMap<String, String>) -> String {
         env.into_iter()
             .map(|(k, v)| match self {
-                Shell::Zsh | Shell::Bash => {
-                    format!("declare -g -x {k}='{v}'")
+                Shell::Bash | Shell::Zsh => {
+                    format!("export {k}='{v}'")
                 }
                 Shell::Fish => {
                     format!("set --global --export {k} '{v}'")
@@ -91,7 +91,7 @@ impl Shell {
 
     pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
-            Shell::Zsh | Shell::Bash => |k| format!("unset -v ${k}"),
+            Shell::Zsh | Shell::Bash => |k| format!("unset -v {k}"),
             Shell::Fish => |k| format!("set --global --erase {k}"),
         };
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")

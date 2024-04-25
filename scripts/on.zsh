@@ -2,12 +2,8 @@ preexec_lade() {
     if [ "$1" = "source off.zsh" ]; then
         return
     fi
-    LADE=$1
-    if [ "$(uname)" = "Darwin" ]; then
-        # bugfix: macOs seems to triple argv
-        argv=${argv:1:$((${#argv[@]} / 3))}
-    fi
-    eval "$(lade set $argv)"
+    LADE="$1"
+    eval "$(lade set $@)"
 }
 
 preexec_functions+=(preexec_lade)
@@ -18,11 +14,7 @@ precmd_lade() {
     elif [ "$LADE" = "source on.zsh" ]; then
         return
     fi
-    if [ "$(uname)" = "Darwin" ]; then
-        # bugfix: macOs seems to triple argv
-        argv=${argv:1:$((${#argv[@]} / 3))}
-    fi
-    eval "$(lade unset $argv)"
+    eval "$(lade unset $@)"
     unset -v LADE
 }
 
