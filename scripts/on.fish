@@ -7,7 +7,7 @@ function preexec_lade --on-event fish_preexec
     eval "$(lade set $argv)"
 end
 
-function postexec_lade --on-event fish_postexec
+function precmd_lade --on-event fish_postexec
     # $argv also exists here in fish, but keeping LADE for consistency
     if [ "$LADE" = "source on.fish" ]
         return

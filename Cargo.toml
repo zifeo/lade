@@ -20,7 +20,7 @@ self_update = { version = "0.39.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { version = "1.0.198", features = ["derive"] }
 serde_yaml = "0.9.34"
 clap = { version = "4.5.4", features = ["derive"] }
 regex = "1.10.4"
@@ -30,14 +30,14 @@ indexmap = { version = "2.2.6", features = ["serde"] }
 clap-verbosity-flag = "2.2.0"
 env_logger = "0.11.3"
 openssl = { version = "0.10.64", features = ["vendored"] }
-serde_json = "1.0.115"
+serde_json = "1.0.116"
 futures = "0.3.30"
 path-clean = "1.0.1"
 directories = "5.0.1"
-chrono = { version = "0.4.37", features = ["serde"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 log = "0.4.21"
 semver = "1.0.22"
-sysinfo = "0.30.10"
+sysinfo = "0.30.11"
 textwrap = "0.16.1"
 
 [dev-dependencies]

@@ -50,3 +50,6 @@
 
 ^echo z:
   DEBUG: "true"
+
+^echo "test:
+  TEST: "test-value"
