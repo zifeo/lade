@@ -13,7 +13,7 @@ license = "MPL-2.0"
 
 [dependencies]
 anyhow = "1.0.82"
-self_update = { version = "0.39.0", features = [
+self_update = { version = "0.40.0", features = [
   "archive-tar",
   "archive-zip",
   "compression-flate2",
