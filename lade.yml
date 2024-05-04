@@ -21,6 +21,7 @@
   D2: op://my.1password.eu/Personal/Lade/password
   D3: op://my.1password.eu/Personal/Lade/with space
   D4: op://my.1password.eu/Personal/Lade/file
+  D5: op://my.1password.eu/Personal/Lade/json
 
 ^echo e:
   # export VAULT_TOKEN=token

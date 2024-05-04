@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::{future::try_join_all, AsyncWriteExt};
@@ -23,6 +23,8 @@ impl OnePassword {
         Default::default()
     }
 }
+
+static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
 #[async_trait]
 impl Provider for OnePassword {
@@ -54,10 +56,9 @@ impl Provider for OnePassword {
                         return Ok(HashMap::new());
                     }
 
-                    let json = &vars
-                        .iter()
-                        .map(|(k, v)| (k, v.replace(&format!("{host}/"), "").replace("%20", " ")))
-                        .collect::<HashMap<_, _>>();
+                    let input = &vars.values()
+                        .map(|v| v.replace(&format!("{host}/"), "").replace("%20", " "))
+                        .join(SEP);
                     let cmd = &["op", "inject", "--account", &host.to_string()];
                     debug!("Lade run: {}", cmd.join(" "));
 
@@ -69,11 +70,11 @@ impl Provider for OnePassword {
                         .stdin(Stdio::piped())
                         .spawn()?;
 
-                    debug!("stdin: {:?}", json);
+                    debug!("stdin: {:?}", input);
 
                     let mut stdin = process.stdin.take().expect("Failed to open stdin");
                     stdin
-                        .write_all(serde_json::to_string(&json)?.as_bytes())
+                        .write_all(input.as_bytes())
                         .await?;
                     drop(stdin);
 
@@ -88,33 +89,15 @@ impl Provider for OnePassword {
                     };
 
                     let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
-                    let loaded =
-                        serde_json::from_str::<Hydration>(&output).map_err(|err| {
-                            let stderr = String::from_utf8_lossy(&child.stderr);
-                            if stderr.contains("could not resolve item UUID") {
-                                anyhow!(
-                                    "One item does not seem to exist in the vault: {stderr}",
-                                )
-                            } else {
-                                anyhow!("1Password error: {err} (stderr: {stderr})",)
-                            }
-
-                        })?;
+                    debug!("stdout: {:?}", output);
+                    let loaded = output.split(SEP).collect::<Vec<_>>();
 
                     let hydration = vars
-                        .iter()
-                        .map(|(key, value)| {
-                            let var = match (loaded.get(key), json.get(key)) {
-                                (Some(loaded), Some(original)) if loaded == original => None,
-                                (Some(loaded), _) => Some(loaded),
-                                _ => None,
-                            };
-
+                        .iter().zip_eq(loaded)
+                        .map(|((_, key), value)| {
                             (
-                                value.clone(),
-                                var
-                                    .unwrap_or_else(|| panic!("Variable not found in 1Password: {}", key))
-                                    .clone(),
+                                key.clone(),
+                                value.to_string(),
                             )
                         })
                         .collect::<Hydration>();
