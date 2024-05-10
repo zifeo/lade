@@ -10,6 +10,7 @@ version = "0.11.3-beta.1"
 edition = "2021"
 description = "Automatically load secrets from your preferred vault as environment variables, and clear them once your shell command is over."
 license = "MPL-2.0"
+repository = "https://github.com/zifeo/lade"
 
 [dependencies]
 anyhow = "1.0.82"
