@@ -89,8 +89,14 @@ impl Provider for OnePassword {
                     };
 
                     let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
+                    let errors = String::from_utf8_lossy(&child.stderr);
                     debug!("stdout: {:?}", output);
+                    debug!("stderr: {:?}", errors);
                     let loaded = output.split(SEP).collect::<Vec<_>>();
+
+                    if loaded.len() != vars.len() {
+                        bail!("1Password error: {errors}")
+                    }
 
                     let hydration = vars
                         .iter().zip_eq(loaded)

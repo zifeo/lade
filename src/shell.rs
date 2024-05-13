@@ -112,7 +112,7 @@ impl Shell {
         let command = match self {
             Shell::Bash => format!("source <(echo \"$({} on)\")", curr_exe.display()),
             Shell::Zsh => format!("eval \"$({} on)\"", curr_exe.display()),
-            Shell::Fish => format!("eval \"$({} on)\"", curr_exe.display()),
+            Shell::Fish => format!("source ({} on | psub)", curr_exe.display()),
         };
         let marker = "lade-do-not-edit".to_string();
         let config_file = match self {
