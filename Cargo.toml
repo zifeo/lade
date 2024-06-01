@@ -42,7 +42,7 @@ sysinfo = "0.30.12"
 textwrap = "0.16.1"
 
 [target.'cfg(target_family = "unix")'.dependencies]
-nix = { version = "0.28.0", features = ["signal"] }
+nix = { version = "0.29.0", features = ["signal"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
