@@ -23,9 +23,10 @@ executable and add it to your `$PATH` or use the method below to automate those
 steps.
 
 ```bash
+# recommended way
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 
-# via cargo
+# or alternative ways via cargo
 cargo install lade --locked
 cargo install --git https://github.com/zifeo/lade --locked
 
