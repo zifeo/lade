@@ -14,7 +14,7 @@ repository = "https://github.com/zifeo/lade"
 
 [dependencies]
 anyhow = "1.0.83"
-self_update = { version = "0.40.0", features = [
+self_update = { version = "0.41.0", features = [
   "archive-tar",
   "archive-zip",
   "compression-flate2",
