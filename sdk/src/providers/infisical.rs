@@ -85,6 +85,8 @@ impl Provider for Infisical {
                                         "export",
                                         "--env",
                                         env,
+                                        "--projectId",
+                                        project,
                                         "--format",
                                         "json",
                                     ];
