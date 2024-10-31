@@ -44,7 +44,7 @@ impl Shell {
         let parent = sys
             .process(process.parent().expect("no parent pid"))
             .expect("parent pid does not exist");
-        let shell = parent.name().trim().to_lowercase();
+        let shell = parent.name().to_string_lossy().trim().to_lowercase();
         let shell = shell.strip_suffix(".exe").unwrap_or(&shell); // windows bad
 
         match shell {

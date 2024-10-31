@@ -20,25 +20,43 @@ OUT_DIR="${OUT_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-$LATEST_VERSION}"
 MACHINE=$(uname -m)
 
+if ldd --version 2>&1 | grep -q musl; then
+  LIBC="musl"
+else
+  LIBC="gnu"
+fi
+
 if [ "${PLATFORM:-x}" = "x" ]; then
   case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
-    "linux")
-      case "$MACHINE" in
-        "arm64"* | "aarch64"* ) PLATFORM='aarch64-unknown-linux-gnu' ;;
-        *"64") PLATFORM='x86_64-unknown-linux-gnu' ;;
-      esac
+  "linux")
+    case "$MACHINE" in
+    "arm64"* | "aarch64"*)
+      if [ "$LIBC" = "musl" ]; then
+        PLATFORM='aarch64-unknown-linux-musl'
+      else
+        PLATFORM='aarch64-unknown-linux-gnu'
+      fi
       ;;
-    "darwin")
-      case "$MACHINE" in
-        "arm64"* | "aarch64"* ) PLATFORM='aarch64-apple-darwin' ;;
-        *"64") PLATFORM='x86_64-apple-darwin' ;;
-      esac
+    *"64")
+      if [ "$LIBC" = "musl" ]; then
+        PLATFORM='x86_64-unknown-linux-musl'
+      else
+        PLATFORM='x86_64-unknown-linux-gnu'
+      fi
       ;;
-    "msys"*|"cygwin"*|"mingw"*|*"_nt"*|"win"*)
-      case "$MACHINE" in
-        *"64") PLATFORM='x86_64-pc-windows-msvc' ;;
-      esac
-      ;;
+    esac
+    ;;
+  "darwin")
+    case "$MACHINE" in
+    "arm64"* | "aarch64"*) PLATFORM='aarch64-apple-darwin' ;;
+    *"64") PLATFORM='x86_64-apple-darwin' ;;
+    esac
+    ;;
+  "msys"* | "cygwin"* | "mingw"* | *"_nt"* | "win"*)
+    case "$MACHINE" in
+    *"64") PLATFORM='x86_64-pc-windows-msvc' ;;
+    esac
+    ;;
   esac
   if [ "${PLATFORM:-x}" = "x" ]; then
     cat >&2 <<EOF
@@ -47,6 +65,7 @@ if [ "${PLATFORM:-x}" = "x" ]; then
 
 To continue with installation, please choose from one of the following values:
 - aarch64-unknown-linux-gnu
+- aarch64-unknown-linux-musl
 - x86_64-unknown-linux-gnu
 - x86_64-unknown-linux-musl
 - aarch64-apple-darwin
@@ -106,7 +125,7 @@ fi
 
 rm -r "$TMP_DIR"
 
-OUT_DIR=$(realpath $OUT_DIR)
+OUT_DIR=$(realpath "$OUT_DIR")
 if [[ ":$PATH:" != *":$OUT_DIR:"* ]]; then
   cat <<EOF
 
