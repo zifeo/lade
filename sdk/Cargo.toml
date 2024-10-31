@@ -1,6 +1,6 @@
 [package]
 name = "lade-sdk"
-version = "0.11.4-beta.1"
+version = "0.11.4"
 edition = "2021"
 description = "Lade SDK"
 license = "MPL-2.0"
@@ -9,7 +9,7 @@ repository = "https://github.com/zifeo/lade"
 [dependencies]
 access-json = "0.1"
 anyhow = "1"
-async-process = "2.2"
+async-process = "2.3"
 async-trait = "0.1"
 directories = "5"
 futures = "0.3"
@@ -24,5 +24,5 @@ serde_yaml = "0.9"
 tempfile = "3"
 tokio = { version = "1", features = ["fs"] }
 toml = "0.8"
-url = "2.4"
+url = "2.5"
 urlencoding = "2"

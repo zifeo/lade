@@ -4,6 +4,9 @@
 ^echo a:
   A1: "1"
 
+^echo a.+# production:
+  A1: "2"
+
 ^echo b:
   B1: doppler://api.doppler.com/lade/dev/DOPPLER_A
   B2: doppler://api.doppler.com/lade/dev/DOPPLER_B
