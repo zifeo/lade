@@ -23,8 +23,8 @@ self_update = { version = "0.41.0", features = [
 ] }
 serde = { version = "1.0.214", features = ["derive"] }
 serde_yaml = "0.9.34"
-clap = { version = "4.5.4", features = ["derive"] }
-regex = "1.10.4"
+clap = { version = "4.5.20", features = ["derive"] }
+regex = "1.11.1"
 lade-sdk = { path = "./sdk", version = "0.11.3" }
 tokio = { version = "1", features = ["full"] }
 indexmap = { version = "2.6.0", features = ["serde"] }
