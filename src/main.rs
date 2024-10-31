@@ -283,19 +283,19 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::On => {
-            println!("{}\n{}", shell.off(), shell.on());
+            println!("{}\n{}", shell.off()?, shell.on()?);
             Ok(())
         }
         Command::Off => {
-            println!("{}", shell.off());
+            println!("{}", shell.off()?);
             Ok(())
         }
         Command::Install => {
-            println!("Auto launcher installed in {}", shell.install());
+            println!("Auto launcher installed in {}", shell.install()?);
             Ok(())
         }
         Command::Uninstall => {
-            println!("Auto launcher uninstalled in {}", shell.uninstall());
+            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
             Ok(())
         }
     }

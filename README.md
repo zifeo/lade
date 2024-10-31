@@ -167,6 +167,7 @@ eval "$(lade off)"
 eval "$(cargo run -- on)"
 echo a $A1 $A2 $B1 $B2 $B3 $C1 $C2 $C3
 cargo run -- -vvv set echo a
+cargo run -- inject echo a
 eval "$(cargo run -- off)"
 eval "$(lade on)"
 ```

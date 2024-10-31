@@ -25,6 +25,7 @@ pub enum Shell {
     Bash,
     Zsh,
     Fish,
+    Sh,
 }
 
 impl Shell {
@@ -33,6 +34,7 @@ impl Shell {
             Shell::Bash => "bash",
             Shell::Zsh => "zsh",
             Shell::Fish => "fish",
+            Shell::Sh => "sh",
         }
     }
 
@@ -51,34 +53,43 @@ impl Shell {
             "bash" => Ok(Shell::Bash),
             "zsh" => Ok(Shell::Zsh),
             "fish" => Ok(Shell::Fish),
-            _ => bail!("Unsupported shell"),
+            "sh" => Ok(Shell::Sh),
+            _ => bail!("Unsupported shell: {shell}"),
         }
     }
 
-    pub fn on(&self) -> String {
+    pub fn on(&self) -> Result<String> {
         match self {
-            Shell::Bash => format!(
+            Shell::Bash => Ok(format!(
                 "{}\n{}",
                 import!("../scripts/bash-preexec.sh"),
                 import!("../scripts/on.bash")
-            ),
-            Shell::Zsh => import!("../scripts/on.zsh"),
-            Shell::Fish => import!("../scripts/on.fish"),
+            )),
+            Shell::Zsh => Ok(import!("../scripts/on.zsh")),
+            Shell::Fish => Ok(import!("../scripts/on.fish")),
+            _ => {
+                let shell = self.bin();
+                bail!("Unsupported behavior on shell {shell}")
+            }
         }
     }
 
-    pub fn off(&self) -> String {
+    pub fn off(&self) -> Result<String> {
         match self {
-            Shell::Bash => import!("../scripts/off.bash"),
-            Shell::Zsh => import!("../scripts/off.zsh"),
-            Shell::Fish => import!("../scripts/off.fish"),
+            Shell::Bash => Ok(import!("../scripts/off.bash")),
+            Shell::Zsh => Ok(import!("../scripts/off.zsh")),
+            Shell::Fish => Ok(import!("../scripts/off.fish")),
+            _ => {
+                let shell = self.bin();
+                bail!("Unsupported behavior on shell {shell}")
+            }
         }
     }
 
     pub fn set(&self, env: HashMap<String, String>) -> String {
         env.into_iter()
             .map(|(k, v)| match self {
-                Shell::Bash | Shell::Zsh => {
+                Shell::Bash | Shell::Zsh | Shell::Sh => {
                     format!("export {k}='{v}'")
                 }
                 Shell::Fish => {
@@ -91,21 +102,23 @@ impl Shell {
 
     pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
-            Shell::Zsh | Shell::Bash => |k| format!("unset -v {k}"),
+            Shell::Zsh | Shell::Bash | Shell::Sh => |k| format!("unset -v {k}"),
             Shell::Fish => |k| format!("set --global --erase {k}"),
         };
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
 
-    pub fn install(&self) -> String {
-        self.configure_auto_launch(true).display().to_string()
+    pub fn install(&self) -> Result<String> {
+        self.configure_auto_launch(true)
+            .map(|c| c.display().to_string())
     }
 
-    pub fn uninstall(&self) -> String {
-        self.configure_auto_launch(false).display().to_string()
+    pub fn uninstall(&self) -> Result<String> {
+        self.configure_auto_launch(false)
+            .map(|c| c.display().to_string())
     }
 
-    fn configure_auto_launch(&self, install: bool) -> PathBuf {
+    fn configure_auto_launch(&self, install: bool) -> Result<PathBuf> {
         let user = directories::UserDirs::new().expect("cannot get HOME location");
         let home_dir = user.home_dir();
         let curr_exe = std::env::current_exe().expect("cannot get current executable path");
@@ -113,15 +126,23 @@ impl Shell {
             Shell::Bash => format!("source <(echo \"$({} on)\")", curr_exe.display()),
             Shell::Zsh => format!("eval \"$({} on)\"", curr_exe.display()),
             Shell::Fish => format!("source ({} on | psub)", curr_exe.display()),
+            _ => {
+                let shell = self.bin();
+                bail!("Unsupported behavior on shell {shell}")
+            }
         };
         let marker = "lade-do-not-edit".to_string();
         let config_file = match self {
             Shell::Bash => home_dir.join(".bashrc"),
             Shell::Zsh => home_dir.join(".zshrc"),
             Shell::Fish => home_dir.join(".config/fish/config.fish"),
+            _ => {
+                let shell = self.bin();
+                bail!("Unsupported behavior on shell {shell}")
+            }
         };
         edit_config(&config_file, command, marker, install);
-        config_file
+        Ok(config_file)
     }
 }
 
