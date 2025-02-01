@@ -34,7 +34,7 @@ openssl = { version = "0.10.68", features = ["vendored"] }
 serde_json = "1.0.132"
 futures = "0.3.31"
 path-clean = "1.0.1"
-directories = "5.0.1"
+directories = "6.0.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 log = "0.4.22"
 semver = "1.0.23"
