@@ -27,3 +27,22 @@ jobs:
       - run: |
           cargo run -- --help
           cargo test
+
+  test-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash fish zsh
+
+      - name: Run bash test
+        run: env -i PATH="$PATH" bash scripts/test.bash
+
+      - name: Run zsh test
+        run: env -i PATH="$PATH" zsh scripts/test.zsh
+
+      - name: Run fish test
+        run: env -i PATH="$PATH" fish scripts/test.fish
