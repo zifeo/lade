@@ -1,3 +1,5 @@
+set -e
+
 docker compose up -d
 
 echo "Checking Vault accessibility..."

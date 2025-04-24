@@ -1,6 +1,8 @@
-# env -i PATH="$PATH" VAULT_TOKEN="token" zsh scripts/test_vault.zsh
+# env -i PATH="$PATH" VAULT_TOKEN="token" zsh tests/test_vault.zsh
 
-bash scripts/test_vault_setup.bash
+set -e
+
+bash tests/test_vault_setup.bash
 
 echo e $E1 $E2 $E3 $E4
 eval "$(cargo run -- on)"
@@ -39,3 +41,4 @@ if type precmd_lade >/dev/null 2>&1; then
 else
   echo "precmd_lade correctly removed"
 fi
+
