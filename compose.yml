@@ -18,7 +18,7 @@ services:
       DATASOURCES_DEFAULT_URL: "postgres://lade:lade@postgres:5432/lade?schema=passbolt"
 
   infisical:
-    image: infisical/infisical:v0.51.9-postgres
+    image: infisical/infisical:latest-postgres
     ports:
       - "8080:8080"
     environment:
