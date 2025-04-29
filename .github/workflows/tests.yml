@@ -27,3 +27,46 @@ jobs:
       - run: |
           cargo run -- --help
           cargo test
+
+  test-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash fish zsh
+
+      - name: bash, fish, zsh version
+        run: |
+          echo ""
+          bash --version
+          echo ""
+          fish --version
+          echo ""
+          zsh --version
+
+      - name: Install vault CLI
+        run: |
+          wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update && sudo apt install vault
+
+      - name: Run test vault
+        run: | 
+          env -i PATH="$PATH" VAULT_TOKEN="token" bash tests/test_vault.bash
+          env -i PATH="$PATH" VAULT_TOKEN="token" zsh tests/test_vault.zsh
+          env -i PATH="$PATH" VAULT_TOKEN="token" fish tests/test_vault.fish
+
+      - name: Run bash test
+        run: env -i PATH="$PATH" bash scripts/test.bash
+
+      - name: Run zsh test
+        run: env -i PATH="$PATH" zsh scripts/test.zsh
+
+      - name: Run fish test
+        run: env -i PATH="$PATH" fish scripts/test.fish
