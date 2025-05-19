@@ -18,6 +18,7 @@
   C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
   C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
   C4: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/MULTILINE
+  C5: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/Nested/INFISICAL_C
 
 ^echo d:
   D1: op://my.1password.eu/Personal/Lade/username
