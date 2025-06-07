@@ -1,9 +1,9 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use sysinfo::{get_current_pid, System};
+use sysinfo::{System, get_current_pid};
 
 #[cfg(debug_assertions)]
 macro_rules! import {

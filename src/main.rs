@@ -1,10 +1,10 @@
-use anyhow::{bail, Ok, Result};
+use anyhow::{Ok, Result, bail};
 use chrono::{TimeDelta, Utc};
 use log::{debug, warn};
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
 use std::{
-    collections::{hash_map::Keys, HashMap},
+    collections::{HashMap, hash_map::Keys},
     env,
     ffi::OsStr,
     fs,
@@ -76,7 +76,11 @@ async fn hydration_or_exit(
             eprintln!("┌{}┐", "-".repeat(width - 2));
             eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()),);
             for line in textwrap::wrap(error.trim(), wrap_width - 2) {
-                eprintln!("| > {} {}|", line, " ".repeat(wrap_width - 2 - line.len()),);
+                eprintln!(
+                    "| > {} {}|",
+                    line,
+                    " ".repeat(wrap_width - 2 - textwrap::core::display_width(&line)),
+                );
             }
             eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
             eprintln!("| {} {}|", wait, " ".repeat(wrap_width - wait.len()));
