@@ -302,6 +302,35 @@ async fn main() -> Result<()> {
             println!("Auto launcher uninstalled in {}", shell.uninstall()?);
             Ok(())
         }
+        Command::SetUser { user } => {
+            let project = directories::ProjectDirs::from("com", "zifeo", "lade")
+                .expect("cannot get directory for projet");
+            let config_path = project.config_local_dir().join("config.json");
+            let mut local_config = GlobalConfig::load(config_path.clone()).await?;
+
+            if user.is_empty() {
+                println!("no user provided");
+                return Ok(());
+            }
+
+            local_config.user = Some(user);
+            let _ = local_config.save(config_path).await?;
+
+            Ok(())
+        }
+        Command::GetUser => {
+            let project = directories::ProjectDirs::from("com", "zifeo", "lade")
+                .expect("cannot get directory for projet");
+            let config_path = project.config_local_dir().join("config.json");
+            let local_config = GlobalConfig::load(config_path.clone()).await?;
+            println!(
+                "{}",
+                local_config
+                    .user
+                    .unwrap_or("no user set. please use lade set-user to set a user".to_string())
+            );
+            Ok(())
+        }
     }
 }
 

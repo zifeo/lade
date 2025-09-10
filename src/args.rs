@@ -38,6 +38,11 @@ pub enum Command {
     Set(EvalCommand),
     /// Unset environment for shell.
     Unset(EvalCommand),
+    GetUser,
+    /// Set lade user
+    SetUser {
+        user: String,
+    },
 }
 
 #[derive(Parser, Debug)]

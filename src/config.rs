@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
-
+use crate::global_config::GlobalConfig;
 use anyhow::Result;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
@@ -10,6 +6,10 @@ use lade_sdk::hydrate;
 use regex::Regex;
 use serde::Deserialize;
 use std::fs::File;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 pub type Output = Option<PathBuf>;
 
@@ -99,7 +99,14 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
     ) -> Result<(Output, HashMap<String, String>)> {
-        let user = "alex".to_string();
+        let project = directories::ProjectDirs::from("com", "zifeo", "lade")
+            .expect("cannot get directory for projet");
+
+        let config_path = project.config_local_dir().join("config.json");
+
+        let local_config = GlobalConfig::load(config_path.clone()).await?;
+        let user = local_config.user;
+
         let secrets_with_single_user = rule.secrets.keys().fold(
             HashMap::default(),
             |mut acc: HashMap<String, String>, key| {
@@ -108,10 +115,12 @@ impl Config {
                         acc.insert(key.to_string(), value.to_string());
                     }
                     Some(LadeSecret::User(user_secrets)) => {
-                        if let Some(user_secret) = user_secrets.get(&user) {
-                            acc.insert(key.to_string(), user_secret.to_string());
+                        if let Some(user) = &user {
+                            if let Some(user_secret) = user_secrets.get(user) {
+                                acc.insert(key.to_string(), user_secret.to_string());
+                            }
                         } else {
-                            todo!("recommend to run first `lade user set`.")
+                            todo!("recommend users to run lade set user first")
                         }
                     }
                     None => {}

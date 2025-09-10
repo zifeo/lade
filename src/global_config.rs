@@ -9,6 +9,7 @@ use tokio::fs;
 #[derive(Deserialize, Serialize)]
 pub struct GlobalConfig {
     pub update_check: DateTime<Utc>,
+    pub user: Option<String>,
 }
 
 impl GlobalConfig {
@@ -20,6 +21,7 @@ impl GlobalConfig {
         } else {
             let config = GlobalConfig {
                 update_check: Utc::now(),
+                user: None,
             };
             config.save(path).await?;
             Ok(config)
