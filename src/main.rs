@@ -29,7 +29,7 @@ async fn upgrade_check() -> Result<()> {
 
     let config_path = project.config_local_dir().join("config.json");
     debug!("config_path: {:?}", config_path);
-    let mut local_config = GlobalConfig::load(config_path.clone()).await?;
+    let mut local_config = GlobalConfig::load().await?;
 
     if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
         debug!("checking for update");
@@ -53,7 +53,7 @@ async fn upgrade_check() -> Result<()> {
         }
 
         local_config.update_check = Utc::now();
-        local_config.save(config_path).await?;
+        local_config.save().await?;
     }
     Ok(())
 }
@@ -303,10 +303,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::SetUser { user } => {
-            let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-                .expect("cannot get directory for projet");
-            let config_path = project.config_local_dir().join("config.json");
-            let mut local_config = GlobalConfig::load(config_path.clone()).await?;
+            let mut local_config = GlobalConfig::load().await?;
 
             if user.is_empty() {
                 println!("no user provided");
@@ -314,15 +311,12 @@ async fn main() -> Result<()> {
             }
 
             local_config.user = Some(user);
-            let _ = local_config.save(config_path).await?;
+            let _ = local_config.save().await?;
 
             Ok(())
         }
         Command::GetUser => {
-            let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-                .expect("cannot get directory for projet");
-            let config_path = project.config_local_dir().join("config.json");
-            let local_config = GlobalConfig::load(config_path.clone()).await?;
+            let local_config = GlobalConfig::load().await?;
             println!(
                 "{}",
                 local_config

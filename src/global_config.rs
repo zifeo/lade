@@ -1,8 +1,9 @@
 use anyhow::{Ok, Result};
 use chrono::{DateTime, Utc};
+use log::debug;
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::PathBuf;
 
 use tokio::fs;
 
@@ -13,9 +14,18 @@ pub struct GlobalConfig {
 }
 
 impl GlobalConfig {
-    pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        if path.as_ref().exists() {
-            let config_str = fs::read_to_string(path).await?;
+    pub fn path() -> PathBuf {
+        let project = directories::ProjectDirs::from("com", "zifeo", "lade")
+            .expect("cannot get directory for projet");
+
+        let config_path = project.config_local_dir().join("config.json");
+        debug!("config_path: {:?}", config_path);
+        config_path
+    }
+    pub async fn load() -> Result<Self> {
+        let path = Self::path();
+        if path.exists() {
+            let config_str = fs::read_to_string(&path).await?;
             let config: GlobalConfig = serde_json::from_str(&config_str)?;
             Ok(config)
         } else {
@@ -23,15 +33,16 @@ impl GlobalConfig {
                 update_check: Utc::now(),
                 user: None,
             };
-            config.save(path).await?;
+            config.save().await?;
             Ok(config)
         }
     }
 
-    pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+    pub async fn save(&self) -> Result<()> {
         let config_str = serde_json::to_string_pretty(&self)?;
-        fs::create_dir_all(path.as_ref().parent().unwrap()).await?;
-        fs::write(path, config_str).await?;
+        let path = Self::path();
+        fs::create_dir_all(&path.parent().unwrap()).await?;
+        fs::write(&path, config_str).await?;
         Ok(())
     }
 }

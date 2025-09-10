@@ -99,12 +99,7 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
     ) -> Result<(Output, HashMap<String, String>)> {
-        let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("cannot get directory for projet");
-
-        let config_path = project.config_local_dir().join("config.json");
-
-        let local_config = GlobalConfig::load(config_path.clone()).await?;
+        let local_config = GlobalConfig::load().await?;
         let user = local_config.user;
 
         let secrets_with_single_user = rule.secrets.keys().fold(
