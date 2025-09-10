@@ -14,6 +14,7 @@ use std::fs::File;
 pub type Output = Option<PathBuf>;
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
 pub enum LadeSecret {
     Secret(String),
     User(HashMap<String, String>),
@@ -98,7 +99,27 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
     ) -> Result<(Output, HashMap<String, String>)> {
-        hydrate(rule.secrets, path.clone())
+        let user = "alex".to_string();
+        let secrets_with_single_user = rule.secrets.keys().fold(
+            HashMap::default(),
+            |mut acc: HashMap<String, String>, key| {
+                match rule.secrets.get(key) {
+                    Some(LadeSecret::Secret(value)) => {
+                        acc.insert(key.to_string(), value.to_string());
+                    }
+                    Some(LadeSecret::User(user_secrets)) => {
+                        if let Some(user_secret) = user_secrets.get(&user) {
+                            acc.insert(key.to_string(), user_secret.to_string());
+                        } else {
+                            todo!("recommend to run first `lade user set`.")
+                        }
+                    }
+                    None => {}
+                }
+                acc
+            },
+        );
+        hydrate(secrets_with_single_user, path.clone())
             .await
             .map(|x| (rule.output.map(|subpath| path.clone().join(subpath)), x))
     }
@@ -132,11 +153,61 @@ impl Config {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::config::*;
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
 
-#[test]
-fn test_lade_secrets_yaml() {
+    #[test]
+    fn test_lade_secrets_on_yaml() {
+        // Create a temporary directory
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
 
+        // Create a lade.yml file with test data
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(
+            b"
+                \"test command\":
+                    \".\": \"output/path\"
+                    secret1: \"secret_value\"
+                    secret2:
+                        user: \"user_name\"
+                        password: \"password_value\"
+                ",
+        )
+        .unwrap();
+
+        println!("File path: {}", file_path.display());
+        // Parse the lade.yml file
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+
+        // Assert that the parsed data is correct
+        let command = lade_file.commands.get("test command").unwrap();
+        assert_eq!(command.output, Some(PathBuf::from("output/path")));
+
+        let secrets = &command.secrets;
+        assert_eq!(secrets.len(), 2);
+
+        let secret1 = secrets.get("secret1").unwrap();
+        if let LadeSecret::Secret(value) = secret1 {
+            assert_eq!(value, "secret_value");
+        } else {
+            panic!("secret1 should be a LadeSecret::Secret");
+        }
+
+        let secret2 = secrets.get("secret2").unwrap();
+        if let LadeSecret::User(map) = secret2 {
+            let mut expected = HashMap::new();
+            expected.insert("user".to_string(), "user_name".to_string());
+            expected.insert("password".to_string(), "password_value".to_string());
+            assert_eq!(*map, expected);
+        } else {
+            panic!("secret2 should be a LadeSecret::User");
+        }
+    }
 }
-
-
-

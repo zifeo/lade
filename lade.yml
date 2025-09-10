@@ -58,3 +58,9 @@
 
 ^echo "test:
   TEST: "test-value"
+
+^echo user:
+  SAME_SECRET_FOR_EVERYONE: everyone
+  SECRET_FOR_THE_USER: 
+    alex: alex
+    zifeo: zifeo
