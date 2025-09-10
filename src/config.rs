@@ -14,11 +14,17 @@ use std::fs::File;
 pub type Output = Option<PathBuf>;
 
 #[derive(Deserialize, Debug, Clone)]
+pub enum LadeSecret {
+    Secret(String),
+    User(HashMap<String, String>),
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct LadeRule {
     #[serde(rename = ".")]
     pub output: Output,
     #[serde(flatten)]
-    pub secrets: HashMap<String, String>,
+    pub secrets: HashMap<String, LadeSecret>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -125,3 +131,12 @@ impl Config {
             .collect()
     }
 }
+
+
+#[test]
+fn test_lade_secrets_yaml() {
+
+}
+
+
+
