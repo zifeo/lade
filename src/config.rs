@@ -113,9 +113,11 @@ impl Config {
                         if let Some(user) = &user {
                             if let Some(user_secret) = user_secrets.get(user) {
                                 acc.insert(key.to_string(), user_secret.to_string());
+                            } else {
+                                eprintln!("Warning: No secret found for exsiting user '{}' key '{}'. Use 'lade set-user <USER>' to set a user.", user, key);
                             }
                         } else {
-                            todo!("recommend users to run lade set user first")
+                            eprintln!("Warning: Secret '{}' requires a user to be set. Please set one using 'lade set-user <USER>'.", key);
                         }
                     }
                     None => {}

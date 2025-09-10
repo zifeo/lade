@@ -275,7 +275,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
-            debug!("unsetting: {:?}", commands);
+            eprintln!("unsetting: {:?}", commands);
             let command = commands.join(" ");
 
             let mut keys = config.collect_keys(&command);
@@ -310,9 +310,10 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            local_config.user = Some(user);
+            local_config.user = Some(user.clone());
             let _ = local_config.save().await?;
 
+            println!("Successfully set user to {}", user);
             Ok(())
         }
         Command::GetUser => {
