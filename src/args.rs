@@ -46,11 +46,6 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
     },
-    //GetUser,
-    ///// Set lade user
-    //SetUser {
-    //    user: String,
-    //},
 }
 
 #[derive(Parser, Debug)]

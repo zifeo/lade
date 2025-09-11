@@ -132,11 +132,11 @@ impl Config {
                                 if let Some(user_secret) = user_secrets.get(&user) {
                                     acc.insert(key.to_string(), user_secret.to_string());
                                 } else {
-                                    eprintln!("Error: No secret found for user '{}' and key '{}'. Set a user with 'lade set-user <USER>'.", user, key);
+                                    eprintln!("Error: No secret found for user '{}' and key '{}'. Set a user with 'lade user <USER>'.", user, key);
                                 }
                             }
                             None => {
-                                eprintln!("Error: Secret '{}' requires a user. Set one with 'lade set-user <USER>'.", key);
+                                eprintln!("Error: Secret '{}' requires a user. Set one with 'lade user <USER>'.", key);
                             }
                         }
                     }
