@@ -41,7 +41,7 @@ async fn upgrade_check() -> Result<()> {
         })
         .await??;
         if Version::parse(&latest.version)? > Version::parse(current_version)? {
-            println!(
+            eprintln!(
                 "New lade update available: {} -> {} (use: lade upgrade)",
                 current_version, latest.version
             );
