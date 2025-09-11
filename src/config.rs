@@ -99,28 +99,47 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
     ) -> Result<(Output, HashMap<String, String>)> {
+        use std::env;
         let local_config = GlobalConfig::load().await?;
-        let user = local_config.user;
+        let saved_user = local_config.user;
 
-        let secrets_with_single_user = rule.secrets.keys().fold(
-            HashMap::default(),
-            |mut acc: HashMap<String, String>, key| {
-                match rule.secrets.get(key) {
-                    Some(LadeSecret::Secret(value)) => {
+        let secrets_with_single_user = rule.secrets.iter().fold(
+            HashMap::new(),
+            |mut acc, (key, secret)| {
+                match secret {
+                    LadeSecret::Secret(value) => {
                         acc.insert(key.to_string(), value.to_string());
                     }
-                    Some(LadeSecret::User(user_secrets)) => {
-                        if let Some(user) = &user {
-                            if let Some(user_secret) = user_secrets.get(user) {
-                                acc.insert(key.to_string(), user_secret.to_string());
-                            } else {
-                                eprintln!("Warning: No secret found for exsiting user '{}' key '{}'. Use 'lade set-user <USER>' to set a user.", user, key);
+                    LadeSecret::User(user_secrets) => {
+                        let user = match saved_user.clone() {
+                            Some(saved_user) => Some(saved_user),
+                            None => {  // fallback the os user
+                                if let Ok(unix_user) = env::var("USER") {
+                                    Some(unix_user)
+                                } else {
+                                    if let Ok(windows_user) = env::var("USERNAME") {
+                                        Some(windows_user)
+                                    } else {
+                                        None
+                                    }
+                                }
+
                             }
-                        } else {
-                            eprintln!("Warning: Secret '{}' requires a user to be set. Please set one using 'lade set-user <USER>'.", key);
+                        };
+                        
+                        match user {
+                            Some(user) => {
+                                if let Some(user_secret) = user_secrets.get(&user) {
+                                    acc.insert(key.to_string(), user_secret.to_string());
+                                } else {
+                                    eprintln!("Error: No secret found for user '{}' and key '{}'. Set a user with 'lade set-user <USER>'.", user, key);
+                                }
+                            }
+                            None => {
+                                eprintln!("Error: Secret '{}' requires a user. Set one with 'lade set-user <USER>'.", key);
+                            }
                         }
                     }
-                    None => {}
                 }
                 acc
             },
