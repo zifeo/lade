@@ -9,7 +9,7 @@ repository = "https://github.com/zifeo/lade"
 [dependencies]
 access-json = "0.1"
 anyhow = "1"
-async-process = "2.3"
+async-process = "2.4"
 async-trait = "0.1"
 directories = "6"
 futures = "0.3"
