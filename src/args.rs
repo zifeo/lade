@@ -38,11 +38,19 @@ pub enum Command {
     Set(EvalCommand),
     /// Unset environment for shell.
     Unset(EvalCommand),
-    GetUser,
-    /// Set lade user
-    SetUser {
-        user: String,
+    /// Manage user
+    User {
+        /// The username to set
+        username: Option<String>,
+        /// Reset/remove the current user. lade will fallback to the OS user for secrets
+        #[arg(long)]
+        reset: bool,
     },
+    //GetUser,
+    ///// Set lade user
+    //SetUser {
+    //    user: String,
+    //},
 }
 
 #[derive(Parser, Debug)]

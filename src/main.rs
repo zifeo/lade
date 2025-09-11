@@ -296,28 +296,40 @@ async fn main() -> Result<()> {
             println!("Auto launcher uninstalled in {}", shell.uninstall()?);
             Ok(())
         }
-        Command::SetUser { user } => {
+        Command::User { username, reset } => {
             let mut local_config = GlobalConfig::load().await?;
 
-            if user.is_empty() {
-                println!("no user provided");
+            //reset user
+            if reset {
+                local_config.user = None;
+                local_config.save().await?;
+
+                println!("Successfully reset lade user");
                 return Ok(());
             }
 
-            local_config.user = Some(user.clone());
-            let _ = local_config.save().await?;
+            // set user
+            if let Some(user) = username {
+                if user.is_empty() {
+                    println!("No user provided");
+                    return Ok(());
+                }
 
-            println!("Successfully set user to {}", user);
-            Ok(())
-        }
-        Command::GetUser => {
-            let local_config = GlobalConfig::load().await?;
-            println!(
-                "{}",
-                local_config
-                    .user
-                    .unwrap_or("no user set. please use lade set-user to set a user".to_string())
-            );
+                local_config.user = Some(user.clone());
+                let _ = local_config.save().await?;
+
+                println!("Successfully set user to {}", user);
+                return Ok(());
+            }
+
+            // get user
+
+            if let Some(user) = local_config.user {
+                println!("{}", user);
+            } else {
+                println!("No user set. Lade will use the current OS user.");
+            }
+
             Ok(())
         }
     }
