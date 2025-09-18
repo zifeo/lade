@@ -24,12 +24,7 @@ use global_config::GlobalConfig;
 use config::{Config, LadeFile, Output};
 
 async fn upgrade_check() -> Result<()> {
-    let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-        .expect("cannot get directory for projet");
-
-    let config_path = project.config_local_dir().join("config.json");
-    debug!("config_path: {:?}", config_path);
-    let mut local_config = GlobalConfig::load(config_path.clone()).await?;
+    let mut local_config = GlobalConfig::load().await?;
 
     if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
         debug!("checking for update");
@@ -53,7 +48,7 @@ async fn upgrade_check() -> Result<()> {
         }
 
         local_config.update_check = Utc::now();
-        local_config.save(config_path).await?;
+        local_config.save().await?;
     }
     Ok(())
 }
@@ -275,7 +270,6 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
-            debug!("unsetting: {:?}", commands);
             let command = commands.join(" ");
 
             let mut keys = config.collect_keys(&command);
@@ -300,6 +294,42 @@ async fn main() -> Result<()> {
         }
         Command::Uninstall => {
             println!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            Ok(())
+        }
+        Command::User { username, reset } => {
+            let mut local_config = GlobalConfig::load().await?;
+
+            //reset user
+            if reset {
+                local_config.user = None;
+                local_config.save().await?;
+
+                println!("Successfully reset lade user");
+                return Ok(());
+            }
+
+            // set user
+            if let Some(user) = username {
+                if user.is_empty() {
+                    println!("No user provided");
+                    return Ok(());
+                }
+
+                local_config.user = Some(user.clone());
+                let _ = local_config.save().await?;
+
+                println!("Successfully set user to {}", user);
+                return Ok(());
+            }
+
+            // get user
+
+            if let Some(user) = local_config.user {
+                println!("{}", user);
+            } else {
+                println!("No user set. Lade will use the current OS user.");
+            }
+
             Ok(())
         }
     }

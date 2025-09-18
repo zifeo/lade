@@ -46,3 +46,4 @@ nix = { version = "0.30.1", features = ["signal"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.17"
+tempfile = "3.10.1"
