@@ -86,6 +86,27 @@ command regex:
   ...
 ```
 
+### Per User Secrets
+
+In the case where you have different secrets for different users, you can
+specify a different secret for each user by specifying each user as a key under
+a variable.
+```yaml
+command regex:
+  SAME_SECRET_FOR_EVERYONE: hello_world
+  SECRET_FOR_THE_USER: 
+    alex: alex_secret
+    zifeo: zifeo_secret
+```
+Lade will use the current user by default. you can change this by setting the
+`user` subcommand.
+```sh
+lade user  # get currently set user
+lade user tonystark  # set user to tonystark
+lade user --reset  # reset user, fallback to current user
+```
+
+
 ## Loaders
 
 Most of the vault loaders use their native CLI to operate. This means you must

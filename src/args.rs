@@ -38,6 +38,14 @@ pub enum Command {
     Set(EvalCommand),
     /// Unset environment for shell.
     Unset(EvalCommand),
+    /// Manage user
+    User {
+        /// The username to set
+        username: Option<String>,
+        /// Reset/remove the current user. lade will fallback to the OS user for secrets
+        #[arg(long)]
+        reset: bool,
+    },
 }
 
 #[derive(Parser, Debug)]
