@@ -38,4 +38,3 @@ if functions -q precmd_lade
 else
     echo "precmd_lade correctly removed"
 end
-
