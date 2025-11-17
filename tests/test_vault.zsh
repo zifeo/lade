@@ -41,4 +41,3 @@ if type precmd_lade >/dev/null 2>&1; then
 else
   echo "precmd_lade correctly removed"
 fi
-
