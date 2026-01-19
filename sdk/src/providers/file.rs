@@ -5,7 +5,7 @@ use std::{
 };
 
 use access_json::JSONQuery;
-use anyhow::{bail, Ok, Result};
+use anyhow::{Ok, Result, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use ini::Ini;
