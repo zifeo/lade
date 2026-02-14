@@ -11,7 +11,7 @@ jobs:
     if: github.ref_type == 'tag'
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -35,7 +35,7 @@ jobs:
       - check-bump
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -75,7 +75,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             suffix: ".exe"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -106,7 +106,7 @@ jobs:
       - binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -117,7 +117,7 @@ jobs:
           cargo install cargo-edit
           cargo set-version --bump beta
           echo "version=$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)" >> $GITHUB_OUTPUT
-      - uses: peter-evans/create-pull-request@v7
+      - uses: peter-evans/create-pull-request@v8
         with:
           branch: bump-${{ steps.bump.outputs.version }}
           delete-branch: true
