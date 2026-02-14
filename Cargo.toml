@@ -6,14 +6,14 @@ resolver = "2"
 
 [package]
 name = "lade"
-version = "0.12.2-beta.1"
+version = "0.12.2"
 edition = "2024"
 description = "Automatically load secrets from your preferred vault as environment variables, and clear them once your shell command is over."
 license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
 
 [dependencies]
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 self_update = { version = "0.42.0", features = [
   "archive-tar",
   "archive-zip",
@@ -21,29 +21,29 @@ self_update = { version = "0.42.0", features = [
   "compression-zip-deflate",
   "compression-zip-bzip2",
 ] }
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
-clap = { version = "4.5.47", features = ["derive"] }
-regex = "1.11.2"
-lade-sdk = { path = "./sdk", version = "0.12.2-beta.1" }
+clap = { version = "4.5.52", features = ["derive"] }
+regex = "1.12.2"
+lade-sdk = { path = "./sdk", version = "0.12.2" }
 tokio = { version = "1", features = ["full"] }
-indexmap = { version = "2.11.1", features = ["serde"] }
+indexmap = { version = "2.12.0", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
 env_logger = "0.11.8"
-openssl = { version = "0.10.73", features = ["vendored"] }
-serde_json = "1.0.143"
+openssl = { version = "0.10.75", features = ["vendored"] }
+serde_json = "1.0.145"
 futures = "0.3.31"
 path-clean = "1.0.1"
 directories = "6.0.0"
 sysinfo = "0.38.0"
 chrono = { version = "0.4.42", features = ["serde"] }
 log = "0.4.28"
-semver = "1.0.26"
+semver = "1.0.27"
 textwrap = "0.16.2"
 
 [target.'cfg(target_family = "unix")'.dependencies]
 nix = { version = "0.31.1", features = ["signal"] }
 
 [dev-dependencies]
-assert_cmd = "2.0.17"
 tempfile = "3.10.1"
+assert_cmd = "2.1.1"
