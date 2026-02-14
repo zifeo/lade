@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 use url::Url;
 
-use crate::{providers::envs, Hydration};
+use crate::{Hydration, providers::envs};
 
 use super::Provider;
 

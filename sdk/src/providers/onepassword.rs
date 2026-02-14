@@ -1,15 +1,15 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
-use futures::{future::try_join_all, AsyncWriteExt};
+use futures::{AsyncWriteExt, future::try_join_all};
 
 use itertools::Itertools;
 use log::debug;
 use url::Url;
 
-use crate::{providers::envs, Hydration};
+use crate::{Hydration, providers::envs};
 
 use super::Provider;
 
@@ -90,6 +90,11 @@ impl Provider for OnePassword {
 
                     let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
                     let errors = String::from_utf8_lossy(&child.stderr);
+
+                    if errors.contains("[ERROR]") {
+                        bail!("1Password error: {errors}")
+                    }
+
                     debug!("stdout: {:?}", output);
                     debug!("stderr: {:?}", errors);
                     let loaded = output.split(SEP).collect::<Vec<_>>();

@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Ok, Result};
+use anyhow::{Ok, Result, bail};
 use futures::future::try_join_all;
 use once_cell::sync::Lazy;
 use providers::Provider;
