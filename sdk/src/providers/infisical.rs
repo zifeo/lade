@@ -43,7 +43,8 @@ impl Provider for Infisical {
             _ => bail!("Not an infisical scheme"),
         }
     }
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+        let extra_env = extra_env.clone();
         let fetches = self
             .urls
             .iter()
@@ -86,6 +87,7 @@ impl Provider for Infisical {
                                     .collect::<HashMap<String, Vec<(String, String)>>>();
 
                                 let host = host.clone();
+                                let extra_env = extra_env.clone();
                                 async move {
                                     let mut hydration = Hydration::new();
 
@@ -118,7 +120,7 @@ impl Provider for Infisical {
                                         let child = match Command::new(cmd[0])
                                             .args(&cmd[1..])
                                             .current_dir(temp_dir.path())
-                                            .envs(envs())
+                                            .envs(envs(&extra_env))
                                             .stdout(Stdio::piped())
                                             .stderr(Stdio::piped())
                                             .output()

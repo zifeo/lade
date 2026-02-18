@@ -36,19 +36,22 @@ impl Provider for Passbolt {
         }
     }
 
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+        let extra_env = extra_env.clone();
         let fetches = self
             .urls
             .iter()
             .into_group_map_by(|(url, _)| url.host().expect("Missing host"))
             .into_iter()
             .flat_map(|(host, group)| {
+                let extra_env = extra_env.clone();
                 group
                     .into_iter()
                     .into_group_map_by(|(url, _)| url.path().split('/').nth(1).expect("Missing resource id"))
                     .into_iter()
-                    .map(|(resource_id, group)| {
+                    .map(move |(resource_id, group)| {
                         let host = host.clone();
+                        let extra_env = extra_env.clone();
                         async move {
                             let cmd = [
                                 "passbolt",
@@ -65,7 +68,7 @@ impl Provider for Passbolt {
 
                             let child = match Command::new(cmd[0])
                                 .args(&cmd[1..])
-                                .envs(envs())
+                                .envs(envs(&extra_env))
                                 .stdout(Stdio::piped())
                                 .stderr(Stdio::piped())
                                 .output()

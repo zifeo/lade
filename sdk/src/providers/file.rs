@@ -42,7 +42,7 @@ impl Provider for File {
             _ => bail!("Not an file scheme or missing ?query=.field part"),
         }
     }
-    async fn resolve(&self, cwd: &Path) -> Result<Hydration> {
+    async fn resolve(&self, cwd: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()

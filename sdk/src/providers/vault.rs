@@ -45,7 +45,8 @@ impl Provider for Vault {
         }
     }
 
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+        let extra_env = extra_env.clone();
         let fetches = self
             .urls
             .iter()
@@ -71,6 +72,7 @@ impl Provider for Vault {
                             .into_iter()
                             .map(|(key, group)| {
                                 let host = host.clone();
+                                let extra_env = extra_env.clone();
                                 async move {
                                     let cmd = [
                                         "vault",
@@ -88,7 +90,7 @@ impl Provider for Vault {
 
                                     let child = match Command::new(cmd[0])
                                         .args(&cmd[1..])
-                                        .envs(envs())
+                                        .envs(envs(&extra_env))
                                         .stdout(Stdio::piped())
                                         .stderr(Stdio::piped())
                                         .output()

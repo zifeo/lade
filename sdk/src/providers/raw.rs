@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ impl Provider for Raw {
         self.values.push(value);
         Ok(())
     }
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
         let ret = self
             .values
             .iter()

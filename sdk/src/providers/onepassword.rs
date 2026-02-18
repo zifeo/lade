@@ -37,7 +37,8 @@ impl Provider for OnePassword {
             _ => bail!("Not a onepassword scheme"),
         }
     }
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+        let extra_env = extra_env.clone();
         let fetches = self
             .urls
             .iter()
@@ -51,6 +52,7 @@ impl Provider for OnePassword {
                     .collect::<HashMap<_, _>>();
 
                 let host = host.clone();
+                let extra_env = extra_env.clone();
                 async move {
                     if vars.is_empty() {
                         return Ok(HashMap::new());
@@ -64,7 +66,7 @@ impl Provider for OnePassword {
 
                     let mut process = Command::new(cmd[0])
                         .args(&cmd[1..])
-                        .envs(envs())
+                        .envs(envs(&extra_env))
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .stdin(Stdio::piped())

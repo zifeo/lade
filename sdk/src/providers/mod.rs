@@ -16,7 +16,7 @@ mod vault;
 #[async_trait]
 pub trait Provider: Sync {
     fn add(&mut self, value: String) -> Result<()>;
-    async fn resolve(&self, cwd: &Path) -> Result<Hydration>;
+    async fn resolve(&self, cwd: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration>;
 }
 
 pub fn providers() -> Vec<Box<dyn Provider + Send>> {
@@ -31,6 +31,8 @@ pub fn providers() -> Vec<Box<dyn Provider + Send>> {
     ]
 }
 
-pub fn envs() -> HashMap<String, String> {
-    std::env::vars().collect()
+pub fn envs(extra: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = std::env::vars().collect();
+    env.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env
 }

@@ -187,9 +187,30 @@ async fn main() -> Result<()> {
         }
     }
 
+    let shell = Shell::detect()?;
+
+    match command {
+        Command::On => {
+            println!("{}\n{}", shell.off()?, shell.on()?);
+            return Ok(());
+        }
+        Command::Off => {
+            println!("{}", shell.off()?);
+            return Ok(());
+        }
+        Command::Install => {
+            println!("Auto launcher installed in {}", shell.install()?);
+            return Ok(());
+        }
+        Command::Uninstall => {
+            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            return Ok(());
+        }
+        _ => {}
+    }
+
     let current_dir = env::current_dir()?;
     let config = LadeFile::build(current_dir.clone())?;
-    let shell = Shell::detect()?;
 
     match command {
         Command::Upgrade(opts) => {
@@ -280,22 +301,6 @@ async fn main() -> Result<()> {
 
             Ok(())
         }
-        Command::On => {
-            println!("{}\n{}", shell.off()?, shell.on()?);
-            Ok(())
-        }
-        Command::Off => {
-            println!("{}", shell.off()?);
-            Ok(())
-        }
-        Command::Install => {
-            println!("Auto launcher installed in {}", shell.install()?);
-            Ok(())
-        }
-        Command::Uninstall => {
-            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
-            Ok(())
-        }
         Command::User { username, reset } => {
             let mut local_config = GlobalConfig::load().await?;
 
@@ -316,7 +321,7 @@ async fn main() -> Result<()> {
                 }
 
                 local_config.user = Some(user.clone());
-                let _ = local_config.save().await?;
+                local_config.save().await?;
 
                 println!("Successfully set user to {}", user);
                 return Ok(());
@@ -332,6 +337,7 @@ async fn main() -> Result<()> {
 
             Ok(())
         }
+        _ => unreachable!(), // already handled above
     }
 }
 
