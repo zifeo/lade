@@ -97,9 +97,10 @@ fn test_set_with_file_provider() {
     let home = tempdir().unwrap();
     let source = dir.path().join("source.json");
     fs::write(&source, r#"{"api_key":"filevalue123"}"#).unwrap();
+    let source_url_path = source.to_str().unwrap().replace('\\', "/");
     let lade_yml = format!(
         "\"cmd\":\n  VALUE: \"file://{}?query=.api_key\"\n",
-        source.display()
+        source_url_path
     );
     fs::write(dir.path().join("lade.yml"), &lade_yml).unwrap();
     common::lade(home.path())

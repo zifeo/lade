@@ -1,6 +1,6 @@
 [package]
 name = "lade-sdk"
-version = "0.12.2"
+version = "0.13.0"
 edition = "2021"
 description = "Lade SDK"
 license = "MPL-2.0"
