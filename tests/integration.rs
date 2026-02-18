@@ -1,20 +1,7 @@
-use assert_cmd::Command;
+mod common;
+
 use std::fs;
 use tempfile::tempdir;
-
-fn lade(home: &std::path::Path) -> Command {
-    let mut cmd = Command::cargo_bin("lade").unwrap();
-    cmd.env("LADE_SHELL", "bash").env("HOME", home);
-    cmd
-}
-
-#[cfg(unix)]
-fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.path().join(name);
-    fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-}
 
 #[test]
 fn test_set_raw_values() {
@@ -25,8 +12,7 @@ fn test_set_raw_values() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .args(["set", "mycmd"])
         .assert()
@@ -43,8 +29,7 @@ fn test_set_multiple_secrets() {
         "\"mycmd\":\n  KEY1: val1\n  KEY2: val2\n",
     )
     .unwrap();
-
-    let output = lade(home.path())
+    let output = common::lade(home.path())
         .current_dir(dir.path())
         .args(["set", "mycmd"])
         .assert()
@@ -66,8 +51,7 @@ fn test_unset_keys() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .args(["unset", "mycmd"])
         .assert()
@@ -79,8 +63,7 @@ fn test_unset_keys() {
 fn test_set_no_lade_yml_exits_cleanly() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
-
-    let out = lade(home.path())
+    let out = common::lade(home.path())
         .current_dir(dir.path())
         .args(["set", "mycmd"])
         .assert()
@@ -89,7 +72,6 @@ fn test_set_no_lade_yml_exits_cleanly() {
         .stdout
         .clone();
     let stdout = String::from_utf8_lossy(&out);
-    // no matched rule -> no exports
     assert!(!stdout.contains("export"), "unexpected exports: {stdout}");
 }
 
@@ -102,8 +84,7 @@ fn test_set_malformed_lade_yml_fails() {
         "\"cmd\":\n  \".\": \"old_string_format\"\n  KEY: val\n",
     )
     .unwrap();
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .args(["set", "cmd"])
         .assert()
@@ -121,8 +102,7 @@ fn test_set_with_file_provider() {
         source.display()
     );
     fs::write(dir.path().join("lade.yml"), &lade_yml).unwrap();
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .args(["set", "cmd"])
         .assert()
@@ -139,8 +119,7 @@ fn test_inject_raw_value_reaches_child_process() {
         "\"echo.*\":\n  SECRET: injected_secret\n",
     )
     .unwrap();
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .args(["inject", "echo", "$SECRET"])
         .assert()
@@ -154,26 +133,22 @@ fn test_inject_with_fake_vault_cli() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let fake_bin = tempdir().unwrap();
-
-    fake_cli(
+    common::fake_cli(
         &fake_bin,
         "vault",
         r#"echo '{"data":{"data":{"password":"vault_injected"}}}'"#,
     );
-
     fs::write(
         dir.path().join("lade.yml"),
         "\"vault.*\":\n  PASSWORD: \"vault://localhost/secret/myapp/password\"\n",
     )
     .unwrap();
-
     let new_path = format!(
         "{}:{}",
         fake_bin.path().display(),
         std::env::var("PATH").unwrap_or_default()
     );
-
-    lade(home.path())
+    common::lade(home.path())
         .current_dir(dir.path())
         .env("PATH", &new_path)
         .args(["set", "vault cmd"])
@@ -182,68 +157,4 @@ fn test_inject_with_fake_vault_cli() {
         .stdout(predicates::str::contains(
             "export PASSWORD='vault_injected'",
         ));
-}
-
-#[test]
-fn test_user_set() {
-    let home = tempdir().unwrap();
-    let dir = tempdir().unwrap();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user", "testuser"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("testuser"));
-}
-
-#[test]
-fn test_user_get_after_set() {
-    let home = tempdir().unwrap();
-    let dir = tempdir().unwrap();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user", "testuser"])
-        .assert()
-        .success();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("testuser"));
-}
-
-#[test]
-fn test_user_reset() {
-    let home = tempdir().unwrap();
-    let dir = tempdir().unwrap();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user", "testuser"])
-        .assert()
-        .success();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user", "--reset"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("reset"));
-}
-
-#[test]
-fn test_user_get_no_user_set() {
-    let home = tempdir().unwrap();
-    let dir = tempdir().unwrap();
-
-    lade(home.path())
-        .current_dir(dir.path())
-        .args(["user"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("No user set"));
 }

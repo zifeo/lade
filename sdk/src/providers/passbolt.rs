@@ -1,17 +1,18 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{Result, anyhow, bail};
-use async_process::{Command, Stdio};
+use anyhow::{Ok, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
-
 use itertools::Itertools;
 use log::debug;
 use url::Url;
 
-use crate::{Hydration, providers::envs};
+use crate::Hydration;
 
-use super::Provider;
+use super::{Provider, add_url, deserialize_output, run_cli};
+
+const NAME: &str = "Passbolt";
+const INSTALL_URL: &str = "https://github.com/passbolt/go-passbolt-cli";
 
 #[derive(Default)]
 pub struct Passbolt {
@@ -27,13 +28,7 @@ impl Passbolt {
 #[async_trait]
 impl Provider for Passbolt {
     fn add(&mut self, value: String) -> Result<()> {
-        match Url::parse(&value) {
-            std::result::Result::Ok(url) if url.scheme() == "passbolt" => {
-                self.urls.insert(url, value);
-                Ok(())
-            }
-            _ => bail!("Not a passbolt scheme"),
-        }
+        add_url(&mut self.urls, value, "passbolt")
     }
 
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
@@ -47,7 +42,9 @@ impl Provider for Passbolt {
                 let extra_env = extra_env.clone();
                 group
                     .into_iter()
-                    .into_group_map_by(|(url, _)| url.path().split('/').nth(1).expect("Missing resource id"))
+                    .into_group_map_by(|(url, _)| {
+                        url.path().split('/').nth(1).expect("Missing resource id")
+                    })
                     .into_iter()
                     .map(move |(resource_id, group)| {
                         let host = host.clone();
@@ -57,54 +54,29 @@ impl Provider for Passbolt {
                                 "passbolt",
                                 "get",
                                 "resource",
-                                // #[cfg(debug_assertions)]
-                                // &format!("--serverAddress=http://{}", host),
-                                // #[cfg(not(debug_assertions))]
                                 &format!("--serverAddress=https://{}", host),
                                 &format!("--id={}", resource_id),
-                                "--json"
+                                "--json",
                             ];
                             debug!("Lade run: {}", cmd.join(" "));
 
-                            let child = match Command::new(cmd[0])
-                                .args(&cmd[1..])
-                                .envs(envs(&extra_env))
-                                .stdout(Stdio::piped())
-                                .stderr(Stdio::piped())
-                                .output()
-                                .await {
-                                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                                        bail!("Passbolt CLI not found. Make sure the binary is in your PATH or install it from https://github.com/passbolt/go-passbolt-cli.")
-                                    },
-                                    Err(e) => {
-                                        bail!("Passbolt error: {e}")
-                                    },
-                                    Ok(child) => child,
-                                };
-
-                            let loaded =
-                                serde_json::from_slice::<HashMap<String, String>>(&child.stdout)
-                                    .map_err(|err| {
-                                        let stderr = String::from_utf8_lossy(&child.stderr);
-                                        anyhow!("Passbolt error: {err} (stderr: {stderr})")
-                                    })?;
+                            let child = run_cli(&cmd, &extra_env, NAME, INSTALL_URL, None).await?;
+                            let loaded: HashMap<String, String> = deserialize_output(&child, NAME)?;
 
                             let hydration = group
                                 .into_iter()
                                 .map(|(url, value)| {
-                                    let var = url.path()
-                                                    .split('/')
-                                                    .nth(2)
-                                                    .expect("Missing field");
+                                    let var = url.path().split('/').nth(2).expect("Missing field");
                                     (
                                         value.clone(),
                                         loaded
-                                            .get(var,
-                                            )
-                                            .unwrap_or_else(|| panic!(
-                                                "Variable not found in Passbolt: {}",
-                                                resource_id
-                                            ))
+                                            .get(var)
+                                            .unwrap_or_else(|| {
+                                                panic!(
+                                                    "Variable not found in Passbolt: {}",
+                                                    resource_id
+                                                )
+                                            })
                                             .clone(),
                                     )
                                 })
@@ -125,17 +97,10 @@ impl Provider for Passbolt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::fake_cli;
     use std::collections::HashMap;
     use std::path::Path;
     use tempfile::tempdir;
-
-    #[cfg(unix)]
-    fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        let path = dir.path().join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
 
     #[test]
     fn test_add_valid_passbolt_scheme() {

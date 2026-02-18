@@ -5,15 +5,16 @@ use std::{
 
 use anyhow::{Ok, Result, bail};
 use futures::future::try_join_all;
-use once_cell::sync::Lazy;
 use providers::Provider;
-use regex::Regex;
+
+mod providers;
+mod resolve;
+
+pub use resolve::{resolve, resolve_one};
 
 type Hydration = HashMap<String, String>;
 
-mod providers;
-
-pub struct Hydrater {
+struct Hydrater {
     providers: Vec<Box<dyn Provider + Send>>,
 }
 
@@ -23,6 +24,7 @@ impl Hydrater {
             providers: providers::providers(),
         }
     }
+
     fn add(&mut self, value: String) -> Result<()> {
         for provider in self.providers.iter_mut() {
             if provider.add(value.clone()).is_ok() {
@@ -31,6 +33,7 @@ impl Hydrater {
         }
         bail!("No provider found")
     }
+
     async fn resolve(&self, cwd: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
         Ok(
             try_join_all(self.providers.iter().map(|p| p.resolve(cwd, extra_env)))
@@ -86,25 +89,7 @@ pub async fn hydrate_one(
     let mut hydrater = Hydrater::new();
     hydrater.add(value.clone())?;
     let hydration = hydrater.resolve(cwd, extra_env).await?;
-    let hydrated = hydration.get(&value).unwrap().to_owned();
-    Ok(hydrated)
-}
-
-static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\$\{?(\w+)\}?)").unwrap());
-
-pub fn resolve(
-    kvs: &HashMap<String, String>,
-    existing_vars: &HashMap<String, String>,
-) -> Result<HashMap<String, String>> {
-    kvs.iter()
-        .map(|(key, value)| resolve_one(value, existing_vars).map(|v| (key.clone(), v)))
-        .collect()
-}
-
-pub fn resolve_one(value: &str, existing_vars: &HashMap<String, String>) -> Result<String> {
-    Ok(VAR.captures_iter(value).fold(value.to_string(), |agg, c| {
-        agg.replace(&c[1], existing_vars.get(&c[2]).unwrap_or(&"".to_string()))
-    }))
+    Ok(hydration.get(&value).unwrap().to_owned())
 }
 
 #[cfg(test)]
@@ -147,73 +132,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, "escaped");
-    }
-
-    #[test]
-    fn test_resolve_one_no_vars() {
-        assert_eq!(
-            resolve_one("hello world", &HashMap::new()).unwrap(),
-            "hello world"
-        );
-    }
-
-    #[test]
-    fn test_resolve_one_dollar_var() {
-        let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
-        assert_eq!(resolve_one("prefix_$FOO", &vars).unwrap(), "prefix_bar");
-    }
-
-    #[test]
-    fn test_resolve_one_braces_var() {
-        let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
-        assert_eq!(
-            resolve_one("prefix_${FOO}_suffix", &vars).unwrap(),
-            "prefix_bar_suffix"
-        );
-    }
-
-    #[test]
-    fn test_resolve_one_multiple_vars() {
-        let vars = HashMap::from([
-            ("A".to_string(), "hello".to_string()),
-            ("B".to_string(), "world".to_string()),
-        ]);
-        assert_eq!(resolve_one("$A $B", &vars).unwrap(), "hello world");
-    }
-
-    #[test]
-    fn test_resolve_one_unknown_var_empty() {
-        assert_eq!(
-            resolve_one("val/$MISSING", &HashMap::new()).unwrap(),
-            "val/"
-        );
-    }
-
-    #[test]
-    fn test_resolve_one_adjacent_braced_vars() {
-        let vars = HashMap::from([
-            ("A".to_string(), "foo".to_string()),
-            ("B".to_string(), "bar".to_string()),
-        ]);
-        assert_eq!(resolve_one("${A}${B}", &vars).unwrap(), "foobar");
-    }
-
-    #[test]
-    fn test_resolve_one_word_boundary_without_braces() {
-        // \w+ greedily matches FOO_SUFFIX as one variable name, not just FOO
-        let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
-        assert_eq!(resolve_one("$FOO_SUFFIX", &vars).unwrap(), "");
-    }
-
-    #[test]
-    fn test_resolve_batch() {
-        let kvs = HashMap::from([
-            ("URL".to_string(), "https://$HOST/api".to_string()),
-            ("STATIC".to_string(), "literal".to_string()),
-        ]);
-        let vars = HashMap::from([("HOST".to_string(), "example.com".to_string())]);
-        let result = resolve(&kvs, &vars).unwrap();
-        assert_eq!(result.get("URL").unwrap(), "https://example.com/api");
-        assert_eq!(result.get("STATIC").unwrap(), "literal");
     }
 }

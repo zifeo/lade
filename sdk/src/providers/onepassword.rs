@@ -4,14 +4,15 @@ use anyhow::{Result, bail};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use futures::{AsyncWriteExt, future::try_join_all};
-
 use itertools::Itertools;
 use log::debug;
 use url::Url;
 
 use crate::{Hydration, providers::envs};
 
-use super::Provider;
+use super::{Provider, add_url};
+
+static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
 #[derive(Default)]
 pub struct OnePassword {
@@ -24,19 +25,12 @@ impl OnePassword {
     }
 }
 
-static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
-
 #[async_trait]
 impl Provider for OnePassword {
     fn add(&mut self, value: String) -> Result<()> {
-        match Url::parse(&value) {
-            std::result::Result::Ok(url) if url.scheme() == "op" => {
-                self.urls.insert(url, value);
-                Ok(())
-            }
-            _ => bail!("Not a onepassword scheme"),
-        }
+        add_url(&mut self.urls, value, "op")
     }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
         let extra_env = extra_env.clone();
         let fetches = self
@@ -75,18 +69,14 @@ impl Provider for OnePassword {
                     debug!("stdin: {:?}", input);
 
                     let mut stdin = process.stdin.take().expect("Failed to open stdin");
-                    stdin
-                        .write_all(input.as_bytes())
-                        .await?;
+                    stdin.write_all(input.as_bytes()).await?;
                     drop(stdin);
 
-                    let child = match process.output().await  {
+                    let child = match process.output().await {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                             bail!("1Password CLI not found. Make sure the binary is in your PATH or install it from https://1password.com/downloads/command-line/.")
                         },
-                        Err(e) => {
-                            bail!("1Password error: {e}")
-                        },
+                        Err(e) => bail!("1Password error: {e}"),
                         Ok(child) => child,
                     };
 
@@ -107,12 +97,7 @@ impl Provider for OnePassword {
 
                     let hydration = vars
                         .iter().zip_eq(loaded)
-                        .map(|((_, key), value)| {
-                            (
-                                key.clone(),
-                                value.to_string(),
-                            )
-                        })
+                        .map(|((_, key), value)| (key.clone(), value.to_string()))
                         .collect::<Hydration>();
 
                     debug!("hydration: {:?}", hydration);
@@ -128,17 +113,10 @@ impl Provider for OnePassword {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::fake_cli;
     use std::collections::HashMap;
     use std::path::Path;
     use tempfile::tempdir;
-
-    #[cfg(unix)]
-    fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        let path = dir.path().join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
 
     #[test]
     fn test_add_valid_op_scheme() {
@@ -158,7 +136,6 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_resolve_fake_cli_single_secret() {
-        // op inject reads op:// refs from stdin, outputs resolved values
         let fake_bin = tempdir().unwrap();
         fake_cli(&fake_bin, "op", "printf 'op_secret_value'");
 
