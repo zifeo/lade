@@ -15,9 +15,13 @@ pub struct GlobalConfig {
 
 impl GlobalConfig {
     pub fn path() -> PathBuf {
+        // Allow tests to override the config path without relying on OS-specific
+        // path resolution (e.g. SHGetKnownFolderPath on Windows ignores env vars).
+        if let std::result::Result::Ok(p) = std::env::var("LADE_CONFIG_PATH") {
+            return PathBuf::from(p);
+        }
         let project = directories::ProjectDirs::from("com", "zifeo", "lade")
             .expect("cannot get directory for projet");
-
         let config_path = project.config_local_dir().join("config.json");
         debug!("config_path: {:?}", config_path);
         config_path

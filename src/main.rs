@@ -1,147 +1,20 @@
-use anyhow::{Ok, Result, bail};
-use chrono::{TimeDelta, Utc};
-use log::{debug, warn};
-use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
-use semver::Version;
-use std::{
-    collections::{HashMap, hash_map::Keys},
-    env,
-    ffi::OsStr,
-    fs,
-    path::PathBuf,
-    process::Command as ProcessCommand,
-};
-use tokio::time;
-mod config;
-mod shell;
-use clap::{CommandFactory, Parser};
-use shell::Shell;
+use anyhow::{Ok, Result};
+use log::debug;
+use std::{env, process::Command as ProcessCommand};
+
 mod args;
+mod config;
+mod files;
 mod global_config;
+mod shell;
+mod upgrade;
+
 use args::{Args, Command, EvalCommand};
+use clap::{CommandFactory, Parser};
+use config::LadeFile;
+use files::{hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
-
-use config::{Config, LadeFile, Output};
-
-async fn upgrade_check() -> Result<()> {
-    let mut local_config = GlobalConfig::load().await?;
-
-    if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
-        debug!("checking for update");
-        let current_version = cargo_crate_version!();
-        let latest = tokio::task::spawn_blocking(move || {
-            let update = Update::configure()
-                .repo_owner("zifeo")
-                .repo_name("lade")
-                .bin_name("lade")
-                .current_version(current_version)
-                .build()?;
-
-            Ok(update.get_latest_release()?)
-        })
-        .await??;
-        if Version::parse(&latest.version)? > Version::parse(current_version)? {
-            eprintln!(
-                "New lade update available: {} -> {} (use: lade upgrade)",
-                current_version, latest.version
-            );
-        }
-
-        local_config.update_check = Utc::now();
-        local_config.save().await?;
-    }
-    Ok(())
-}
-
-async fn hydration_or_exit(
-    config: &Config,
-    command: &str,
-) -> HashMap<Output, HashMap<String, String>> {
-    match config.collect_hydrate(command).await {
-        std::result::Result::Ok(hydration) => hydration,
-        Err(e) => {
-            let width = 80;
-            let wrap_width = width - 4;
-
-            let header = "Lade could not get secrets from one loader:";
-            let error = e.to_string();
-            let hint = "Hint: check whether the loader is connected? to the correct? vault.";
-            let wait = "Waiting 5 seconds before continuing...";
-
-            eprintln!("┌{}┐", "-".repeat(width - 2));
-            eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()),);
-            for line in textwrap::wrap(error.trim(), wrap_width - 2) {
-                eprintln!(
-                    "| > {} {}|",
-                    line,
-                    " ".repeat(wrap_width - 2 - textwrap::core::display_width(&line)),
-                );
-            }
-            eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
-            eprintln!("| {} {}|", wait, " ".repeat(wrap_width - wait.len()));
-            eprintln!("└{}┘", "-".repeat(width - 2));
-            time::sleep(time::Duration::from_secs(5)).await;
-            std::process::exit(1);
-        }
-    }
-}
-
-fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {
-    let mut names = vec![];
-
-    for (path, vars) in hydration {
-        names.extend(vars.keys().cloned());
-
-        if path.exists() {
-            bail!("file already exists: {:?}", path)
-        }
-        debug!("writing file: {:?}", path);
-        let content: String = match path
-            .extension()
-            .and_then(OsStr::to_str)
-            .unwrap_or_else(|| panic!("cannot get extension of file: {:?}", path.display()))
-        {
-            "json" => serde_json::to_string(&vars)?,
-            "yaml" | "yml" => serde_yaml::to_string(&vars)?,
-            _ => bail!("unsupported file extension: {:?}", path.extension()),
-        };
-        fs::write(path, content)?;
-    }
-    Ok(names)
-}
-
-fn remove_files<T>(files: &mut Keys<PathBuf, T>) -> Result<()> {
-    for path in files {
-        debug!("removing file: {:?}", path);
-        if !path.exists() {
-            bail!("file should have existed: {:?}", path)
-        }
-        fs::remove_file(path)?;
-    }
-    Ok(())
-}
-
-fn split_env_files<T: Default + ToOwned>(
-    hydration: &mut HashMap<Output, T>,
-) -> Result<(T, HashMap<PathBuf, T>)>
-where
-    HashMap<PathBuf, T>: FromIterator<(PathBuf, <T as ToOwned>::Owned)>,
-{
-    let env = hydration
-        .remove(&None::<PathBuf>)
-        .unwrap_or_else(|| Default::default());
-    let files = hydration
-        .iter_mut()
-        .filter(|(path, _)| path.is_some())
-        .map(|(path, vars)| {
-            (
-                path.to_owned().unwrap(), // cannot panic as None has been removed above
-                vars.to_owned(),
-            )
-        })
-        .collect();
-    Ok((env, files))
-}
+use shell::Shell;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -179,58 +52,69 @@ async fn main() -> Result<()> {
     };
 
     match command {
-        Command::On | Command::Off => {}
-        _ => {
-            upgrade_check()
-                .await
-                .unwrap_or_else(|e| warn!("cannot check for update: {}", e));
+        Command::On | Command::Off | Command::Install | Command::Uninstall => {}
+        _ => upgrade::check_warn(),
+    }
+
+    let shell = Shell::detect()?;
+
+    match command {
+        Command::On => {
+            println!("{}\n{}", shell.off()?, shell.on()?);
+            return Ok(());
         }
+        Command::Off => {
+            println!("{}", shell.off()?);
+            return Ok(());
+        }
+        Command::Install => {
+            println!("Auto launcher installed in {}", shell.install()?);
+            return Ok(());
+        }
+        Command::Uninstall => {
+            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            return Ok(());
+        }
+        Command::Upgrade(opts) => return upgrade::perform(opts).await,
+        Command::User { username, reset } => {
+            let mut local_config = GlobalConfig::load().await?;
+            if reset {
+                local_config.user = None;
+                local_config.save().await?;
+                println!("Successfully reset lade user");
+                return Ok(());
+            }
+            if let Some(user) = username {
+                if user.is_empty() {
+                    println!("No user provided");
+                    return Ok(());
+                }
+                local_config.user = Some(user.clone());
+                local_config.save().await?;
+                println!("Successfully set user to {}", user);
+                return Ok(());
+            }
+            if let Some(user) = local_config.user {
+                println!("{}", user);
+            } else {
+                println!("No user set. Lade will use the current OS user.");
+            }
+            return Ok(());
+        }
+        _ => {}
     }
 
     let current_dir = env::current_dir()?;
     let config = LadeFile::build(current_dir.clone())?;
-    let shell = Shell::detect()?;
 
     match command {
-        Command::Upgrade(opts) => {
-            tokio::task::spawn_blocking(move || {
-                let mut update = Update::configure();
-                update
-                    .repo_owner("zifeo")
-                    .repo_name("lade")
-                    .bin_name("lade")
-                    .show_download_progress(true)
-                    .current_version(cargo_crate_version!())
-                    .no_confirm(opts.yes);
-
-                if let Some(version) = opts.version {
-                    update.target_version_tag(&format!("v{version}"));
-                }
-
-                match update.build()?.update_extended()? {
-                    UpdateStatus::UpToDate => println!("Already up to date!"),
-                    UpdateStatus::Updated(release) => {
-                        println!("Updated successfully to {}!", release.version);
-                        println!(
-                            "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
-                            release.name
-                        );
-                    }
-                };
-                Ok(())
-            })
-            .await??;
-            Ok(())
-        }
         Command::Inject(EvalCommand { commands }) => {
             debug!("injecting: {:?}", commands);
             let command = commands.join(" ");
 
             let mut hydration = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut hydration)?;
-
+            let (env, files) = split_env_files(&mut hydration);
             let mut names = write_files(&files)?;
-
             names.extend(env.keys().cloned());
             if !names.is_empty() {
                 eprintln!("Lade loaded: {}.", names.join(", "));
@@ -242,7 +126,6 @@ async fn main() -> Result<()> {
                 .envs(env::vars())
                 .envs(env)
                 .status();
-
             remove_files(&mut files.keys())?;
 
             let status = status.expect("failed to execute command");
@@ -257,10 +140,8 @@ async fn main() -> Result<()> {
             let command = commands.join(" ");
 
             let mut hydration = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut hydration)?;
-
+            let (env, files) = split_env_files(&mut hydration);
             let mut names = write_files(&files)?;
-
             names.extend(env.keys().cloned());
             if !names.is_empty() {
                 eprintln!("Lade loaded: {}.", names.join(", "));
@@ -271,82 +152,33 @@ async fn main() -> Result<()> {
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
-
             let mut keys = config.collect_keys(&command);
-            let (env, files) = split_env_files(&mut keys)?;
-
+            let (env, files) = split_env_files(&mut keys);
             remove_files(&mut files.keys())?;
             println!("{}", shell.unset(env));
-
             Ok(())
         }
-        Command::On => {
-            println!("{}\n{}", shell.off()?, shell.on()?);
-            Ok(())
-        }
-        Command::Off => {
-            println!("{}", shell.off()?);
-            Ok(())
-        }
-        Command::Install => {
-            println!("Auto launcher installed in {}", shell.install()?);
-            Ok(())
-        }
-        Command::Uninstall => {
-            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
-            Ok(())
-        }
-        Command::User { username, reset } => {
-            let mut local_config = GlobalConfig::load().await?;
-
-            //reset user
-            if reset {
-                local_config.user = None;
-                local_config.save().await?;
-
-                println!("Successfully reset lade user");
-                return Ok(());
-            }
-
-            // set user
-            if let Some(user) = username {
-                if user.is_empty() {
-                    println!("No user provided");
-                    return Ok(());
-                }
-
-                local_config.user = Some(user.clone());
-                let _ = local_config.save().await?;
-
-                println!("Successfully set user to {}", user);
-                return Ok(());
-            }
-
-            // get user
-
-            if let Some(user) = local_config.user {
-                println!("{}", user);
-            } else {
-                println!("No user set. Lade will use the current OS user.");
-            }
-
-            Ok(())
-        }
+        _ => unreachable!(),
     }
 }
 
-#[test]
-fn verify_cli() {
-    use crate::Args;
-    use clap::CommandFactory;
-    Args::command().debug_assert()
-}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn verify_cli() {
+        use crate::Args;
+        use clap::CommandFactory;
+        Args::command().debug_assert()
+    }
 
-#[test]
-fn end_to_end() {
-    // need build before running this test
-    use assert_cmd::Command;
-
-    let mut cmd = Command::cargo_bin("lade").unwrap();
-    cmd.arg("-h").assert().success();
+    #[test]
+    fn end_to_end() {
+        use assert_cmd::Command;
+        #[allow(deprecated)]
+        Command::cargo_bin("lade")
+            .unwrap()
+            .arg("-h")
+            .assert()
+            .success();
+    }
 }
