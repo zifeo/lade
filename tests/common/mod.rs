@@ -1,22 +1,18 @@
 use assert_cmd::Command;
 
 pub fn lade(home: &std::path::Path) -> Command {
+    #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("lade").unwrap();
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
-        // `directories` resolves config via XDG on Linux/macOS; override all three so
-        // parallel tests don't share the global config when XDG_CONFIG_HOME is pre-set.
-        .env("XDG_CONFIG_HOME", home.join(".config"))
-        .env("XDG_DATA_HOME", home.join(".local/share"))
-        .env("XDG_CACHE_HOME", home.join(".cache"))
-        // `directories` resolves config via LOCALAPPDATA on Windows; override both so
-        // parallel tests don't share the global config when LOCALAPPDATA is pre-set.
-        .env("LOCALAPPDATA", home.join("AppData/Local"))
-        .env("APPDATA", home.join("AppData/Roaming"));
+        // `directories` uses OS APIs (XDG on Linux, SHGetKnownFolderPath on Windows)
+        // that ignore env vars, so we use a dedicated override instead.
+        .env("LADE_CONFIG_PATH", home.join("lade-config.json"));
     cmd
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

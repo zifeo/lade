@@ -122,7 +122,6 @@ impl Provider for File {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]

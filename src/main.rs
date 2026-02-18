@@ -174,6 +174,7 @@ mod tests {
     #[test]
     fn end_to_end() {
         use assert_cmd::Command;
+        #[allow(deprecated)]
         Command::cargo_bin("lade")
             .unwrap()
             .arg("-h")

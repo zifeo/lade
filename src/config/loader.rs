@@ -57,7 +57,6 @@ impl LadeFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::LadeSecret;
     use std::path::PathBuf;
     use tempfile::tempdir;
 

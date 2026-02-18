@@ -137,7 +137,7 @@ mod tests {
     #[cfg(unix)]
     async fn test_resolve_fake_cli_single_secret() {
         let fake_bin = tempdir().unwrap();
-        fake_cli(&fake_bin, "op", "printf 'op_secret_value'");
+        fake_cli(&fake_bin, "op", "cat > /dev/null\nprintf 'op_secret_value'");
 
         let mut p = OnePassword::new();
         p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
