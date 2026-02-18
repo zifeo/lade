@@ -76,36 +76,44 @@ lade inject terraform apply
 
 ### Outputting as files
 
-By default, Lade will load secrets into environment variables. You can change
-this by setting the `.` to the desired file name. The content will be created
-based on the extension. Currently, only YAML and JSON are supported.
+By default, Lade will load secrets into environment variables. You can write
+secrets to a file instead by setting `file` inside the `.` configuration block.
+The content format is determined by the file extension. Currently only YAML and
+JSON are supported.
 
 ```yaml
 command regex:
-  .: file.yml
-  ...
+  .:
+    file: secrets.yml
+  SECRET: op://...
 ```
 
-### Per User Secrets
+### Per-user secrets
 
-In the case where you have different secrets for different users, you can
-specify a different secret for each user by specifying each user as a key under
-a variable.
+When different team members need different secret values for the same variable,
+specify each user as a key. Lade resolves the current user automatically; use
+`"."` as a catch-all default for any user not explicitly listed (including when
+no user is set).
+
 ```yaml
 command regex:
   SAME_SECRET_FOR_EVERYONE: hello_world
-  SECRET_FOR_THE_USER: 
+  SECRET_FOR_THE_USER:
     alex: alex_secret
     zifeo: zifeo_secret
-```
-Lade will use the current user by default. you can change this by setting the
-`user` subcommand.
-```sh
-lade user  # get currently set user
-lade user tonystark  # set user to tonystark
-lade user --reset  # reset user, fallback to current user
+    .: default_secret # used when no matching user is found
+  SECRET_FOR_ZIFEO_ONLY:
+    zifeo: zifeo_secret
+    .: null # explicitly no value for other users
 ```
 
+Use the `user` subcommand to control which user Lade resolves:
+
+```sh
+lade user              # show currently set user
+lade user tonystark    # set user to tonystark
+lade user --reset      # reset, falling back to the OS user
+```
 
 ## Loaders
 
@@ -134,6 +142,28 @@ command regex:
 ```
 
 Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
+
+In CI/CD `OP_SERVICE_ACCOUNT_TOKEN` is typically injected directly by the
+platform. For cases where the token itself is stored in another vault, add
+`1password_service_account` to the `.` config block. Lade resolves that URI
+first — using any loader — and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
+before resolving the remaining `op://` secrets. This enables recursive
+cross-vault lookups: the token lives in Vault or Infisical, and the actual
+secrets live in 1Password.
+
+Per-user mapping lets each developer or environment use a different source for
+the token, or skip it entirely with `null` to fall back on their local `op` session.
+
+```yaml
+command regex:
+  .:
+    # simple: token stored in 1Password itself (requires an active op session)
+    1password_service_account: op://DOMAIN/VAULT/ITEM/FIELD
+    # or per-user: CI pulls token from Vault, others use their local op session
+    # 1password_service_account:
+    #   ci: vault://DOMAIN/MOUNT/KEY/FIELD
+  EXPORTED_ENV_VAR: op://...
+```
 
 ### Doppler loader
 

@@ -13,7 +13,7 @@ license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.101"
 self_update = { version = "0.42.0", features = [
   "archive-tar",
   "archive-zip",
@@ -23,21 +23,21 @@ self_update = { version = "0.42.0", features = [
 ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
-clap = { version = "4.5.52", features = ["derive"] }
-regex = "1.12.2"
+clap = { version = "4.5.59", features = ["derive"] }
+regex = "1.12.3"
 lade-sdk = { path = "./sdk", version = "0.12.2" }
 tokio = { version = "1", features = ["full"] }
-indexmap = { version = "2.12.0", features = ["serde"] }
+indexmap = { version = "2.13.0", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
-env_logger = "0.11.8"
+env_logger = "0.11.9"
 openssl = { version = "0.10.75", features = ["vendored"] }
-serde_json = "1.0.145"
-futures = "0.3.31"
+serde_json = "1.0.149"
+futures = "0.3.32"
 path-clean = "1.0.1"
 directories = "6.0.0"
-sysinfo = "0.38.0"
-chrono = { version = "0.4.42", features = ["serde"] }
-log = "0.4.28"
+sysinfo = "0.38.2"
+chrono = { version = "0.4.43", features = ["serde"] }
+log = "0.4.29"
 semver = "1.0.27"
 textwrap = "0.16.2"
 
@@ -45,5 +45,5 @@ textwrap = "0.16.2"
 nix = { version = "0.31.1", features = ["signal"] }
 
 [dev-dependencies]
-tempfile = "3.10.1"
-assert_cmd = "2.1.1"
+tempfile = "3.25.0"
+assert_cmd = "2.1.2"
