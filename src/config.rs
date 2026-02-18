@@ -402,4 +402,185 @@ mod tests {
         );
         assert_eq!(resolve_lade_secret(&secret, &None), None);
     }
+
+    // --- multiple commands ---
+
+    #[test]
+    fn test_multiple_commands_in_yaml() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd1\":\n  KEY1: val1\n\"cmd2\":\n  KEY2: val2\n",
+        )
+        .unwrap();
+
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+        assert_eq!(lade_file.commands.len(), 2);
+        assert!(lade_file.commands.contains_key("cmd1"));
+        assert!(lade_file.commands.contains_key("cmd2"));
+    }
+
+    // --- Config::collect ---
+
+    #[test]
+    fn test_collect_exact_match() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"terraform plan\":\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("terraform plan").len(), 1);
+    }
+
+    #[test]
+    fn test_collect_regex_match() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"terraform.*\":\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("terraform plan").len(), 1);
+        assert_eq!(config.collect("terraform apply").len(), 1);
+        assert_eq!(config.collect("other command").len(), 0);
+    }
+
+    #[test]
+    fn test_collect_no_match() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yml"), "\"specific\":\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert!(config.collect("other").is_empty());
+    }
+
+    #[test]
+    fn test_collect_multiple_rules_match() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd.*\":\n  KEY1: val1\n\".*\":\n  KEY2: val2\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("cmd anything").len(), 2);
+    }
+
+    // --- LadeFile::build ---
+
+    #[test]
+    fn test_build_single_lade_yml() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("cmd").len(), 1);
+    }
+
+    #[test]
+    fn test_build_yaml_extension_fallback() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yaml"), "\"cmd\":\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("cmd").len(), 1);
+    }
+
+    #[test]
+    fn test_build_yaml_preferred_over_yml() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yaml"),
+            "\"cmd\":\n  KEY_YAML: yaml_val\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  KEY_YML: yml_val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let matches = config.collect("cmd");
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].1.secrets.contains_key("KEY_YAML"));
+    }
+
+    #[test]
+    fn test_build_nested_dirs_parent_first() {
+        let parent = tempdir().unwrap();
+        let child = parent.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(
+            parent.path().join("lade.yml"),
+            "\"cmd\":\n  PARENT_KEY: pval\n",
+        )
+        .unwrap();
+        std::fs::write(child.join("lade.yml"), "\"cmd\":\n  CHILD_KEY: cval\n").unwrap();
+
+        let config = LadeFile::build(child).unwrap();
+        let matches = config.collect("cmd");
+        assert_eq!(matches.len(), 2);
+        // after reversing (root-first), parent rule comes first
+        assert!(matches[0].1.secrets.contains_key("PARENT_KEY"));
+        assert!(matches[1].1.secrets.contains_key("CHILD_KEY"));
+    }
+
+    #[test]
+    fn test_build_no_config_empty() {
+        let dir = tempdir().unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert!(config.collect("anything").is_empty());
+    }
+
+    #[test]
+    fn test_build_invalid_regex_error() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"[invalid regex\":\n  KEY: val\n",
+        )
+        .unwrap();
+        assert!(LadeFile::build(dir.path().to_path_buf()).is_err());
+    }
+
+    // --- collect_keys ---
+
+    #[test]
+    fn test_collect_keys_env_output() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  KEY1: val1\n  KEY2: val2\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let keys = config.collect_keys("cmd");
+        let env_keys = keys.get(&None).unwrap();
+        assert!(env_keys.contains(&"KEY1".to_string()));
+        assert!(env_keys.contains(&"KEY2".to_string()));
+    }
+
+    #[test]
+    fn test_collect_keys_file_output() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  \".\": { file: \"secrets.json\" }\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let keys = config.collect_keys("cmd");
+        let file_entries: Vec<_> = keys.into_iter().filter(|(k, _)| k.is_some()).collect();
+        assert_eq!(file_entries.len(), 1);
+        assert!(file_entries[0].1.contains(&"KEY".to_string()));
+    }
+
+    #[test]
+    fn test_collect_keys_no_match_empty() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert!(config.collect_keys("other").is_empty());
+    }
 }

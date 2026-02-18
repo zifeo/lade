@@ -124,3 +124,90 @@ impl Provider for OnePassword {
         Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn test_add_valid_op_scheme() {
+        let mut p = OnePassword::new();
+        assert!(
+            p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_add_rejects_wrong_scheme() {
+        let mut p = OnePassword::new();
+        assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_fake_cli_single_secret() {
+        // op inject reads op:// refs from stdin, outputs resolved values
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "op", "printf 'op_secret_value'");
+
+        let mut p = OnePassword::new();
+        p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await.unwrap();
+        assert_eq!(
+            result
+                .get("op://my.1password.com/vault_uuid/item_uuid/password")
+                .unwrap(),
+            "op_secret_value"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_error_in_stderr() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "op", "echo '[ERROR] authentication failed' >&2");
+
+        let mut p = OnePassword::new();
+        p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("1Password error"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_cli_not_found() {
+        let empty_bin = tempdir().unwrap();
+        let mut p = OnePassword::new();
+        p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            empty_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await;
+        assert!(result.is_err());
+    }
+}

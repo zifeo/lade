@@ -162,3 +162,207 @@ fn toml2json(toml: toml::Value) -> Value {
         toml::Value::Datetime(dt) => Value::String(dt.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    // --- add() routing ---
+
+    #[test]
+    fn test_add_valid_file_with_query() {
+        let mut p = File::new();
+        assert!(
+            p.add("file:///path/to/config.json?query=.key".to_string())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_add_rejects_file_without_query() {
+        let mut p = File::new();
+        assert!(p.add("file:///path/to/config.json".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_add_rejects_non_file_scheme() {
+        let mut p = File::new();
+        assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
+    }
+
+    // --- toml2json ---
+
+    #[test]
+    fn test_toml2json_string() {
+        assert_eq!(
+            toml2json(toml::Value::String("hello".to_string())),
+            Value::String("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn test_toml2json_integer() {
+        assert_eq!(
+            toml2json(toml::Value::Integer(42)),
+            Value::Number(42.into())
+        );
+    }
+
+    #[test]
+    fn test_toml2json_boolean() {
+        assert_eq!(toml2json(toml::Value::Boolean(true)), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_toml2json_array() {
+        let arr = toml::Value::Array(vec![
+            toml::Value::String("a".into()),
+            toml::Value::String("b".into()),
+        ]);
+        let result = toml2json(arr);
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::String("a".into()), Value::String("b".into())])
+        );
+    }
+
+    #[test]
+    fn test_toml2json_nested_table() {
+        let mut inner = toml::map::Map::new();
+        inner.insert(
+            "nested_key".to_string(),
+            toml::Value::String("nested_val".to_string()),
+        );
+        let mut outer = toml::map::Map::new();
+        outer.insert("section".to_string(), toml::Value::Table(inner));
+        let result = toml2json(toml::Value::Table(outer));
+        if let Value::Object(map) = result {
+            if let Some(Value::Object(section)) = map.get("section") {
+                assert_eq!(
+                    section.get("nested_key").unwrap(),
+                    &Value::String("nested_val".to_string())
+                );
+            } else {
+                panic!("expected section Object");
+            }
+        } else {
+            panic!("expected Object");
+        }
+    }
+
+    // --- ini2json ---
+
+    #[test]
+    fn test_ini2json_section_with_properties() {
+        let ini = Ini::load_from_str("[section1]\nkey1 = val1\n").unwrap();
+        let result = ini2json(ini);
+        if let Value::Object(map) = result {
+            if let Some(Value::Object(section)) = map.get("section1") {
+                assert_eq!(
+                    section.get("key1").unwrap(),
+                    &Value::String("val1".to_string())
+                );
+            } else {
+                panic!("expected section1 Object");
+            }
+        } else {
+            panic!("expected Object");
+        }
+    }
+
+    #[test]
+    fn test_ini2json_global_key() {
+        let ini = Ini::load_from_str("global_key = global_val\n").unwrap();
+        let result = ini2json(ini);
+        if let Value::Object(map) = result {
+            assert_eq!(
+                map.get("global_key").unwrap(),
+                &Value::String("global_val".to_string())
+            );
+        } else {
+            panic!("expected Object");
+        }
+    }
+
+    #[test]
+    fn test_ini2json_multiple_sections() {
+        let ini = Ini::load_from_str("[s1]\nk1 = v1\n\n[s2]\nk2 = v2\n").unwrap();
+        let result = ini2json(ini);
+        if let Value::Object(map) = result {
+            assert!(map.contains_key("s1"));
+            assert!(map.contains_key("s2"));
+        } else {
+            panic!("expected Object");
+        }
+    }
+
+    // --- File provider resolve() ---
+
+    #[tokio::test]
+    async fn test_resolve_json_file() {
+        let dir = tempdir().unwrap();
+        let json_path = dir.path().join("config.json");
+        std::fs::write(&json_path, r#"{"key":"myvalue"}"#).unwrap();
+        let url = format!("file://{}?query=.key", json_path.display());
+
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p.resolve(dir.path(), &HashMap::new()).await.unwrap();
+        assert_eq!(result.get(&url).unwrap(), "myvalue");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_yaml_file() {
+        let dir = tempdir().unwrap();
+        let yaml_path = dir.path().join("config.yaml");
+        std::fs::write(&yaml_path, "key: yamlvalue\n").unwrap();
+        let url = format!("file://{}?query=.key", yaml_path.display());
+
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p.resolve(dir.path(), &HashMap::new()).await.unwrap();
+        assert_eq!(result.get(&url).unwrap(), "yamlvalue");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_toml_file() {
+        let dir = tempdir().unwrap();
+        let toml_path = dir.path().join("config.toml");
+        std::fs::write(&toml_path, "key = \"tomlvalue\"\n").unwrap();
+        let url = format!("file://{}?query=.key", toml_path.display());
+
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p.resolve(dir.path(), &HashMap::new()).await.unwrap();
+        assert_eq!(result.get(&url).unwrap(), "tomlvalue");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_ini_file() {
+        let dir = tempdir().unwrap();
+        let ini_path = dir.path().join("config.ini");
+        std::fs::write(&ini_path, "[section]\npassword = inivalue\n").unwrap();
+        let url = format!("file://{}?query=.section.password", ini_path.display());
+
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p.resolve(dir.path(), &HashMap::new()).await.unwrap();
+        assert_eq!(result.get(&url).unwrap(), "inivalue");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_nested_json_query() {
+        let dir = tempdir().unwrap();
+        let json_path = dir.path().join("config.json");
+        std::fs::write(&json_path, r#"{"db":{"password":"nested_pass"}}"#).unwrap();
+        let url = format!("file://{}?query=.db.password", json_path.display());
+
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p.resolve(dir.path(), &HashMap::new()).await.unwrap();
+        assert_eq!(result.get(&url).unwrap(), "nested_pass");
+    }
+}

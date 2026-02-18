@@ -145,3 +145,139 @@ impl Provider for Doppler {
         Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn test_add_valid_doppler_scheme() {
+        let mut p = Doppler::new();
+        assert!(
+            p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_add_rejects_wrong_scheme() {
+        let mut p = Doppler::new();
+        assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_add_rejects_plain_value() {
+        let mut p = Doppler::new();
+        assert!(p.add("plainvalue".to_string()).is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_fake_cli() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(
+            &fake_bin,
+            "doppler",
+            r#"echo '{"MY_SECRET":{"computed":"doppler_value"}}'"#,
+        );
+
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await.unwrap();
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/MY_SECRET")
+                .unwrap(),
+            "doppler_value"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_fake_cli_multiple_vars_same_project() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(
+            &fake_bin,
+            "doppler",
+            r#"echo '{"KEY1":{"computed":"val1"},"KEY2":{"computed":"val2"}}'"#,
+        );
+
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/KEY1".to_string())
+            .unwrap();
+        p.add("doppler://api.doppler.com/myproject/dev/KEY2".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await.unwrap();
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/KEY1")
+                .unwrap(),
+            "val1"
+        );
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/KEY2")
+                .unwrap(),
+            "val2"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_cli_not_found() {
+        let empty_bin = tempdir().unwrap();
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            empty_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Doppler CLI not found")
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_malformed_json_error() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "doppler", "echo 'not valid json'");
+
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Doppler error"));
+    }
+}

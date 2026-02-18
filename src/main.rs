@@ -341,6 +341,140 @@ async fn main() -> Result<()> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    // --- split_env_files ---
+
+    #[test]
+    fn test_split_env_only() {
+        let mut hydration: HashMap<Option<PathBuf>, HashMap<String, String>> = HashMap::new();
+        hydration.insert(
+            None,
+            HashMap::from([("KEY".to_string(), "val".to_string())]),
+        );
+        let (env, files) = split_env_files(&mut hydration).unwrap();
+        assert_eq!(env.get("KEY").unwrap(), "val");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_split_files_only() {
+        let path = PathBuf::from("/tmp/secrets_lade_test.json");
+        let mut hydration: HashMap<Option<PathBuf>, HashMap<String, String>> = HashMap::new();
+        hydration.insert(
+            Some(path.clone()),
+            HashMap::from([("KEY".to_string(), "val".to_string())]),
+        );
+        let (env, files) = split_env_files(&mut hydration).unwrap();
+        assert!(env.is_empty());
+        assert_eq!(files.get(&path).unwrap().get("KEY").unwrap(), "val");
+    }
+
+    #[test]
+    fn test_split_mixed() {
+        let path = PathBuf::from("/tmp/secrets_lade_mixed.json");
+        let mut hydration: HashMap<Option<PathBuf>, HashMap<String, String>> = HashMap::new();
+        hydration.insert(
+            None,
+            HashMap::from([("ENV_KEY".to_string(), "env_val".to_string())]),
+        );
+        hydration.insert(
+            Some(path.clone()),
+            HashMap::from([("FILE_KEY".to_string(), "file_val".to_string())]),
+        );
+        let (env, files) = split_env_files(&mut hydration).unwrap();
+        assert_eq!(env.get("ENV_KEY").unwrap(), "env_val");
+        assert!(files.contains_key(&path));
+        assert_eq!(
+            files.get(&path).unwrap().get("FILE_KEY").unwrap(),
+            "file_val"
+        );
+    }
+
+    // --- write_files ---
+
+    #[test]
+    fn test_write_files_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.json");
+        let hydration = HashMap::from([(
+            path.clone(),
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        )]);
+        let names = write_files(&hydration).unwrap();
+        assert!(names.contains(&"KEY".to_string()));
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["KEY"].as_str().unwrap(), "value");
+    }
+
+    #[test]
+    fn test_write_files_yaml() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.yaml");
+        let hydration = HashMap::from([(
+            path.clone(),
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        )]);
+        write_files(&hydration).unwrap();
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("KEY"));
+        assert!(content.contains("value"));
+    }
+
+    #[test]
+    fn test_write_files_already_exists_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.json");
+        std::fs::write(&path, "{}").unwrap();
+        let hydration = HashMap::from([(
+            path.clone(),
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        )]);
+        assert!(write_files(&hydration).is_err());
+    }
+
+    #[test]
+    fn test_write_files_unsupported_extension_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.txt");
+        let hydration = HashMap::from([(
+            path.clone(),
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        )]);
+        assert!(write_files(&hydration).is_err());
+    }
+
+    // --- remove_files ---
+
+    #[test]
+    fn test_remove_files_existing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.json");
+        std::fs::write(&path, "{}").unwrap();
+        let files: HashMap<PathBuf, HashMap<String, String>> =
+            HashMap::from([(path.clone(), HashMap::new())]);
+        remove_files(&mut files.keys()).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_remove_files_missing_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nonexistent_lade_test.json");
+        let files: HashMap<PathBuf, HashMap<String, String>> =
+            HashMap::from([(path.clone(), HashMap::new())]);
+        assert!(remove_files(&mut files.keys()).is_err());
+    }
+}
+
 #[test]
 fn verify_cli() {
     use crate::Args;
