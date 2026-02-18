@@ -26,7 +26,7 @@ jobs:
           key: ${{ runner.os }}
       - run: |
           cargo run -- --help
-          cargo test
+          cargo test --workspace
 
   test-scripts:
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
 
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -57,7 +57,7 @@ jobs:
           sudo apt update && sudo apt install vault
 
       - name: Run test vault
-        run: | 
+        run: |
           env -i PATH="$PATH" VAULT_TOKEN="token" bash tests/test_vault.bash
           env -i PATH="$PATH" VAULT_TOKEN="token" zsh tests/test_vault.zsh
           env -i PATH="$PATH" VAULT_TOKEN="token" fish tests/test_vault.fish

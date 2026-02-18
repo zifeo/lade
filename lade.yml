@@ -47,7 +47,8 @@
   G1: passbolt://127.0.0.1:8000/5a4b9cd0-5880-4f90-b0ce-e757980cb150/password
 
 ^ls:
-  .: a.yaml
+  .:
+    file: a.yaml
   A1: "1"
 
 ^printenv:
@@ -61,6 +62,20 @@
 
 ^echo user:
   SAME_SECRET_FOR_EVERYONE: everyone
-  SECRET_FOR_THE_USER: 
-    alex: alex
-    zifeo: zifeo
+  SECRET_FOR_THE_USER:
+    alex: a
+    zifeo: b
+  SECRET_WITH_DEFAULT:
+    zifeo: a
+    .: default
+
+^echo DD1:
+  .:
+    1password_service_account:
+      zifeo: op://my.1password.eu/Lade/service_account
+  DD1: op://my.1password.eu/Personal/Lade/username
+
+^echo DD2:
+  .:
+    1password_service_account: op://my.1password.eu/Lade/service_account/credential
+  DD2: op://my.1password.eu/Lade/service_account/credential

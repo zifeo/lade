@@ -1,8 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::{Hydration, providers::envs};
-use anyhow::{Result, anyhow, bail};
-use async_process::{Command, Stdio};
+use anyhow::{Ok, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -10,7 +8,12 @@ use log::debug;
 use serde::Deserialize;
 use url::Url;
 
-use super::Provider;
+use crate::Hydration;
+
+use super::{Provider, add_url, deserialize_output, host_with_port, run_cli};
+
+const NAME: &str = "Doppler";
+const INSTALL_URL: &str = "https://docs.doppler.com/docs/install-cli";
 
 #[derive(Default)]
 pub struct Doppler {
@@ -31,35 +34,29 @@ struct DopplerExport {
 #[async_trait]
 impl Provider for Doppler {
     fn add(&mut self, value: String) -> Result<()> {
-        match Url::parse(&value) {
-            std::result::Result::Ok(url) if url.scheme() == "doppler" => {
-                self.urls.insert(url, value);
-                Ok(())
-            }
-            _ => bail!("Not a doppler scheme"),
-        }
+        add_url(&mut self.urls, value, "doppler")
     }
-    async fn resolve(&self, _: &Path) -> Result<Hydration> {
+
+    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+        let extra_env = extra_env.clone();
         let fetches = self
             .urls
             .iter()
-            .into_group_map_by(|(url, _)| {
-                let port = match url.port() {
-                    Some(port) => format!(":{}", port),
-                    None => "".to_string(),
-                };
-                format!("{}{}", url.host().expect("Missing host"), port)
-            })
+            .into_group_map_by(|(url, _)| host_with_port(url))
             .into_iter()
             .flat_map(|(host, group)| {
                 group
                     .into_iter()
-                    .into_group_map_by(|(url, _)| url.path().split('/').nth(1).expect("Missing project"))
+                    .into_group_map_by(|(url, _)| {
+                        url.path().split('/').nth(1).expect("Missing project")
+                    })
                     .into_iter()
                     .flat_map(|(project, group)| {
                         group
                             .into_iter()
-                            .into_group_map_by(|(url, _)| url.path().split('/').nth(2).expect("Missing env"))
+                            .into_group_map_by(|(url, _)| {
+                                url.path().split('/').nth(2).expect("Missing env")
+                            })
                             .into_iter()
                             .map(|(env, group)| {
                                 let vars = group
@@ -71,8 +68,8 @@ impl Provider for Doppler {
                                         )
                                     })
                                     .collect::<HashMap<_, _>>();
-
                                 let host = host.clone();
+                                let extra_env = extra_env.clone();
                                 async move {
                                     let cmd = [
                                         "doppler",
@@ -86,33 +83,10 @@ impl Provider for Doppler {
                                         "--json",
                                     ];
                                     debug!("Lade run: {}", cmd.join(" "));
-
-                                    let child = match Command::new(cmd[0])
-                                        .args(&cmd[1..])
-                                        .envs(envs())
-                                        .stdout(Stdio::piped())
-                                        .stderr(Stdio::piped())
-                                        .output()
-                                        .await {
-                                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                                                bail!("Doppler CLI not found. Make sure the binary is in your PATH or install it from https://docs.doppler.com/docs/install-cli.")
-                                            },
-                                            Err(e) => {
-                                                bail!("Doppler error: {e}")
-                                            },
-                                            Ok(child) => child,
-                                        };
-
-                                    let loaded = serde_json::from_slice::<
-                                        HashMap<String, DopplerExport>,
-                                    >(
-                                        &child.stdout
-                                    )
-                                    .map_err(|err| {
-                                        let stderr = String::from_utf8_lossy(&child.stderr);
-                                        anyhow!("Doppler error: {err} (stderr: {stderr})",)
-                                    })?;
-
+                                    let child =
+                                        run_cli(&cmd, &extra_env, NAME, INSTALL_URL, None).await?;
+                                    let loaded: HashMap<String, DopplerExport> =
+                                        deserialize_output(&child, NAME)?;
                                     let hydration = vars
                                         .into_iter()
                                         .map(|(key, value)| {
@@ -120,16 +94,17 @@ impl Provider for Doppler {
                                                 value,
                                                 loaded
                                                     .get(key)
-                                                    .unwrap_or_else(|| panic!(
-                                                        "Variable not found in Doppler: {}",
-                                                        key
-                                                    ))
+                                                    .unwrap_or_else(|| {
+                                                        panic!(
+                                                            "Variable not found in Doppler: {}",
+                                                            key
+                                                        )
+                                                    })
                                                     .computed
                                                     .clone(),
                                             )
                                         })
                                         .collect::<Hydration>();
-
                                     debug!("hydration: {:?}", hydration);
                                     Ok(hydration)
                                 }
@@ -141,5 +116,115 @@ impl Provider for Doppler {
             .collect::<Vec<_>>();
 
         Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::fake_cli;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    fn path_env(dir: &tempfile::TempDir) -> HashMap<String, String> {
+        HashMap::from([(
+            "PATH".to_string(),
+            dir.path().to_string_lossy().into_owned(),
+        )])
+    }
+
+    #[test]
+    fn test_add_routing() {
+        let mut p = Doppler::new();
+        assert!(
+            p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+                .is_ok()
+        );
+        assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
+        assert!(p.add("plainvalue".to_string()).is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_single_var() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(
+            &fake_bin,
+            "doppler",
+            r#"echo '{"MY_SECRET":{"computed":"doppler_value"}}'"#,
+        );
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let result = p
+            .resolve(Path::new("."), &path_env(&fake_bin))
+            .await
+            .unwrap();
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/MY_SECRET")
+                .unwrap(),
+            "doppler_value"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_multiple_vars_same_project() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(
+            &fake_bin,
+            "doppler",
+            r#"echo '{"KEY1":{"computed":"val1"},"KEY2":{"computed":"val2"}}'"#,
+        );
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/KEY1".to_string())
+            .unwrap();
+        p.add("doppler://api.doppler.com/myproject/dev/KEY2".to_string())
+            .unwrap();
+        let result = p
+            .resolve(Path::new("."), &path_env(&fake_bin))
+            .await
+            .unwrap();
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/KEY1")
+                .unwrap(),
+            "val1"
+        );
+        assert_eq!(
+            result
+                .get("doppler://api.doppler.com/myproject/dev/KEY2")
+                .unwrap(),
+            "val2"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_cli_not_found() {
+        let empty_bin = tempdir().unwrap();
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Doppler CLI not found")
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_malformed_json_error() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "doppler", "echo 'not valid json'");
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let result = p.resolve(Path::new("."), &path_env(&fake_bin)).await;
+        assert!(result.unwrap_err().to_string().contains("Doppler error"));
     }
 }
