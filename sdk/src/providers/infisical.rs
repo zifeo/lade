@@ -62,13 +62,15 @@ impl Provider for Infisical {
                                     .iter()
                                     .map(|(url, value)| {
                                         let segs: Vec<&str> = url.path().split('/').collect();
-                                        let variable = segs.last().expect("Missing variable");
+                                        let variable = urlencoding::decode(segs.last().expect("Missing variable"))
+                                            .expect("invalid percent-encoding in infisical:// URL")
+                                            .into_owned();
                                         let path = if segs.len() > 4 {
                                             format!("/{}", segs[3..segs.len()-1].join("/"))
                                         } else {
                                             "".to_string()
                                         };
-                                        (path, variable.to_string(), (*value).clone())
+                                        (path, variable, (*value).clone())
                                     })
                                     .into_group_map_by(|(path, _, _)| path.clone())
                                     .into_iter()
@@ -181,6 +183,31 @@ mod tests {
                 .get("infisical://app.infisical.com/proj123/dev/MY_SECRET")
                 .unwrap(),
             "infisical_value"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_percent_encoded_variable_name() {
+        let fake_bin = tempdir().unwrap();
+        // Infisical returns the actual key name (MY+SECRET), not the percent-encoded form
+        fake_cli(
+            &fake_bin,
+            "infisical",
+            r#"echo '[{"key":"MY+SECRET","value":"decoded_value","secretPath":"/"}]'"#,
+        );
+        let mut p = Infisical::new();
+        p.add("infisical://app.infisical.com/proj123/dev/MY%2BSECRET".to_string())
+            .unwrap();
+        let result = p
+            .resolve(Path::new("."), &path_env(&fake_bin))
+            .await
+            .unwrap();
+        assert_eq!(
+            result
+                .get("infisical://app.infisical.com/proj123/dev/MY%2BSECRET")
+                .unwrap(),
+            "decoded_value"
         );
     }
 

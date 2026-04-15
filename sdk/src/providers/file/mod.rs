@@ -51,9 +51,13 @@ impl Provider for File {
             .urls
             .iter()
             .into_group_map_by(|(raw_url, value)| {
-                let url = value
-                    .replace("file://", "")
-                    .replace(&format!("?{}", raw_url.query().unwrap()), "");
+                let url = urlencoding::decode(
+                    &value
+                        .replace("file://", "")
+                        .replace(&format!("?{}", raw_url.query().unwrap()), ""),
+                )
+                .expect("invalid percent-encoding in file:// URL")
+                .into_owned();
                 let user = directories::UserDirs::new().expect("cannot get HOME location");
 
                 if url.starts_with("~/") {
@@ -193,6 +197,25 @@ mod tests {
             .await,
             "inivalue"
         );
+    }
+
+    #[tokio::test]
+    async fn test_resolve_percent_encoded_path() {
+        let dir = tempdir().unwrap();
+        // create a file whose name has a space, referenced via %20
+        let path = dir.path().join("my config.json");
+        std::fs::write(&path, r#"{"key":"spaced_value"}"#).unwrap();
+        let encoded_path = path.display().to_string().replace(' ', "%20");
+        let url = format!("file://{}?query=.key", encoded_path);
+        let mut p = File::new();
+        p.add(url.clone()).unwrap();
+        let result = p
+            .resolve(dir.path(), &HashMap::new())
+            .await
+            .unwrap()
+            .remove(&url)
+            .unwrap();
+        assert_eq!(result, "spaced_value");
     }
 
     #[tokio::test]
