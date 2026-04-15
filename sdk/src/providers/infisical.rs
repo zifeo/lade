@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Ok, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, host_with_port, run_cli};
+use super::{add_url, host_with_port, run_cli, Provider};
 
 const NAME: &str = "Infisical";
 const INSTALL_URL: &str = "https://infisical.com/docs/cli/overview";
@@ -153,10 +153,9 @@ mod tests {
     #[test]
     fn test_add_routing() {
         let mut p = Infisical::new();
-        assert!(
-            p.add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
-                .is_ok()
-        );
+        assert!(p
+            .add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
+            .is_ok());
         assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
     }
 
@@ -204,11 +203,9 @@ mod tests {
         p.add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
             .unwrap();
         let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Infisical CLI not found")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Infisical CLI not found"));
     }
 }

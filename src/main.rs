@@ -1,11 +1,12 @@
 use anyhow::{Ok, Result};
 use log::debug;
-use std::{env, process::Command as ProcessCommand};
+use std::{env, io::Read, process::Command as ProcessCommand};
 
 mod args;
 mod config;
 mod files;
 mod global_config;
+mod hook;
 mod shell;
 mod upgrade;
 
@@ -108,6 +109,13 @@ async fn main() -> Result<()> {
     let config = LadeFile::build(current_dir.clone())?;
 
     match command {
+        Command::Hook => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            let output = hook::handle(&config, &input)?;
+            print!("{}", output);
+            Ok(())
+        }
         Command::Inject(EvalCommand { commands }) => {
             debug!("injecting: {:?}", commands);
             let command = commands.join(" ");
