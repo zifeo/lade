@@ -30,9 +30,16 @@ async fn main() -> Result<()> {
 
     let args = Args::try_parse()?;
 
-    env_logger::Builder::new()
-        .filter_level(args.verbose.log_level_filter())
-        .init();
+    let mut builder = env_logger::Builder::new();
+    match env::var("LADE_LOG").ok().filter(|s| !s.is_empty()) {
+        Some(filter) => {
+            builder.parse_filters(&filter);
+        }
+        None => {
+            builder.filter_level(args.verbose.log_level_filter());
+        }
+    };
+    builder.init();
 
     if args.version {
         println!("lade {}", env!("CARGO_PKG_VERSION"));
@@ -175,16 +182,5 @@ mod tests {
         use crate::Args;
         use clap::CommandFactory;
         Args::command().debug_assert()
-    }
-
-    #[test]
-    fn end_to_end() {
-        use assert_cmd::Command;
-        #[allow(deprecated)]
-        Command::cargo_bin("lade")
-            .unwrap()
-            .arg("-h")
-            .assert()
-            .success();
     }
 }

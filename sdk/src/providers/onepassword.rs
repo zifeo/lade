@@ -1,16 +1,16 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
-use futures::{AsyncWriteExt, future::try_join_all};
+use futures::{future::try_join_all, AsyncWriteExt};
 use itertools::Itertools;
 use log::debug;
 use url::Url;
 
-use crate::{Hydration, providers::envs};
+use crate::{providers::envs, Hydration};
 
-use super::{Provider, add_url};
+use super::{add_url, Provider};
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
@@ -139,10 +139,9 @@ mod tests {
     #[test]
     fn test_add_valid_op_scheme() {
         let mut p = OnePassword::new();
-        assert!(
-            p.add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
-                .is_ok()
-        );
+        assert!(p
+            .add("op://my.1password.com/vault_uuid/item_uuid/password".to_string())
+            .is_ok());
     }
 
     #[test]
@@ -227,12 +226,9 @@ mod tests {
     #[test]
     fn test_add_accepts_uuid_path_with_section() {
         let mut p = OnePassword::new();
-        assert!(
-            p.add(
-                "op://my.1password.com/vault_uuid/item_uuid/Section_abc123/field_uuid".to_string()
-            )
-            .is_ok()
-        );
+        assert!(p
+            .add("op://my.1password.com/vault_uuid/item_uuid/Section_abc123/field_uuid".to_string())
+            .is_ok());
     }
 
     #[tokio::test]
