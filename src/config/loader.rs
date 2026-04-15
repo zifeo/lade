@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use regex::Regex;
 use serde::Deserialize;
@@ -29,11 +29,19 @@ impl LadeFile {
         loop {
             let yaml = path.join("lade.yaml");
             if yaml.exists() {
-                configs.push((path.clone(), LadeFile::from_path(&yaml)?));
+                configs.push((
+                    path.clone(),
+                    LadeFile::from_path(&yaml)
+                        .with_context(|| format!("failed to parse {}", yaml.display()))?,
+                ));
             } else {
                 let yml = path.join("lade.yml");
                 if yml.exists() {
-                    configs.push((path.clone(), LadeFile::from_path(&yml)?));
+                    configs.push((
+                        path.clone(),
+                        LadeFile::from_path(&yml)
+                            .with_context(|| format!("failed to parse {}", yml.display()))?,
+                    ));
                 }
             }
             match path.parent() {

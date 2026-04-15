@@ -111,7 +111,28 @@ async fn main() -> Result<()> {
     }
 
     let current_dir = env::current_dir()?;
-    let config = LadeFile::build(current_dir.clone())?;
+    let config = match LadeFile::build(current_dir.clone()) {
+        std::result::Result::Ok(c) => c,
+        Err(e) => {
+            let width = 80;
+            let wrap_width = width - 4;
+            let header = "Lade could not parse a config file:";
+            let hint = "Hint: check the file format — the '.' key now expects a struct, not a plain string.";
+            let error = e.to_string();
+            eprintln!("┌{}┐", "-".repeat(width - 2));
+            eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()));
+            for line in textwrap::wrap(error.trim(), wrap_width - 2) {
+                eprintln!(
+                    "| > {} {}|",
+                    line,
+                    " ".repeat(wrap_width - 2 - textwrap::core::display_width(&line)),
+                );
+            }
+            eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
+            eprintln!("└{}┘", "-".repeat(width - 2));
+            std::process::exit(1);
+        }
+    };
 
     match command {
         Command::Hook => {
