@@ -42,7 +42,14 @@ impl GlobalConfig {
         }
     }
 
-    pub async fn save(&self) -> Result<()> {
+    pub async fn update<F: FnOnce(&mut GlobalConfig)>(f: F) -> Result<()> {
+        let mut config = Self::load().await?;
+        f(&mut config);
+        config.save().await?;
+        Ok(())
+    }
+
+    async fn save(&self) -> Result<()> {
         let config_str = serde_json::to_string_pretty(&self)?;
         let path = Self::path();
         fs::create_dir_all(&path.parent().unwrap()).await?;

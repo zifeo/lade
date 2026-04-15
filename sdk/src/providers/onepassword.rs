@@ -69,7 +69,11 @@ impl Provider for OnePassword {
                     debug!("stdin: {:?}", input);
 
                     let mut stdin = process.stdin.take().expect("Failed to open stdin");
-                    stdin.write_all(input.as_bytes()).await?;
+                    if let Err(e) = stdin.write_all(input.as_bytes()).await {
+                        if e.kind() != std::io::ErrorKind::BrokenPipe {
+                            bail!("1Password error: {e}");
+                        }
+                    }
                     drop(stdin);
 
                     let child = match process.output().await {
