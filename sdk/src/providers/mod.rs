@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use async_process::{Command, Stdio};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
