@@ -26,7 +26,6 @@ fn run_plain(shell: &str, command: &str, env: HashMap<String, String>, cwd: &Pat
     let status = std::process::Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
-        .envs(std::env::vars())
         .envs(env)
         .status()?;
     Ok(status.code().unwrap_or(1))
@@ -50,9 +49,6 @@ fn run_pty(
     cmd.arg("-c");
     cmd.arg(command);
     cmd.cwd(cwd);
-    for (k, v) in std::env::vars() {
-        cmd.env(k, v);
-    }
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -84,11 +80,16 @@ fn run_piped(
     let mut child = Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
-        .envs(std::env::vars())
         .envs(env)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+
+    let mut child_stdin = child.stdin.take().unwrap();
+    std::thread::spawn(move || {
+        std::io::copy(&mut std::io::stdin().lock(), &mut child_stdin).ok();
+    });
 
     let child_stdout = child.stdout.take().unwrap();
     let child_stderr = child.stderr.take().unwrap();

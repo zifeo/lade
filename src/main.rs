@@ -38,8 +38,14 @@ use redact::Redactor;
 use lade_sdk::hydrate_one;
 use shell::Shell;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     #[cfg(target_family = "unix")]
     {
         // fix the pipe: https://github.com/rust-lang/rust/issues/46016

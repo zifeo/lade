@@ -65,38 +65,35 @@ impl Redactor {
     }
 
     pub fn stream<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> io::Result<()> {
-        let mut carry: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::new();
         let mut chunk = vec![0u8; CHUNK];
 
         loop {
             let n = reader.read(&mut chunk)?;
             if n == 0 {
-                self.replace_into(&carry, &mut writer)?;
+                self.replace_into(&buf, &mut writer)?;
                 break;
             }
 
-            let mut window: Vec<u8> = Vec::with_capacity(carry.len() + n);
-            window.extend_from_slice(&carry);
-            window.extend_from_slice(&chunk[..n]);
+            buf.extend_from_slice(&chunk[..n]);
 
-            // Search the full window but only commit bytes before safe_end.
-            // A match that starts before safe_end and ends after it is still
-            // processed in full; the remaining bytes become the next carry.
-            let safe_end = window.len().saturating_sub(self.carry_len);
+            // Only commit bytes before safe_end; a match spanning the boundary
+            // is still processed in full, with the tail kept as carry.
+            let safe_end = buf.len().saturating_sub(self.carry_len);
             let mut pos = 0usize;
 
-            for mat in self.ac.find_iter(&window) {
+            for mat in self.ac.find_iter(&buf) {
                 if mat.start() >= safe_end {
                     break;
                 }
-                writer.write_all(&window[pos..mat.start()])?;
+                writer.write_all(&buf[pos..mat.start()])?;
                 writer.write_all(&self.replacements[mat.pattern().as_usize()])?;
                 pos = mat.end();
             }
 
             let commit = pos.max(safe_end);
-            writer.write_all(&window[pos..commit])?;
-            carry = window[commit..].to_vec();
+            writer.write_all(&buf[pos..commit])?;
+            buf.drain(..commit);
         }
         Ok(())
     }

@@ -104,7 +104,6 @@ pub async fn run_cli(
 ) -> Result<std::process::Output> {
     let mut c = Command::new(cmd[0]);
     c.args(&cmd[1..])
-        .envs(std::env::vars())
         .envs(extra_env.iter())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

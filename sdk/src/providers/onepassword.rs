@@ -81,7 +81,6 @@ impl Provider for OnePassword {
 
                     let mut process = Command::new(cmd[0])
                         .args(&cmd[1..])
-                        .envs(std::env::vars())
                         .envs(extra_env.iter())
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())

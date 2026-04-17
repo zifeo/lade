@@ -4,7 +4,7 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\$\{?(\w+)\}?)").unwrap());
+static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$(?:\{(\w+)\}|(\w+))").unwrap());
 
 pub fn resolve(
     kvs: &HashMap<String, String>,
@@ -18,7 +18,12 @@ pub fn resolve(
 pub fn resolve_one(value: &str, existing_vars: &HashMap<String, String>) -> Result<String> {
     Ok(VAR
         .replace_all(value, |caps: &regex::Captures| {
-            existing_vars.get(&caps[2]).cloned().unwrap_or_default()
+            let name = caps
+                .get(1)
+                .or_else(|| caps.get(2))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+            existing_vars.get(name).cloned().unwrap_or_default()
         })
         .into_owned())
 }
@@ -91,6 +96,20 @@ mod tests {
             ("B".into(), "should_not_appear".into()),
         ]);
         assert_eq!(resolve_one("$A", &vars).unwrap(), "$B");
+    }
+
+    #[test]
+    fn test_resolve_one_unmatched_open_brace_is_literal() {
+        // "${FOO" has no closing brace — must not be treated as a variable reference.
+        let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
+        assert_eq!(resolve_one("${FOO", &vars).unwrap(), "${FOO");
+    }
+
+    #[test]
+    fn test_resolve_one_trailing_brace_not_consumed() {
+        // "$FOO}" — only "$FOO" is a variable reference; the "}" is literal.
+        let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
+        assert_eq!(resolve_one("$FOO}", &vars).unwrap(), "bar}");
     }
 
     #[test]
