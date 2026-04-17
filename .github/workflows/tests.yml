@@ -9,8 +9,23 @@ on:
       - ready_for_review
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
   test:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -18,6 +33,7 @@ jobs:
           - os: windows-latest
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -26,12 +42,20 @@ jobs:
           key: ${{ runner.os }}
       - run: |
           cargo run -- --help
-          cargo test --workspace
+          cargo test --workspace --locked
 
   test-scripts:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-scripts
+      - name: Pre-build
+        run: cargo build --workspace --locked
 
       - name: Set up Docker
         uses: docker/setup-docker-action@v5
@@ -50,11 +74,12 @@ jobs:
           echo ""
           zsh --version
 
-      - name: Install vault CLI
+      - name: Install Vault CLI
         run: |
           wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt update && sudo apt install vault
+          sudo apt-get update && sudo apt-get install -y vault=1.18.3-1
+          vault --version
 
       - name: Run test vault
         run: |
