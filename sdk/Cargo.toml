@@ -9,7 +9,6 @@ repository = "https://github.com/zifeo/lade"
 [dependencies]
 access-json = "0.1"
 anyhow = "1"
-async-process = "2.5"
 async-trait = "0.1"
 directories = "6"
 futures = "0.3"
@@ -22,8 +21,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 tempfile = "3"
-tokio = { version = "1", features = ["fs"] }
+tokio = { version = "1", features = ["fs", "process", "io-util"] }
 toml = "1.0"
+rustc-hash = "2"
 url = "2.5"
 urlencoding = "2"
 

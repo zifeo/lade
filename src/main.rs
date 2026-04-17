@@ -1,12 +1,18 @@
 use anyhow::{Ok, Result};
 use log::debug;
 <<<<<<< HEAD
+<<<<<<< HEAD
 use std::{env, io::Read};
 ||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
 use std::{env, process::Command as ProcessCommand};
 =======
 use std::{env, io::Read, process::Command as ProcessCommand};
 >>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
+||||||| parent of fb52f33 (refactor: simplify)
+use std::{env, io::Read};
+=======
+use std::{env, io::Read, time::Duration};
+>>>>>>> fb52f33 (refactor: simplify)
 
 mod args;
 mod config;
@@ -74,6 +80,7 @@ async fn main() -> Result<()> {
         }
     };
 
+<<<<<<< HEAD
     match command {
         Command::On
         | Command::Off
@@ -82,6 +89,17 @@ async fn main() -> Result<()> {
         | Command::Eval { .. } => {}
         _ => upgrade::check_warn(),
     }
+||||||| parent of 6173758 (refactor: simplify)
+    match command {
+        Command::On | Command::Off | Command::Install | Command::Uninstall => {}
+        _ => upgrade::check_warn(),
+    }
+=======
+    let upgrade_task = match command {
+        Command::On | Command::Off | Command::Install | Command::Uninstall => None,
+        _ => Some(tokio::spawn(upgrade::check_message())),
+    };
+>>>>>>> 6173758 (refactor: simplify)
 
     let shell = Shell::detect()?;
 
@@ -160,34 +178,18 @@ async fn main() -> Result<()> {
         }
     };
 
+    let mut inject_exit_code: Option<i32> = None;
+
     match command {
-<<<<<<< HEAD
         Command::Hook => {
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
             let output = hook::handle(&config, &input)?;
             print!("{}", output);
-            Ok(())
         }
         Command::Inject(opts) => {
             debug!("injecting: {:?}", opts.commands);
             let command = opts.commands.join(" ");
-||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
-        Command::Inject(EvalCommand { commands }) => {
-            debug!("injecting: {:?}", commands);
-            let command = commands.join(" ");
-=======
-        Command::Hook => {
-            let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input)?;
-            let output = hook::handle(&config, &input)?;
-            print!("{}", output);
-            Ok(())
-        }
-        Command::Inject(EvalCommand { commands }) => {
-            debug!("injecting: {:?}", commands);
-            let command = commands.join(" ");
->>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
 
             let mut hydration = hydration_or_exit(&config, &command).await;
             let (env, files) = split_env_files(&mut hydration);
@@ -213,9 +215,8 @@ async fn main() -> Result<()> {
             let code = code?;
             if code != 0 {
                 eprintln!("command failed");
-                std::process::exit(code);
+                inject_exit_code = Some(code);
             }
-            Ok(())
         }
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
@@ -230,7 +231,6 @@ async fn main() -> Result<()> {
             }
 
             println!("{}", shell.set(env));
-            Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
@@ -238,10 +238,22 @@ async fn main() -> Result<()> {
             let (env, files) = split_env_files(&mut keys);
             remove_files(&mut files.keys())?;
             println!("{}", shell.unset(env));
-            Ok(())
         }
         _ => unreachable!(),
     }
+
+    if let Some(task) = upgrade_task
+        && let anyhow::Result::Ok(anyhow::Result::Ok(anyhow::Result::Ok(Some(msg)))) =
+            tokio::time::timeout(Duration::from_millis(50), task).await
+    {
+        eprintln!("{msg}");
+    }
+
+    if let Some(code) = inject_exit_code {
+        std::process::exit(code);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

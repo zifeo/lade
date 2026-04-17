@@ -1,13 +1,12 @@
 use anyhow::{Ok, Result};
 use chrono::{TimeDelta, Utc};
-use log::warn;
 use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
 use semver::Version;
 
 use crate::args::UpgradeCommand;
 use crate::global_config::GlobalConfig;
 
-pub async fn check() -> Result<()> {
+pub async fn check_message() -> Result<Option<String>> {
     let local_config = GlobalConfig::load().await?;
 
     if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
@@ -22,23 +21,15 @@ pub async fn check() -> Result<()> {
             Ok(update.get_latest_release()?)
         })
         .await??;
+        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
         if Version::parse(&latest.version)? > Version::parse(current_version)? {
-            eprintln!(
+            return Ok(Some(format!(
                 "New lade update available: {} -> {} (use: lade upgrade)",
                 current_version, latest.version
-            );
+            )));
         }
-        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
     }
-    Ok(())
-}
-
-pub fn check_warn() {
-    tokio::spawn(async {
-        check()
-            .await
-            .unwrap_or_else(|e| warn!("cannot check for update: {}", e));
-    });
+    Ok(None)
 }
 
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {

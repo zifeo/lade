@@ -16,9 +16,11 @@ pub fn resolve(
 }
 
 pub fn resolve_one(value: &str, existing_vars: &HashMap<String, String>) -> Result<String> {
-    Ok(VAR.captures_iter(value).fold(value.to_string(), |agg, c| {
-        agg.replace(&c[1], existing_vars.get(&c[2]).unwrap_or(&"".to_string()))
-    }))
+    Ok(VAR
+        .replace_all(value, |caps: &regex::Captures| {
+            existing_vars.get(&caps[2]).cloned().unwrap_or_default()
+        })
+        .into_owned())
 }
 
 #[cfg(test)]
@@ -79,6 +81,16 @@ mod tests {
     fn test_resolve_one_word_boundary_without_braces() {
         let vars = HashMap::from([("FOO".to_string(), "bar".to_string())]);
         assert_eq!(resolve_one("$FOO_SUFFIX", &vars).unwrap(), "");
+    }
+
+    #[test]
+    fn test_resolve_one_no_double_expansion() {
+        // A value that itself looks like a variable reference must not be re-expanded.
+        let vars = HashMap::from([
+            ("A".into(), "$B".into()),
+            ("B".into(), "should_not_appear".into()),
+        ]);
+        assert_eq!(resolve_one("$A", &vars).unwrap(), "$B");
     }
 
     #[test]

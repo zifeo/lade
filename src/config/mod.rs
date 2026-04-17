@@ -10,6 +10,7 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use lade_sdk::{hydrate, hydrate_one};
 use regex::Regex;
+use rustc_hash::FxHashMap;
 use std::{collections::HashMap, path::PathBuf};
 
 pub type Output = Option<PathBuf>;
@@ -71,21 +72,18 @@ impl Config {
         &self,
         command: &str,
     ) -> Result<HashMap<Output, HashMap<String, String>>> {
-        let ret = try_join_all(
+        let ret: FxHashMap<Output, HashMap<String, String>> = try_join_all(
             self.collect(command)
                 .into_iter()
                 .map(|(path, rule)| self.hydrate_output(path, rule)),
         )
         .await?
         .into_iter()
-        .fold(
-            HashMap::default(),
-            |mut acc: HashMap<Output, HashMap<String, String>>, (output, map)| {
-                acc.entry(output).or_default().extend(map);
-                acc
-            },
-        );
-        Ok(ret)
+        .fold(FxHashMap::default(), |mut acc, (output, map)| {
+            acc.entry(output).or_default().extend(map);
+            acc
+        });
+        Ok(ret.into_iter().collect())
     }
 
     pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {

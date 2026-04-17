@@ -1,4 +1,5 @@
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use rustc_hash::FxHashMap;
 use std::{
     collections::HashMap,
     io::{self, Read, Write},
@@ -19,7 +20,7 @@ impl Redactor {
     /// variable name. Omit `{}` for a static replacement (e.g. `"REDACTED"`).
     /// Returns `None` when there are no non-empty secrets to mask.
     pub fn new(secrets: &HashMap<String, String>, format: &str) -> Option<Self> {
-        let mut by_value: HashMap<&str, &str> = HashMap::new();
+        let mut by_value: FxHashMap<&str, &str> = FxHashMap::default();
         let mut names: Vec<&str> = secrets.keys().map(String::as_str).collect();
         names.sort_unstable();
         for name in &names {

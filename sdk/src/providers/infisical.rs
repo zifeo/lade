@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::debug;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
 use tempfile::tempdir;
 use url::Url;
 
@@ -17,7 +18,7 @@ const INSTALL_URL: &str = "https://infisical.com/docs/cli/overview";
 
 #[derive(Default)]
 pub struct Infisical {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl Infisical {
@@ -40,8 +41,12 @@ impl Provider for Infisical {
         add_url(&mut self.urls, value, "infisical")
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
@@ -78,9 +83,9 @@ impl Provider for Infisical {
                                     .collect::<HashMap<String, Vec<(String, String)>>>();
 
                                 let host = host.clone();
-                                let extra_env = extra_env.clone();
+                                let extra_env = Arc::clone(&extra_env);
                                 async move {
-                                    let mut hydration = Hydration::new();
+                                    let mut hydration = Hydration::default();
                                     let temp_dir = tempdir()?;
                                     let config = HashMap::from([("workspaceId", project), ("defaultEnvironment", "")]);
                                     let config_path = temp_dir.path().join(".infisical.json");

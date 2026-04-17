@@ -10,6 +10,7 @@ use access_json::JSONQuery;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 use tokio::fs;
 use url::Url;
@@ -22,7 +23,7 @@ use convert::{ini2json, toml2json};
 
 #[derive(Default)]
 pub struct File {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl File {
@@ -44,6 +45,10 @@ impl Provider for File {
             }
             _ => bail!("Not an file scheme or missing ?query=.field part"),
         }
+    }
+
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
     }
 
     async fn resolve(&self, cwd: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
