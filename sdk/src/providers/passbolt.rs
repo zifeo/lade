@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{add_url, deserialize_output, run_cli, Provider};
+use super::{Provider, add_url, deserialize_output, run_cli};
 
 const NAME: &str = "Passbolt";
 const INSTALL_URL: &str = "https://github.com/passbolt/go-passbolt-cli";
@@ -105,9 +105,10 @@ mod tests {
     #[test]
     fn test_add_valid_passbolt_scheme() {
         let mut p = Passbolt::new();
-        assert!(p
-            .add("passbolt://passbolt.example.com/resource-uuid/password".to_string())
-            .is_ok());
+        assert!(
+            p.add("passbolt://passbolt.example.com/resource-uuid/password".to_string())
+                .is_ok()
+        );
     }
 
     #[test]
@@ -173,9 +174,11 @@ mod tests {
         )]);
         let result = p.resolve(Path::new("."), &extra).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Passbolt CLI not found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Passbolt CLI not found")
+        );
     }
 }
