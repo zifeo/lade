@@ -1,12 +1,14 @@
 use anyhow::{Ok, Result};
 use log::debug;
-use std::{env, io::Read, process::Command as ProcessCommand};
+use std::{env, io::Read};
 
 mod args;
 mod config;
+mod exec;
 mod files;
 mod global_config;
 mod hook;
+mod redact;
 mod shell;
 mod upgrade;
 
@@ -15,6 +17,7 @@ use clap::{CommandFactory, Parser};
 use config::LadeFile;
 use files::{hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
+use redact::Redactor;
 use shell::Shell;
 
 #[tokio::main]
@@ -142,9 +145,9 @@ async fn main() -> Result<()> {
             print!("{}", output);
             Ok(())
         }
-        Command::Inject(EvalCommand { commands }) => {
-            debug!("injecting: {:?}", commands);
-            let command = commands.join(" ");
+        Command::Inject(opts) => {
+            debug!("injecting: {:?}", opts.commands);
+            let command = opts.commands.join(" ");
 
             let mut hydration = hydration_or_exit(&config, &command).await;
             let (env, files) = split_env_files(&mut hydration);
@@ -154,18 +157,23 @@ async fn main() -> Result<()> {
                 eprintln!("Lade loaded: {}.", names.join(", "));
             }
 
-            let status = ProcessCommand::new(shell.bin())
-                .args(["-c", &command])
-                .current_dir(current_dir)
-                .envs(env::vars())
-                .envs(env)
-                .status();
+            let redactor = if !opts.no_mask {
+                let mut all_secrets = env.clone();
+                for vars in files.values() {
+                    all_secrets.extend(vars.clone());
+                }
+                Redactor::new(&all_secrets, &opts.mask_format)
+            } else {
+                None
+            };
+
+            let code = exec::run(shell.bin(), &command, env, &current_dir, redactor);
             remove_files(&mut files.keys())?;
 
-            let status = status.expect("failed to execute command");
-            if !status.success() {
+            let code = code?;
+            if code != 0 {
                 eprintln!("command failed");
-                std::process::exit(1);
+                std::process::exit(code);
             }
             Ok(())
         }

@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Ok, Result, bail};
+use anyhow::{bail, Ok, Result};
 use futures::future::try_join_all;
 use providers::Provider;
 

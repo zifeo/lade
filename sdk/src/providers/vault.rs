@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, deserialize_output, host_with_port, run_cli};
+use super::{add_url, deserialize_output, host_with_port, run_cli, Provider};
 
 const NAME: &str = "Vault";
 const INSTALL_URL: &str = "https://developer.hashicorp.com/vault/docs/commands";
@@ -141,10 +141,9 @@ mod tests {
     #[test]
     fn test_add_routing() {
         let mut p = Vault::new();
-        assert!(
-            p.add("vault://localhost/secret/myapp/password".to_string())
-                .is_ok()
-        );
+        assert!(p
+            .add("vault://localhost/secret/myapp/password".to_string())
+            .is_ok());
         assert!(p.add("doppler://host/proj/env/VAR".to_string()).is_err());
         assert!(p.add("plainvalue".to_string()).is_err());
     }
@@ -213,12 +212,10 @@ mod tests {
         p.add("vault://localhost/secret/myapp/password".to_string())
             .unwrap();
         let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Vault CLI not found")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Vault CLI not found"));
     }
 
     #[tokio::test]

@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, deserialize_output, host_with_port, run_cli};
+use super::{add_url, deserialize_output, host_with_port, run_cli, Provider};
 
 const NAME: &str = "Doppler";
 const INSTALL_URL: &str = "https://docs.doppler.com/docs/install-cli";
@@ -136,10 +136,9 @@ mod tests {
     #[test]
     fn test_add_routing() {
         let mut p = Doppler::new();
-        assert!(
-            p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
-                .is_ok()
-        );
+        assert!(p
+            .add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .is_ok());
         assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
         assert!(p.add("plainvalue".to_string()).is_err());
     }
@@ -208,12 +207,10 @@ mod tests {
         p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
             .unwrap();
         let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Doppler CLI not found")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Doppler CLI not found"));
     }
 
     #[tokio::test]
