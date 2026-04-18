@@ -7,7 +7,7 @@ on:
 
 jobs:
   check-bump:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.ref_type == 'tag'
 
     steps:
@@ -19,9 +19,10 @@ jobs:
       - name: Check version
         run: |
           VERSION=$(cargo run -- --version | cut -d' ' -f2)
+          # shellcheck disable=SC2193
           if [[ "${{ github.ref_name }}" != "v$VERSION" ]]; then
             echo "Tag does not match code version v$VERSION, stopping."
-            exit -1
+            exit 1
           fi
           echo "Releasing v$VERSION"
       - uses: ncipollo/release-action@v1
@@ -33,7 +34,7 @@ jobs:
   crates:
     needs:
       - check-bump
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -53,34 +54,34 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             suffix: ""
-            use_cross: false
-          - os: macos-latest
+            build_cmd: cargo
+          - os: macos-15
             target: aarch64-apple-darwin
             suffix: ""
-            use_cross: false
-          - os: ubuntu-latest
+            build_cmd: cargo
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             suffix: ""
-            use_cross: true
-          - os: ubuntu-latest
+            build_cmd: cross
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             suffix: ""
-            use_cross: true
-          - os: ubuntu-latest
+            build_cmd: cross
+          - os: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             suffix: ""
-            use_cross: true
-          - os: ubuntu-latest
+            build_cmd: cross
+          - os: ubuntu-24.04
             target: aarch64-unknown-linux-musl
             suffix: ""
-            use_cross: true
-          - os: windows-latest
+            build_cmd: cross
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
             suffix: ".exe"
-            use_cross: false
+            build_cmd: cargo
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -89,12 +90,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ runner.os }}
+      - name: Install cross
+        if: matrix.build_cmd == 'cross'
+        run: curl -L https://github.com/cross-rs/cross/releases/download/v0.2.5/cross-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: ${{ matrix.use_cross }}
-          command: build
-          args: "--locked --release --target ${{ matrix.target }}"
+        run: ${{ matrix.build_cmd }} build --locked --release --target ${{ matrix.target }}
       - name: Compress
         run: |
           mv "target/${{ matrix.target }}/release/lade${{ matrix.suffix }}" .
@@ -111,7 +111,7 @@ jobs:
     needs:
       - crates
       - binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -123,7 +123,7 @@ jobs:
         run: |
           cargo install cargo-edit
           cargo set-version --bump beta
-          echo "version=$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)" >> $GITHUB_OUTPUT
+          echo "version=$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)" >> "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8
         with:
           branch: bump-${{ steps.bump.outputs.version }}
