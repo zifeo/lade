@@ -20,8 +20,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: lint
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: pre-commit/action@v3.0.1
 
   test:
     strategy:

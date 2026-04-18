@@ -23,9 +23,13 @@ pub fn run(
 }
 
 fn run_plain(shell: &str, command: &str, env: HashMap<String, String>, cwd: &Path) -> Result<i32> {
+    // Seed with the parent's env explicitly: on Windows, Rust's Command resolves
+    // the executable using the child's env PATH, and passing std::env::vars()
+    // keeps PATH order as-is so `bash` resolves to Git Bash before WSL's stub.
     let status = std::process::Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
+        .envs(std::env::vars())
         .envs(env)
         .status()?;
     Ok(status.code().unwrap_or(1))
@@ -49,6 +53,9 @@ fn run_pty(
     cmd.arg("-c");
     cmd.arg(command);
     cmd.cwd(cwd);
+    for (k, v) in std::env::vars() {
+        cmd.env(k, v);
+    }
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -84,6 +91,7 @@ fn run_piped(
     let mut child = Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
+        .envs(std::env::vars())
         .envs(env)
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
