@@ -23,6 +23,11 @@ impl Provider for Raw {
         self.values.push(value);
         Ok(())
     }
+
+    fn has_work(&self) -> bool {
+        !self.values.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
         let ret = self
             .values

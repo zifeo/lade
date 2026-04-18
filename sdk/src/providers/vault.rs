@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::debug;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 use url::Url;
 
 use crate::Hydration;
@@ -16,7 +17,7 @@ const INSTALL_URL: &str = "https://developer.hashicorp.com/vault/docs/commands";
 
 #[derive(Default)]
 pub struct Vault {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl Vault {
@@ -41,8 +42,12 @@ impl Provider for Vault {
         add_url(&mut self.urls, value, "vault")
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
@@ -64,7 +69,7 @@ impl Provider for Vault {
                             .into_iter()
                             .map(|(key, group)| {
                                 let host = host.clone();
-                                let extra_env = extra_env.clone();
+                                let extra_env = Arc::clone(&extra_env);
                                 async move {
                                     let cmd = [
                                         "vault",

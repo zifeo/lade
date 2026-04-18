@@ -3,82 +3,46 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Ok, Result, bail};
-use futures::future::try_join_all;
-use providers::Provider;
+use anyhow::{Ok, Result};
+use providers::Providers;
+use rustc_hash::FxHashMap;
 
 mod providers;
 mod resolve;
 
 pub use resolve::{resolve, resolve_one};
 
-type Hydration = HashMap<String, String>;
-
-struct Hydrater {
-    providers: Vec<Box<dyn Provider + Send>>,
-}
-
-impl Hydrater {
-    fn new() -> Self {
-        Self {
-            providers: providers::providers(),
-        }
-    }
-
-    fn add(&mut self, value: String) -> Result<()> {
-        for provider in self.providers.iter_mut() {
-            if provider.add(value.clone()).is_ok() {
-                return Ok(());
-            }
-        }
-        bail!("No provider found")
-    }
-
-    async fn resolve(&self, cwd: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        Ok(
-            try_join_all(self.providers.iter().map(|p| p.resolve(cwd, extra_env)))
-                .await?
-                .into_iter()
-                .flatten()
-                .collect(),
-        )
-    }
-}
+type Hydration = FxHashMap<String, String>;
 
 pub async fn hydrate(
     env: HashMap<String, String>,
     cwd: PathBuf,
     extra_env: HashMap<String, String>,
 ) -> Result<HashMap<String, String>> {
-    let mut hydrater = Hydrater::new();
+    let mut providers = Providers::new();
     for value_or_uri in env.values() {
-        hydrater.add(value_or_uri.clone())?
+        providers.add(value_or_uri.clone())?;
     }
 
-    let hydration = hydrater.resolve(&cwd, &extra_env).await?;
+    let mut hydration = providers.resolve(&cwd, &extra_env).await?;
 
-    let mut ret: HashMap<String, String> = HashMap::default();
-    for (key, value_or_uri) in env.iter() {
-        ret.insert(
-            key.clone(),
-            hydration
-                .get(value_or_uri)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Cannot find {} in {}",
-                        value_or_uri,
-                        hydration
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    )
-                })
-                .clone(),
-        );
-    }
-
-    Ok(ret)
+    Ok(env
+        .into_iter()
+        .map(|(key, value_or_uri)| {
+            let value = hydration.remove(&value_or_uri).unwrap_or_else(|| {
+                panic!(
+                    "Cannot find {} in {}",
+                    value_or_uri,
+                    hydration
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            });
+            (key, value)
+        })
+        .collect())
 }
 
 pub async fn hydrate_one(
@@ -86,9 +50,9 @@ pub async fn hydrate_one(
     cwd: &Path,
     extra_env: &HashMap<String, String>,
 ) -> Result<String> {
-    let mut hydrater = Hydrater::new();
-    hydrater.add(value.clone())?;
-    let hydration = hydrater.resolve(cwd, extra_env).await?;
+    let mut providers = Providers::new();
+    providers.add(value.clone())?;
+    let hydration = providers.resolve(cwd, extra_env).await?;
     Ok(hydration.get(&value).unwrap().to_owned())
 }
 

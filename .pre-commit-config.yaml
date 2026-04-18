@@ -10,4 +10,6 @@ repos:
     hooks:
       - id: fmt
       - id: cargo-check
+        args: ["--locked"]
       - id: clippy
+        args: ["--locked", "--", "-D", "warnings"]

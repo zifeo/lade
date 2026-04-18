@@ -1,10 +1,11 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::debug;
+use rustc_hash::FxHashMap;
 use url::Url;
 
 use crate::Hydration;
@@ -16,7 +17,7 @@ const INSTALL_URL: &str = "https://github.com/passbolt/go-passbolt-cli";
 
 #[derive(Default)]
 pub struct Passbolt {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl Passbolt {
@@ -31,15 +32,19 @@ impl Provider for Passbolt {
         add_url(&mut self.urls, value, "passbolt")
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
             .into_group_map_by(|(url, _)| url.host().expect("Missing host"))
             .into_iter()
             .flat_map(|(host, group)| {
-                let extra_env = extra_env.clone();
+                let extra_env = Arc::clone(&extra_env);
                 group
                     .into_iter()
                     .into_group_map_by(|(url, _)| {
@@ -48,7 +53,7 @@ impl Provider for Passbolt {
                     .into_iter()
                     .map(move |(resource_id, group)| {
                         let host = host.clone();
-                        let extra_env = extra_env.clone();
+                        let extra_env = Arc::clone(&extra_env);
                         async move {
                             let cmd = [
                                 "passbolt",

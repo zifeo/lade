@@ -1,4 +1,6 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
+
+use rustc_hash::FxHashMap;
 
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
@@ -17,7 +19,7 @@ const INSTALL_URL: &str = "https://docs.doppler.com/docs/install-cli";
 
 #[derive(Default)]
 pub struct Doppler {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl Doppler {
@@ -37,8 +39,12 @@ impl Provider for Doppler {
         add_url(&mut self.urls, value, "doppler")
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
@@ -69,7 +75,7 @@ impl Provider for Doppler {
                                     })
                                     .collect::<HashMap<_, _>>();
                                 let host = host.clone();
-                                let extra_env = extra_env.clone();
+                                let extra_env = Arc::clone(&extra_env);
                                 async move {
                                     let cmd = [
                                         "doppler",

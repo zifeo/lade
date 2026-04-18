@@ -14,7 +14,7 @@ repository = "https://github.com/zifeo/lade"
 
 [dependencies]
 anyhow = "1.0.102"
-self_update = { version = "0.42.0", features = [
+self_update = { version = "0.44.0", features = [
   "archive-tar",
   "archive-zip",
   "compression-flate2",
@@ -23,10 +23,10 @@ self_update = { version = "0.42.0", features = [
 ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"
 lade-sdk = { path = "./sdk", version = "0.13.1-beta.1" }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "macros", "fs", "time"] }
 indexmap = { version = "2.14.0", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
 env_logger = "0.11.10"
@@ -41,6 +41,7 @@ log = "0.4.29"
 semver = "1.0.28"
 textwrap = "0.16.2"
 aho-corasick = "1.1.4"
+rustc-hash = "2"
 portable-pty = "0.9.0"
 
 [target.'cfg(target_family = "unix")'.dependencies]
@@ -48,7 +49,7 @@ nix = { version = "0.31.2", features = ["signal"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
-assert_cmd = "2.2.0"
+assert_cmd = "2.2.1"
 predicates = "3"
 temp-env = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }
