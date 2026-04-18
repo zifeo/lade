@@ -211,6 +211,32 @@ command regex:
 Escaping a value with the `!` prefix enforces the use of the raw loader and
 double `!!` escapes itself.
 
+## LLM Agent Hooks
+
+Lade integrates with agentic tools to automatically inject secrets into agent shell commands.
+
+```bash
+lade hook  # reads JSON from stdin, outputs platform-specific response
+```
+
+### Cursor
+
+When `CURSOR_VERSION` is detected. [Docs](https://cursor.com/docs/agent/hooks)
+
+`.cursor/hooks.json`:
+```json
+{"version": 1, "hooks": {"preToolUse": [{"command": "lade hook", "matcher": "Shell"}]}}
+```
+
+### Claude Code
+
+When `CLAUDE_PROJECT_DIR` is detected. [Docs](https://docs.anthropic.com/en/docs/claude-code/hooks)
+
+`.claude/settings.json`:
+```json
+{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "lade hook"}]}]}}
+```
+
 ## Development
 
 ```bash

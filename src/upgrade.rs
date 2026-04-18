@@ -8,7 +8,7 @@ use crate::args::UpgradeCommand;
 use crate::global_config::GlobalConfig;
 
 pub async fn check() -> Result<()> {
-    let mut local_config = GlobalConfig::load().await?;
+    let local_config = GlobalConfig::load().await?;
 
     if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
         let current_version = cargo_crate_version!();
@@ -28,8 +28,7 @@ pub async fn check() -> Result<()> {
                 current_version, latest.version
             );
         }
-        local_config.update_check = Utc::now();
-        local_config.save().await?;
+        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
     }
     Ok(())
 }
