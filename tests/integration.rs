@@ -4,6 +4,17 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
+fn test_help() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("-h")
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_set_raw_values() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

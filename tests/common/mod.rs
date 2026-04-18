@@ -1,8 +1,7 @@
 use assert_cmd::Command;
 
 pub fn lade(home: &std::path::Path) -> Command {
-    #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("lade").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("lade"));
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
         // `directories` uses OS APIs (XDG on Linux, SHGetKnownFolderPath on Windows)
