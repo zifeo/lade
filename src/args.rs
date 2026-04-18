@@ -38,6 +38,8 @@ pub enum Command {
     Set(EvalCommand),
     /// Unset environment for shell.
     Unset(EvalCommand),
+    /// Handle agentic tools hooks. Reads JSON from stdin, outputs platform-specific response.
+    Hook,
     /// Manage user
     User {
         /// The username to set

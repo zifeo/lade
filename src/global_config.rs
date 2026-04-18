@@ -33,20 +33,31 @@ impl GlobalConfig {
             let config: GlobalConfig = serde_json::from_str(&config_str)?;
             Ok(config)
         } else {
-            let config = GlobalConfig {
+            Ok(GlobalConfig {
                 update_check: Utc::now(),
                 user: None,
-            };
-            config.save().await?;
-            Ok(config)
+            })
         }
     }
 
-    pub async fn save(&self) -> Result<()> {
+    pub async fn update<F: FnOnce(&mut GlobalConfig)>(f: F) -> Result<()> {
+        let mut config = Self::load().await?;
+        f(&mut config);
+        config.save().await?;
+        Ok(())
+    }
+
+    async fn save(&self) -> Result<()> {
         let config_str = serde_json::to_string_pretty(&self)?;
         let path = Self::path();
-        fs::create_dir_all(&path.parent().unwrap()).await?;
-        fs::write(&path, config_str).await?;
+        let tmp = path.with_file_name(format!(
+            "{}.{}.tmp",
+            path.file_name().unwrap().to_string_lossy(),
+            std::process::id(),
+        ));
+        fs::create_dir_all(path.parent().unwrap()).await?;
+        fs::write(&tmp, &config_str).await?;
+        fs::rename(&tmp, &path).await?;
         Ok(())
     }
 }
