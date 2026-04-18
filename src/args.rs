@@ -55,6 +55,11 @@ pub enum Command {
     Set(EvalCommand),
     /// Unset environment for shell.
     Unset(EvalCommand),
+    /// Evaluate a secret URI and print its resolved value.
+    Eval {
+        /// The secret URI to resolve (e.g., op://vault/item/field)
+        uri: String,
+    },
     /// Handle agentic tools hooks. Reads JSON from stdin, outputs platform-specific response.
     Hook,
     /// Manage user

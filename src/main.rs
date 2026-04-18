@@ -18,6 +18,7 @@ use config::LadeFile;
 use files::{hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
 use redact::Redactor;
+use lade_sdk::hydrate_one;
 use shell::Shell;
 
 #[tokio::main]
@@ -63,7 +64,11 @@ async fn main() -> Result<()> {
     };
 
     match command {
-        Command::On | Command::Off | Command::Install | Command::Uninstall => {}
+        Command::On
+        | Command::Off
+        | Command::Install
+        | Command::Uninstall
+        | Command::Eval { .. } => {}
         _ => upgrade::check_warn(),
     }
 
@@ -114,13 +119,20 @@ async fn main() -> Result<()> {
     }
 
     let current_dir = env::current_dir()?;
+
+    if let Command::Eval { uri } = command {
+        let value = hydrate_one(uri, &current_dir, &std::collections::HashMap::new()).await?;
+        println!("{}", value);
+        return Ok(());
+    }
+
     let config = match LadeFile::build(current_dir.clone()) {
         std::result::Result::Ok(c) => c,
         Err(e) => {
             let width = 80;
             let wrap_width = width - 4;
             let header = "Lade could not parse a config file:";
-            let hint = "Hint: check the file format — the '.' key now expects a struct, not a plain string.";
+            let hint = "Hint: check the file format.";
             let error = e.to_string();
             eprintln!("┌{}┐", "-".repeat(width - 2));
             eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()));
