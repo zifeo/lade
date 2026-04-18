@@ -10,6 +10,7 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use lade_sdk::{hydrate, hydrate_one};
 use regex::Regex;
+use rustc_hash::FxHashMap;
 use std::{collections::HashMap, path::PathBuf};
 
 pub type Output = Option<PathBuf>;
@@ -35,18 +36,13 @@ impl Config {
         &self,
         path: PathBuf,
         rule: LadeRule,
+        saved_user: &Option<String>,
     ) -> Result<(Output, HashMap<String, String>)> {
-        use std::env;
-        let local_config = GlobalConfig::load().await?;
-        let saved_user = local_config
-            .user
-            .or_else(|| env::var("USER").ok().or_else(|| env::var("USERNAME").ok()));
-
         let secrets_with_single_user: HashMap<String, String> = rule
             .secrets
             .iter()
             .filter_map(|(key, secret)| {
-                resolve_lade_secret(secret, &saved_user).map(|v| (key.clone(), v))
+                resolve_lade_secret(secret, saved_user).map(|v| (key.clone(), v))
             })
             .collect();
 
@@ -54,7 +50,7 @@ impl Config {
         let output = config.and_then(|c| c.file.clone());
         let extra_env = if let Some(uri) = config
             .and_then(|c| c.onepassword_service_account.as_ref())
-            .and_then(|sa| resolve_lade_secret(sa, &saved_user))
+            .and_then(|sa| resolve_lade_secret(sa, saved_user))
         {
             let token = hydrate_one(uri, &path, &HashMap::new()).await?;
             HashMap::from([("OP_SERVICE_ACCOUNT_TOKEN".to_string(), token)])
@@ -71,21 +67,24 @@ impl Config {
         &self,
         command: &str,
     ) -> Result<HashMap<Output, HashMap<String, String>>> {
-        let ret = try_join_all(
+        use std::env;
+        let local_config = GlobalConfig::load().await?;
+        let saved_user = local_config
+            .user
+            .or_else(|| env::var("USER").ok().or_else(|| env::var("USERNAME").ok()));
+
+        let ret: FxHashMap<Output, HashMap<String, String>> = try_join_all(
             self.collect(command)
                 .into_iter()
-                .map(|(path, rule)| self.hydrate_output(path, rule)),
+                .map(|(path, rule)| self.hydrate_output(path, rule, &saved_user)),
         )
         .await?
         .into_iter()
-        .fold(
-            HashMap::default(),
-            |mut acc: HashMap<Output, HashMap<String, String>>, (output, map)| {
-                acc.entry(output).or_default().extend(map);
-                acc
-            },
-        );
-        Ok(ret)
+        .fold(FxHashMap::default(), |mut acc, (output, map)| {
+            acc.entry(output).or_default().extend(map);
+            acc
+        });
+        Ok(ret.into_iter().collect())
     }
 
     pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {

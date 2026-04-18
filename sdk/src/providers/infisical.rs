@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use log::debug;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
 use tempfile::tempdir;
 use url::Url;
 
@@ -17,7 +18,7 @@ const INSTALL_URL: &str = "https://infisical.com/docs/cli/overview";
 
 #[derive(Default)]
 pub struct Infisical {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl Infisical {
@@ -30,8 +31,6 @@ impl Infisical {
 struct InfisicalExport {
     key: String,
     value: String,
-    #[serde(rename = "secretPath")]
-    secret_path: String,
 }
 
 #[async_trait]
@@ -40,8 +39,12 @@ impl Provider for Infisical {
         add_url(&mut self.urls, value, "infisical")
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
@@ -78,9 +81,8 @@ impl Provider for Infisical {
                                     .collect::<HashMap<String, Vec<(String, String)>>>();
 
                                 let host = host.clone();
-                                let extra_env = extra_env.clone();
+                                let extra_env = Arc::clone(&extra_env);
                                 async move {
-                                    let mut hydration = Hydration::new();
                                     let temp_dir = tempdir()?;
                                     let config = HashMap::from([("workspaceId", project), ("defaultEnvironment", "")]);
                                     let config_path = temp_dir.path().join(".infisical.json");
@@ -88,40 +90,56 @@ impl Provider for Infisical {
                                     write!(file, "{}", serde_json::to_string(&config)?)?;
                                     drop(file);
 
-                                    for (path, variables) in path_groups {
-                                        let cmd = [
-                                            "infisical", "--domain", &format!("https://{}/api", host),
-                                            "export", "--path", if path.is_empty() { "/" } else { &path },
-                                            "--env", env, "--projectId", project, "--format", "json",
-                                        ];
-                                        let child = run_cli(&cmd, &extra_env, NAME, INSTALL_URL, Some(temp_dir.path())).await?;
-                                        let loaded = serde_json::from_slice::<Vec<InfisicalExport>>(&child.stdout)
-                                            .map_err(|err| {
-                                                let stderr = String::from_utf8_lossy(&child.stderr);
-                                                if stderr.contains("login expired") {
-                                                    anyhow!("Login expired for Infisical instance {host}: {stderr}")
-                                                } else if stderr.contains("unable to validate environment") {
-                                                    anyhow!("Workspace seems not accessible from logged account on {host}: {stderr}")
-                                                } else {
-                                                    anyhow!("Infisical error: {err} (stderr: {stderr})")
-                                                }
-                                            })?
-                                            .into_iter()
-                                            .map(|e| (e.key, e.value, e.secret_path))
-                                            .collect::<Vec<_>>();
+                                    let temp_dir_path = Arc::new(temp_dir.path().to_path_buf());
+                                    let path_futures = path_groups.into_iter().map(|(path, variables)| {
+                                        let host = host.clone();
+                                        let extra_env = Arc::clone(&extra_env);
+                                        let temp_dir_path = Arc::clone(&temp_dir_path);
+                                        async move {
+                                            let domain = format!("https://{}/api", host);
+                                            let path_arg = if path.is_empty() { "/".to_string() } else { path.clone() };
+                                            let cmd = [
+                                                "infisical", "--domain", &domain,
+                                                "export", "--path", &path_arg,
+                                                "--env", env, "--projectId", project, "--format", "json",
+                                            ];
+                                            let child = run_cli(&cmd, &extra_env, NAME, INSTALL_URL, Some(&temp_dir_path)).await?;
+                                            let loaded = serde_json::from_slice::<Vec<InfisicalExport>>(&child.stdout)
+                                                .map_err(|err| {
+                                                    let stderr = String::from_utf8_lossy(&child.stderr);
+                                                    if stderr.contains("login expired") {
+                                                        anyhow!("Login expired for Infisical instance {host}: {stderr}")
+                                                    } else if stderr.contains("unable to validate environment") {
+                                                        anyhow!("Workspace seems not accessible from logged account on {host}: {stderr}")
+                                                    } else {
+                                                        anyhow!("Infisical error: {err} (stderr: {stderr})")
+                                                    }
+                                                })?
+                                                .into_iter()
+                                                .map(|e| (e.key, e.value))
+                                                .collect::<Vec<_>>();
 
-                                        let mut missing_vars = Vec::new();
-                                        for (var_name, original_url) in variables {
-                                            if let Some((_, value, _)) = loaded.iter().find(|(key, _, _)| key == &var_name) {
-                                                hydration.insert(original_url, value.clone());
-                                            } else {
-                                                missing_vars.push(var_name);
+                                            let mut missing_vars = Vec::new();
+                                            let mut partial = Hydration::default();
+                                            for (var_name, original_url) in variables {
+                                                if let Some((_, value)) = loaded.iter().find(|(key, _)| key == &var_name) {
+                                                    partial.insert(original_url, value.clone());
+                                                } else {
+                                                    missing_vars.push(var_name);
+                                                }
                                             }
+                                            if !missing_vars.is_empty() {
+                                                bail!("Variables {} not found in path {} of Infisical project {}", missing_vars.join(", "), path, project);
+                                            }
+                                            Ok(partial)
                                         }
-                                        if !missing_vars.is_empty() {
-                                            bail!("Variables {} not found in path {} of Infisical project {}", missing_vars.join(", "), path, project);
-                                        }
-                                    }
+                                    });
+
+                                    let hydration: Hydration = try_join_all(path_futures)
+                                        .await?
+                                        .into_iter()
+                                        .flatten()
+                                        .collect();
 
                                     temp_dir.close()?;
                                     debug!("hydration: {:?}", hydration);

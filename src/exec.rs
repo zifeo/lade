@@ -23,6 +23,9 @@ pub fn run(
 }
 
 fn run_plain(shell: &str, command: &str, env: HashMap<String, String>, cwd: &Path) -> Result<i32> {
+    // Seed with the parent's env explicitly: on Windows, Rust's Command resolves
+    // the executable using the child's env PATH, and passing std::env::vars()
+    // keeps PATH order as-is so `bash` resolves to Git Bash before WSL's stub.
     let status = std::process::Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
@@ -81,11 +84,16 @@ fn run_piped(
 ) -> Result<i32> {
     use std::process::{Command, Stdio};
 
+    // Inherit stdin directly so the child reads the parent's fd. A `piped`
+    // stdin forwarded by a helper thread risks SIGPIPE (SIG_DFL at startup
+    // kills the process) when the child exits before consuming forwarded
+    // bytes, which is observable on Linux CI.
     let mut child = Command::new(shell)
         .args(["-c", command])
         .current_dir(cwd)
         .envs(std::env::vars())
         .envs(env)
+        .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;

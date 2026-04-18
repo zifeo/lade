@@ -1,14 +1,17 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
-use async_process::{Command, Stdio};
 use async_trait::async_trait;
-use futures::{AsyncWriteExt, future::try_join_all};
+use futures::future::try_join_all;
 use itertools::Itertools;
 use log::debug;
+use rustc_hash::FxHashMap;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 use url::Url;
 
-use crate::{Hydration, providers::envs};
+use crate::Hydration;
 
 use super::{Provider, add_url};
 
@@ -16,7 +19,7 @@ static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
 #[derive(Default)]
 pub struct OnePassword {
-    urls: HashMap<Url, String>,
+    urls: FxHashMap<Url, String>,
 }
 
 impl OnePassword {
@@ -42,8 +45,12 @@ impl Provider for OnePassword {
         }
     }
 
+    fn has_work(&self) -> bool {
+        !self.urls.is_empty()
+    }
+
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
-        let extra_env = extra_env.clone();
+        let extra_env = Arc::new(extra_env.clone());
         let fetches = self
             .urls
             .iter()
@@ -57,10 +64,10 @@ impl Provider for OnePassword {
                     .collect::<HashMap<_, _>>();
 
                 let host = host.clone();
-                let extra_env = extra_env.clone();
+                let extra_env = Arc::clone(&extra_env);
                 async move {
                     if vars.is_empty() {
-                        return Ok(HashMap::new());
+                        return Ok(Hydration::default());
                     }
 
                     let input = &vars.values()
@@ -74,7 +81,7 @@ impl Provider for OnePassword {
 
                     let mut process = Command::new(cmd[0])
                         .args(&cmd[1..])
-                        .envs(envs(&extra_env))
+                        .envs(extra_env.iter())
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .stdin(Stdio::piped())
@@ -83,14 +90,14 @@ impl Provider for OnePassword {
                     debug!("stdin: {:?}", input);
 
                     let mut stdin = process.stdin.take().expect("Failed to open stdin");
-                    if let Err(e) = stdin.write_all(input.as_bytes()).await {
-                        if e.kind() != std::io::ErrorKind::BrokenPipe {
-                            bail!("1Password error: {e}");
-                        }
+                    if let Err(e) = stdin.write_all(input.as_bytes()).await
+                        && e.kind() != std::io::ErrorKind::BrokenPipe
+                    {
+                        bail!("1Password error: {e}");
                     }
                     drop(stdin);
 
-                    let child = match process.output().await {
+                    let child = match process.wait_with_output().await {
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                             bail!("1Password CLI not found. Make sure the binary is in your PATH or install it from https://1password.com/downloads/command-line/.")
                         },
@@ -124,7 +131,11 @@ impl Provider for OnePassword {
             })
             .collect::<Vec<_>>();
 
-        Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
+        Ok(try_join_all(fetches)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect::<Hydration>())
     }
 }
 

@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result};
 use log::debug;
-use std::{env, io::Read};
+use std::{env, io::Read, time::Duration};
 
 mod args;
 mod config;
@@ -17,12 +17,18 @@ use clap::{CommandFactory, Parser};
 use config::LadeFile;
 use files::{hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
-use redact::Redactor;
 use lade_sdk::hydrate_one;
+use redact::Redactor;
 use shell::Shell;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     #[cfg(target_family = "unix")]
     {
         // fix the pipe: https://github.com/rust-lang/rust/issues/46016
@@ -63,14 +69,14 @@ async fn main() -> Result<()> {
         }
     };
 
-    match command {
+    let upgrade_task = match command {
         Command::On
         | Command::Off
         | Command::Install
         | Command::Uninstall
-        | Command::Eval { .. } => {}
-        _ => upgrade::check_warn(),
-    }
+        | Command::Eval { .. } => None,
+        _ => Some(tokio::spawn(upgrade::check_message())),
+    };
 
     let shell = Shell::detect()?;
 
@@ -149,13 +155,14 @@ async fn main() -> Result<()> {
         }
     };
 
+    let mut inject_exit_code: Option<i32> = None;
+
     match command {
         Command::Hook => {
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
             let output = hook::handle(&config, &input)?;
             print!("{}", output);
-            Ok(())
         }
         Command::Inject(opts) => {
             debug!("injecting: {:?}", opts.commands);
@@ -185,9 +192,8 @@ async fn main() -> Result<()> {
             let code = code?;
             if code != 0 {
                 eprintln!("command failed");
-                std::process::exit(code);
+                inject_exit_code = Some(code);
             }
-            Ok(())
         }
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
@@ -202,7 +208,6 @@ async fn main() -> Result<()> {
             }
 
             println!("{}", shell.set(env));
-            Ok(())
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
@@ -210,10 +215,26 @@ async fn main() -> Result<()> {
             let (env, files) = split_env_files(&mut keys);
             remove_files(&mut files.keys())?;
             println!("{}", shell.unset(env));
-            Ok(())
         }
         _ => unreachable!(),
     }
+
+    if let Some(task) = upgrade_task
+        && let Some(msg) = tokio::time::timeout(Duration::from_millis(50), task)
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .and_then(|r| r.ok())
+            .flatten()
+    {
+        eprintln!("{msg}");
+    }
+
+    if let Some(code) = inject_exit_code {
+        std::process::exit(code);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
