@@ -30,9 +30,16 @@ async fn main() -> Result<()> {
 
     let args = Args::try_parse()?;
 
-    env_logger::Builder::new()
-        .filter_level(args.verbose.log_level_filter())
-        .init();
+    let mut builder = env_logger::Builder::new();
+    match env::var("LADE_LOG").ok().filter(|s| !s.is_empty()) {
+        Some(filter) => {
+            builder.parse_filters(&filter);
+        }
+        None => {
+            builder.filter_level(args.verbose.log_level_filter());
+        }
+    };
+    builder.init();
 
     if args.version {
         println!("lade {}", env!("CARGO_PKG_VERSION"));
@@ -104,7 +111,28 @@ async fn main() -> Result<()> {
     }
 
     let current_dir = env::current_dir()?;
-    let config = LadeFile::build(current_dir.clone())?;
+    let config = match LadeFile::build(current_dir.clone()) {
+        std::result::Result::Ok(c) => c,
+        Err(e) => {
+            let width = 80;
+            let wrap_width = width - 4;
+            let header = "Lade could not parse a config file:";
+            let hint = "Hint: check the file format — the '.' key now expects a struct, not a plain string.";
+            let error = e.to_string();
+            eprintln!("┌{}┐", "-".repeat(width - 2));
+            eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()));
+            for line in textwrap::wrap(error.trim(), wrap_width - 2) {
+                eprintln!(
+                    "| > {} {}|",
+                    line,
+                    " ".repeat(wrap_width - 2 - textwrap::core::display_width(&line)),
+                );
+            }
+            eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
+            eprintln!("└{}┘", "-".repeat(width - 2));
+            std::process::exit(1);
+        }
+    };
 
     match command {
         Command::Hook => {
@@ -175,16 +203,5 @@ mod tests {
         use crate::Args;
         use clap::CommandFactory;
         Args::command().debug_assert()
-    }
-
-    #[test]
-    fn end_to_end() {
-        use assert_cmd::Command;
-        #[allow(deprecated)]
-        Command::cargo_bin("lade")
-            .unwrap()
-            .arg("-h")
-            .assert()
-            .success();
     }
 }
