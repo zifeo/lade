@@ -1,14 +1,25 @@
 use anyhow::{Ok, Result};
 use log::debug;
+<<<<<<< HEAD
 use std::{env, io::Read};
+||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
+use std::{env, process::Command as ProcessCommand};
+=======
+use std::{env, io::Read, process::Command as ProcessCommand};
+>>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
 
 mod args;
 mod config;
 mod exec;
 mod files;
 mod global_config;
+<<<<<<< HEAD
 mod hook;
 mod redact;
+||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
+=======
+mod hook;
+>>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
 mod shell;
 mod upgrade;
 
@@ -150,6 +161,7 @@ async fn main() -> Result<()> {
     };
 
     match command {
+<<<<<<< HEAD
         Command::Hook => {
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
@@ -160,6 +172,22 @@ async fn main() -> Result<()> {
         Command::Inject(opts) => {
             debug!("injecting: {:?}", opts.commands);
             let command = opts.commands.join(" ");
+||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
+        Command::Inject(EvalCommand { commands }) => {
+            debug!("injecting: {:?}", commands);
+            let command = commands.join(" ");
+=======
+        Command::Hook => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            let output = hook::handle(&config, &input)?;
+            print!("{}", output);
+            Ok(())
+        }
+        Command::Inject(EvalCommand { commands }) => {
+            debug!("injecting: {:?}", commands);
+            let command = commands.join(" ");
+>>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
 
             let mut hydration = hydration_or_exit(&config, &command).await;
             let (env, files) = split_env_files(&mut hydration);
