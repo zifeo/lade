@@ -74,6 +74,14 @@ cd examples/terraform
 lade inject terraform apply
 ```
 
+Unless `--no-mask` is used, **all secret values are automatically redacted
+from stdout and stderr** before they reach the caller. Each occurrence is
+replaced with a self-rehydrating bash token:
+
+```bash
+${VAR_NAME:-REDACTED}
+```
+
 ### Outputting as files
 
 By default, Lade will load secrets into environment variables. You can write

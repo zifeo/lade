@@ -131,12 +131,99 @@ fn test_inject_raw_value_reaches_child_process() {
         "\"echo.*\":\n  SECRET: injected_secret\n",
     )
     .unwrap();
+    // --no-mask: verify the secret is actually injected into the child env.
     common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--no-mask", "echo", "$SECRET"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("injected_secret"));
+}
+
+#[test]
+fn test_inject_masks_secret_in_output_by_default() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo.*\":\n  SECRET: mysecret42\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
         .current_dir(dir.path())
         .args(["inject", "echo", "$SECRET"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("injected_secret"));
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(
+        !stdout.contains("mysecret42"),
+        "raw secret leaked into output: {stdout}"
+    );
+    assert!(
+        stdout.contains("${SECRET:-REDACTED}"),
+        "expected redaction token in output: {stdout}"
+    );
+}
+
+#[test]
+fn test_inject_no_mask_shows_raw_secret() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo.*\":\n  SECRET: rawsecret99\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--no-mask", "echo", "$SECRET"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("rawsecret99"));
+}
+
+#[test]
+fn test_inject_static_mask_format() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo.*\":\n  SECRET: statictest77\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--mask-format", "REDACTED", "echo", "$SECRET"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(
+        !stdout.contains("statictest77"),
+        "raw secret leaked: {stdout}"
+    );
+    assert!(stdout.contains("REDACTED"), "expected REDACTED: {stdout}");
+    assert!(
+        !stdout.contains("SECRET"),
+        "var name should not appear with static format: {stdout}"
+    );
+}
+
+#[test]
+fn test_inject_exit_code_propagation() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    // No lade.yml → empty config → no secrets → run_plain path; exit 7
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "exit 7"])
+        .assert()
+        .code(7);
 }
 
 #[test]

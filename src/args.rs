@@ -20,6 +20,23 @@ pub struct EvalCommand {
     pub commands: Vec<String>,
 }
 
+/// Default replacement format: `{}` is replaced by the variable name.
+/// Produces bash self-rehydrating tokens like `${MY_VAR:-REDACTED}`.
+pub const DEFAULT_MASK_FORMAT: &str = "${{}:-REDACTED}";
+
+#[derive(Parser, Debug)]
+pub struct InjectCommand {
+    /// Do not mask secret values in the subprocess output.
+    #[clap(long, default_value_t = false)]
+    pub no_mask: bool,
+    /// Format used for masked values. `{}` is substituted with the variable
+    /// name; omit `{}` for a static replacement (e.g. `REDACTED`).
+    #[clap(long, default_value = DEFAULT_MASK_FORMAT)]
+    pub mask_format: String,
+    #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub commands: Vec<String>,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Upgrade lade.
@@ -33,7 +50,7 @@ pub enum Command {
     /// Uninstall auto launcher in shell profile.
     Uninstall,
     /// Inject environment into nested command.
-    Inject(EvalCommand),
+    Inject(InjectCommand),
     /// Set environment for shell.
     Set(EvalCommand),
     /// Unset environment for shell.
