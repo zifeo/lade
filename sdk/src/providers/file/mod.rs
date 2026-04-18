@@ -7,7 +7,7 @@ use std::{
 };
 
 use access_json::JSONQuery;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use rustc_hash::FxHashMap;
@@ -136,9 +136,10 @@ mod tests {
     #[test]
     fn test_add_routing() {
         let mut p = File::new();
-        assert!(p
-            .add("file:///path/to/config.json?query=.key".to_string())
-            .is_ok());
+        assert!(
+            p.add("file:///path/to/config.json?query=.key".to_string())
+                .is_ok()
+        );
         assert!(p.add("file:///path/to/config.json".to_string()).is_err());
         assert!(p.add("vault://host/mount/key/field".to_string()).is_err());
     }

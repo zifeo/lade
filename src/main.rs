@@ -1,31 +1,14 @@
 use anyhow::{Ok, Result};
 use log::debug;
-<<<<<<< HEAD
-<<<<<<< HEAD
-use std::{env, io::Read};
-||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
-use std::{env, process::Command as ProcessCommand};
-=======
-use std::{env, io::Read, process::Command as ProcessCommand};
->>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
-||||||| parent of fb52f33 (refactor: simplify)
-use std::{env, io::Read};
-=======
 use std::{env, io::Read, time::Duration};
->>>>>>> fb52f33 (refactor: simplify)
 
 mod args;
 mod config;
 mod exec;
 mod files;
 mod global_config;
-<<<<<<< HEAD
 mod hook;
 mod redact;
-||||||| parent of d44c633 (feat: agentic hook support (claude/cursor) (#131))
-=======
-mod hook;
->>>>>>> d44c633 (feat: agentic hook support (claude/cursor) (#131))
 mod shell;
 mod upgrade;
 
@@ -34,8 +17,8 @@ use clap::{CommandFactory, Parser};
 use config::LadeFile;
 use files::{hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
-use redact::Redactor;
 use lade_sdk::hydrate_one;
+use redact::Redactor;
 use shell::Shell;
 
 fn main() -> Result<()> {
@@ -86,26 +69,14 @@ async fn run() -> Result<()> {
         }
     };
 
-<<<<<<< HEAD
-    match command {
+    let upgrade_task = match command {
         Command::On
         | Command::Off
         | Command::Install
         | Command::Uninstall
-        | Command::Eval { .. } => {}
-        _ => upgrade::check_warn(),
-    }
-||||||| parent of 6173758 (refactor: simplify)
-    match command {
-        Command::On | Command::Off | Command::Install | Command::Uninstall => {}
-        _ => upgrade::check_warn(),
-    }
-=======
-    let upgrade_task = match command {
-        Command::On | Command::Off | Command::Install | Command::Uninstall => None,
+        | Command::Eval { .. } => None,
         _ => Some(tokio::spawn(upgrade::check_message())),
     };
->>>>>>> 6173758 (refactor: simplify)
 
     let shell = Shell::detect()?;
 
