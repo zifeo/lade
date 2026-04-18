@@ -220,8 +220,12 @@ async fn run() -> Result<()> {
     }
 
     if let Some(task) = upgrade_task
-        && let anyhow::Result::Ok(anyhow::Result::Ok(anyhow::Result::Ok(Some(msg)))) =
-            tokio::time::timeout(Duration::from_millis(50), task).await
+        && let Some(msg) = tokio::time::timeout(Duration::from_millis(50), task)
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .and_then(|r| r.ok())
+            .flatten()
     {
         eprintln!("{msg}");
     }
