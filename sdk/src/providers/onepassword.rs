@@ -28,7 +28,18 @@ impl OnePassword {
 #[async_trait]
 impl Provider for OnePassword {
     fn add(&mut self, value: String) -> Result<()> {
-        add_url(&mut self.urls, value, "op")
+        match Url::parse(&value) {
+            Ok(url) if url.scheme() == "op" => {
+                if url.path().contains('+') {
+                    bail!(
+                        "1Password secret references cannot contain '+' in any path segment. \
+                         Use the item or field UUID instead (found with: op item get 'NAME' --format json)."
+                    );
+                }
+                add_url(&mut self.urls, value, "op")
+            }
+            _ => bail!("Not an op scheme"),
+        }
     }
 
     async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
@@ -53,7 +64,10 @@ impl Provider for OnePassword {
                     }
 
                     let input = &vars.values()
-                        .map(|v| v.replace(&format!("{host}/"), "").replace("%20", " "))
+                        .map(|v| {
+                            let s = v.replace(&format!("{host}/"), "");
+                            urlencoding::decode(&s).expect("invalid percent-encoding in op:// URL").into_owned()
+                        })
                         .join(SEP);
                     let cmd = &["op", "inject", "--account", &host.to_string()];
                     debug!("Lade run: {}", cmd.join(" "));
@@ -190,5 +204,59 @@ mod tests {
         )]);
         let result = p.resolve(Path::new("."), &extra).await;
         assert!(result.is_err());
+    }
+
+    // --- FAILING TESTS (fail before the fix, pass after) ---
+
+    #[test]
+    fn test_add_rejects_plus_in_field_name() {
+        let mut p = OnePassword::new();
+        let result = p.add("op://my.1password.com/vault_uuid/item_uuid/field+name".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("UUID"));
+    }
+
+    #[test]
+    fn test_add_rejects_plus_in_item_name() {
+        let mut p = OnePassword::new();
+        let result = p.add("op://my.1password.com/vault_uuid/item+name/field".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("UUID"));
+    }
+
+    #[test]
+    fn test_add_accepts_uuid_path_with_section() {
+        let mut p = OnePassword::new();
+        assert!(
+            p.add(
+                "op://my.1password.com/vault_uuid/item_uuid/Section_abc123/field_uuid".to_string()
+            )
+            .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_section_and_field_uuid() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "op", "cat > /dev/null\nprintf 'secret_value'");
+
+        let mut p = OnePassword::new();
+        p.add(
+            "op://my.1password.com/vault_uuid/item_uuid/Section_abc123def/field_uuid456"
+                .to_string(),
+        )
+        .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let result = p.resolve(Path::new("."), &extra).await.unwrap();
+        assert_eq!(
+            result
+                .get("op://my.1password.com/vault_uuid/item_uuid/Section_abc123def/field_uuid456")
+                .unwrap(),
+            "secret_value"
+        );
     }
 }
