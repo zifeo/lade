@@ -10,7 +10,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -21,15 +21,16 @@ jobs:
         with:
           key: lint
       - uses: pre-commit/action@v3.0.1
+      - uses: rhysd/actionlint@v1.7.12
 
   test:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-          - os: macos-latest
-          - os: windows-latest
+          - os: ubuntu-24.04
+          - os: macos-15
+          - os: windows-2025
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -44,7 +45,7 @@ jobs:
           cargo test --workspace --locked
 
   test-scripts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
