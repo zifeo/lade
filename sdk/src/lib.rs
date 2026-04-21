@@ -24,12 +24,12 @@ pub async fn hydrate(
         providers.add(value_or_uri.clone())?;
     }
 
-    let mut hydration = providers.resolve(&cwd, &extra_env).await?;
+    let hydration = providers.resolve(&cwd, &extra_env).await?;
 
     Ok(env
         .into_iter()
         .map(|(key, value_or_uri)| {
-            let value = hydration.remove(&value_or_uri).unwrap_or_else(|| {
+            let value = hydration.get(&value_or_uri).cloned().unwrap_or_else(|| {
                 panic!(
                     "Cannot find {} in {}",
                     value_or_uri,
@@ -88,6 +88,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, "mytoken");
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_duplicate_raw_values() {
+        let env = HashMap::from([
+            ("KEY1".to_string(), "a".to_string()),
+            ("KEY2".to_string(), "a".to_string()),
+        ]);
+        let result = hydrate(env, PathBuf::from("."), HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(result.get("KEY1").unwrap(), "a");
+        assert_eq!(result.get("KEY2").unwrap(), "a");
     }
 
     #[tokio::test]
