@@ -215,6 +215,41 @@ fn test_inject_static_mask_format() {
 }
 
 #[test]
+fn test_inject_stdin_escape_responses_do_not_leak_to_stdout() {
+    // Regression: when a hook pipes stdin, lade used to still take the PTY
+    // path and forward queued terminal-query responses (OSC 11, CPR) into
+    // the PTY, where they were echoed back out as `^[]11;rgb:…^[\^[[…R`
+    // garbage. The gate now routes piped-stdin contexts to run_piped so the
+    // child's stdin is inherited and no echo loop exists.
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo.*\":\n  SECRET: stdincheck42\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "echo hello"])
+        .write_stdin("\x1b]11;rgb:1f1f/2424/2828\x1b\\\x1b[37;1R")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(stdout.contains("hello"), "expected child output: {stdout}");
+    assert!(
+        !stdout.contains("\x1b]11;"),
+        "OSC 11 response leaked into stdout: {stdout:?}"
+    );
+    assert!(
+        !stdout.contains("\x1b[37;1R"),
+        "CPR response leaked into stdout: {stdout:?}"
+    );
+}
+
+#[test]
 fn test_inject_exit_code_propagation() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
