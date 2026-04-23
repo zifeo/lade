@@ -72,6 +72,7 @@ impl Redactor {
             let n = reader.read(&mut chunk)?;
             if n == 0 {
                 self.replace_into(&buf, &mut writer)?;
+                writer.flush()?;
                 break;
             }
 
@@ -94,6 +95,12 @@ impl Redactor {
             let commit = pos.max(safe_end);
             writer.write_all(&buf[pos..commit])?;
             buf.drain(..commit);
+
+            // Defeat Rust's LineWriter on stdout TTYs: an interactive prompt
+            // like tofu's `Enter a value: ` has no trailing newline, so
+            // without an explicit flush it sits buffered and the user types
+            // blind into an apparently-hung process.
+            writer.flush()?;
         }
         Ok(())
     }
