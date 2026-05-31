@@ -4,10 +4,12 @@ use std::{env, io::Read, time::Duration};
 
 mod args;
 mod config;
+mod disclaimer;
 mod exec;
 mod files;
 mod global_config;
 mod hook;
+mod message_box;
 mod redact;
 mod shell;
 mod upgrade;
@@ -135,22 +137,11 @@ async fn run() -> Result<()> {
     let config = match LadeFile::build(current_dir.clone()) {
         std::result::Result::Ok(c) => c,
         Err(e) => {
-            let width = 80;
-            let wrap_width = width - 4;
-            let header = "Lade could not parse a config file:";
-            let hint = "Hint: check the file format.";
-            let error = e.to_string();
-            eprintln!("┌{}┐", "-".repeat(width - 2));
-            eprintln!("| {} {}|", header, " ".repeat(wrap_width - header.len()));
-            for line in textwrap::wrap(error.trim(), wrap_width - 2) {
-                eprintln!(
-                    "| > {} {}|",
-                    line,
-                    " ".repeat(wrap_width - 2 - textwrap::core::display_width(&line)),
-                );
-            }
-            eprintln!("| {} {}|", hint, " ".repeat(wrap_width - hint.len()));
-            eprintln!("└{}┘", "-".repeat(width - 2));
+            message_box::MessageBox::new()
+                .line("Lade could not parse a config file:")
+                .paragraph(e.to_string())
+                .line("Hint: check the file format.")
+                .print_stderr();
             std::process::exit(1);
         }
     };
@@ -167,6 +158,8 @@ async fn run() -> Result<()> {
         Command::Inject(opts) => {
             debug!("injecting: {:?}", opts.commands);
             let command = opts.commands.join(" ");
+
+            disclaimer::prompt(&config.collect_disclaimers(&command))?;
 
             let mut hydration = hydration_or_exit(&config, &command).await;
             let (env, files) = split_env_files(&mut hydration);
@@ -198,6 +191,8 @@ async fn run() -> Result<()> {
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
             let command = commands.join(" ");
+
+            disclaimer::prompt(&config.collect_disclaimers(&command))?;
 
             let mut hydration = hydration_or_exit(&config, &command).await;
             let (env, files) = split_env_files(&mut hydration);

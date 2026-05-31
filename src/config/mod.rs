@@ -98,6 +98,13 @@ impl Config {
             })
             .collect()
     }
+
+    pub fn collect_disclaimers(&self, command: &str) -> Vec<String> {
+        self.collect(command)
+            .into_iter()
+            .filter_map(|(_, rule)| rule.config.as_ref().and_then(|c| c.disclaimer.clone()))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +194,20 @@ mod tests {
         std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
         assert!(config.collect_keys("other").is_empty());
+    }
+
+    #[test]
+    fn test_collect_disclaimers() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"terraform destroy\":\n  \".\":\n    disclaimer: \"This will destroy infrastructure.\"\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let disclaimers = config.collect_disclaimers("terraform destroy");
+        assert_eq!(disclaimers.len(), 1);
+        assert_eq!(disclaimers[0], "This will destroy infrastructure.");
+        assert!(config.collect_disclaimers("terraform plan").is_empty());
     }
 }

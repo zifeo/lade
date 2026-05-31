@@ -15,6 +15,7 @@ pub struct RuleConfig {
     pub file: Option<PathBuf>,
     #[serde(rename = "1password_service_account")]
     pub onepassword_service_account: Option<LadeSecret>,
+    pub disclaimer: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
