@@ -2,6 +2,8 @@
   A2: "2"
 
 ^echo a:
+  .:
+    disclaimer: "This is a disclaimer"
   A1: "1"
 
 ^echo a.+# production:
