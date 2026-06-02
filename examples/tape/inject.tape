@@ -1,0 +1,16 @@
+Output inject.gif
+Output inject.txt
+Source settings.tape
+
+Hide
+Set TypingSpeed 0
+Type "./cat-lade.yml inject"
+Enter
+Set TypingSpeed 75ms
+Sleep 2s
+Show
+Sleep 1s
+
+Type "lade inject printenv TOKEN"
+Enter
+Sleep 4s

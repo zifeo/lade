@@ -30,25 +30,25 @@ tokio = { version = "1", features = ["rt", "macros", "fs", "time"] }
 indexmap = { version = "2.14.0", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
 env_logger = "0.11.10"
-openssl = { version = "0.10.78", features = ["vendored"] }
-serde_json = "1.0.149"
+openssl = { version = "0.10.80", features = ["vendored"] }
+serde_json = "1.0.150"
 futures = "0.3.32"
 path-clean = "1.0.1"
 directories = "6.0.0"
-sysinfo = "0.38.4"
+sysinfo = "0.39.3"
 chrono = { version = "0.4.44", features = ["serde"] }
-log = "0.4.29"
+log = "0.4.30"
 semver = "1.0.28"
 textwrap = "0.16.2"
 aho-corasick = "1.1.4"
 rustc-hash = "2"
 
 [target.'cfg(target_family = "unix")'.dependencies]
-nix = { version = "0.31.2", features = ["signal", "term"] }
+nix = { version = "0.31.3", features = ["signal", "term"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
 predicates = "3"
 temp-env = "0.3"
 criterion = { version = "0.8", features = ["html_reports"] }

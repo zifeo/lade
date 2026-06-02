@@ -1,0 +1,6 @@
+> ./cat-lade.yml eval vault.yml
+^echo vault:
+  VALUE: vault://127.0.0.1:8200/secret/password/value1
+> lade eval vault://127.0.0.1:8200/secret/password/value1
+itsasecret
+>

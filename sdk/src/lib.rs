@@ -4,12 +4,12 @@ use std::{
 };
 
 use anyhow::{Ok, Result};
-use providers::Providers;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 mod providers;
 mod resolve;
 
+pub use providers::Providers;
 pub use resolve::{resolve, resolve_one};
 
 type Hydration = FxHashMap<String, String>;
@@ -19,14 +19,21 @@ pub async fn hydrate(
     cwd: PathBuf,
     extra_env: HashMap<String, String>,
 ) -> Result<HashMap<String, String>> {
+    Ok(hydrate_with_maskable(env, cwd, extra_env).await?.0)
+}
+
+pub async fn hydrate_with_maskable(
+    env: HashMap<String, String>,
+    cwd: PathBuf,
+    extra_env: HashMap<String, String>,
+) -> Result<(HashMap<String, String>, FxHashSet<String>)> {
     let mut providers = Providers::new();
     for value_or_uri in env.values() {
         providers.add(value_or_uri.clone())?;
     }
+    let (hydration, maskable) = providers.resolve(&cwd, &extra_env).await?;
 
-    let hydration = providers.resolve(&cwd, &extra_env).await?;
-
-    Ok(env
+    let values = env
         .into_iter()
         .map(|(key, value_or_uri)| {
             let value = hydration.get(&value_or_uri).cloned().unwrap_or_else(|| {
@@ -42,7 +49,9 @@ pub async fn hydrate(
             });
             (key, value)
         })
-        .collect())
+        .collect();
+
+    Ok((values, maskable))
 }
 
 pub async fn hydrate_one(
@@ -52,7 +61,7 @@ pub async fn hydrate_one(
 ) -> Result<String> {
     let mut providers = Providers::new();
     providers.add(value.clone())?;
-    let hydration = providers.resolve(cwd, extra_env).await?;
+    let (hydration, _) = providers.resolve(cwd, extra_env).await?;
     Ok(hydration.get(&value).unwrap().to_owned())
 }
 
@@ -67,19 +76,23 @@ mod tests {
             ("KEY1".to_string(), "value1".to_string()),
             ("KEY2".to_string(), "!value2".to_string()),
         ]);
-        let result = hydrate(env, PathBuf::from("."), HashMap::new())
+        let (values, maskable) = hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
             .await
             .unwrap();
-        assert_eq!(result.get("KEY1").unwrap(), "value1");
-        assert_eq!(result.get("KEY2").unwrap(), "value2");
+        assert_eq!(values.get("KEY1").unwrap(), "value1");
+        assert_eq!(values.get("KEY2").unwrap(), "value2");
+        assert!(maskable.is_empty());
     }
 
     #[tokio::test]
     async fn test_hydrate_raw_values_with_extra_env_ignored_by_raw_provider() {
         let env = HashMap::from([("KEY".to_string(), "rawval".to_string())]);
         let extra = HashMap::from([("INJECTED".to_string(), "token123".to_string())]);
-        let result = hydrate(env, PathBuf::from("."), extra).await.unwrap();
-        assert_eq!(result.get("KEY").unwrap(), "rawval");
+        let (values, maskable) = hydrate_with_maskable(env, PathBuf::from("."), extra)
+            .await
+            .unwrap();
+        assert_eq!(values.get("KEY").unwrap(), "rawval");
+        assert!(maskable.is_empty());
     }
 
     #[tokio::test]
@@ -96,11 +109,11 @@ mod tests {
             ("KEY1".to_string(), "a".to_string()),
             ("KEY2".to_string(), "a".to_string()),
         ]);
-        let result = hydrate(env, PathBuf::from("."), HashMap::new())
+        let (values, _) = hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
             .await
             .unwrap();
-        assert_eq!(result.get("KEY1").unwrap(), "a");
-        assert_eq!(result.get("KEY2").unwrap(), "a");
+        assert_eq!(values.get("KEY1").unwrap(), "a");
+        assert_eq!(values.get("KEY2").unwrap(), "a");
     }
 
     #[tokio::test]

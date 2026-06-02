@@ -19,6 +19,10 @@ impl Raw {
 
 #[async_trait]
 impl Provider for Raw {
+    fn masks_in_output(&self) -> bool {
+        false
+    }
+
     fn add(&mut self, value: String) -> Result<()> {
         self.values.push(value);
         Ok(())
