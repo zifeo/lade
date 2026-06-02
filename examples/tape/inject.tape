@@ -14,3 +14,7 @@ Sleep 1s
 Type "lade inject printenv TOKEN"
 Enter
 Sleep 4s
+
+Type "lade inject --no-mask printenv TOKEN"
+Enter
+Sleep 4s

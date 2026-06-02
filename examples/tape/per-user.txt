@@ -10,5 +10,3 @@ Successfully set user to alice
 Lade loaded: GREETING, SHELL.
 
 hello alice
-> lade user bob
-Successfully set user to bob

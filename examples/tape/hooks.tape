@@ -19,4 +19,4 @@ Sleep 1s
 
 Type 'echo hooks $DEMO'
 Enter
-Sleep 6s
+Sleep 4s

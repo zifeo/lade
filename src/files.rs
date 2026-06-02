@@ -48,7 +48,7 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
             bail!("file already exists: {:?}", path)
         }
         debug!("writing file: {:?}", path);
-        let content: String = match path
+        let mut content: String = match path
             .extension()
             .and_then(OsStr::to_str)
             .unwrap_or_else(|| panic!("cannot get extension of file: {:?}", path.display()))
@@ -57,6 +57,9 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
             "yaml" | "yml" => serde_yaml::to_string(&vars)?,
             _ => bail!("unsupported file extension: {:?}", path.extension()),
         };
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
         fs::write(path, content)?;
     }
     Ok(names)

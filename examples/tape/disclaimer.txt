@@ -9,6 +9,4 @@
 | > This command will use your API token.                |
 └--------------------------------------------------------┘
 Type "yes" to continue (Ctrl+C to cancel): yes
-Lade loaded: SHELL, LADE_DEMO_TOKEN.
-
-demo-token
+Lade loaded: LADE_DEMO_TOKEN, SHELL.

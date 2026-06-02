@@ -19,7 +19,11 @@ COMPOSE_FILE="$repo_root/compose.yml"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-lade}"
 LOG_DIR="$tape_dir/.render-logs"
 
-TAPES=(main hooks resolution inject file-output per-user disclaimer eval)
+TAPES=()
+for tape in *.tape; do
+  if [[ "$tape" == settings*.tape ]]; then continue; fi
+  TAPES+=("${tape%.tape}")
+done
 
 if ! command -v lade >/dev/null 2>&1; then
   echo "render.sh: lade not on PATH — install with: cargo install --path ${repo_root}" >&2
@@ -32,127 +36,46 @@ canonicalize_vhs_txt() {
   local tape="${1%.txt}"
   tape="${tape##*/}"
   local vhs_home_root="$tape_dir/.vhs-home"
+  
   awk -v tape="$tape" -v vhs_home_root="$vhs_home_root" -v tape_dir="$tape_dir" '
-    function line_pri(line,    pri) {
-      pri = 99
-      if (tape ~ /^main$/) {
-        if (line ~ /^> echo /) pri = 1
-        else if (line ~ /^> lade install/) pri = 2
-        return pri
-      }
-      if (tape ~ /^(inject|file-output|disclaimer|eval|hooks)$/) {
-        if (line ~ /^> \.\/cat-lade\.yml/) pri = 0
-        else if (line ~ /^> lade inject/) pri = 1
-        else if (line ~ /^> lade eval /) pri = 2
-        return pri
-      }
-      if (tape ~ /^(resolution|per-user)$/) {
-        if (line ~ /^> \.\/cat-lade\.yml/) pri = 0
-        else if (line ~ /^> lade user /) pri = 1
-        else if (line ~ /^> lade inject/) pri = 2
-        else if (line ~ /^> lade eval /) pri = 3
-        else if (line ~ /^> echo /) pri = 4
-        return pri
-      }
-      if (line ~ /^> lade user /) pri = 1
-      else if (line ~ /^> lade inject/) pri = 2
-      else if (line ~ /^> lade eval /) pri = 3
-      else if (line ~ /^> echo /) pri = 4
-      else if (line ~ /^> lade install$/) pri = 5
-      return pri
-    }
-    function extract_cat_lade_block(buf,    lines, i, nf, out, in_block) {
-      nf = split(buf, lines, "\n")
-      out = ""
-      in_block = 0
-      for (i = 1; i <= nf; i++) {
-        if (lines[i] ~ /^> \.\/cat-lade\.yml/) in_block = 1
-        if (!in_block) continue
-        if (lines[i] ~ /^> lade /) break
-        if (out != "") out = out "\n"
-        out = out lines[i]
-      }
-      return out == "" ? "" : out "\n"
-    }
     function sanitize(s,    t) {
       t = s
-      # Any per-tape HOME under .vhs-home/<tape>/… → ~
       gsub(vhs_home_root "/[^/]+", "~", t)
       gsub(vhs_home_root, "~", t)
       gsub(tape_dir, "examples/tape", t)
       return t
     }
-    # Drop Hide scrollback: keep from first post-Show demo prompt (not last > echo).
-    function trim_scrollback(buf,    lines, i, start, nf, out, pri, best_pri) {
-      nf = split(buf, lines, "\n")
-      best_pri = 99
-      for (i = 1; i <= nf; i++) {
-        pri = line_pri(lines[i])
-        if (pri < best_pri) {
-          best_pri = pri
-          start = i
-        }
-      }
-      if (!start) return buf
-      out = ""
-      for (i = start; i <= nf; i++) {
-        if (out != "") out = out "\n"
-        out = out lines[i]
-      }
-      return out "\n"
-    }
-    function is_stderr_line(line) {
-      if (line ~ /Lade loaded:/) return 1
-      if (substr(line, 1, 1) == "|") return 1
-      if (line ~ /Are you sure/) return 1
-      if (line ~ /Type "yes"/) return 1
-      if (line ~ /command failed/) return 1
-      if (line ~ /Not injecting/) return 1
-      return 0
-    }
-    function flush_frame() {
-      if (buf == "") return
-      nframes++
-      frames[nframes] = buf
-      nf = split(buf, lines, "\n")
-      for (i = 1; i <= nf; i++) {
-        line = lines[i]
-        if (is_stderr_line(line) && !(line in stderr_seen)) {
-          stderr_seen[line] = 1
-          stderr_order[++stderr_n] = line
-        }
-      }
-      buf = ""
-    }
     /^────────────────────────────────────────────────────────────────────────────────$/ {
-      flush_frame()
+      if (buf != "") last_frame = buf
+      buf = ""
       next
     }
-    { buf = buf $0 ORS }
+    {
+      buf = buf $0 ORS
+    }
     END {
-      flush_frame()
-      if (nframes < 1) exit
-      body = trim_scrollback(frames[nframes])
-      if (tape ~ /^(inject|file-output|disclaimer|eval|hooks|resolution|per-user)$/ && index(body, "cat-lade.yml") == 0) {
-        for (fi = nframes; fi >= 1; fi--) {
-          prefix = extract_cat_lade_block(frames[fi])
-          if (prefix != "") {
-            body = prefix body
-            break
-          }
-        }
+      if (buf != "") last_frame = buf
+      
+      n = split(last_frame, lines, "\n")
+      
+      # Find the first line that is a prompt (starts with >)
+      start = 1
+      while (start <= n && lines[start] !~ /^> /) {
+        start++
       }
+      
+      # Reconstruct body
+      body = ""
+      for (i = start; i < n; i++) {
+        body = body lines[i] "\n"
+      }
+      
       printf "%s", sanitize(body)
-      for (i = 1; i <= stderr_n; i++) {
-        line = stderr_order[i]
-        if (index(body, line) == 0) {
-          print sanitize(line)
-        }
-      }
     }
   ' "$path" > "${path}.tmp"
+  
   if [ ! -s "${path}.tmp" ]; then
-    echo "render.sh: canonicalize produced empty ${path} (see ${LOG_DIR})" >&2
+    echo "render.sh: canonicalize produced empty ${path}" >&2
     rm -f "${path}.tmp"
     return 1
   fi
@@ -205,9 +128,10 @@ render_tape() {
   local log="$LOG_DIR/${tape}.log"
   mkdir -p "$LOG_DIR"
   if (
-    # One HOME per tape so parallel `lade install` does not race on the same ~/.zshrc.
     export HOME="$tape_dir/.vhs-home/$tape"
+    rm -rf "$HOME"
     mkdir -p "$HOME"
+    echo 'unsetopt PROMPT_SP; PROMPT="> "' > "$HOME/.zshrc"
     if [ "$tape" = eval ]; then
       export VAULT_ADDR=http://127.0.0.1:8200
       export VAULT_TOKEN=token
@@ -261,5 +185,7 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 rm -f .!*!*.txt .!*!*.gif 2>/dev/null || true
+rm -rf "$tape_dir/.vhs-home"
+rm -rf "$LOG_DIR"
 
 echo "render: done"

@@ -1,14 +1,12 @@
-> ./cat-lade.yml token
-eval "$(lade on)"
-^echo token:
-  TOKEN: "lade-demo-token-42"
-> eval "$(lade on)"
-> echo token $TOKEN
-Lade loaded: TOKEN.
-
-token lade-demo-token-42
 > ./cat-lade.yml format
 ^printenv FROM_FILE:
   FROM_FILE: file://../sources/config.json?query=.format
-> lade eval "file://../sources/config.json?query=.format"
+> printenv FROM_FILE
+Lade loaded: FROM_FILE, SHELL.
+
 json
+>
+
+
+
+

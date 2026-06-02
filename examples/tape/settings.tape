@@ -7,5 +7,6 @@ Set FontSize 32
 Set FontFamily "Menlo"
 Set Theme "Builtin Solarized Light"
 Set Padding 44
+Set LineHeight 1.2
 Set TypingSpeed 75ms
 Set CursorBlink false

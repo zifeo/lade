@@ -25,4 +25,4 @@ Sleep 2s
 
 Type "lade inject printenv GREETING"
 Enter
-Sleep 8s
+Sleep 4s

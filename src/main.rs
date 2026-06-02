@@ -171,6 +171,7 @@ async fn run() -> Result<()> {
             let mut names = write_files(&files)?;
             names.extend(env.keys().cloned());
             if !names.is_empty() {
+                names.sort();
                 eprintln!("Lade loaded: {}.", names.join(", "));
                 eprintln!();
             }
@@ -204,6 +205,7 @@ async fn run() -> Result<()> {
             let mut names = write_files(&files)?;
             names.extend(env.keys().cloned());
             if !names.is_empty() {
+                names.sort();
                 eprintln!("Lade loaded: {}.", names.join(", "));
                 eprintln!();
             }

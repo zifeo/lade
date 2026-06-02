@@ -6,5 +6,7 @@
 > lade inject --no-mask cat .lade-secrets.json
 Lade loaded: KEY.
 
-{"KEY":"written-to-disk"}%
+{"KEY":"written-to-disk"}
+> ls .lade-secrets.json
+ls: .lade-secrets.json: No such file or directory
 >

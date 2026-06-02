@@ -7,39 +7,12 @@ set -euo pipefail
 tag="${1:?tag (see # tape: comments in lade.yml)}"
 file="${2:-lade.yml}"
 
-awk -v want="$tag" '
-  function trim(s) {
-    sub(/^[ \t]+/, "", s)
-    sub(/[ \t]+$/, "", s)
-    return s
-  }
-  /^# tape: / {
-    if (in_rule) exit
-    t = trim(substr($0, index($0, "tape:") + 5))
-    if (t == want) pending = 1
-    next
-  }
-  pending && /^\^/ {
-    print
-    in_rule = 1
-    pending = 0
-    next
-  }
-  in_rule {
-    if (/^# tape: /) exit
-    if (/^\^/) exit
-    if (/^  / || /^$/) {
-      lines[++n] = $0
-      next
-    }
-    exit
-  }
-  END {
-    if (!in_rule && !pending) {
-      print "cat-lade.yml: no # tape: " want " in " FILENAME > "/dev/stderr"
-      exit 1
-    }
-    while (n > 0 && lines[n] == "") n--
-    for (i = 1; i <= n; i++) print lines[i]
-  }
-' "$file"
+set +o pipefail
+(cat "$file"; echo "# tape: EOF") \
+  | grep -A 1000 "# tape: $tag" \
+  | tail -n +2 \
+  | grep -B 1000 -m 1 -E "^# tape:" \
+  | grep -v "^# tape:" \
+  | awk 'NF{p=1} p' \
+  | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+set -o pipefail

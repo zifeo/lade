@@ -14,3 +14,7 @@ Sleep 1s
 Type "lade inject --no-mask cat .lade-secrets.json"
 Enter
 Sleep 4s
+
+Type "ls .lade-secrets.json"
+Enter
+Sleep 4s

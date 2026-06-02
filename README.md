@@ -6,7 +6,9 @@ Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
 preferred vault into environment variables or files. It limits the exposure of
 secrets to the time the command requiring the secrets lives.
 
-![Demo](./examples/tape/main.gif)
+<p align="center">
+  <img src="./examples/tape/main.gif" alt="Demo" />
+</p>
 
 ## Getting started
 
@@ -40,13 +42,11 @@ Compatible vaults: [Infisical](https://infisical.com),
 
 ## Features
 
-Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://github.com/charmbracelet/vhs)). Re-record: `./examples/tape/render.sh`.
-
 <table>
 <tr>
 <td width="50%">
 
-**Shell hooks** — Run `lade install` once. Secrets load automatically around every matching command; `lade off` / `lade on` to pause.
+**Shell hooks** - Run `lade install` once. Secrets load automatically around every matching command; `lade off` / `lade on` to pause.
 
 </td>
 <td width="50%">
@@ -58,7 +58,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**Secret resolution & command matching** — Load from Infisical, 1Password, Doppler, Vault, Passbolt, the [file loader](#file-loader) (`file://…?query=…`), or inline values. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
+**Secret resolution & command matching** - Load from Infisical, 1Password, Doppler, Vault, Passbolt, the [file loader](#file-loader) (`file://…?query=…`), or inline values. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
 
 </td>
 <td width="50%">
@@ -70,7 +70,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**Manual injection & redaction** — `lade inject` when hooks are off or in scripts. Unless `--no-mask` is set, values fetched from vault/file loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`; inline [raw loader](#raw-loader) values are not (they are already in `lade.yml`).
+**Manual injection & redaction** - `lade inject` when hooks are off or in scripts. Unless `--no-mask` is set, values fetched from loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw loader](#raw-loader) values are not (already plaintext in `lade.yml`).
 
 </td>
 <td width="50%">
@@ -82,7 +82,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**Secrets as files** — `file:` under `.` writes JSON/YAML for the command; Lade removes the file when the command exits.
+**Secrets as files** - `file:` under `.` writes JSON/YAML for the command; Lade removes the file when the command exits.
 
 </td>
 <td width="50%">
@@ -94,7 +94,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**Per-user secrets** — Map usernames to different values; `lade user` selects who you are (`"."` is the default).
+**Per-user secrets** - Map usernames to different values; `lade user` selects who you are (`"."` is the default).
 
 </td>
 <td width="50%">
@@ -106,7 +106,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**Disclaimer** — Optional `disclaimer:` on a rule; type `yes` before secrets load.
+**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load.
 
 </td>
 <td width="50%">
@@ -118,7 +118,7 @@ Terminal recordings live in [`examples/tape/`](examples/tape/) ([VHS](https://gi
 <tr>
 <td width="50%">
 
-**`lade eval`** — Resolve one URI and print the value (uses the same loaders as `lade.yml`).
+**`lade eval`** - Resolve one URI and print the value (uses the same loaders as `lade.yml`).
 
 </td>
 <td width="50%">
@@ -191,7 +191,7 @@ Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
 In CI/CD `OP_SERVICE_ACCOUNT_TOKEN` is typically injected directly by the
 platform. For cases where the token itself is stored in another vault, add
 `1password_service_account` to the `.` config block. Lade resolves that URI
-first — using any loader — and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
+first - using any loader - and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
 before resolving the remaining `op://` secrets. This enables recursive
 cross-vault lookups: the token lives in Vault or Infisical, and the actual
 secrets live in 1Password.
