@@ -1,5 +1,7 @@
 use std::io::{IsTerminal, stderr};
 
+use owo_colors::{OwoColorize, Style};
+
 const DEFAULT_WIDTH: usize = 80;
 const MIN_WIDTH: usize = 40;
 const MAX_WIDTH: usize = 120;
@@ -10,11 +12,20 @@ enum Entry {
     Paragraph(String),
 }
 
-/// A bordered stderr message box with optional wrapped body lines (`> ` prefix).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Tone {
+    #[default]
+    Action,
+    Warning,
+    Error,
+}
+
+/// A bordered stderr message box with an embedded title in the top border.
 #[derive(Debug, Clone, Default)]
 pub struct MessageBox {
     width: usize,
     entries: Vec<Entry>,
+    tone: Tone,
 }
 
 impl MessageBox {
@@ -22,7 +33,23 @@ impl MessageBox {
         Self {
             width: detect_width(),
             entries: Vec::new(),
+            tone: Tone::Action,
         }
+    }
+
+    pub fn action(mut self) -> Self {
+        self.tone = Tone::Action;
+        self
+    }
+
+    pub fn warning(mut self) -> Self {
+        self.tone = Tone::Warning;
+        self
+    }
+
+    pub fn error(mut self) -> Self {
+        self.tone = Tone::Error;
+        self
     }
 
     pub fn line(mut self, text: impl Into<String>) -> Self {
@@ -47,21 +74,84 @@ impl MessageBox {
     }
 
     pub fn print_stderr(&self) {
-        let wrap_width = self.width - 4;
-        let border = "-".repeat(self.width - 2);
+        // inner width = total width - 2 (borders)
+        let inner = self.width - 2;
+        // content width = inner - 6 (3-space gutter on each side)
+        let content = inner - 6;
+        let colored = colors_enabled();
+        let style = tone_style(self.tone, colored);
 
-        eprintln!("┌{border}┐");
+        // Top border: ╭ Title ───────╮
+        let label = self.tone.label();
+        // " Title " occupies label.len() + 2 spaces
+        let label_part = format!(" {label} ");
+        let dash_count = inner.saturating_sub(label_part.len());
+        let top = format!("╭{}{}╮", label_part, "─".repeat(dash_count));
+        print_styled(&top, style, colored);
+
+        // blank padding line
+        let blank = format!("│{}│", " ".repeat(inner));
+        print_styled(&blank, style, colored);
+
         for entry in &self.entries {
             match entry {
-                Entry::Line(text) => print_plain_line(text, wrap_width),
+                Entry::Line(text) => {
+                    let padded = format!(
+                        "│   {}{}   │",
+                        text,
+                        " ".repeat(content.saturating_sub(textwrap::core::display_width(text)))
+                    );
+                    print_styled(&padded, style, colored);
+                }
                 Entry::Paragraph(text) => {
-                    for line in textwrap::wrap(text.trim(), wrap_width - 2) {
-                        print_body_line(&line, wrap_width);
+                    for line in textwrap::wrap(text.trim(), content) {
+                        let padded = format!(
+                            "│   {}{}   │",
+                            line,
+                            " ".repeat(
+                                content.saturating_sub(textwrap::core::display_width(&line))
+                            )
+                        );
+                        print_styled(&padded, style, colored);
                     }
                 }
             }
         }
-        eprintln!("└{border}┘");
+
+        // blank padding line
+        print_styled(&blank, style, colored);
+
+        let bottom = format!("╰{}╯", "─".repeat(inner));
+        print_styled(&bottom, style, colored);
+    }
+}
+
+impl Tone {
+    fn label(self) -> &'static str {
+        match self {
+            Tone::Action => "Action",
+            Tone::Warning => "Warning",
+            Tone::Error => "Error",
+        }
+    }
+}
+
+fn tone_style(tone: Tone, colored: bool) -> Style {
+    if !colored {
+        return Style::new();
+    }
+    match tone {
+        Tone::Action => Style::new().cyan(),
+        Tone::Warning => Style::new().yellow(),
+        Tone::Error => Style::new().red(),
+    }
+}
+
+fn print_styled(line: &str, style: Style, colored: bool) {
+    if colored {
+        eprintln!("{}", line.style(style));
+    } else {
+        eprintln!("{line}");
     }
 }
 
@@ -112,24 +202,17 @@ fn terminal_columns() -> Option<usize> {
     columns_env()
 }
 
-fn print_plain_line(text: &str, wrap_width: usize) {
-    eprintln!(
-        "| {} {}|",
-        text,
-        " ".repeat(wrap_width.saturating_sub(text.len()))
-    );
-}
-
-fn print_body_line(line: &str, wrap_width: usize) {
-    eprintln!(
-        "| > {} {}|",
-        line,
-        " ".repeat(
-            wrap_width
-                .saturating_sub(2)
-                .saturating_sub(textwrap::core::display_width(line))
-        )
-    );
+fn colors_enabled() -> bool {
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    if std::env::var("TERM")
+        .ok()
+        .is_some_and(|term| term.eq_ignore_ascii_case("dumb"))
+    {
+        return false;
+    }
+    stderr().is_terminal()
 }
 
 #[cfg(test)]
@@ -158,9 +241,26 @@ mod tests {
     #[test]
     fn mixed_entries() {
         MessageBox::new()
+            .action()
             .line("Header")
             .paragraph("Body line one")
             .line("Footer")
+            .print_stderr();
+    }
+
+    #[test]
+    fn warning_box() {
+        MessageBox::new()
+            .warning()
+            .line("Something deprecated")
+            .print_stderr();
+    }
+
+    #[test]
+    fn error_box() {
+        MessageBox::new()
+            .error()
+            .line("Fatal problem")
             .print_stderr();
     }
 }

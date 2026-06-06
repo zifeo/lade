@@ -8,7 +8,7 @@
 
 # tape: token
 ^echo token:
-  TOKEN: "lade-demo-token-42"
+  TOKEN: vault://127.0.0.1:8200/secret/password/value1
 
 # tape: format
 ^printenv FROM_FILE:

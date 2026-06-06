@@ -132,7 +132,7 @@ render_tape() {
     rm -rf "$HOME"
     mkdir -p "$HOME"
     echo 'unsetopt PROMPT_SP; PROMPT="> "' > "$HOME/.zshrc"
-    if [ "$tape" = eval ]; then
+    if [ "$tape" = eval ] || [ "$tape" = resolution ]; then
       export VAULT_ADDR=http://127.0.0.1:8200
       export VAULT_TOKEN=token
       export LADE_VAULT_HTTP=1

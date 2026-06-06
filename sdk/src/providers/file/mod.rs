@@ -17,7 +17,7 @@ use url::Url;
 
 use itertools::Itertools;
 
-use super::Provider;
+use super::{Provider, Warnings};
 use crate::Hydration;
 use convert::{ini2json, toml2json};
 
@@ -47,11 +47,24 @@ impl Provider for File {
         }
     }
 
+    fn name(&self) -> &'static str {
+        "File"
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://github.com/zifeo/lade#file-loader"
+    }
+
     fn has_work(&self) -> bool {
         !self.urls.is_empty()
     }
 
-    async fn resolve(&self, cwd: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
+    async fn resolve(
+        &self,
+        cwd: &Path,
+        _: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
         let fetches = self
             .urls
             .iter()
@@ -155,7 +168,7 @@ mod tests {
         let url = format!("file://{}?query={}", path.display(), query);
         let mut p = File::new();
         p.add(url.clone()).unwrap();
-        p.resolve(dir.path(), &HashMap::new())
+        p.resolve(dir.path(), &HashMap::new(), &Warnings::default())
             .await
             .unwrap()
             .remove(&url)
@@ -215,7 +228,7 @@ mod tests {
         let mut p = File::new();
         p.add(url.clone()).unwrap();
         let result = p
-            .resolve(dir.path(), &HashMap::new())
+            .resolve(dir.path(), &HashMap::new(), &Warnings::default())
             .await
             .unwrap()
             .remove(&url)
