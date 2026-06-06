@@ -151,12 +151,15 @@ lade user tonystark    # set user to tonystark
 lade user --reset      # reset, falling back to the OS user
 ```
 
-### Outputting as files
+### Outputting as files & interactive disclaimer
+
+Both options live under `.` on a rule.
 
 ```yaml
 command regex:
   .:
     file: secrets.yml
+    disclaimer: "This command will use your API token."
   SECRET: op://...
 ```
 
