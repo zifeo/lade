@@ -6,19 +6,14 @@ Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
 preferred vault into environment variables or files. It limits the exposure of
 secrets to the time the command requiring the secrets lives.
 
-![Demo](./examples/demo.gif)
-
-> Lade is part of the
-> [Metatype ecosystem](https://github.com/metatypedev/metatype). Consider
-> checking out how this component integrates with the whole ecosystem and browse
-> the
-> [documentation](https://metatype.dev?utm_source=github&utm_medium=readme&utm_campaign=lade)
-> to see more examples.
+<p align="center">
+  <img src="./examples/tape/main.gif" alt="Demo" />
+</p>
 
 ## Getting started
 
 You can download the binary executable from
-[releases page](https://github.com/zifeo/whiz/releases/) on GitHub, make it
+[releases page](https://github.com/zifeo/lade/releases) on GitHub, make it
 executable and add it to your `$PATH` or use the method below to automate those
 steps.
 
@@ -42,66 +37,104 @@ Compatible shells: [Fish](https://fishshell.com),
 
 Compatible vaults: [Infisical](https://infisical.com),
 [1Password CLI](https://1password.com/downloads/command-line/),
-[Doppler](https://www.doppler.com), [Vault](https://github.com/hashicorp/vault)
+[Doppler](https://www.doppler.com), [Vault](https://github.com/hashicorp/vault),
+[Passbolt](https://www.passbolt.com)
+
+## Features
+
+<table>
+<tr>
+<td width="50%">
+
+**Shell hooks** - Run `lade install` once. Secrets load automatically around every matching command; `lade off` / `lade on` to pause.
+
+</td>
+<td width="50%">
+
+![Shell hooks](./examples/tape/hooks.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Secret resolution & command matching** - Load from Infisical, 1Password, Doppler, Vault, Passbolt, the [file loader](#file-loader) (`file://…?query=…`), or inline values. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
+
+</td>
+<td width="50%">
+
+![Secret resolution](./examples/tape/resolution.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Manual injection & redaction** - `lade inject` when hooks are off or in scripts. Unless `--no-mask` is set, values fetched from loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw loader](#raw-loader) values are not (already plaintext in `lade.yml`).
+
+</td>
+<td width="50%">
+
+![Manual injection](./examples/tape/inject.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Secrets as files** - `file:` under `.` writes JSON/YAML for the command; Lade removes the file when the command exits.
+
+</td>
+<td width="50%">
+
+![Secrets as files](./examples/tape/file-output.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Per-user secrets** - Map usernames to different values; `lade user` selects who you are (`"."` is the default).
+
+</td>
+<td width="50%">
+
+![Per-user secrets](./examples/tape/per-user.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load.
+
+</td>
+<td width="50%">
+
+![Disclaimer](./examples/tape/disclaimer.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**`lade eval`** - Resolve one URI and print the value (uses the same loaders as `lade.yml`).
+
+</td>
+<td width="50%">
+
+![lade eval](./examples/tape/eval.gif)
+
+</td>
+</tr>
+</table>
 
 ## Usage
 
-Lade will run before and after any command you run in your shell thanks to
-command hooks installed by `lade install`. On each run, it will recursively look
-for `lade.yml` files in the current directory and its parents. It will then
-aggregate any secrets matching the command you are running using a regex and
-load them into environment variables or files for the time of the run.
-
-```bash
-cd examples/terraform
-terraform apply
-# example = "hello world"
-```
-
-See [lade.yml](lade.yml) or the [examples](./examples) folders for other uses
-cases.
-
-### Manual injections
-
-In case you prefer to decide when to load secrets, you can manually decide when
-to inject them using the `inject` command. Note that when running scripts or a
-non-interactive shell session, there is no guarantee that the shell hooks will
-be triggered. In that case, the `inject` command is the only way to load
-secrets.
-
-```bash
-cd examples/terraform
-lade inject terraform apply
-```
-
-Unless `--no-mask` is used, **all secret values are automatically redacted
-from stdout and stderr** before they reach the caller. Each occurrence is
-replaced with a self-rehydrating bash token:
-
-```bash
-${VAR_NAME:-REDACTED}
-```
-
-### Outputting as files
-
-By default, Lade will load secrets into environment variables. You can write
-secrets to a file instead by setting `file` inside the `.` configuration block.
-The content format is determined by the file extension. Currently only YAML and
-JSON are supported.
-
-```yaml
-command regex:
-  .:
-    file: secrets.yml
-  SECRET: op://...
-```
+See [lade.yml](lade.yml) or [examples/tape/lade.yml](examples/tape/lade.yml) for
+configuration samples.
 
 ### Per-user secrets
-
-When different team members need different secret values for the same variable,
-specify each user as a key. Lade resolves the current user automatically; use
-`"."` as a catch-all default for any user not explicitly listed (including when
-no user is set).
 
 ```yaml
 command regex:
@@ -109,18 +142,22 @@ command regex:
   SECRET_FOR_THE_USER:
     alex: alex_secret
     zifeo: zifeo_secret
-    .: default_secret # used when no matching user is found
-  SECRET_FOR_ZIFEO_ONLY:
-    zifeo: zifeo_secret
-    .: null # explicitly no value for other users
+    .: default_secret
 ```
-
-Use the `user` subcommand to control which user Lade resolves:
 
 ```sh
 lade user              # show currently set user
 lade user tonystark    # set user to tonystark
 lade user --reset      # reset, falling back to the OS user
+```
+
+### Outputting as files
+
+```yaml
+command regex:
+  .:
+    file: secrets.yml
+  SECRET: op://...
 ```
 
 ## Loaders
@@ -154,7 +191,7 @@ Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
 In CI/CD `OP_SERVICE_ACCOUNT_TOKEN` is typically injected directly by the
 platform. For cases where the token itself is stored in another vault, add
 `1password_service_account` to the `.` config block. Lade resolves that URI
-first — using any loader — and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
+first - using any loader - and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
 before resolving the remaining `op://` secrets. This enables recursive
 cross-vault lookups: the token lives in Vault or Infisical, and the actual
 secrets live in 1Password.
@@ -225,6 +262,8 @@ Lade integrates with agentic tools to automatically inject secrets into agent sh
 
 ```bash
 lade hook  # reads JSON from stdin, outputs platform-specific response
+# example Cursor config:
+cat .cursor/hooks.json
 ```
 
 ### Cursor
@@ -232,8 +271,12 @@ lade hook  # reads JSON from stdin, outputs platform-specific response
 When `CURSOR_VERSION` is detected. [Docs](https://cursor.com/docs/agent/hooks)
 
 `.cursor/hooks.json`:
+
 ```json
-{"version": 1, "hooks": {"preToolUse": [{"command": "lade hook", "matcher": "Shell"}]}}
+{
+  "version": 1,
+  "hooks": { "preToolUse": [{ "command": "lade hook", "matcher": "Shell" }] }
+}
 ```
 
 ### Claude Code
@@ -241,8 +284,18 @@ When `CURSOR_VERSION` is detected. [Docs](https://cursor.com/docs/agent/hooks)
 When `CLAUDE_PROJECT_DIR` is detected. [Docs](https://docs.anthropic.com/en/docs/claude-code/hooks)
 
 `.claude/settings.json`:
+
 ```json
-{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "lade hook"}]}]}}
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
 ```
 
 ## Development

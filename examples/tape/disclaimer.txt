@@ -1,0 +1,12 @@
+> ./cat-lade.yml disclaimer
+^printenv LADE_DEMO_TOKEN:
+  .:
+    disclaimer: "This command will use your API token."
+  LADE_DEMO_TOKEN: "demo-token"
+> lade inject --no-mask printenv LADE_DEMO_TOKEN
+┌--------------------------------------------------------┐
+| Are you sure you want to proceed?                      |
+| > This command will use your API token.                |
+└--------------------------------------------------------┘
+Type "yes" to continue (Ctrl+C to cancel): yes
+Lade loaded: LADE_DEMO_TOKEN, SHELL.

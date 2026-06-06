@@ -1,5 +1,7 @@
 set -e
 
+export LADE_VAULT_HTTP=1
+
 docker compose up -d
 
 echo "Checking Vault accessibility..."

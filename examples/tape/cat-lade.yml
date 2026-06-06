@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+# Print the lade.yml rule for a demo tag (YAML only): ./cat-lade.yml <tag> [file]
+
+set -euo pipefail
+
+tag="${1:?tag (see # tape: comments in lade.yml)}"
+file="${2:-lade.yml}"
+
+set +o pipefail
+(cat "$file"; echo "# tape: EOF") \
+  | grep -A 1000 "# tape: $tag" \
+  | tail -n +2 \
+  | grep -B 1000 -m 1 -E "^# tape:" \
+  | grep -v "^# tape:" \
+  | awk 'NF{p=1} p' \
+  | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+set -o pipefail

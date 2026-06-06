@@ -9,6 +9,7 @@ mod exec;
 mod files;
 mod global_config;
 mod hook;
+mod masking;
 mod message_box;
 mod redact;
 mod shell;
@@ -17,7 +18,7 @@ mod upgrade;
 use args::{Args, Command, EvalCommand};
 use clap::{CommandFactory, Parser};
 use config::LadeFile;
-use files::{hydration_or_exit, remove_files, split_env_files, write_files};
+use files::{LoadedSecrets, hydration_or_exit, remove_files, split_env_files, write_files};
 use global_config::GlobalConfig;
 use lade_sdk::hydrate_one;
 use redact::Redactor;
@@ -161,20 +162,25 @@ async fn run() -> Result<()> {
 
             disclaimer::prompt(&config.collect_disclaimers(&command))?;
 
-            let mut hydration = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut hydration);
+            let LoadedSecrets {
+                mut vars,
+                sources,
+                maskable,
+            } = hydration_or_exit(&config, &command).await;
+            let (env, files) = split_env_files(&mut vars);
             let mut names = write_files(&files)?;
             names.extend(env.keys().cloned());
             if !names.is_empty() {
+                names.sort();
                 eprintln!("Lade loaded: {}.", names.join(", "));
+                eprintln!();
             }
 
             let redactor = if !opts.no_mask {
-                let mut all_secrets = env.clone();
-                for vars in files.values() {
-                    all_secrets.extend(vars.clone());
-                }
-                Redactor::new(&all_secrets, &opts.mask_format)
+                Redactor::new(
+                    &masking::secrets_for_redaction(&env, &files, &sources, &maskable),
+                    &opts.mask_format,
+                )
             } else {
                 None
             };
@@ -194,12 +200,14 @@ async fn run() -> Result<()> {
 
             disclaimer::prompt(&config.collect_disclaimers(&command))?;
 
-            let mut hydration = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut hydration);
+            let LoadedSecrets { mut vars, .. } = hydration_or_exit(&config, &command).await;
+            let (env, files) = split_env_files(&mut vars);
             let mut names = write_files(&files)?;
             names.extend(env.keys().cloned());
             if !names.is_empty() {
+                names.sort();
                 eprintln!("Lade loaded: {}.", names.join(", "));
+                eprintln!();
             }
 
             println!("{}", shell.set(env));

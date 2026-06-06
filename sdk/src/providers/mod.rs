@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::de::DeserializeOwned;
 use std::process::Stdio;
 use tokio::process::Command;
@@ -27,12 +27,23 @@ pub trait Provider: Sync {
         true
     }
 
+    /// Whether resolved values from this provider should be masked in subprocess output.
+    fn masks_in_output(&self) -> bool {
+        true
+    }
+
     async fn resolve(&self, cwd: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration>;
 }
 
 pub struct Providers {
     by_scheme: FxHashMap<&'static str, Box<dyn Provider + Send>>,
     fallback: Box<dyn Provider + Send>,
+}
+
+impl Default for Providers {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Providers {
@@ -67,7 +78,7 @@ impl Providers {
         &self,
         cwd: &Path,
         extra_env: &HashMap<String, String>,
-    ) -> Result<Hydration> {
+    ) -> Result<(Hydration, FxHashSet<String>)> {
         let active: Vec<&dyn Provider> = self
             .by_scheme
             .values()
@@ -75,13 +86,24 @@ impl Providers {
             .chain(std::iter::once(self.fallback.as_ref() as &dyn Provider))
             .filter(|p| p.has_work())
             .collect();
-        Ok(
-            try_join_all(active.iter().map(|p| p.resolve(cwd, extra_env)))
-                .await?
-                .into_iter()
-                .flatten()
-                .collect::<Hydration>(),
-        )
+
+        let results = try_join_all(active.iter().map(|p| async move {
+            let hydration = p.resolve(cwd, extra_env).await?;
+            Ok::<_, anyhow::Error>((p.masks_in_output(), hydration))
+        }))
+        .await?;
+
+        let mut full_hydration = Hydration::default();
+        let mut maskable_sources = FxHashSet::default();
+
+        for (masks, hydration) in results {
+            if masks {
+                maskable_sources.extend(hydration.keys().cloned());
+            }
+            full_hydration.extend(hydration);
+        }
+
+        Ok((full_hydration, maskable_sources))
     }
 }
 
