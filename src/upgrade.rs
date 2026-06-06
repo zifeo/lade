@@ -21,15 +21,20 @@ pub async fn check_message() -> Result<Option<String>> {
             Ok(update.get_latest_release()?)
         })
         .await??;
-        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
+
         if Version::parse(&latest.version)? > Version::parse(current_version)? {
             return Ok(Some(format!(
-                "New lade update available: {} -> {} (use: lade upgrade)",
+                "New lade update available: {} → {} (run: lade upgrade)",
                 current_version, latest.version
             )));
         }
+        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
     }
     Ok(None)
+}
+
+pub async fn apply_snooze(offset: TimeDelta) -> Result<()> {
+    GlobalConfig::update(|c| c.update_check = Utc::now() + offset).await
 }
 
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {

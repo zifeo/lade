@@ -7,10 +7,19 @@ use std::{
     fs,
     path::PathBuf,
 };
-use tokio::time;
+use tokio::{signal, time};
 
 use crate::config::{Config, Output};
 use crate::message_box::MessageBox;
+
+pub async fn sleep_or_cancel(secs: u64) {
+    tokio::select! {
+        _ = time::sleep(time::Duration::from_secs(secs)) => {},
+        _ = signal::ctrl_c() => {
+            std::process::exit(130);
+        }
+    }
+}
 
 pub struct LoadedSecrets {
     pub vars: HashMap<Output, HashMap<String, String>>,
@@ -18,23 +27,27 @@ pub struct LoadedSecrets {
     pub sources: HashMap<String, String>,
     /// Config sources handled by providers that mask subprocess output.
     pub maskable: FxHashSet<String>,
+    /// Warnings collected during resolution (e.g. provider fallbacks).
+    pub warnings: Vec<String>,
 }
 
 pub async fn hydration_or_exit(config: &Config, command: &str) -> LoadedSecrets {
     match config.collect_hydrate(command).await {
-        Ok((vars, sources, maskable)) => LoadedSecrets {
+        Ok((vars, sources, maskable, warnings)) => LoadedSecrets {
             vars,
             sources,
             maskable,
+            warnings,
         },
         Err(e) => {
             MessageBox::new()
+                .error()
                 .line("Lade could not get secrets from one loader:")
                 .paragraph(e.to_string())
-                .line("Hint: check whether the loader is connected? to the correct? vault.")
-                .line("Waiting 5 seconds before continuing...")
+                .line("Hint: check whether the loader is connected to the correct vault.")
+                .line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)")
                 .print_stderr();
-            time::sleep(time::Duration::from_secs(5)).await;
+            sleep_or_cancel(5).await;
             std::process::exit(1);
         }
     }
