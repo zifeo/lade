@@ -18,7 +18,7 @@ sequenceDiagram
     Shell->>Lade: Pre-exec hook: `lade set my-command`
     Lade->>Config: Parse & merge configurations
     Config-->>Lade: Matching rules & URIs
-    
+
     alt Command matches a rule
         Lade->>Providers: Fetch secrets (concurrently)
         Providers-->>Lade: Raw secret values
@@ -27,7 +27,7 @@ sequenceDiagram
     else No match
         Lade-->>Shell: Returns empty string
     end
-    
+
     Shell->>Shell: Executes `my-command`
     Shell->>Lade: Post-exec hook: `lade unset my-command`
     Lade-->>Shell: Returns `unset VAR`
@@ -43,15 +43,15 @@ flowchart TD
     Start[Command: `npm run build`] --> Find[Find all `lade.yml` from CWD to Git Root]
     Find --> Merge[Merge configs (deep merge)]
     Merge --> Match{Regex matches command?}
-    
+
     Match -- Yes --> UserCheck{Is user specified?}
     UserCheck -- Yes --> ResolveUser[Resolve for specific user or fallback to `.']
     UserCheck -- No --> ResolveUser
-    
+
     ResolveUser --> Loaders[Dispatch to Loaders]
-    
+
     Match -- No --> Skip[Skip rule]
-    
+
     Loaders --> |op://| OpLoader[1Password CLI]
     Loaders --> |vault://| VaultLoader[HashiCorp Vault]
     Loaders --> |file://| FileLoader[Local File]
@@ -68,17 +68,17 @@ sequenceDiagram
     participant Lade as Lade (Parent)
     participant PTY as Pseudo-Terminal
     participant Child as Subprocess
-    
+
     User->>Lade: `lade inject my-command`
     Lade->>Lade: Resolve secrets
     Lade->>PTY: Create PTY pair
     Lade->>Child: Spawn `my-command` with injected ENV
-    
+
     Child->>PTY: Write output (contains secret)
     PTY->>Lade: Read stream
-    
+
     Lade->>Lade: Aho-Corasick Redactor finds secret
     Lade->>Lade: Replace secret with `REDACTED`
-    
+
     Lade->>User: Print sanitized output
 ```
