@@ -9,6 +9,28 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-06-06
+
+### Added
+
+- **Architecture documentation** ([#152](https://github.com/zifeo/lade/pull/152)): `docs/architecture.md` overview of shell hooks, config resolution, and secret injection.
+
+### Changed
+
+- **Message box** ([#152](https://github.com/zifeo/lade/pull/152)): "Action" tone renamed to **Info** (blue); upgrade nudges use Info instead of Warning.
+- **TTY-aware UI** ([#152](https://github.com/zifeo/lade/pull/152)): framed warnings, "Lade loaded" lines, loader-error wait, and CLI compatibility prompts only on interactive stderr; piped or non-TTY runs stay quiet.
+- **Upgrade nudge** ([#152](https://github.com/zifeo/lade/pull/152)): Enter runs `lade upgrade -y` inline; prompt auto-continues after 5s; background check limited to `inject` and `set`.
+- **Snooze prompts** ([#152](https://github.com/zifeo/lade/pull/152)): clearer labels and 5s timeout; Ctrl+C dismisses instead of aborting the command.
+- **Command rule matching** ([#152](https://github.com/zifeo/lade/pull/152)): `RegexSet` for faster lookup when many rules are defined in `lade.yml`.
+
+### Fixed
+
+- **Disclaimer in non-interactive shells** ([#152](https://github.com/zifeo/lade/pull/152)): exit with a hint to use `lade inject` instead of blocking on stdin.
+- **Ctrl+C on optional prompts** ([#152](https://github.com/zifeo/lade/pull/152)): snooze and upgrade nudges treat Ctrl+C as dismiss, not exit 130.
+- **Upgrade after disclaimer abort** ([#152](https://github.com/zifeo/lade/pull/152)): skip upgrade prompt when the user cancelled a disclaimer.
+
+[0.15.1]: https://github.com/zifeo/lade/compare/v0.15.0...v0.15.1
+
 ## [0.15.0] - 2026-06-06
 
 ### Added
