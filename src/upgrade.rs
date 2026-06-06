@@ -24,7 +24,7 @@ pub async fn check_message() -> Result<Option<String>> {
 
         if Version::parse(&latest.version)? > Version::parse(current_version)? {
             return Ok(Some(format!(
-                "New lade update available: {} → {} (run: lade upgrade)",
+                "New lade update available: {} → {}",
                 current_version, latest.version
             )));
         }
@@ -35,6 +35,18 @@ pub async fn check_message() -> Result<Option<String>> {
 
 pub async fn apply_snooze(offset: TimeDelta) -> Result<()> {
     GlobalConfig::update(|c| c.update_check = Utc::now() + offset).await
+}
+
+pub fn run_upgrade_subprocess() -> Result<()> {
+    eprintln!("$ lade upgrade -y");
+    let status = std::process::Command::new(std::env::current_exe()?)
+        .arg("upgrade")
+        .arg("-y")
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("lade upgrade failed (exit {status})");
+    }
+    Ok(())
 }
 
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {

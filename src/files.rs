@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, hash_map::Keys},
     ffi::OsStr,
     fs,
+    io::IsTerminal,
     path::PathBuf,
 };
 use tokio::{signal, time};
@@ -40,14 +41,19 @@ pub async fn hydration_or_exit(config: &Config, command: &str) -> LoadedSecrets 
             warnings,
         },
         Err(e) => {
-            MessageBox::new()
+            let is_tty = std::io::stderr().is_terminal();
+            let mut box_ = MessageBox::new()
                 .error()
                 .line("Lade could not get secrets from one loader:")
                 .paragraph(e.to_string())
-                .line("Hint: check whether the loader is connected to the correct vault.")
-                .line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)")
-                .print_stderr();
-            sleep_or_cancel(5).await;
+                .line("Hint: check whether the loader is connected to the correct vault.");
+            if is_tty {
+                box_ = box_.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
+            }
+            box_.print_stderr();
+            if is_tty {
+                sleep_or_cancel(5).await;
+            }
             std::process::exit(1);
         }
     }
@@ -88,17 +94,11 @@ pub fn remove_files<T>(files: &mut Keys<PathBuf, T>) -> Result<()> {
     }
     Ok(())
 }
-pub fn split_env_files<T: Default + ToOwned>(
-    hydration: &mut HashMap<Output, T>,
-) -> (T, HashMap<PathBuf, T>)
-where
-    HashMap<PathBuf, T>: FromIterator<(PathBuf, <T as ToOwned>::Owned)>,
-{
-    let env = hydration.remove(&None::<PathBuf>).unwrap_or_default();
+pub fn split_env_files<T: Default>(mut hydration: HashMap<Output, T>) -> (T, HashMap<PathBuf, T>) {
+    let env = hydration.remove(&None).unwrap_or_default();
     let files = hydration
-        .iter_mut()
-        .filter(|(path, _)| path.is_some())
-        .map(|(path, vars)| (path.to_owned().unwrap(), vars.to_owned()))
+        .into_iter()
+        .filter_map(|(path, vars)| path.map(|p| (p, vars)))
         .collect();
     (env, files)
 }
@@ -111,11 +111,11 @@ mod tests {
 
     #[test]
     fn test_split_env_only() {
-        let mut hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([(
+        let hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([(
             None,
             HashMap::from([("KEY".to_string(), "val".to_string())]),
         )]);
-        let (env, files) = split_env_files(&mut hydration);
+        let (env, files) = split_env_files(hydration);
         assert_eq!(env.get("KEY").unwrap(), "val");
         assert!(files.is_empty());
     }
@@ -123,11 +123,11 @@ mod tests {
     #[test]
     fn test_split_files_only() {
         let path = PathBuf::from("/tmp/secrets_lade_test.json");
-        let mut hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([(
+        let hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([(
             Some(path.clone()),
             HashMap::from([("KEY".to_string(), "val".to_string())]),
         )]);
-        let (env, files) = split_env_files(&mut hydration);
+        let (env, files) = split_env_files(hydration);
         assert!(env.is_empty());
         assert_eq!(files.get(&path).unwrap().get("KEY").unwrap(), "val");
     }
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_split_mixed() {
         let path = PathBuf::from("/tmp/secrets_lade_mixed.json");
-        let mut hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([
+        let hydration: HashMap<Output, HashMap<String, String>> = HashMap::from([
             (
                 None,
                 HashMap::from([("ENV_KEY".to_string(), "env_val".to_string())]),
@@ -145,7 +145,7 @@ mod tests {
                 HashMap::from([("FILE_KEY".to_string(), "file_val".to_string())]),
             ),
         ]);
-        let (env, files) = split_env_files(&mut hydration);
+        let (env, files) = split_env_files(hydration);
         assert_eq!(env.get("ENV_KEY").unwrap(), "env_val");
         assert_eq!(
             files.get(&path).unwrap().get("FILE_KEY").unwrap(),
