@@ -9,7 +9,7 @@ use crate::global_config::GlobalConfig;
 use anyhow::{Result, bail};
 use futures::future::try_join_all;
 use lade_sdk::{hydrate_one, hydrate_with_maskable};
-use regex::Regex;
+use regex::RegexSet;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use std::{collections::HashMap, path::PathBuf};
@@ -96,19 +96,20 @@ async fn saved_user() -> Result<Option<String>> {
 }
 
 pub struct Config {
-    matches: Vec<(Regex, PathBuf, LadeRule)>,
+    rules: Vec<(PathBuf, LadeRule)>,
+    regex_set: RegexSet,
 }
 
 impl Config {
-    pub(crate) fn new(matches: Vec<(Regex, PathBuf, LadeRule)>) -> Self {
-        Config { matches }
+    pub(crate) fn new(rules: Vec<(PathBuf, LadeRule)>, regex_set: RegexSet) -> Self {
+        Config { rules, regex_set }
     }
 
     pub(crate) fn collect(&self, command: &str) -> Vec<(PathBuf, LadeRule)> {
-        self.matches
-            .iter()
-            .filter(|(regex, _, _)| regex.is_match(command))
-            .map(|(_, path, rule)| (path.clone(), rule.clone()))
+        self.regex_set
+            .matches(command)
+            .into_iter()
+            .map(|i| self.rules[i].clone())
             .collect()
     }
 

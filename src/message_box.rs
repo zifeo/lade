@@ -15,7 +15,7 @@ enum Entry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Tone {
     #[default]
-    Action,
+    Info,
     Warning,
     Error,
 }
@@ -33,12 +33,12 @@ impl MessageBox {
         Self {
             width: detect_width(),
             entries: Vec::new(),
-            tone: Tone::Action,
+            tone: Tone::Info,
         }
     }
 
-    pub fn action(mut self) -> Self {
-        self.tone = Tone::Action;
+    pub fn info(mut self) -> Self {
+        self.tone = Tone::Info;
         self
     }
 
@@ -129,7 +129,7 @@ impl MessageBox {
 impl Tone {
     fn label(self) -> &'static str {
         match self {
-            Tone::Action => "Action",
+            Tone::Info => "Info",
             Tone::Warning => "Warning",
             Tone::Error => "Error",
         }
@@ -141,7 +141,7 @@ fn tone_style(tone: Tone, colored: bool) -> Style {
         return Style::new();
     }
     match tone {
-        Tone::Action => Style::new().cyan(),
+        Tone::Info => Style::new().blue(),
         Tone::Warning => Style::new().yellow(),
         Tone::Error => Style::new().red(),
     }
@@ -241,10 +241,18 @@ mod tests {
     #[test]
     fn mixed_entries() {
         MessageBox::new()
-            .action()
+            .info()
             .line("Header")
             .paragraph("Body line one")
             .line("Footer")
+            .print_stderr();
+    }
+
+    #[test]
+    fn info_box() {
+        MessageBox::new()
+            .info()
+            .line("Update available")
             .print_stderr();
     }
 
