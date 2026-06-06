@@ -10,6 +10,8 @@ mod providers;
 mod resolve;
 
 pub use providers::Providers;
+pub use providers::Warnings;
+pub use providers::compat;
 pub use resolve::{resolve, resolve_one};
 
 type Hydration = FxHashMap<String, String>;
@@ -26,12 +28,13 @@ pub async fn hydrate_with_maskable(
     env: HashMap<String, String>,
     cwd: PathBuf,
     extra_env: HashMap<String, String>,
-) -> Result<(HashMap<String, String>, FxHashSet<String>)> {
+) -> Result<(HashMap<String, String>, FxHashSet<String>, Vec<String>)> {
     let mut providers = Providers::new();
     for value_or_uri in env.values() {
         providers.add(value_or_uri.clone())?;
     }
-    let (hydration, maskable) = providers.resolve(&cwd, &extra_env).await?;
+    let warnings = Warnings::default();
+    let (hydration, maskable) = providers.resolve(&cwd, &extra_env, &warnings).await?;
 
     let values = env
         .into_iter()
@@ -51,7 +54,7 @@ pub async fn hydrate_with_maskable(
         })
         .collect();
 
-    Ok((values, maskable))
+    Ok((values, maskable, warnings.take()))
 }
 
 pub async fn hydrate_one(
@@ -61,7 +64,9 @@ pub async fn hydrate_one(
 ) -> Result<String> {
     let mut providers = Providers::new();
     providers.add(value.clone())?;
-    let (hydration, _) = providers.resolve(cwd, extra_env).await?;
+    let (hydration, _) = providers
+        .resolve(cwd, extra_env, &Warnings::default())
+        .await?;
     Ok(hydration.get(&value).unwrap().to_owned())
 }
 
@@ -76,9 +81,10 @@ mod tests {
             ("KEY1".to_string(), "value1".to_string()),
             ("KEY2".to_string(), "!value2".to_string()),
         ]);
-        let (values, maskable) = hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
-            .await
-            .unwrap();
+        let (values, maskable, _warnings) =
+            hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
+                .await
+                .unwrap();
         assert_eq!(values.get("KEY1").unwrap(), "value1");
         assert_eq!(values.get("KEY2").unwrap(), "value2");
         assert!(maskable.is_empty());
@@ -88,7 +94,7 @@ mod tests {
     async fn test_hydrate_raw_values_with_extra_env_ignored_by_raw_provider() {
         let env = HashMap::from([("KEY".to_string(), "rawval".to_string())]);
         let extra = HashMap::from([("INJECTED".to_string(), "token123".to_string())]);
-        let (values, maskable) = hydrate_with_maskable(env, PathBuf::from("."), extra)
+        let (values, maskable, _warnings) = hydrate_with_maskable(env, PathBuf::from("."), extra)
             .await
             .unwrap();
         assert_eq!(values.get("KEY").unwrap(), "rawval");
@@ -109,7 +115,7 @@ mod tests {
             ("KEY1".to_string(), "a".to_string()),
             ("KEY2".to_string(), "a".to_string()),
         ]);
-        let (values, _) = hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
+        let (values, _, _warnings) = hydrate_with_maskable(env, PathBuf::from("."), HashMap::new())
             .await
             .unwrap();
         assert_eq!(values.get("KEY1").unwrap(), "a");

@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
 
-use super::Provider;
+use super::{Provider, Warnings};
 use crate::Hydration;
 
 #[derive(Default)]
@@ -28,11 +28,24 @@ impl Provider for Raw {
         Ok(())
     }
 
+    fn name(&self) -> &'static str {
+        "Raw"
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://github.com/zifeo/lade#raw-loader"
+    }
+
     fn has_work(&self) -> bool {
         !self.values.is_empty()
     }
 
-    async fn resolve(&self, _: &Path, _: &HashMap<String, String>) -> Result<Hydration> {
+    async fn resolve(
+        &self,
+        _: &Path,
+        _: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
         let ret = self
             .values
             .iter()
@@ -68,7 +81,10 @@ mod tests {
     async fn test_resolve_strips_bang_prefix() {
         let mut p = Raw::new();
         p.add("!escaped_value".to_string()).unwrap();
-        let result = p.resolve(Path::new("."), &HashMap::new()).await.unwrap();
+        let result = p
+            .resolve(Path::new("."), &HashMap::new(), &Warnings::default())
+            .await
+            .unwrap();
         assert_eq!(result.get("!escaped_value").unwrap(), "escaped_value");
     }
 
@@ -76,7 +92,10 @@ mod tests {
     async fn test_resolve_plain_value_unchanged() {
         let mut p = Raw::new();
         p.add("plain_value".to_string()).unwrap();
-        let result = p.resolve(Path::new("."), &HashMap::new()).await.unwrap();
+        let result = p
+            .resolve(Path::new("."), &HashMap::new(), &Warnings::default())
+            .await
+            .unwrap();
         assert_eq!(result.get("plain_value").unwrap(), "plain_value");
     }
 }

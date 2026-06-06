@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use log::debug;
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tokio::fs;
@@ -11,6 +12,8 @@ use tokio::fs;
 pub struct GlobalConfig {
     pub update_check: DateTime<Utc>,
     pub user: Option<String>,
+    #[serde(default)]
+    pub cli_check: BTreeMap<String, DateTime<Utc>>,
 }
 
 impl GlobalConfig {
@@ -36,6 +39,7 @@ impl GlobalConfig {
             Ok(GlobalConfig {
                 update_check: Utc::now(),
                 user: None,
+                cli_check: BTreeMap::new(),
             })
         }
     }

@@ -18,7 +18,12 @@ pub type Output = Option<PathBuf>;
 
 type VarsByOutput = FxHashMap<Output, HashMap<String, String>>;
 
-type CollectHydrateAccum = (VarsByOutput, HashMap<String, String>, FxHashSet<String>);
+type CollectHydrateAccum = (
+    VarsByOutput,
+    HashMap<String, String>,
+    FxHashSet<String>,
+    Vec<String>,
+);
 
 fn output_name(output: &Output) -> String {
     output
@@ -117,6 +122,7 @@ impl Config {
         HashMap<String, String>,
         HashMap<String, String>,
         FxHashSet<String>,
+        Vec<String>,
     )> {
         let sources = rule_sources(&rule, saved_user);
 
@@ -132,13 +138,14 @@ impl Config {
             HashMap::new()
         };
 
-        let (values, maskable) =
+        let (values, maskable, warnings) =
             hydrate_with_maskable(sources.clone(), path.clone(), extra_env).await?;
         Ok((
             output.map(|subpath| path.join(subpath)),
             values,
             sources,
             maskable,
+            warnings,
         ))
     }
 
@@ -149,10 +156,11 @@ impl Config {
         HashMap<Output, HashMap<String, String>>,
         HashMap<String, String>,
         FxHashSet<String>,
+        Vec<String>,
     )> {
         let saved_user = saved_user().await?;
 
-        let (vars, sources, maskable): CollectHydrateAccum = try_join_all(
+        let (vars, sources, maskable, warnings): CollectHydrateAccum = try_join_all(
             self.collect(command)
                 .into_iter()
                 .map(|(path, rule)| self.hydrate_output(path, rule, &saved_user)),
@@ -160,15 +168,22 @@ impl Config {
         .await?
         .into_iter()
         .try_fold(
-            (FxHashMap::default(), HashMap::new(), FxHashSet::default()),
-            |(mut vars, mut sources, mut maskable), (output, map, rule_sources, rule_maskable)| {
+            (
+                FxHashMap::default(),
+                HashMap::new(),
+                FxHashSet::default(),
+                Vec::new(),
+            ),
+            |(mut vars, mut sources, mut maskable, mut warnings),
+             (output, map, rule_sources, rule_maskable, rule_warnings)| {
                 merge_vars(&mut vars, output, map)?;
                 merge_sources(&mut sources, rule_sources)?;
                 maskable.extend(rule_maskable);
-                Ok::<_, anyhow::Error>((vars, sources, maskable))
+                warnings.extend(rule_warnings);
+                Ok::<_, anyhow::Error>((vars, sources, maskable, warnings))
             },
         )?;
-        Ok((vars.into_iter().collect(), sources, maskable))
+        Ok((vars.into_iter().collect(), sources, maskable, warnings))
     }
 
     pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {
@@ -317,7 +332,7 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let (vars, _, _) = config.collect_hydrate("cmd run").await.unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("cmd run").await.unwrap();
         let env = vars.get(&None::<std::path::PathBuf>).unwrap();
         assert_eq!(env.get("TOKEN").unwrap(), "same");
     }

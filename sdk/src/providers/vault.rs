@@ -10,10 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, deserialize_output, host_with_port, run_cli};
-
-const NAME: &str = "Vault";
-const INSTALL_URL: &str = "https://developer.hashicorp.com/vault/docs/commands";
+use super::{Provider, Warnings, add_url, deserialize_output, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Vault {
@@ -42,12 +39,27 @@ impl Provider for Vault {
         add_url(&mut self.urls, value, "vault")
     }
 
+    fn name(&self) -> &'static str {
+        "Vault"
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://developer.hashicorp.com/vault/docs/commands"
+    }
+
     fn has_work(&self) -> bool {
         !self.urls.is_empty()
     }
 
-    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+    async fn resolve(
+        &self,
+        _: &Path,
+        extra_env: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
         let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let fetches = self
             .urls
             .iter()
@@ -89,8 +101,8 @@ impl Provider for Vault {
                                     ];
                                     debug!("Lade run: {}", cmd.join(" "));
                                     let child =
-                                        run_cli(&cmd, &extra_env, NAME, INSTALL_URL, None).await?;
-                                    let loaded: VaultExport = deserialize_output(&child, NAME)?;
+                                        run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                                    let loaded: VaultExport = deserialize_output(&child, name)?;
                                     let loaded = loaded.data.data;
                                     let hydration = group
                                         .into_iter()
@@ -170,7 +182,7 @@ mod tests {
         p.add("vault://localhost/secret/myapp/password".to_string())
             .unwrap();
         let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin))
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
             .await
             .unwrap();
         assert_eq!(
@@ -196,7 +208,7 @@ mod tests {
         p.add("vault://localhost/secret/myapp/api_key".to_string())
             .unwrap();
         let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin))
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
             .await
             .unwrap();
         assert_eq!(
@@ -220,7 +232,9 @@ mod tests {
         let mut p = Vault::new();
         p.add("vault://localhost/secret/myapp/password".to_string())
             .unwrap();
-        let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
+        let result = p
+            .resolve(Path::new("."), &path_env(&empty_bin), &Warnings::default())
+            .await;
         assert!(
             result
                 .unwrap_err()
@@ -237,7 +251,9 @@ mod tests {
         let mut p = Vault::new();
         p.add("vault://localhost/secret/myapp/password".to_string())
             .unwrap();
-        let result = p.resolve(Path::new("."), &path_env(&fake_bin)).await;
+        let result = p
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
+            .await;
         assert!(result.unwrap_err().to_string().contains("Vault error"));
     }
 }

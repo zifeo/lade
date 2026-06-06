@@ -1,28 +1,68 @@
 use anyhow::{Ok, Result};
 use log::debug;
-use std::{env, io::Read, time::Duration};
+use rustc_hash::FxHashSet;
+use std::{collections::HashMap, env, io::Read, path::PathBuf, time::Duration};
 
 mod args;
+mod compat;
 mod config;
-mod disclaimer;
 mod exec;
 mod files;
 mod global_config;
 mod hook;
 mod masking;
 mod message_box;
+mod prompt;
 mod redact;
 mod shell;
 mod upgrade;
 
 use args::{Args, Command, EvalCommand};
 use clap::{CommandFactory, Parser};
-use config::LadeFile;
-use files::{LoadedSecrets, hydration_or_exit, remove_files, split_env_files, write_files};
+use config::{Config, LadeFile};
+use files::{
+    LoadedSecrets, hydration_or_exit, remove_files, sleep_or_cancel, split_env_files, write_files,
+};
 use global_config::GlobalConfig;
 use lade_sdk::hydrate_one;
 use redact::Redactor;
 use shell::Shell;
+
+async fn load_for_command(
+    config: &Config,
+    command: &str,
+) -> Result<(
+    HashMap<String, String>,
+    HashMap<PathBuf, HashMap<String, String>>,
+    HashMap<String, String>,
+    FxHashSet<String>,
+)> {
+    prompt::confirm_disclaimers(&config.collect_disclaimers(command)).await?;
+    let LoadedSecrets {
+        mut vars,
+        sources,
+        maskable,
+        warnings,
+    } = hydration_or_exit(config, command).await;
+    if !warnings.is_empty() {
+        message_box::MessageBox::new()
+            .warning()
+            .paragraphs(warnings.iter().map(String::as_str))
+            .line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)")
+            .print_stderr();
+        sleep_or_cancel(5).await;
+    }
+    compat::warn_outdated(compat::known_schemes(sources.values().map(|s| s.as_str()))).await;
+    let (env, files) = split_env_files(&mut vars);
+    let mut names = write_files(&files)?;
+    names.extend(env.keys().cloned());
+    if !names.is_empty() {
+        names.sort();
+        eprintln!("Lade loaded: {}.", names.join(", "));
+        eprintln!();
+    }
+    Ok((env, files, sources, maskable))
+}
 
 fn main() -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -130,7 +170,9 @@ async fn run() -> Result<()> {
     let current_dir = env::current_dir()?;
 
     if let Command::Eval { uri } = command {
-        let value = hydrate_one(uri, &current_dir, &std::collections::HashMap::new()).await?;
+        let value =
+            hydrate_one(uri.clone(), &current_dir, &std::collections::HashMap::new()).await?;
+        compat::warn_outdated(compat::known_schemes(std::iter::once(uri.as_str()))).await;
         println!("{}", value);
         return Ok(());
     }
@@ -139,6 +181,7 @@ async fn run() -> Result<()> {
         std::result::Result::Ok(c) => c,
         Err(e) => {
             message_box::MessageBox::new()
+                .error()
                 .line("Lade could not parse a config file:")
                 .paragraph(e.to_string())
                 .line("Hint: check the file format.")
@@ -159,23 +202,7 @@ async fn run() -> Result<()> {
         Command::Inject(opts) => {
             debug!("injecting: {:?}", opts.commands);
             let command = opts.commands.join(" ");
-
-            disclaimer::prompt(&config.collect_disclaimers(&command))?;
-
-            let LoadedSecrets {
-                mut vars,
-                sources,
-                maskable,
-            } = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut vars);
-            let mut names = write_files(&files)?;
-            names.extend(env.keys().cloned());
-            if !names.is_empty() {
-                names.sort();
-                eprintln!("Lade loaded: {}.", names.join(", "));
-                eprintln!();
-            }
-
+            let (env, files, sources, maskable) = load_for_command(&config, &command).await?;
             let redactor = if !opts.no_mask {
                 Redactor::new(
                     &masking::secrets_for_redaction(&env, &files, &sources, &maskable),
@@ -184,10 +211,8 @@ async fn run() -> Result<()> {
             } else {
                 None
             };
-
             let code = exec::run(shell.bin(), &command, env, &current_dir, redactor);
             remove_files(&mut files.keys())?;
-
             let code = code?;
             if code != 0 {
                 eprintln!("command failed");
@@ -197,19 +222,7 @@ async fn run() -> Result<()> {
         Command::Set(EvalCommand { commands }) => {
             debug!("setting: {:?}", commands);
             let command = commands.join(" ");
-
-            disclaimer::prompt(&config.collect_disclaimers(&command))?;
-
-            let LoadedSecrets { mut vars, .. } = hydration_or_exit(&config, &command).await;
-            let (env, files) = split_env_files(&mut vars);
-            let mut names = write_files(&files)?;
-            names.extend(env.keys().cloned());
-            if !names.is_empty() {
-                names.sort();
-                eprintln!("Lade loaded: {}.", names.join(", "));
-                eprintln!();
-            }
-
+            let (env, ..) = load_for_command(&config, &command).await?;
             println!("{}", shell.set(env));
         }
         Command::Unset(EvalCommand { commands }) => {
@@ -223,14 +236,20 @@ async fn run() -> Result<()> {
     }
 
     if let Some(task) = upgrade_task
-        && let Some(msg) = tokio::time::timeout(Duration::from_millis(50), task)
+        && let Some(msg) = tokio::time::timeout(Duration::from_secs(2), task)
             .await
             .ok()
             .and_then(|r| r.ok())
             .and_then(|r| r.ok())
             .flatten()
     {
-        eprintln!("{msg}");
+        message_box::MessageBox::new()
+            .warning()
+            .line(msg)
+            .print_stderr();
+        if let Some(offset) = prompt::ask_snooze_offset().await {
+            upgrade::apply_snooze(offset).await.ok();
+        }
     }
 
     if let Some(code) = inject_exit_code {

@@ -10,10 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, deserialize_output, run_cli};
-
-const NAME: &str = "Passbolt";
-const INSTALL_URL: &str = "https://github.com/passbolt/go-passbolt-cli";
+use super::{Provider, Warnings, add_url, deserialize_output, run_cli};
 
 #[derive(Default)]
 pub struct Passbolt {
@@ -32,12 +29,27 @@ impl Provider for Passbolt {
         add_url(&mut self.urls, value, "passbolt")
     }
 
+    fn name(&self) -> &'static str {
+        "Passbolt"
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://github.com/passbolt/go-passbolt-cli"
+    }
+
     fn has_work(&self) -> bool {
         !self.urls.is_empty()
     }
 
-    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+    async fn resolve(
+        &self,
+        _: &Path,
+        extra_env: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
         let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let fetches = self
             .urls
             .iter()
@@ -65,8 +77,8 @@ impl Provider for Passbolt {
                             ];
                             debug!("Lade run: {}", cmd.join(" "));
 
-                            let child = run_cli(&cmd, &extra_env, NAME, INSTALL_URL, None).await?;
-                            let loaded: HashMap<String, String> = deserialize_output(&child, NAME)?;
+                            let child = run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                            let loaded: HashMap<String, String> = deserialize_output(&child, name)?;
 
                             let hydration = group
                                 .into_iter()
@@ -139,7 +151,10 @@ mod tests {
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
         )]);
-        let result = p.resolve(Path::new("."), &extra).await.unwrap();
+        let result = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await
+            .unwrap();
         assert_eq!(
             result
                 .get("passbolt://passbolt.example.com/resource-uuid/password")
@@ -161,7 +176,9 @@ mod tests {
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
         )]);
-        let result = p.resolve(Path::new("."), &extra).await;
+        let result = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Passbolt error"));
     }
@@ -177,7 +194,9 @@ mod tests {
             "PATH".to_string(),
             empty_bin.path().to_string_lossy().into_owned(),
         )]);
-        let result = p.resolve(Path::new("."), &extra).await;
+        let result = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await;
         assert!(result.is_err());
         assert!(
             result

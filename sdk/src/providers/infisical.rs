@@ -11,10 +11,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, add_url, host_with_port, run_cli};
-
-const NAME: &str = "Infisical";
-const INSTALL_URL: &str = "https://infisical.com/docs/cli/overview";
+use super::{Provider, Warnings, add_url, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Infisical {
@@ -39,12 +36,27 @@ impl Provider for Infisical {
         add_url(&mut self.urls, value, "infisical")
     }
 
+    fn name(&self) -> &'static str {
+        "Infisical"
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://infisical.com/docs/cli/overview"
+    }
+
     fn has_work(&self) -> bool {
         !self.urls.is_empty()
     }
 
-    async fn resolve(&self, _: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration> {
+    async fn resolve(
+        &self,
+        _: &Path,
+        extra_env: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
         let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let fetches = self
             .urls
             .iter()
@@ -103,7 +115,7 @@ impl Provider for Infisical {
                                                 "export", "--path", &path_arg,
                                                 "--env", env, "--projectId", project, "--format", "json",
                                             ];
-                                            let child = run_cli(&cmd, &extra_env, NAME, INSTALL_URL, Some(&temp_dir_path)).await?;
+                                            let child = run_cli(&cmd, &extra_env, name, install_url, Some(&temp_dir_path)).await?;
                                             let loaded = serde_json::from_slice::<Vec<InfisicalExport>>(&child.stdout)
                                                 .map_err(|err| {
                                                     let stderr = String::from_utf8_lossy(&child.stderr);
@@ -193,7 +205,7 @@ mod tests {
         p.add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
             .unwrap();
         let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin))
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
             .await
             .unwrap();
         assert_eq!(
@@ -218,7 +230,7 @@ mod tests {
         p.add("infisical://app.infisical.com/proj123/dev/MY%2BSECRET".to_string())
             .unwrap();
         let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin))
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
             .await
             .unwrap();
         assert_eq!(
@@ -237,7 +249,9 @@ mod tests {
         let mut p = Infisical::new();
         p.add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
             .unwrap();
-        let result = p.resolve(Path::new("."), &path_env(&fake_bin)).await;
+        let result = p
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
+            .await;
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
@@ -248,7 +262,9 @@ mod tests {
         let mut p = Infisical::new();
         p.add("infisical://app.infisical.com/proj123/dev/MY_SECRET".to_string())
             .unwrap();
-        let result = p.resolve(Path::new("."), &path_env(&empty_bin)).await;
+        let result = p
+            .resolve(Path::new("."), &path_env(&empty_bin), &Warnings::default())
+            .await;
         assert!(
             result
                 .unwrap_err()

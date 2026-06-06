@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
@@ -11,6 +15,20 @@ use url::Url;
 
 use crate::Hydration;
 
+pub mod compat;
+
+#[derive(Clone, Default)]
+pub struct Warnings(Arc<Mutex<Vec<String>>>);
+
+impl Warnings {
+    pub fn push(&self, msg: impl Into<String>) {
+        self.0.lock().unwrap().push(msg.into());
+    }
+
+    pub fn take(&self) -> Vec<String> {
+        std::mem::take(&mut *self.0.lock().unwrap())
+    }
+}
 mod doppler;
 mod file;
 mod infisical;
@@ -23,6 +41,12 @@ mod vault;
 pub trait Provider: Sync {
     fn add(&mut self, value: String) -> Result<()>;
 
+    /// Human-readable provider name, used in user-facing messages.
+    fn name(&self) -> &'static str;
+
+    /// Where to install/find the backing tool, used in user-facing messages.
+    fn install_url(&self) -> &'static str;
+
     fn has_work(&self) -> bool {
         true
     }
@@ -32,7 +56,12 @@ pub trait Provider: Sync {
         true
     }
 
-    async fn resolve(&self, cwd: &Path, extra_env: &HashMap<String, String>) -> Result<Hydration>;
+    async fn resolve(
+        &self,
+        cwd: &Path,
+        extra_env: &HashMap<String, String>,
+        warnings: &Warnings,
+    ) -> Result<Hydration>;
 }
 
 pub struct Providers {
@@ -61,6 +90,10 @@ impl Providers {
         }
     }
 
+    pub fn provider(&self, scheme: &str) -> Option<&(dyn Provider + Send)> {
+        self.by_scheme.get(scheme).map(|p| p.as_ref())
+    }
+
     pub fn add(&mut self, value: String) -> Result<()> {
         let scheme = value.split_once("://").map(|(s, _)| s).unwrap_or("");
         match self.by_scheme.get_mut(scheme) {
@@ -78,6 +111,7 @@ impl Providers {
         &self,
         cwd: &Path,
         extra_env: &HashMap<String, String>,
+        warnings: &Warnings,
     ) -> Result<(Hydration, FxHashSet<String>)> {
         let active: Vec<&dyn Provider> = self
             .by_scheme
@@ -88,7 +122,7 @@ impl Providers {
             .collect();
 
         let results = try_join_all(active.iter().map(|p| async move {
-            let hydration = p.resolve(cwd, extra_env).await?;
+            let hydration = p.resolve(cwd, extra_env, warnings).await?;
             Ok::<_, anyhow::Error>((p.masks_in_output(), hydration))
         }))
         .await?;
