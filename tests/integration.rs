@@ -28,7 +28,8 @@ fn test_set_raw_values() {
         .args(["set", "mycmd"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("export SECRET='mysecret'"));
+        .stdout(predicates::str::contains("export SECRET='mysecret'"))
+        .stderr(predicates::str::is_empty());
 }
 
 #[test]

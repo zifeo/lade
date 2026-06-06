@@ -1,7 +1,7 @@
 use anyhow::{Ok, Result};
 use log::debug;
 use rustc_hash::FxHashSet;
-use std::{collections::HashMap, env, io::Read, path::PathBuf, time::Duration};
+use std::{collections::HashMap, env, io::IsTerminal, io::Read, path::PathBuf, time::Duration};
 
 mod args;
 mod compat;
@@ -37,14 +37,15 @@ async fn load_for_command(
     HashMap<String, String>,
     FxHashSet<String>,
 )> {
+    let is_tty = std::io::stderr().is_terminal();
     prompt::confirm_disclaimers(&config.collect_disclaimers(command)).await?;
     let LoadedSecrets {
-        mut vars,
+        vars,
         sources,
         maskable,
         warnings,
     } = hydration_or_exit(config, command).await;
-    if !warnings.is_empty() {
+    if is_tty && !warnings.is_empty() {
         message_box::MessageBox::new()
             .warning()
             .paragraphs(warnings.iter().map(String::as_str))
@@ -53,10 +54,10 @@ async fn load_for_command(
         sleep_or_cancel(5).await;
     }
     compat::warn_outdated(compat::known_schemes(sources.values().map(|s| s.as_str()))).await;
-    let (env, files) = split_env_files(&mut vars);
+    let (env, files) = split_env_files(vars);
     let mut names = write_files(&files)?;
     names.extend(env.keys().cloned());
-    if !names.is_empty() {
+    if is_tty && !names.is_empty() {
         names.sort();
         eprintln!("Lade loaded: {}.", names.join(", "));
         eprintln!();
@@ -112,14 +113,9 @@ async fn run() -> Result<()> {
         }
     };
 
-    let upgrade_task = match command {
-        Command::On
-        | Command::Off
-        | Command::Install
-        | Command::Uninstall
-        | Command::Eval { .. } => None,
-        _ => Some(tokio::spawn(upgrade::check_message())),
-    };
+    let is_tty = std::io::stderr().is_terminal();
+    let upgrade_task = (is_tty && matches!(command, Command::Inject(_) | Command::Set(_)))
+        .then(|| tokio::spawn(upgrade::check_message()));
 
     let shell = Shell::detect()?;
 
@@ -227,15 +223,16 @@ async fn run() -> Result<()> {
         }
         Command::Unset(EvalCommand { commands }) => {
             let command = commands.join(" ");
-            let mut keys = config.collect_keys(&command);
-            let (env, files) = split_env_files(&mut keys);
+            let keys = config.collect_keys(&command);
+            let (env, files) = split_env_files(keys);
             remove_files(&mut files.keys())?;
             println!("{}", shell.unset(env));
         }
         _ => unreachable!(),
     }
 
-    if let Some(task) = upgrade_task
+    if inject_exit_code != Some(130)
+        && let Some(task) = upgrade_task
         && let Some(msg) = tokio::time::timeout(Duration::from_secs(2), task)
             .await
             .ok()
@@ -244,11 +241,16 @@ async fn run() -> Result<()> {
             .flatten()
     {
         message_box::MessageBox::new()
-            .warning()
+            .info()
             .line(msg)
+            .line("Upgrade with: lade upgrade")
             .print_stderr();
-        if let Some(offset) = prompt::ask_snooze_offset().await {
-            upgrade::apply_snooze(offset).await.ok();
+        match prompt::ask_upgrade_choice().await {
+            prompt::UpgradeChoice::Upgrade => upgrade::run_upgrade_subprocess()?,
+            prompt::UpgradeChoice::Snooze(offset) => {
+                upgrade::apply_snooze(offset).await.ok();
+            }
+            prompt::UpgradeChoice::Continue => {}
         }
     }
 

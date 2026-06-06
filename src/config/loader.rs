@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
-use regex::Regex;
+use regex::RegexSet;
 use serde::Deserialize;
 use std::{
     fs::File,
@@ -50,15 +50,18 @@ impl LadeFile {
             }
         }
 
-        let mut matches = Vec::default();
+        let mut rules = Vec::default();
+        let mut regex_strs = Vec::default();
         configs.reverse();
         for (path, config) in configs.into_iter() {
             for (key, value) in config.commands.into_iter() {
-                matches.push((Regex::new(&key)?, path.clone(), value));
+                regex_strs.push(key);
+                rules.push((path.clone(), value));
             }
         }
 
-        Ok(Config::new(matches))
+        let regex_set = RegexSet::new(&regex_strs)?;
+        Ok(Config::new(rules, regex_set))
     }
 }
 

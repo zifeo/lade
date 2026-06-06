@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::IsTerminal;
 
 use anyhow::Result;
 use chrono::{TimeDelta, Utc};
@@ -59,15 +60,26 @@ async fn check_message(schemes: Vec<String>) -> Result<(Vec<CompatWarning>, Vec<
 pub async fn warn_outdated(schemes: Vec<String>) {
     match check_message(schemes).await {
         Ok((warnings, due)) if !warnings.is_empty() => {
-            render(&warnings);
-            if let Some(offset) = prompt::ask_snooze_offset().await {
-                GlobalConfig::update(|c| {
-                    for scheme in &due {
-                        c.cli_check.insert(scheme.clone(), Utc::now() + offset);
-                    }
-                })
-                .await
-                .ok();
+            if std::io::stderr().is_terminal() {
+                render(&warnings);
+                if let Some(offset) = prompt::ask_snooze_offset().await {
+                    GlobalConfig::update(|c| {
+                        for scheme in &due {
+                            c.cli_check.insert(scheme.clone(), Utc::now() + offset);
+                        }
+                    })
+                    .await
+                    .ok();
+                }
+            } else {
+                debug!(
+                    "CLI compatibility warnings suppressed: {}",
+                    warnings
+                        .iter()
+                        .map(|w| format!("{} {}", w.name, w.found))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
         }
         Ok(_) => {}

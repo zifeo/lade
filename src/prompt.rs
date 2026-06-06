@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 use anyhow::Result;
 use chrono::TimeDelta;
@@ -11,13 +11,17 @@ pub async fn confirm_disclaimers(disclaimers: &[String]) -> Result<()> {
         return Ok(());
     }
     MessageBox::new()
-        .action()
+        .info()
         .line("Are you sure you want to proceed?")
         .paragraphs(disclaimers.iter().map(String::as_str))
         .print_stderr();
+    if !std::io::stderr().is_terminal() {
+        eprintln!("Disclaimer requires an interactive shell; use `lade inject` instead.");
+        std::process::exit(1);
+    }
     eprint!("Type \"yes\" to continue (Ctrl+C to cancel): ");
     std::io::stderr().flush()?;
-    let input = read_stdin(None).await;
+    let input = read_stdin(None, CtrlC::Exit).await;
     if input.as_deref().map(str::trim) != Some("yes") {
         eprintln!();
         eprintln!("Not injecting secrets, aborting.");
@@ -26,7 +30,14 @@ pub async fn confirm_disclaimers(disclaimers: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub async fn read_stdin(timeout_secs: Option<u64>) -> Option<String> {
+// Exit: safety prompts (disclaimer) — Ctrl+C must abort without injecting secrets.
+// Skip: optional nudges — Ctrl+C dismisses the prompt, same as waiting out the timeout.
+enum CtrlC {
+    Exit,
+    Skip,
+}
+
+async fn read_stdin(timeout_secs: Option<u64>, on_ctrl_c: CtrlC) -> Option<String> {
     let mut line = String::new();
     let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
     let timeout = async {
@@ -38,14 +49,40 @@ pub async fn read_stdin(timeout_secs: Option<u64>) -> Option<String> {
     select! {
         result = reader.read_line(&mut line) => result.ok().map(|_| line),
         _ = timeout => None,
-        _ = signal::ctrl_c() => std::process::exit(130),
+        _ = signal::ctrl_c() => match on_ctrl_c {
+            CtrlC::Exit => std::process::exit(130),
+            CtrlC::Skip => None,
+        },
+    }
+}
+
+pub enum UpgradeChoice {
+    Upgrade,
+    Snooze(TimeDelta),
+    Continue,
+}
+
+pub async fn ask_upgrade_choice() -> UpgradeChoice {
+    eprint!(
+        "[Enter]=lade upgrade -y  [1]=snooze 1h  [2]=snooze 24h  [3]=snooze 7d  (continues in 5s): "
+    );
+    std::io::stderr().flush().ok();
+    let result = read_stdin(Some(5), CtrlC::Skip).await;
+    eprintln!();
+    match result.as_deref().map(str::trim) {
+        None => UpgradeChoice::Continue,
+        Some("") => UpgradeChoice::Upgrade,
+        Some("1") => UpgradeChoice::Snooze(snooze_offset(Snooze::Hour)),
+        Some("2") => UpgradeChoice::Snooze(snooze_offset(Snooze::Day)),
+        Some("3") => UpgradeChoice::Snooze(snooze_offset(Snooze::Week)),
+        Some(_) => UpgradeChoice::Continue,
     }
 }
 
 pub async fn ask_snooze_offset() -> Option<TimeDelta> {
-    eprint!("Silence for: [1]=1h  [2]=24h  [3]=7d  [Enter]=continue: ");
+    eprint!("[1]=snooze 1h  [2]=snooze 24h  [3]=snooze 7d  [Enter]=continue  (continues in 5s): ");
     std::io::stderr().flush().ok();
-    let result = read_stdin(Some(5)).await;
+    let result = read_stdin(Some(5), CtrlC::Skip).await;
     eprintln!();
     let snooze = match result.as_deref().map(str::trim) {
         Some("1") => Snooze::Hour,
@@ -53,19 +90,23 @@ pub async fn ask_snooze_offset() -> Option<TimeDelta> {
         Some("3") => Snooze::Week,
         _ => return None,
     };
-    // check fires when stored + 1d < now, so stored = now + (snooze - 1d)
-    let delta = match snooze {
-        Snooze::Hour => TimeDelta::try_hours(1).unwrap(),
-        Snooze::Day => TimeDelta::try_days(1).unwrap(),
-        Snooze::Week => TimeDelta::try_days(7).unwrap(),
-    };
-    Some(delta - TimeDelta::try_days(1).unwrap())
+    Some(snooze_offset(snooze))
 }
 
 enum Snooze {
     Hour,
     Day,
     Week,
+}
+
+fn snooze_offset(snooze: Snooze) -> TimeDelta {
+    // check fires when stored + 1d < now, so stored = now + (snooze - 1d)
+    let delta = match snooze {
+        Snooze::Hour => TimeDelta::try_hours(1).unwrap(),
+        Snooze::Day => TimeDelta::try_days(1).unwrap(),
+        Snooze::Week => TimeDelta::try_days(7).unwrap(),
+    };
+    delta - TimeDelta::try_days(1).unwrap()
 }
 
 #[cfg(test)]
