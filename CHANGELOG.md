@@ -9,15 +9,22 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-06
+
 ### Added
 
 - **Disclaimer prompts** ([#143](https://github.com/zifeo/lade/pull/143)): optional `disclaimer` in the `.` rule block shows a framed warning before `inject` / `set`; the user must type `yes` to continue (Ctrl+C aborts without injecting secrets).
-- **Message box** ([#143](https://github.com/zifeo/lade/pull/143)): shared stderr UI for disclaimers and improved config parse errors.
+- **Message box** ([#143](https://github.com/zifeo/lade/pull/143)): shared stderr UI for disclaimers, config parse errors, upgrade nudges, and CLI compatibility warnings.
+- **CLI compatibility warnings** ([#150](https://github.com/zifeo/lade/pull/150)): on `inject`, `set`, and `eval`, detect vault CLIs (1Password, Doppler, Vault, Infisical, Passbolt) older than the minimum versions Lade is tested against; framed warning with install links; snooze 1h / 24h / 7d.
 
 ### Changed
 
 - Config parse failures now render through the message box with a format hint instead of a plain error line.
-- **`inject` output masking** only applies to secrets resolved by vault/file loaders; raw-loader inline values are no longer masked (they are already visible in `lade.yml`, and masking short literals such as API version numbers broke unrelated command output).
+- **`inject` output masking** ([#149](https://github.com/zifeo/lade/pull/149)): only applies to secrets resolved by vault/file loaders; raw-loader inline values are no longer masked (they are already visible in `lade.yml`, and masking short literals such as API version numbers broke unrelated command output).
+- **Upgrade nudge** ([#150](https://github.com/zifeo/lade/pull/150)): `lade upgrade` availability message uses the message box; optional snooze (1h / 24h / 7d) like CLI warnings.
+- **README** ([#149](https://github.com/zifeo/lade/pull/149)): refreshed feature demos and documentation layout.
+
+[0.15.0]: https://github.com/zifeo/lade/compare/v0.14.4...v0.15.0
 
 ## [0.14.4] - 2026-04-23
 
