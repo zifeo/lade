@@ -1,0 +1,38 @@
+# tape: main
+^echo hello:
+  GREETING: "world"
+
+# tape: hooks
+^echo hooks:
+  DEMO: "hello world"
+
+# tape: token
+^echo token:
+  TOKEN: "lade-demo-token-42"
+
+# tape: format
+^printenv FROM_FILE:
+  FROM_FILE: file://../sources/config.json?query=.format
+
+# tape: inject
+^printenv TOKEN:
+  TOKEN: "file://../sources/config.json?query=.token"
+
+# tape: disclaimer
+^printenv LADE_DEMO_TOKEN:
+  .:
+    disclaimer: "This command will use your API token."
+  LADE_DEMO_TOKEN: "demo-token"
+
+# tape: file
+^cat \.lade-secrets\.json:
+  .:
+    file: .lade-secrets.json
+  KEY: "written-to-disk"
+
+# tape: per-user
+^printenv GREETING:
+  GREETING:
+    alice: "hello alice"
+    bob: "hello bob"
+    .: "hello guest"

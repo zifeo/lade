@@ -46,11 +46,11 @@ impl Shell {
     }
 
     pub fn install(&self) -> Result<String> {
-        configure_auto_launch(self, true).map(|c| c.display().to_string())
+        configure_auto_launch(self, true).map(|c| path_for_display(&c))
     }
 
     pub fn uninstall(&self) -> Result<String> {
-        configure_auto_launch(self, false).map(|c| c.display().to_string())
+        configure_auto_launch(self, false).map(|c| path_for_display(&c))
     }
 }
 
@@ -77,6 +77,17 @@ fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
 
     edit_config(&config_file, command, install)?;
     Ok(config_file)
+}
+
+fn path_for_display(path: &Path) -> String {
+    let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) else {
+        return path.display().to_string();
+    };
+    match path.strip_prefix(&home) {
+        Ok(stripped) if stripped.as_os_str().is_empty() => "~".to_string(),
+        Ok(stripped) => format!("~/{}", stripped.display()),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 fn edit_config<P: AsRef<Path>>(config_file: P, line: String, install: bool) -> Result<()> {
@@ -134,6 +145,14 @@ mod tests {
         let content = std::fs::read_to_string(&cfg).unwrap();
         assert!(!content.contains(MARKER));
         assert!(content.contains("other line") && content.contains("more content"));
+    }
+
+    #[test]
+    fn test_path_for_display_under_home() {
+        if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
+            let cfg = home.join(".zshrc");
+            assert_eq!(path_for_display(&cfg), "~/.zshrc");
+        }
     }
 
     #[test]

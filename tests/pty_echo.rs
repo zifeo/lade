@@ -267,9 +267,15 @@ fn run_until_exit(
 }
 
 fn write_redactor_yml(project: &Path, secret_value: &str) {
+    let source = project.join("source.json");
+    std::fs::write(&source, format!(r#"{{"token":"{}"}}"#, secret_value)).unwrap();
+    let source_url_path = source.to_str().unwrap().replace('\\', "/");
     std::fs::write(
         project.join("lade.yml"),
-        format!("\"^(printf|bash|read)\":\n  LADE_HARNESS_SECRET: {secret_value}\n"),
+        format!(
+            "\"^(printf|bash|read)\":\n  LADE_HARNESS_SECRET: \"file://{}?query=.token\"\n",
+            source_url_path
+        ),
     )
     .unwrap();
 }
@@ -381,9 +387,15 @@ fn secret_is_redacted_on_pty_path() {
     // Multi-byte secret exercises the Aho-Corasick match; trailing padding
     // in the command ensures the bytes clear the redactor's carry buffer
     // before EOF.
+    let source = project.join("source.json");
+    std::fs::write(&source, r#"{"token":"SUPERSECRET"}"#).unwrap();
+    let source_url_path = source.to_str().unwrap().replace('\\', "/");
     std::fs::write(
         project.join("lade.yml"),
-        "\"^printf\":\n  LADE_HARNESS_SECRET: SUPERSECRET\n",
+        format!(
+            "\"^printf\":\n  LADE_HARNESS_SECRET: \"file://{}?query=.token\"\n",
+            source_url_path
+        ),
     )
     .unwrap();
 

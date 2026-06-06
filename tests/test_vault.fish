@@ -1,7 +1,8 @@
-# env -i PATH="$PATH" VAULT_TOKEN="token" fish tests/test_vault.fish
+# env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 fish tests/test_vault.fish
 
 set -e
 
+set -x LADE_VAULT_HTTP 1
 bash tests/test_vault_setup.bash
 
 echo e $E1 $E2 $E3 $E4

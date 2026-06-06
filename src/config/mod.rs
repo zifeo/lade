@@ -6,14 +6,89 @@ use secret::resolve_lade_secret;
 pub use secret::*;
 
 use crate::global_config::GlobalConfig;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use futures::future::try_join_all;
-use lade_sdk::{hydrate, hydrate_one};
+use lade_sdk::{hydrate_one, hydrate_with_maskable};
 use regex::Regex;
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use std::{collections::HashMap, path::PathBuf};
 
 pub type Output = Option<PathBuf>;
+
+type VarsByOutput = FxHashMap<Output, HashMap<String, String>>;
+
+type CollectHydrateAccum = (VarsByOutput, HashMap<String, String>, FxHashSet<String>);
+
+fn output_name(output: &Output) -> String {
+    output
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "environment".to_string())
+}
+
+fn merge_vars(
+    vars: &mut VarsByOutput,
+    output: Output,
+    incoming: HashMap<String, String>,
+) -> Result<()> {
+    let target = vars.entry(output.clone()).or_default();
+    for (key, value) in incoming {
+        match target.get(&key) {
+            Some(existing) if existing != &value => bail!(
+                "conflicting value for '{}' in {}: '{}' and '{}' match the same command; use more specific rules",
+                key,
+                output_name(&output),
+                existing,
+                value
+            ),
+            Some(_) => {}
+            None => {
+                target.insert(key, value);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn merge_sources(
+    sources: &mut HashMap<String, String>,
+    incoming: HashMap<String, String>,
+) -> Result<()> {
+    for (key, source) in incoming {
+        match sources.get(&key) {
+            Some(existing) if existing != &source => bail!(
+                "conflicting source for '{}': '{}' and '{}' match the same command; use one source per variable",
+                key,
+                existing,
+                source
+            ),
+            Some(_) => {}
+            None => {
+                sources.insert(key, source);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn rule_sources(rule: &LadeRule, saved_user: &Option<String>) -> HashMap<String, String> {
+    rule.secrets
+        .iter()
+        .filter_map(|(key, secret)| {
+            resolve_lade_secret(secret, saved_user).map(|v| (key.clone(), v))
+        })
+        .collect()
+}
+
+async fn saved_user() -> Result<Option<String>> {
+    use std::env;
+
+    let local_config = GlobalConfig::load().await?;
+    Ok(local_config
+        .user
+        .or_else(|| env::var("USER").ok().or_else(|| env::var("USERNAME").ok())))
+}
 
 pub struct Config {
     matches: Vec<(Regex, PathBuf, LadeRule)>,
@@ -37,14 +112,13 @@ impl Config {
         path: PathBuf,
         rule: LadeRule,
         saved_user: &Option<String>,
-    ) -> Result<(Output, HashMap<String, String>)> {
-        let secrets_with_single_user: HashMap<String, String> = rule
-            .secrets
-            .iter()
-            .filter_map(|(key, secret)| {
-                resolve_lade_secret(secret, saved_user).map(|v| (key.clone(), v))
-            })
-            .collect();
+    ) -> Result<(
+        Output,
+        HashMap<String, String>,
+        HashMap<String, String>,
+        FxHashSet<String>,
+    )> {
+        let sources = rule_sources(&rule, saved_user);
 
         let config = rule.config.as_ref();
         let output = config.and_then(|c| c.file.clone());
@@ -58,33 +132,43 @@ impl Config {
             HashMap::new()
         };
 
-        hydrate(secrets_with_single_user, path.clone(), extra_env)
-            .await
-            .map(|h| (output.map(|subpath| path.join(subpath)), h))
+        let (values, maskable) =
+            hydrate_with_maskable(sources.clone(), path.clone(), extra_env).await?;
+        Ok((
+            output.map(|subpath| path.join(subpath)),
+            values,
+            sources,
+            maskable,
+        ))
     }
 
     pub async fn collect_hydrate(
         &self,
         command: &str,
-    ) -> Result<HashMap<Output, HashMap<String, String>>> {
-        use std::env;
-        let local_config = GlobalConfig::load().await?;
-        let saved_user = local_config
-            .user
-            .or_else(|| env::var("USER").ok().or_else(|| env::var("USERNAME").ok()));
+    ) -> Result<(
+        HashMap<Output, HashMap<String, String>>,
+        HashMap<String, String>,
+        FxHashSet<String>,
+    )> {
+        let saved_user = saved_user().await?;
 
-        let ret: FxHashMap<Output, HashMap<String, String>> = try_join_all(
+        let (vars, sources, maskable): CollectHydrateAccum = try_join_all(
             self.collect(command)
                 .into_iter()
                 .map(|(path, rule)| self.hydrate_output(path, rule, &saved_user)),
         )
         .await?
         .into_iter()
-        .fold(FxHashMap::default(), |mut acc, (output, map)| {
-            acc.entry(output).or_default().extend(map);
-            acc
-        });
-        Ok(ret.into_iter().collect())
+        .try_fold(
+            (FxHashMap::default(), HashMap::new(), FxHashSet::default()),
+            |(mut vars, mut sources, mut maskable), (output, map, rule_sources, rule_maskable)| {
+                merge_vars(&mut vars, output, map)?;
+                merge_sources(&mut sources, rule_sources)?;
+                maskable.extend(rule_maskable);
+                Ok::<_, anyhow::Error>((vars, sources, maskable))
+            },
+        )?;
+        Ok((vars.into_iter().collect(), sources, maskable))
     }
 
     pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {
@@ -209,5 +293,32 @@ mod tests {
         assert_eq!(disclaimers.len(), 1);
         assert_eq!(disclaimers[0], "This will destroy infrastructure.");
         assert!(config.collect_disclaimers("terraform plan").is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_fails_on_conflicting_values_for_same_output() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd.*\":\n  TOKEN: parent\n\".*\":\n  TOKEN: child\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let err = config.collect_hydrate("cmd run").await.unwrap_err();
+        assert!(err.to_string().contains("conflicting value for 'TOKEN'"));
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_allows_identical_duplicates() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd.*\":\n  TOKEN: same\n\".*\":\n  TOKEN: same\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _) = config.collect_hydrate("cmd run").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("TOKEN").unwrap(), "same");
     }
 }

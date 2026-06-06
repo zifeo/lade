@@ -1,4 +1,5 @@
 format = "toml"
+token = "super-secret-token-42"
 [nested]
 foo = "bar"
 list = [ "a" ]

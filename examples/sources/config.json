@@ -1,5 +1,6 @@
 {
   "format": "json",
+  "token": "super-secret-token-42",
   "nested": {
     "foo": "bar"
   },

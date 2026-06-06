@@ -1,8 +1,8 @@
-# env -i PATH="$PATH" VAULT_TOKEN="token" zsh tests/test_vault.zsh
+# env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 zsh tests/test_vault.zsh
 
 set -e
 
-bash tests/test_vault_setup.bash
+source tests/test_vault_setup.bash
 
 echo e $E1 $E2 $E3 $E4
 eval "$(cargo run -- on)"

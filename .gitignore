@@ -1,9 +1,10 @@
 
 .DS_Store
+examples/tape/.render-logs/
+examples/tape/.vhs-home/
 debug/
 target/
 **/*.rs.bk
-
 **/.terraform/*
 *.tfstate
 *.tfstate.*

@@ -1,0 +1,12 @@
+> ./cat-lade.yml format
+^printenv FROM_FILE:
+  FROM_FILE: file://../sources/config.json?query=.format
+> printenv FROM_FILE
+Lade loaded: FROM_FILE, SHELL.
+
+json
+>
+
+
+
+

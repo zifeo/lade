@@ -141,14 +141,17 @@ fn test_inject_raw_value_reaches_child_process() {
 }
 
 #[test]
-fn test_inject_masks_secret_in_output_by_default() {
+fn test_inject_masks_loader_secret_in_output_by_default() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
-    fs::write(
-        dir.path().join("lade.yml"),
-        "\"echo.*\":\n  SECRET: mysecret42\n",
-    )
-    .unwrap();
+    let source = dir.path().join("source.json");
+    fs::write(&source, r#"{"token":"loadersecret42"}"#).unwrap();
+    let source_url_path = source.to_str().unwrap().replace('\\', "/");
+    let lade_yml = format!(
+        "\"echo.*\":\n  SECRET: \"file://{}?query=.token\"\n",
+        source_url_path
+    );
+    fs::write(dir.path().join("lade.yml"), &lade_yml).unwrap();
     let out = common::lade(home.path())
         .current_dir(dir.path())
         .args(["inject", "echo", "$SECRET"])
@@ -159,12 +162,44 @@ fn test_inject_masks_secret_in_output_by_default() {
         .clone();
     let stdout = String::from_utf8_lossy(&out);
     assert!(
-        !stdout.contains("mysecret42"),
-        "raw secret leaked into output: {stdout}"
+        !stdout.contains("loadersecret42"),
+        "loader secret leaked into output: {stdout}"
     );
     assert!(
         stdout.contains("${SECRET:-REDACTED}"),
         "expected redaction token in output: {stdout}"
+    );
+}
+
+#[test]
+fn test_inject_does_not_mask_raw_literal_in_output() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo.*\":\n  VERSION: \"3\"\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args([
+            "inject",
+            "echo",
+            "uuid c4ba23e1-e702-4774-b7ce-0cf6952e5030",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(
+        stdout.contains("c4ba23e1-e702-4774-b7ce-0cf6952e5030"),
+        "digits from unrelated output must not be redacted: {stdout}"
+    );
+    assert!(
+        !stdout.contains("REDACTED"),
+        "raw literals must not be masked in output: {stdout}"
     );
 }
 
@@ -189,11 +224,14 @@ fn test_inject_no_mask_shows_raw_secret() {
 fn test_inject_static_mask_format() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
-    fs::write(
-        dir.path().join("lade.yml"),
-        "\"echo.*\":\n  SECRET: statictest77\n",
-    )
-    .unwrap();
+    let source = dir.path().join("source.json");
+    fs::write(&source, r#"{"token":"statictest77"}"#).unwrap();
+    let source_url_path = source.to_str().unwrap().replace('\\', "/");
+    let lade_yml = format!(
+        "\"echo.*\":\n  SECRET: \"file://{}?query=.token\"\n",
+        source_url_path
+    );
+    fs::write(dir.path().join("lade.yml"), &lade_yml).unwrap();
     let out = common::lade(home.path())
         .current_dir(dir.path())
         .args(["inject", "--mask-format", "REDACTED", "echo", "$SECRET"])
@@ -205,7 +243,7 @@ fn test_inject_static_mask_format() {
     let stdout = String::from_utf8_lossy(&out);
     assert!(
         !stdout.contains("statictest77"),
-        "raw secret leaked: {stdout}"
+        "loader secret leaked: {stdout}"
     );
     assert!(stdout.contains("REDACTED"), "expected REDACTED: {stdout}");
     assert!(

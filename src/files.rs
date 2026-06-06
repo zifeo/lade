@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use log::debug;
+use rustc_hash::FxHashSet;
 use std::{
     collections::{HashMap, hash_map::Keys},
     ffi::OsStr,
@@ -11,12 +12,21 @@ use tokio::time;
 use crate::config::{Config, Output};
 use crate::message_box::MessageBox;
 
-pub async fn hydration_or_exit(
-    config: &Config,
-    command: &str,
-) -> HashMap<Output, HashMap<String, String>> {
+pub struct LoadedSecrets {
+    pub vars: HashMap<Output, HashMap<String, String>>,
+    /// Env var name → config source (`lade.yml` value).
+    pub sources: HashMap<String, String>,
+    /// Config sources handled by providers that mask subprocess output.
+    pub maskable: FxHashSet<String>,
+}
+
+pub async fn hydration_or_exit(config: &Config, command: &str) -> LoadedSecrets {
     match config.collect_hydrate(command).await {
-        Ok(hydration) => hydration,
+        Ok((vars, sources, maskable)) => LoadedSecrets {
+            vars,
+            sources,
+            maskable,
+        },
         Err(e) => {
             MessageBox::new()
                 .line("Lade could not get secrets from one loader:")
@@ -38,7 +48,7 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
             bail!("file already exists: {:?}", path)
         }
         debug!("writing file: {:?}", path);
-        let content: String = match path
+        let mut content: String = match path
             .extension()
             .and_then(OsStr::to_str)
             .unwrap_or_else(|| panic!("cannot get extension of file: {:?}", path.display()))
@@ -47,6 +57,9 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
             "yaml" | "yml" => serde_yaml::to_string(&vars)?,
             _ => bail!("unsupported file extension: {:?}", path.extension()),
         };
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
         fs::write(path, content)?;
     }
     Ok(names)

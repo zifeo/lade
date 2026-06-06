@@ -71,14 +71,17 @@ impl Provider for Vault {
                                 let host = host.clone();
                                 let extra_env = Arc::clone(&extra_env);
                                 async move {
+                                    let scheme = if std::env::var("LADE_VAULT_HTTP").is_ok() {
+                                        "http"
+                                    } else {
+                                        "https"
+                                    };
+                                    let address_flag = format!("-address={}://{}", scheme, host);
                                     let cmd = [
                                         "vault",
                                         "kv",
                                         "get",
-                                        #[cfg(debug_assertions)]
-                                        &format!("-address=http://{}", host),
-                                        #[cfg(not(debug_assertions))]
-                                        &format!("-address=https://{}", host),
+                                        &address_flag,
                                         &format!("-mount={}", mount),
                                         "-format=json",
                                         &urlencoding::decode(key)
