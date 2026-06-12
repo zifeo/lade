@@ -6,47 +6,60 @@ use semver::Version;
 use crate::args::UpgradeCommand;
 use crate::global_config::GlobalConfig;
 
-pub async fn check_message() -> Result<Option<String>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionStatus {
+    pub current: String,
+    pub latest: Option<String>,
+    pub update_available: bool,
+}
+
+pub async fn fetch_version_status() -> Result<VersionStatus> {
+    let current = cargo_crate_version!().to_string();
     let local_config = GlobalConfig::load().await?;
+    let day = TimeDelta::try_days(1).unwrap();
 
-    if local_config.update_check + TimeDelta::try_days(1).unwrap() < Utc::now() {
-        let current_version = cargo_crate_version!();
-        let latest = tokio::task::spawn_blocking(move || {
-            let update = Update::configure()
-                .repo_owner("zifeo")
-                .repo_name("lade")
-                .bin_name("lade")
-                .current_version(current_version)
-                .build()?;
-            Ok(update.get_latest_release()?)
-        })
-        .await??;
+    if local_config.update_check + day >= Utc::now() {
+        return Ok(VersionStatus {
+            current,
+            latest: None,
+            update_available: false,
+        });
+    }
 
-        if Version::parse(&latest.version)? > Version::parse(current_version)? {
-            return Ok(Some(format!(
-                "New lade update available: {} → {}",
-                current_version, latest.version
-            )));
-        }
+    let current_for_check = current.clone();
+    let latest = tokio::task::spawn_blocking(move || {
+        let update = Update::configure()
+            .repo_owner("zifeo")
+            .repo_name("lade")
+            .bin_name("lade")
+            .current_version(current_for_check.as_str())
+            .build()?;
+        Ok(update.get_latest_release()?)
+    })
+    .await??;
+
+    let update_available = Version::parse(&latest.version)? > Version::parse(&current)?;
+    if !update_available {
         GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
     }
-    Ok(None)
+
+    Ok(VersionStatus {
+        current,
+        latest: Some(latest.version),
+        update_available,
+    })
 }
 
-pub async fn apply_snooze(offset: TimeDelta) -> Result<()> {
-    GlobalConfig::update(|c| c.update_check = Utc::now() + offset).await
-}
-
-pub fn run_upgrade_subprocess() -> Result<()> {
-    eprintln!("$ lade upgrade -y");
-    let status = std::process::Command::new(std::env::current_exe()?)
-        .arg("upgrade")
-        .arg("-y")
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("lade upgrade failed (exit {status})");
+pub async fn check_message() -> Result<Option<String>> {
+    let status = fetch_version_status().await?;
+    if status.update_available {
+        return Ok(Some(format!(
+            "New lade update available: {} → {}",
+            status.current,
+            status.latest.unwrap_or_default()
+        )));
     }
-    Ok(())
+    Ok(None)
 }
 
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {

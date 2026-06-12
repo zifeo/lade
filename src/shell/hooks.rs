@@ -20,7 +20,26 @@ macro_rules! import {
     };
 }
 
-const MARKER: &str = "lade-do-not-edit";
+pub(crate) const MARKER: &str = "lade-do-not-edit";
+
+pub fn profile_config_file(shell: &Shell) -> PathBuf {
+    let user = directories::UserDirs::new().expect("cannot get HOME location");
+    let home_dir = user.home_dir();
+    match shell {
+        Shell::Bash => home_dir.join(".bashrc"),
+        Shell::Zsh => home_dir.join(".zshrc"),
+        Shell::Fish => home_dir.join(".config/fish/config.fish"),
+        _ => home_dir.join(".profile"),
+    }
+}
+
+pub fn hook_installed(shell: &Shell) -> (PathBuf, bool) {
+    let path = profile_config_file(shell);
+    let installed = std::fs::read_to_string(&path)
+        .map(|content| content.contains(MARKER))
+        .unwrap_or(false);
+    (path, installed)
+}
 
 impl Shell {
     pub fn on(&self) -> Result<String> {
@@ -55,22 +74,20 @@ impl Shell {
 }
 
 fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
-    let user = directories::UserDirs::new().expect("cannot get HOME location");
-    let home_dir = user.home_dir();
     let curr_exe = std::env::current_exe()?;
 
     let (command, config_file) = match shell {
         Shell::Bash => (
             format!("source <(echo \"$({} on)\")", curr_exe.display()),
-            home_dir.join(".bashrc"),
+            profile_config_file(shell),
         ),
         Shell::Zsh => (
             format!("eval \"$({} on)\"", curr_exe.display()),
-            home_dir.join(".zshrc"),
+            profile_config_file(shell),
         ),
         Shell::Fish => (
             format!("source ({} on | psub)", curr_exe.display()),
-            home_dir.join(".config/fish/config.fish"),
+            profile_config_file(shell),
         ),
         _ => bail!("Unsupported behavior on shell {}", shell.bin()),
     };

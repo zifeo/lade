@@ -1,10 +1,10 @@
-use std::io::{IsTerminal, stderr};
-
 use owo_colors::{OwoColorize, Style};
 
-const DEFAULT_WIDTH: usize = 80;
-const MIN_WIDTH: usize = 40;
-const MAX_WIDTH: usize = 120;
+mod terminal;
+#[cfg(test)]
+mod tests;
+
+use terminal::*;
 
 #[derive(Debug, Clone)]
 enum Entry {
@@ -152,123 +152,5 @@ fn print_styled(line: &str, style: Style, colored: bool) {
         eprintln!("{}", line.style(style));
     } else {
         eprintln!("{line}");
-    }
-}
-
-fn detect_width() -> usize {
-    clamp_width(
-        terminal_columns()
-            .or_else(columns_env)
-            .unwrap_or(DEFAULT_WIDTH),
-    )
-}
-
-fn clamp_width(width: usize) -> usize {
-    width.clamp(MIN_WIDTH, MAX_WIDTH)
-}
-
-fn columns_env() -> Option<usize> {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&cols| cols > 0)
-}
-
-#[cfg(unix)]
-fn terminal_columns() -> Option<usize> {
-    use std::mem::MaybeUninit;
-    use std::os::unix::io::AsRawFd;
-
-    let err = stderr();
-    if !err.is_terminal() {
-        return None;
-    }
-
-    let mut ws = MaybeUninit::<nix::libc::winsize>::uninit();
-    let ret = unsafe { nix::libc::ioctl(err.as_raw_fd(), nix::libc::TIOCGWINSZ, ws.as_mut_ptr()) };
-    if ret < 0 {
-        return None;
-    }
-
-    let cols = unsafe { ws.assume_init() }.ws_col as usize;
-    (cols > 0).then_some(cols)
-}
-
-#[cfg(not(unix))]
-fn terminal_columns() -> Option<usize> {
-    if !stderr().is_terminal() {
-        return None;
-    }
-    columns_env()
-}
-
-fn colors_enabled() -> bool {
-    if std::env::var_os("NO_COLOR").is_some() {
-        return false;
-    }
-    if std::env::var("TERM")
-        .ok()
-        .is_some_and(|term| term.eq_ignore_ascii_case("dumb"))
-    {
-        return false;
-    }
-    stderr().is_terminal()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clamp_width_bounds() {
-        assert_eq!(clamp_width(10), MIN_WIDTH);
-        assert_eq!(clamp_width(80), 80);
-        assert_eq!(clamp_width(200), MAX_WIDTH);
-    }
-
-    #[test]
-    fn columns_env_reads_variable() {
-        temp_env::with_var("COLUMNS", Some("100"), || {
-            assert_eq!(columns_env(), Some(100));
-        });
-    }
-
-    #[test]
-    fn empty_box_prints_borders_only() {
-        MessageBox::new().print_stderr();
-    }
-
-    #[test]
-    fn mixed_entries() {
-        MessageBox::new()
-            .info()
-            .line("Header")
-            .paragraph("Body line one")
-            .line("Footer")
-            .print_stderr();
-    }
-
-    #[test]
-    fn info_box() {
-        MessageBox::new()
-            .info()
-            .line("Update available")
-            .print_stderr();
-    }
-
-    #[test]
-    fn warning_box() {
-        MessageBox::new()
-            .warning()
-            .line("Something deprecated")
-            .print_stderr();
-    }
-
-    #[test]
-    fn error_box() {
-        MessageBox::new()
-            .error()
-            .line("Fatal problem")
-            .print_stderr();
     }
 }

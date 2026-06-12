@@ -1,69 +1,31 @@
 use anyhow::{Ok, Result};
-use log::debug;
-use rustc_hash::FxHashSet;
-use std::{collections::HashMap, env, io::IsTerminal, io::Read, path::PathBuf, time::Duration};
+use std::{env, io::Read, time::Duration};
 
 mod args;
 mod compat;
 mod config;
+mod context;
 mod exec;
 mod files;
 mod global_config;
 mod hook;
+mod inject;
 mod masking;
 mod message_box;
 mod prompt;
 mod redact;
 mod shell;
+mod status;
 mod upgrade;
 
-use args::{Args, Command, EvalCommand};
+use args::{Args, Command, DEFAULT_MASK_FORMAT, EvalCommand, InjectCommand};
 use clap::{CommandFactory, Parser};
-use config::{Config, LadeFile};
-use files::{
-    LoadedSecrets, hydration_or_exit, remove_files, sleep_or_cancel, split_env_files, write_files,
-};
+use config::LadeFile;
+use context::InvocationContext;
 use global_config::GlobalConfig;
+use inject::{handle_approve, handle_set, handle_unset, run_inject};
 use lade_sdk::hydrate_one;
-use redact::Redactor;
 use shell::Shell;
-
-async fn load_for_command(
-    config: &Config,
-    command: &str,
-) -> Result<(
-    HashMap<String, String>,
-    HashMap<PathBuf, HashMap<String, String>>,
-    HashMap<String, String>,
-    FxHashSet<String>,
-)> {
-    let is_tty = std::io::stderr().is_terminal();
-    prompt::confirm_disclaimers(&config.collect_disclaimers(command)).await?;
-    let LoadedSecrets {
-        vars,
-        sources,
-        maskable,
-        warnings,
-    } = hydration_or_exit(config, command).await;
-    if is_tty && !warnings.is_empty() {
-        message_box::MessageBox::new()
-            .warning()
-            .paragraphs(warnings.iter().map(String::as_str))
-            .line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)")
-            .print_stderr();
-        sleep_or_cancel(5).await;
-    }
-    compat::warn_outdated(compat::known_schemes(sources.values().map(|s| s.as_str()))).await;
-    let (env, files) = split_env_files(vars);
-    let mut names = write_files(&files)?;
-    names.extend(env.keys().cloned());
-    if is_tty && !names.is_empty() {
-        names.sort();
-        eprintln!("Lade loaded: {}.", names.join(", "));
-        eprintln!();
-    }
-    Ok((env, files, sources, maskable))
-}
 
 fn main() -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -106,6 +68,11 @@ async fn run() -> Result<()> {
     }
 
     let command = match args.command {
+        Some(Command::InjectAlias(commands)) => Command::Inject(InjectCommand {
+            no_mask: false,
+            mask_format: DEFAULT_MASK_FORMAT.to_string(),
+            commands,
+        }),
         Some(command) => command,
         None => {
             Args::command().print_help()?;
@@ -113,8 +80,8 @@ async fn run() -> Result<()> {
         }
     };
 
-    let is_tty = std::io::stderr().is_terminal();
-    let upgrade_task = (is_tty && matches!(command, Command::Inject(_) | Command::Set(_)))
+    let ctx = InvocationContext::from_command(&command);
+    let upgrade_task = (ctx.may_nudge() && matches!(command, Command::Inject(_)))
         .then(|| tokio::spawn(upgrade::check_message()));
 
     let shell = Shell::detect()?;
@@ -137,6 +104,7 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Upgrade(opts) => return upgrade::perform(opts).await,
+        Command::Status(opts) => return status::run(opts).await,
         Command::User { username, reset } => {
             if reset {
                 GlobalConfig::update(|c| c.user = None).await?;
@@ -168,7 +136,9 @@ async fn run() -> Result<()> {
     if let Command::Eval { uri } = command {
         let value =
             hydrate_one(uri.clone(), &current_dir, &std::collections::HashMap::new()).await?;
-        compat::warn_outdated(compat::known_schemes(std::iter::once(uri.as_str()))).await;
+        if ctx.may_nudge() {
+            compat::warn_outdated(&ctx, compat::known_schemes(std::iter::once(uri.as_str()))).await;
+        }
         println!("{}", value);
         return Ok(());
     }
@@ -196,37 +166,18 @@ async fn run() -> Result<()> {
             print!("{}", output);
         }
         Command::Inject(opts) => {
-            debug!("injecting: {:?}", opts.commands);
             let command = opts.commands.join(" ");
-            let (env, files, sources, maskable) = load_for_command(&config, &command).await?;
-            let redactor = if !opts.no_mask {
-                Redactor::new(
-                    &masking::secrets_for_redaction(&env, &files, &sources, &maskable),
-                    &opts.mask_format,
-                )
-            } else {
-                None
-            };
-            let code = exec::run(shell.bin(), &command, env, &current_dir, redactor);
-            remove_files(&mut files.keys())?;
-            let code = code?;
-            if code != 0 {
-                eprintln!("command failed");
-                inject_exit_code = Some(code);
-            }
+            inject_exit_code =
+                run_inject(command, opts, &ctx, &config, &shell, &current_dir).await?;
+        }
+        Command::Approve => {
+            inject_exit_code = handle_approve(&ctx, &config, &shell, current_dir).await?;
         }
         Command::Set(EvalCommand { commands }) => {
-            debug!("setting: {:?}", commands);
-            let command = commands.join(" ");
-            let (env, ..) = load_for_command(&config, &command).await?;
-            println!("{}", shell.set(env));
+            handle_set(&ctx, &config, &shell, commands, current_dir).await?;
         }
         Command::Unset(EvalCommand { commands }) => {
-            let command = commands.join(" ");
-            let keys = config.collect_keys(&command);
-            let (env, files) = split_env_files(keys);
-            remove_files(&mut files.keys())?;
-            println!("{}", shell.unset(env));
+            handle_unset(&shell, &config, commands)?;
         }
         _ => unreachable!(),
     }
@@ -243,15 +194,8 @@ async fn run() -> Result<()> {
         message_box::MessageBox::new()
             .info()
             .line(msg)
-            .line("Upgrade with: lade upgrade")
+            .line("Run `lade upgrade` to update, or `lade status` for details.")
             .print_stderr();
-        match prompt::ask_upgrade_choice().await {
-            prompt::UpgradeChoice::Upgrade => upgrade::run_upgrade_subprocess()?,
-            prompt::UpgradeChoice::Snooze(offset) => {
-                upgrade::apply_snooze(offset).await.ok();
-            }
-            prompt::UpgradeChoice::Continue => {}
-        }
     }
 
     if let Some(code) = inject_exit_code {
