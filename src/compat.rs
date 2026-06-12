@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::IsTerminal;
 
 use anyhow::Result;
 use chrono::{TimeDelta, Utc};
@@ -8,9 +7,9 @@ use rustc_hash::FxHashSet;
 
 use lade_sdk::compat::{self, CompatWarning, spec_for};
 
+use crate::context::InvocationContext;
 use crate::global_config::GlobalConfig;
 use crate::message_box::MessageBox;
-use crate::prompt;
 
 pub fn known_schemes<'a>(uris: impl Iterator<Item = &'a str>) -> Vec<String> {
     uris.filter_map(|uri| uri.split_once("://").map(|(scheme, _)| scheme))
@@ -18,6 +17,13 @@ pub fn known_schemes<'a>(uris: impl Iterator<Item = &'a str>) -> Vec<String> {
         .map(|scheme| scheme.to_string())
         .collect::<FxHashSet<_>>()
         .into_iter()
+        .collect()
+}
+
+pub fn all_supported_schemes() -> Vec<String> {
+    compat::CLI_SPECS
+        .iter()
+        .map(|spec| spec.scheme.to_string())
         .collect()
 }
 
@@ -57,34 +63,26 @@ async fn check_message(schemes: Vec<String>) -> Result<(Vec<CompatWarning>, Vec<
     Ok((warnings, due))
 }
 
-pub async fn warn_outdated(schemes: Vec<String>) {
+pub async fn warn_outdated(_ctx: &InvocationContext, schemes: Vec<String>) {
     match check_message(schemes).await {
         Ok((warnings, due)) if !warnings.is_empty() => {
-            if std::io::stderr().is_terminal() {
-                render(&warnings);
-                if let Some(offset) = prompt::ask_snooze_offset().await {
-                    GlobalConfig::update(|c| {
-                        for scheme in &due {
-                            c.cli_check.insert(scheme.clone(), Utc::now() + offset);
-                        }
-                    })
-                    .await
-                    .ok();
+            render(&warnings);
+            let now = Utc::now();
+            GlobalConfig::update(|c| {
+                for scheme in &due {
+                    c.cli_check.insert(scheme.clone(), now);
                 }
-            } else {
-                debug!(
-                    "CLI compatibility warnings suppressed: {}",
-                    warnings
-                        .iter()
-                        .map(|w| format!("{} {}", w.name, w.found))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
+            })
+            .await
+            .ok();
         }
         Ok(_) => {}
         Err(e) => debug!("CLI compatibility check failed: {e}"),
     }
+}
+
+pub async fn check_schemes(schemes: Vec<String>) -> Result<Vec<CompatWarning>> {
+    Ok(check_message(schemes).await?.0)
 }
 
 fn render(warnings: &[CompatWarning]) {
@@ -97,7 +95,7 @@ fn render(warnings: &[CompatWarning]) {
             w.name, w.found, w.min, w.install_url
         ));
     }
-    box_.print_stderr();
+    box_.line("Run `lade status` for details.").print_stderr();
 }
 
 #[cfg(test)]
@@ -121,5 +119,10 @@ mod tests {
     #[test]
     fn test_known_schemes_empty() {
         assert!(known_schemes(["plain".to_string()].iter().map(|s| s.as_str())).is_empty());
+    }
+
+    #[test]
+    fn test_all_supported_schemes() {
+        assert!(all_supported_schemes().contains(&"op".to_string()));
     }
 }

@@ -4,7 +4,7 @@
     disclaimer: "This command will use your API token."
   LADE_DEMO_TOKEN: "demo-token"
 > lade inject --no-mask printenv LADE_DEMO_TOKEN
-╭ Action ────────────────────────────────────────────────╮
+╭ Info ──────────────────────────────────────────────────╮
 │                                                        │
 │   Are you sure you want to proceed?                    │
 │   This command will use your API token.                │

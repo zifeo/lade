@@ -1,0 +1,42 @@
+---
+description: All stderr user-facing messages must go through MessageBox
+alwaysApply: false
+---
+
+# stderr output must always use `MessageBox`
+
+Never use `eprintln!` for user-facing messages. Every message shown to the user — error, warning, or info — must go through `message_box::MessageBox`.
+
+`eprintln!` silently bypasses the box, producing bare unformatted output regardless of context (hook mode, interactive mode, etc.).
+
+## The pattern that broke this
+
+The `may_nudge()` / `UiMode::Hook` flag controls **interactive behaviour** (countdowns, prompts, sleeps). It must **never** suppress the `MessageBox` itself — not for errors, not for warnings.
+
+```rust
+// ❌ BAD — hook mode skips the box entirely
+if ctx.may_nudge() {
+    message_box::MessageBox::new().error()...print_stderr();
+    sleep_or_cancel(5).await;
+} else {
+    eprintln!("lade: {e}");  // bare, no box
+}
+
+// ❌ BAD — same mistake for warnings
+if ctx.may_nudge() && !warnings.is_empty() {
+    message_box::MessageBox::new().warning()...print_stderr();
+    sleep_or_cancel(5).await;
+}
+
+// ✅ GOOD — box always; only the interactive parts are gated
+let mut mb = message_box::MessageBox::new()
+    .error()  // or .warning()
+    .paragraph(e.to_string());
+if ctx.may_nudge() {
+    mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
+}
+mb.print_stderr();
+if ctx.may_nudge() {
+    sleep_or_cancel(5).await;
+}
+```

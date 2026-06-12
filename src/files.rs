@@ -5,13 +5,11 @@ use std::{
     collections::{HashMap, hash_map::Keys},
     ffi::OsStr,
     fs,
-    io::IsTerminal,
     path::PathBuf,
 };
 use tokio::{signal, time};
 
 use crate::config::{Config, Output};
-use crate::message_box::MessageBox;
 
 pub async fn sleep_or_cancel(secs: u64) {
     tokio::select! {
@@ -32,31 +30,14 @@ pub struct LoadedSecrets {
     pub warnings: Vec<String>,
 }
 
-pub async fn hydration_or_exit(config: &Config, command: &str) -> LoadedSecrets {
-    match config.collect_hydrate(command).await {
-        Ok((vars, sources, maskable, warnings)) => LoadedSecrets {
-            vars,
-            sources,
-            maskable,
-            warnings,
-        },
-        Err(e) => {
-            let is_tty = std::io::stderr().is_terminal();
-            let mut box_ = MessageBox::new()
-                .error()
-                .line("Lade could not get secrets from one loader:")
-                .paragraph(e.to_string())
-                .line("Hint: check whether the loader is connected to the correct vault.");
-            if is_tty {
-                box_ = box_.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
-            }
-            box_.print_stderr();
-            if is_tty {
-                sleep_or_cancel(5).await;
-            }
-            std::process::exit(1);
-        }
-    }
+pub async fn hydrate_secrets(config: &Config, command: &str) -> Result<LoadedSecrets> {
+    let (vars, sources, maskable, warnings) = config.collect_hydrate(command).await?;
+    Ok(LoadedSecrets {
+        vars,
+        sources,
+        maskable,
+        warnings,
+    })
 }
 
 pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {

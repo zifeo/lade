@@ -68,6 +68,7 @@ async fn read_one(
             "--vault", vault,
             "--account", account,
             "--fields", &field_filter,
+            "--reveal",
         ])
         .envs(extra_env.iter())
         .stdout(Stdio::piped())
@@ -352,16 +353,17 @@ fi"#,
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
         )]);
-        let result = p
-            .resolve(Path::new("."), &extra, &Warnings::default())
-            .await
-            .unwrap();
+        let warnings = Warnings::default();
+        let result = p.resolve(Path::new("."), &extra, &warnings).await.unwrap();
         assert_eq!(
             result
                 .get("op://my.1password.com/Product&Engineering/Airbyte Claryo az-02/username")
                 .unwrap(),
             "secret_from_item_get"
         );
+        let w = warnings.take();
+        assert!(!w.is_empty(), "expected a warning about op inject fallback");
+        assert!(w[0].contains('&'), "warning should mention the ampersand");
     }
 
     #[test]

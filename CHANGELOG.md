@@ -9,6 +9,15 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Added
+
+- **Disclaimer approval flow**: `lade approve` command to review and accept disclaimers when using shell hooks.
+- **Hook short-circuit**: shell hooks now skip any command starting with `lade` to avoid recursion and unnecessary overhead.
+
+### Changed
+
+- **Disclaimer in hooks**: when a disclaimer is required in hook mode, Lade now withholds secrets and exports `LADE_PENDING` instead of just failing.
+
 ## [0.15.1] - 2026-06-06
 
 ### Added

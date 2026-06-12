@@ -70,7 +70,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Manual injection & redaction** - `lade inject` when hooks are off or in scripts. Unless `--no-mask` is set, values fetched from loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw loader](#raw-loader) values are not (already plaintext in `lade.yml`).
+**Manual injection & redaction** - `lade <command>` is the shortcut for one-shot injection when hooks are off or in scripts (explicit form: `lade inject <command>`). Unless `--no-mask` is set, values fetched from loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw loader](#raw-loader) values are not (already plaintext in `lade.yml`).
 
 </td>
 <td width="50%">
@@ -106,7 +106,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load.
+**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load. In hook mode, use `lade approve` to consent.
 
 </td>
 <td width="50%">
@@ -162,6 +162,8 @@ command regex:
     disclaimer: "This command will use your API token."
   SECRET: op://...
 ```
+
+When using shell hooks, disclaimers cannot prompt for input. Instead, Lade will withhold secrets and ask you to run `lade approve` to review the disclaimer and execute the command. You can also bypass the check for a single command with `LADE_ACCEPT_DISCLAIMER=1 <command>`.
 
 ## Loaders
 

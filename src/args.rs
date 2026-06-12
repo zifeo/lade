@@ -37,10 +37,19 @@ pub struct InjectCommand {
     pub commands: Vec<String>,
 }
 
+#[derive(Parser, Debug)]
+pub struct StatusCommand {
+    /// Check all supported vault CLIs, not only those referenced in lade.yml.
+    #[clap(long, default_value_t = false)]
+    pub all: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Upgrade lade.
     Upgrade(UpgradeCommand),
+    /// Report lade version, config, hooks, and CLI compatibility.
+    Status(StatusCommand),
     /// Enable execution hooks.
     On,
     /// Disable execution hooks.
@@ -62,6 +71,8 @@ pub enum Command {
     },
     /// Handle agentic tools hooks. Reads JSON from stdin, outputs platform-specific response.
     Hook,
+    /// Approve a pending disclaimer and run the command.
+    Approve,
     /// Manage user
     User {
         /// The username to set
@@ -70,6 +81,9 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
     },
+    /// Shortcut for `lade inject <command...>`.
+    #[command(external_subcommand)]
+    InjectAlias(Vec<String>),
 }
 
 #[derive(Parser, Debug)]

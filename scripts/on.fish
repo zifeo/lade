@@ -1,6 +1,5 @@
-
 function preexec_lade --on-event fish_preexec
-    if [ $argv = "source off.fish" ]
+    if test (string sub -l 5 -- "$argv") = "lade "; or test "$argv" = "lade"; or test "$argv" = "source off.fish"
         return
     end
     set --global LADE "$argv"
@@ -8,10 +7,10 @@ function preexec_lade --on-event fish_preexec
 end
 
 function precmd_lade --on-event fish_postexec
-    # $argv also exists here in fish, but keeping LADE for consistency
-    if [ "$LADE" = "source on.fish" ]
-        return
+    if set -q LADE
+        if test "$LADE" != "source on.fish"
+            source (lade unset $argv | psub)
+        end
+        set --global --erase LADE
     end
-    source (lade unset $argv | psub)
-    set --global --erase LADE
 end

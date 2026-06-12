@@ -11,7 +11,7 @@ Sleep 2s
 Show
 Sleep 1s
 
-Type "lade inject printenv TOKEN"
+Type "lade printenv TOKEN"
 Enter
 Sleep 4s
 

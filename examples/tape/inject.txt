@@ -1,12 +1,12 @@
 > ./cat-lade.yml inject
 ^printenv TOKEN:
   TOKEN: "file://../sources/config.json?query=.token"
-> lade inject printenv TOKEN
-Lade loaded: SHELL, TOKEN.
+> lade printenv TOKEN
+Error: error: unrecognized subcommand 'printenv'
 
-${TOKEN:-REDACTED}
+Usage: lade [OPTIONS] [COMMAND]
+
+For more information, try 'help'.
+
 > lade inject --no-mask printenv TOKEN
-Lade loaded: SHELL, TOKEN.
-
-super-secret-token-42
->
+╭ Info ──────────────────────────────────────────────────╮

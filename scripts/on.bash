@@ -1,5 +1,5 @@
 preexec_lade() {
-    if [ "$1" = "source off.bash" ]; then
+    if [ "${1:0:5}" = "lade " ] || [ "$1" = "lade" ] || [ "$1" = "source off.bash" ]; then
         return
     fi
     LADE="$1"
@@ -9,13 +9,12 @@ preexec_lade() {
 preexec_functions+=(preexec_lade)
 
 precmd_lade() {
-    if [ -z ${LADE+x} ]; then
-        return # ensure only runs at postexec
-    elif [ "$LADE" = "source on.bash" ]; then
-        return
+    if [ -n "${LADE+x}" ]; then
+        if [ "$LADE" != "source on.bash" ]; then
+            eval "$(lade unset $@)"
+        fi
+        unset -v LADE
     fi
-    eval "$(lade unset $@)"
-    unset -v LADE
 }
 
 precmd_functions+=(precmd_lade)

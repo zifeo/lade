@@ -1,8 +1,40 @@
 mod hooks;
 
-use anyhow::{Result, bail};
-use std::{collections::HashMap, str::FromStr};
+pub use hooks::hook_installed;
+
+use anyhow::{Context, Result, bail};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use sysinfo::{System, get_current_pid};
+
+pub const LADE_PENDING: &str = "LADE_PENDING";
+pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
+pub const LADE_ACCEPT_DISCLAIMER: &str = "LADE_ACCEPT_DISCLAIMER";
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingPayload {
+    pub cmd: String,
+    pub cwd: PathBuf,
+}
+
+impl PendingPayload {
+    pub fn encode(&self) -> Result<String> {
+        let json = serde_json::to_string(self)?;
+        Ok(format!("v1:{}", URL_SAFE_NO_PAD.encode(json)))
+    }
+
+    pub fn decode(value: &str) -> Result<Self> {
+        let encoded = value
+            .strip_prefix("v1:")
+            .context("invalid or unsupported LADE_PENDING version")?;
+        let json = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .context("failed to decode LADE_PENDING base64")?;
+        serde_json::from_slice(&json).context("failed to parse LADE_PENDING JSON")
+    }
+}
 
 pub enum Shell {
     Bash,
@@ -59,9 +91,12 @@ impl Shell {
 
     pub fn set(&self, env: HashMap<String, String>) -> String {
         env.into_iter()
-            .map(|(k, v)| match self {
-                Shell::Bash | Shell::Zsh | Shell::Sh => format!("export {k}='{v}'"),
-                Shell::Fish => format!("set --global --export {k} '{v}'"),
+            .map(|(k, v)| {
+                let v = v.replace('\'', "'\\''");
+                match self {
+                    Shell::Bash | Shell::Zsh | Shell::Sh => format!("export {k}='{v}'"),
+                    Shell::Fish => format!("set --global --export {k} '{v}'"),
+                }
             })
             .collect::<Vec<_>>()
             .join(";")
@@ -69,10 +104,14 @@ impl Shell {
 
     pub fn unset(&self, keys: Vec<String>) -> String {
         let format = match self {
-            Shell::Zsh | Shell::Bash | Shell::Sh => |k| format!("unset -v {k}"),
-            Shell::Fish => |k| format!("set --global --erase {k}"),
+            Shell::Zsh | Shell::Bash | Shell::Sh => |k: String| format!("unset -v {k}"),
+            Shell::Fish => |k: String| format!("set --global --erase {k}"),
         };
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")
+    }
+
+    pub fn clear_pending_line(&self) -> String {
+        self.unset(vec![LADE_PENDING.to_string()])
     }
 }
 
@@ -136,6 +175,34 @@ mod tests {
         assert_eq!(
             Shell::Bash.unset(vec!["KEY1".to_string(), "KEY2".to_string()]),
             "unset -v KEY1;unset -v KEY2"
+        );
+    }
+
+    #[test]
+    fn test_pending_payload_roundtrip() {
+        let payload = PendingPayload {
+            cmd: "terraform destroy -auto-approve".to_string(),
+            cwd: PathBuf::from("/tmp/project"),
+        };
+        let encoded = payload.encode().unwrap();
+        assert!(encoded.starts_with("v1:"));
+        let decoded = PendingPayload::decode(&encoded).unwrap();
+        assert_eq!(payload, decoded);
+    }
+
+    #[test]
+    fn test_set_escaping() {
+        let env = HashMap::from([("KEY".to_string(), "val'ue".to_string())]);
+        let result = Shell::Bash.set(env);
+        assert_eq!(result, "export KEY='val'\\''ue'");
+    }
+
+    #[test]
+    fn test_clear_pending_line() {
+        assert_eq!(Shell::Bash.clear_pending_line(), "unset -v LADE_PENDING");
+        assert_eq!(
+            Shell::Fish.clear_pending_line(),
+            "set --global --erase LADE_PENDING"
         );
     }
 }

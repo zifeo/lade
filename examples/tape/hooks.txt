@@ -2,10 +2,10 @@
 ^echo hooks:
   DEMO: "hello world"
 > echo hooks $DEMO
-Lade loaded: DEMO.
-
 hooks hello world
 >
+
+
 
 
 
