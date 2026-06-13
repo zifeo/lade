@@ -7,6 +7,6 @@
 > lade user alice
 Successfully set user to alice
 > lade inject printenv GREETING
-╭ Info ──────────────────────────────────────────────────╮
-│                                                        │
-│   Lade loaded: GREETING, SHELL.                        │
+Lade loaded: GREETING, SHELL.
+hello alice
+> lade user bob

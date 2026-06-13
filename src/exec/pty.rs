@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use crate::redact::Redactor;
 use anyhow::Result;
 use std::{

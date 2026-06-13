@@ -201,10 +201,14 @@ impl Config {
             .collect()
     }
 
+    /// All disclaimers from rules matching `command`, in rule order, deduplicated
+    /// so the same text from several matching rules is shown only once.
     pub fn collect_disclaimers(&self, command: &str) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
         self.collect(command)
             .into_iter()
             .filter_map(|(_, rule)| rule.config.as_ref().and_then(|c| c.disclaimer.clone()))
+            .filter(|d| seen.insert(d.clone()))
             .collect()
     }
 

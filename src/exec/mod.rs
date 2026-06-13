@@ -1,8 +1,9 @@
 use crate::redact::Redactor;
 use anyhow::Result;
-use std::{collections::HashMap, io::IsTerminal, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 mod piped;
+#[cfg(unix)]
 mod pty;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ fn select_mode(has_redactor: bool, stdin_tty: bool, stdout_tty: bool) -> Mode {
 }
 
 pub fn run(
+    ctx: &crate::context::InvocationContext,
     shell: &str,
     command: &str,
     env: HashMap<String, String>,
@@ -32,8 +34,8 @@ pub fn run(
 ) -> Result<i32> {
     let mode = select_mode(
         redactor.is_some(),
-        std::io::stdin().is_terminal(),
-        std::io::stdout().is_terminal(),
+        ctx.stdin_is_terminal,
+        ctx.stdout_is_terminal,
     );
     match mode {
         Mode::Plain => run_plain(shell, command, env, cwd),
