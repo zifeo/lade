@@ -10,6 +10,9 @@ secrets to the time the command requiring the secrets lives.
   <img src="./examples/tape/main.gif" alt="Demo" />
 </p>
 
+> **Using an AI coding agent?** Lade keeps secrets out of the model's context
+> window. See [Using Lade with coding agents](#using-lade-with-coding-agents).
+
 ## Getting started
 
 You can download the binary executable from
@@ -106,7 +109,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load. In hook mode, use `lade approve` to consent.
+**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load. In hook mode, consent with `lade approve <code>` (the code is shown in the disclaimer).
 
 </td>
 <td width="50%">
@@ -163,7 +166,7 @@ command regex:
   SECRET: op://...
 ```
 
-When using shell hooks, disclaimers cannot prompt for input. Instead, Lade will withhold secrets and ask you to run `lade approve` to review the disclaimer and execute the command. You can also bypass the check for a single command with `LADE_ACCEPT_DISCLAIMER=1 <command>`.
+When using shell hooks, disclaimers cannot prompt for input. Instead, Lade withholds secrets and prints a per-command approval code; review the disclaimer and run `lade approve <code>` to execute the command, or re-run it prefixed with `LADE_APPROVE=<code>`.
 
 ## Loaders
 
@@ -261,21 +264,46 @@ command regex:
 Escaping a value with the `!` prefix enforces the use of the raw loader and
 double `!!` escapes itself.
 
-## LLM Agent Hooks
+## Using Lade with coding agents
 
-Lade integrates with agentic tools to automatically inject secrets into agent shell commands.
+Lade is an interceptor, not a data source, so its best agentic story is
+*transparency*: keep secrets out of the model's context window rather than
+teaching the agent a procedure. The right integration depends on whether your
+agent supports `preToolUse` shell hooks.
 
-```bash
-lade hook  # reads JSON from stdin, outputs platform-specific response
-# example Cursor config:
-cat .cursor/hooks.json
+```
+Does your agent support preToolUse / PreToolUse shell hooks?
+├─ Yes  (Cursor, Claude Code)
+│        → install .cursor/hooks.json / .claude/settings.json (below).
+│          Lade transparently rewrites matching commands into `lade inject`,
+│          and redacts secrets from the output so they never enter the
+│          agent's context window or chat transcript.
+└─ No   (Gemini CLI, Codex, Copilot CLI, …)
+         → tell the agent, via AGENTS.md, to prefix matching commands with
+           `lade` (e.g. `lade terraform apply`).
 ```
 
-### Cursor
+### Recommended: preToolUse hooks (transparent)
 
-When `CURSOR_VERSION` is detected. [Docs](https://cursor.com/docs/agent/hooks)
+When the agent runs a shell command, Lade inspects it and — if it matches a
+`lade.yml` rule — rewrites it into `lade inject '<command>'`. The agent never
+sees the secret values: `lade inject` masks loader-provided values in
+stdout/stderr as `${VAR:-REDACTED}`, so **secrets stay out of the model's
+context window and the chat transcript**. Invoking `lade hook` means an AI agent
+is driving by construction, so no environment detection is needed.
 
-`.cursor/hooks.json`:
+```bash
+lade hook  # reads the tool-call JSON from stdin, writes the platform response to stdout
+```
+
+`lade install` detects the agents present on your machine (a `~/.cursor` or
+`~/.claude` directory) and offers to add the hook to their global config for
+you; `lade uninstall` removes it again. The JSON below is the equivalent manual
+setup (e.g. for a project-local `.cursor/hooks.json` / `.claude/settings.json`).
+
+#### Cursor
+
+[Docs](https://cursor.com/docs/agent/hooks). `.cursor/hooks.json`:
 
 ```json
 {
@@ -284,11 +312,9 @@ When `CURSOR_VERSION` is detected. [Docs](https://cursor.com/docs/agent/hooks)
 }
 ```
 
-### Claude Code
+#### Claude Code
 
-When `CLAUDE_PROJECT_DIR` is detected. [Docs](https://docs.anthropic.com/en/docs/claude-code/hooks)
-
-`.claude/settings.json`:
+[Docs](https://code.claude.com/docs/en/hooks). `.claude/settings.json`:
 
 ```json
 {
@@ -302,6 +328,87 @@ When `CLAUDE_PROJECT_DIR` is detected. [Docs](https://docs.anthropic.com/en/docs
   }
 }
 ```
+
+### Fallback: agents without hooks
+
+Gemini CLI, Codex, and Copilot CLI have no `preToolUse` mechanism. Instruct them
+— via an `AGENTS.md` at the repo root — to prefix the commands that need secrets
+with `lade`:
+
+```
+When a command needs secrets defined in `lade.yml`, prefix it with `lade`
+(e.g. `lade terraform apply`). Lade injects the secrets and redacts them
+from the command output.
+```
+
+This is the fallback, not the default: the agent has to guess which commands
+match the `lade.yml` regexes, knowledge that lives in `lade.yml` rather than the
+model. The hook removes that burden entirely.
+
+When a matched rule carries a `disclaimer:`, Lade never silently injects
+secrets: it fails closed and prints a per-command approval code that the human
+must copy (`LADE_APPROVE=<code>`), so an agent cannot self-approve with a fixed
+reflex. The machine-readable `lade status --json` output, stable exit codes, and
+how Lade detects an agent are documented in
+[the architecture notes](docs/architecture.md#5-agents-lade-hook--the-direct-path).
+
+## Continuous integration & containers
+
+The installer runs non-interactively in CI (when `CI=1`, `ASSUME_YES=1`, or
+stdin is not a TTY) and verifies the published SHA256 checksum
+(`<asset>.sha256`): a mismatch aborts, a missing checksum warns and continues.
+
+### One-liners
+
+```bash
+# curl
+curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
+
+# wget
+wget -qO- https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
+```
+
+Pin a version with `VERSION=x.y.z`; force the downloader with
+`DOWNLOADER=curl|wget`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 VERSION=0.15.1 bash
+```
+
+### GitHub Actions
+
+```yaml
+steps:
+  - uses: zifeo/lade@v0.15.1 # pin to a release tag
+    with:
+      version: "0.15.1" # lade version to install (default: "latest")
+      # out-dir: ${{ github.workspace }}/.lade-bin  # added to PATH
+  - run: lade inject -- terraform apply
+    env:
+      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+```
+
+### GitLab CI
+
+```yaml
+deploy:
+  script:
+    - curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 VERSION=0.15.1 bash
+    - lade inject -- terraform apply
+```
+
+### Docker
+
+Compose the static musl binary onto your own image — no build toolchain
+required:
+
+```dockerfile
+COPY --from=ghcr.io/zifeo/lade:0.15.1 /usr/local/bin/lade /usr/local/bin/lade
+```
+
+The `ghcr.io/zifeo/lade` image is published for `linux/amd64` and `linux/arm64`
+with tags `X.Y.Z`, `X.Y`, and `latest`. Pin an exact `X.Y.Z` for reproducible
+builds.
 
 ## Development
 

@@ -78,10 +78,12 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
         }
 
         match update.build()?.update_extended()? {
-            UpdateStatus::UpToDate => println!("Already up to date!"),
+            UpdateStatus::UpToDate => {
+                eprintln!("Already up to date!");
+            }
             UpdateStatus::Updated(release) => {
-                println!("Updated successfully to {}!", release.version);
-                println!(
+                eprintln!("Updated successfully to {}!", release.version);
+                eprintln!(
                     "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
                     release.name
                 );

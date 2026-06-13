@@ -96,15 +96,22 @@ jobs:
       - name: Build
         run: ${{ matrix.build_cmd }} build --locked --release --target ${{ matrix.target }}
       - name: Compress
+        shell: bash
         run: |
           mv "target/${{ matrix.target }}/release/lade${{ matrix.suffix }}" .
-          tar czvf "lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" "lade${{ matrix.suffix }}"
+          asset="lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          tar czvf "$asset" "lade${{ matrix.suffix }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
       - name: Upload
         uses: svenstaro/upload-release-action@v2
         with:
           tag: ${{ github.ref }}
-          file: "lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
-          asset_name: "lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          file: "lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz*"
+          file_glob: true
           overwrite: false
 
   bump:

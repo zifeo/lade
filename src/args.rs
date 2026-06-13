@@ -42,6 +42,9 @@ pub struct StatusCommand {
     /// Check all supported vault CLIs, not only those referenced in lade.yml.
     #[clap(long, default_value_t = false)]
     pub all: bool,
+    /// Emit a machine-readable JSON report to stdout instead of human text.
+    #[clap(long, default_value_t = false)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -71,8 +74,12 @@ pub enum Command {
     },
     /// Handle agentic tools hooks. Reads JSON from stdin, outputs platform-specific response.
     Hook,
-    /// Approve a pending disclaimer and run the command.
-    Approve,
+    /// Approve a pending disclaimer and run the command, using the code shown in
+    /// the disclaimer message.
+    Approve {
+        /// The approval code printed in the disclaimer (e.g. `ab12c`).
+        code: Option<String>,
+    },
     /// Manage user
     User {
         /// The username to set

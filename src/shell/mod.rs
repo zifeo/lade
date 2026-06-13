@@ -11,7 +11,7 @@ use sysinfo::{System, get_current_pid};
 
 pub const LADE_PENDING: &str = "LADE_PENDING";
 pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
-pub const LADE_ACCEPT_DISCLAIMER: &str = "LADE_ACCEPT_DISCLAIMER";
+pub const LADE_APPROVE: &str = "LADE_APPROVE";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingPayload {

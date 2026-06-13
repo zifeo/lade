@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok, Result, bail};
+use anyhow::Result;
 use rustc_hash::FxHashSet;
 use std::path::Path;
 use std::{collections::HashMap, path::PathBuf};
@@ -15,6 +15,14 @@ use crate::prompt;
 use crate::redact::Redactor;
 use crate::shell::Shell;
 use crate::{compat, masking};
+
+fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
+    message_box::MessageBox::new()
+        .error()
+        .line("Lade could not get secrets from one loader:")
+        .paragraph(e.to_string())
+        .line("Hint: check whether the loader is connected to the correct vault.")
+}
 
 pub async fn run_inject(
     command: String,
@@ -33,7 +41,7 @@ pub async fn run_inject(
     } else {
         None
     };
-    let code = exec::run(shell.bin(), &command, env, current_dir, redactor);
+    let code = exec::run(ctx, shell.bin(), &command, env, current_dir, redactor);
     remove_files(&mut files.keys())?;
     let code = code?;
     Ok((code != 0).then_some(code))
@@ -57,21 +65,17 @@ pub async fn prepare_secrets(
         maskable,
         warnings,
     } = match hydrate_secrets(config, command).await {
-        std::result::Result::Ok(secrets) => secrets,
-        std::result::Result::Err(e) => {
-            let mut mb = message_box::MessageBox::new()
-                .error()
-                .line("Lade could not get secrets from one loader:")
-                .paragraph(e.to_string())
-                .line("Hint: check whether the loader is connected to the correct vault.");
-            if ctx.may_nudge() {
+        Ok(secrets) => secrets,
+        Err(e) => {
+            let mut mb = loader_error_box(&e);
+            if ctx.is_interactive() {
                 mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
             }
             mb.print_stderr();
-            if ctx.may_nudge() {
+            if ctx.is_interactive() {
                 sleep_or_cancel(5).await;
             }
-            std::process::exit(1);
+            std::process::exit(crate::exit_codes::FAILURE);
         }
     };
 
@@ -79,11 +83,11 @@ pub async fn prepare_secrets(
         let mut mb = message_box::MessageBox::new()
             .warning()
             .paragraphs(warnings.iter().map(String::as_str));
-        if ctx.may_nudge() {
+        if ctx.is_interactive() {
             mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
         }
         mb.print_stderr();
-        if ctx.may_nudge() {
+        if ctx.is_interactive() {
             sleep_or_cancel(5).await;
         }
     }
@@ -97,12 +101,11 @@ pub async fn prepare_secrets(
     let (env, files) = split_env_files(vars);
     let mut names = write_files(&files)?;
     names.extend(env.keys().cloned());
-    if ctx.may_nudge() && !names.is_empty() {
+    if ctx.is_interactive() && !names.is_empty() {
         names.sort();
         message_box::MessageBox::new()
-            .info()
             .line(format!("Lade loaded: {}.", names.join(", ")))
-            .print_stderr();
+            .print_plain_stderr();
     }
     Ok((env, files, sources, maskable))
 }
@@ -117,31 +120,29 @@ pub async fn handle_set(
     println!("{}", shell.clear_pending_line());
     let command = commands.join(" ");
     match prepare_secrets(ctx, config, &command).await {
-        std::result::Result::Ok((env, ..)) => {
+        Ok((env, ..)) => {
             println!("{}", shell.set(env));
         }
-        std::result::Result::Err(e) => {
-            let disclaimers = config.collect_disclaimers(&command);
-            if !disclaimers.is_empty() && !prompt::is_approved(&disclaimers) {
-                let pending = crate::shell::PendingPayload {
-                    cmd: command,
-                    cwd: current_dir,
-                };
-                println!(
-                    "{}",
-                    shell.set(HashMap::from([(
-                        crate::shell::LADE_PENDING.to_string(),
-                        pending.encode()?
-                    )]))
-                );
-            }
-            message_box::MessageBox::new()
-                .error()
-                .line("Lade could not get secrets from one loader:")
-                .paragraph(e.to_string())
-                .line("Hint: check whether the loader is connected to the correct vault.")
-                .print_stderr();
-            std::process::exit(1);
+        Err(e) if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() => {
+            // resolve_disclaimers already printed the disclaimer box; record the
+            // pending command so `lade approve` can replay it, then exit without
+            // a second (loader-shaped) message.
+            let pending = crate::shell::PendingPayload {
+                cmd: command,
+                cwd: current_dir,
+            };
+            println!(
+                "{}",
+                shell.set(HashMap::from([(
+                    crate::shell::LADE_PENDING.to_string(),
+                    pending.encode()?
+                )]))
+            );
+            std::process::exit(crate::exit_codes::DISCLAIMER_WITHHELD);
+        }
+        Err(e) => {
+            loader_error_box(&e).print_stderr();
+            std::process::exit(crate::exit_codes::FAILURE);
         }
     }
     Ok(())
@@ -161,24 +162,61 @@ pub async fn handle_approve(
     config: &Config,
     shell: &Shell,
     current_dir: PathBuf,
+    code: Option<String>,
 ) -> Result<Option<i32>> {
-    let pending_env =
-        std::env::var(crate::shell::LADE_PENDING).context("no pending disclaimer to approve")?;
-    let pending = crate::shell::PendingPayload::decode(&pending_env)?;
+    let code = match code {
+        Some(c) => c,
+        None => {
+            message_box::MessageBox::new()
+                .error()
+                .line("Run `lade approve <code>` with the code shown in the disclaimer.")
+                .print_stderr();
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+    };
+    let pending_env = match std::env::var(crate::shell::LADE_PENDING) {
+        Ok(v) => v,
+        Err(_) => {
+            message_box::MessageBox::new()
+                .error()
+                .line("Nothing to approve: no disclaimer is pending.")
+                .print_stderr();
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+    };
+    let pending = match crate::shell::PendingPayload::decode(&pending_env) {
+        Ok(p) => p,
+        Err(_) => {
+            message_box::MessageBox::new()
+                .error()
+                .line("The pending disclaimer state is corrupted. Re-run the command.")
+                .print_stderr();
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+    };
     if pending.cwd != current_dir {
-        bail!(
-            "pending disclaimer was for a different directory: {}",
-            pending.cwd.display()
-        );
+        message_box::MessageBox::new()
+            .error()
+            .line("The pending disclaimer was for a different directory:")
+            .paragraph(pending.cwd.display().to_string())
+            .print_stderr();
+        std::process::exit(crate::exit_codes::FAILURE);
+    }
+    if !prompt::verify_code(&pending.cmd, &code) {
+        message_box::MessageBox::new()
+            .error()
+            .line("Wrong or expired approval code. Re-run the command for a fresh one.")
+            .print_stderr();
+        std::process::exit(crate::exit_codes::FAILURE);
     }
     let opts = InjectCommand {
         no_mask: false,
         mask_format: crate::args::DEFAULT_MASK_FORMAT.to_string(),
         commands: vec![],
     };
-    // lade approve acts as the interactive "yes" for the pending command
+    // The code is verified, so let resolve_disclaimers through for this command.
     unsafe {
-        std::env::set_var(crate::shell::LADE_ACCEPT_DISCLAIMER, "1");
+        std::env::set_var(crate::shell::LADE_APPROVE, code);
     }
     run_inject(pending.cmd, opts, ctx, config, shell, &current_dir).await
 }

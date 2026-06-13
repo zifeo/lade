@@ -2,11 +2,11 @@
 ^printenv TOKEN:
   TOKEN: "file://../sources/config.json?query=.token"
 > lade printenv TOKEN
-Error: error: unrecognized subcommand 'printenv'
-
-Usage: lade [OPTIONS] [COMMAND]
-
-For more information, try 'help'.
-
+Lade loaded: SHELL, TOKEN.
+${TOKEN:-REDACTED}
 > lade inject --no-mask printenv TOKEN
-╭ Info ──────────────────────────────────────────────────╮
+Lade loaded: SHELL, TOKEN.
+super-secret-token-42
+>
+
+

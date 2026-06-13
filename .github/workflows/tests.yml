@@ -44,6 +44,57 @@ jobs:
           cargo run -- --help
           cargo test --workspace --locked
 
+  installer-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run installer unit test
+        run: bash tests/installer_test.sh
+
+  # End-to-end install against real published releases. It needs network and an
+  # existing release, both outside our control, so it is non-blocking
+  # (continue-on-error): a flake or a transient GitHub outage must not block a PR.
+  # The deterministic coverage lives in the required `installer-unit` job above.
+  installer-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: macos-15
+          - os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      # Fetch installer.sh from the exact pushed commit (the PR's head) and run
+      # the published curl|bash one-liner against it, installing the latest
+      # release. This validates the script as a user would fetch it for this MR.
+      - name: curl|bash the pushed commit (latest)
+        shell: bash
+        run: |
+          set -eu
+          REF="${{ github.event.pull_request.head.sha || github.sha }}"
+          REPO="${{ github.event.pull_request.head.repo.full_name || github.repository }}"
+          mkdir -p "$HOME/lade-curl"
+          curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/installer.sh" \
+            | CI=1 OUT_DIR="$HOME/lade-curl" bash
+          BIN="$HOME/lade-curl/lade"; [ -x "$BIN" ] || BIN="$BIN.exe"
+          "$BIN" --version
+      - name: wget|bash the checked-out installer (latest)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eu
+          command -v wget >/dev/null 2>&1 || { echo "wget unavailable, skipping"; exit 0; }
+          mkdir -p "$HOME/lade-wget"
+          CI=1 DOWNLOADER=wget OUT_DIR="$HOME/lade-wget" sh ./installer.sh
+          "$HOME/lade-wget/lade" --version
+
   test-scripts:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

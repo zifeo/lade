@@ -30,11 +30,65 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_disclaimers_multiple_and_deduped() {
+        let dir = tempdir().unwrap();
+        // Two rules match "deploy prod": one unique disclaimer each, plus a
+        // duplicate shared text that must appear only once.
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"deploy\":\n  \".\":\n    disclaimer: \"Shared warning.\"\n  A: a\n\
+             \"prod\":\n  \".\":\n    disclaimer: \"Shared warning.\"\n  B: b\n\
+             \"deploy prod\":\n  \".\":\n    disclaimer: \"Extra warning.\"\n  C: c\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let disclaimers = config.collect_disclaimers("deploy prod");
+        assert_eq!(disclaimers.len(), 2);
+        assert!(disclaimers.contains(&"Shared warning.".to_string()));
+        assert!(disclaimers.contains(&"Extra warning.".to_string()));
+    }
+
+    #[test]
     fn test_collect_no_match() {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("lade.yml"), "\"specific\":\n  KEY: val\n").unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
         assert!(config.collect("other").is_empty());
+    }
+
+    // Shell hooks run `build` + `collect` on EVERY command, and most commands do
+    // not match. This guards that common hot path against gross regressions; the
+    // budget is generous (CI runners vary wildly) but still catches a 10-100x
+    // slowdown. Vault resolution is intentionally excluded (it is rare and
+    // network-bound).
+    #[test]
+    fn hot_path_build_and_no_match_is_fast() {
+        use std::time::{Duration, Instant};
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"terraform .*\":\n  AWS_TOKEN: op://vault/item/field\n\"kubectl .*\":\n  KUBE_TOKEN: op://vault/item/field\n",
+        )
+        .unwrap();
+        let path = dir.path().to_path_buf();
+
+        for _ in 0..50 {
+            let config = LadeFile::build(path.clone()).unwrap();
+            assert!(config.collect("git status").is_empty());
+        }
+
+        let iters = 1000u32;
+        let start = Instant::now();
+        for _ in 0..iters {
+            let config = LadeFile::build(path.clone()).unwrap();
+            let _ = config.collect("git status --porcelain");
+        }
+        let per_iter = start.elapsed() / iters;
+
+        assert!(
+            per_iter < Duration::from_millis(5),
+            "hot path regressed: {per_iter:?} per build+no-match (budget 5ms)"
+        );
     }
 
     #[test]
