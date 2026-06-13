@@ -1,4 +1,5 @@
 use owo_colors::{OwoColorize, Style};
+use std::io::{IsTerminal, stderr};
 
 mod terminal;
 #[cfg(test)]
@@ -73,52 +74,66 @@ impl MessageBox {
         self
     }
 
+    /// Render the entries as bare stderr lines: no border, no colour. For
+    /// passive confirmations like `Lade loaded` where a full box adds visual
+    /// fatigue and there is nothing to act on.
+    pub fn print_plain_stderr(&self) {
+        for entry in &self.entries {
+            match entry {
+                Entry::Line(text) => eprintln!("{text}"),
+                Entry::Paragraph(text) => {
+                    for line in textwrap::wrap(text.trim(), self.width) {
+                        eprintln!("{line}");
+                    }
+                }
+            }
+        }
+    }
+
     pub fn print_stderr(&self) {
-        // inner width = total width - 2 (borders)
-        let inner = self.width - 2;
-        // content width = inner - 6 (3-space gutter on each side)
-        let content = inner - 6;
+        // Borders only make sense on a real terminal. In non-interactive output
+        // (agents, pipes) the box does not fit and just adds noise, so fall back
+        // to bare lines.
+        if !stderr().is_terminal() {
+            self.print_plain_stderr();
+            return;
+        }
+        let inner = self.width - 2; // borders
+        let content = inner - 6; // 3-space gutter on each side
         let colored = colors_enabled();
         let style = tone_style(self.tone, colored);
 
-        // Top border: ╭ Title ───────╮
         let label = self.tone.label();
-        // " Title " occupies label.len() + 2 spaces
         let label_part = format!(" {label} ");
         let dash_count = inner.saturating_sub(label_part.len());
         let top = format!("╭{}{}╮", label_part, "─".repeat(dash_count));
         print_styled(&top, style, colored);
 
-        // blank padding line
         let blank = format!("│{}│", " ".repeat(inner));
         print_styled(&blank, style, colored);
 
         for entry in &self.entries {
-            match entry {
-                Entry::Line(text) => {
-                    let padded = format!(
-                        "│   {}{}   │",
-                        text,
-                        " ".repeat(content.saturating_sub(textwrap::core::display_width(text)))
-                    );
-                    print_styled(&padded, style, colored);
-                }
-                Entry::Paragraph(text) => {
-                    for line in textwrap::wrap(text.trim(), content) {
-                        let padded = format!(
-                            "│   {}{}   │",
-                            line,
-                            " ".repeat(
-                                content.saturating_sub(textwrap::core::display_width(&line))
-                            )
-                        );
-                        print_styled(&padded, style, colored);
-                    }
-                }
+            let text = match entry {
+                Entry::Line(text) => text.as_str(),
+                Entry::Paragraph(text) => text.trim(),
+            };
+            // An empty entry wraps to nothing, so emit one blank line for it.
+            let wrapped = textwrap::wrap(text, content);
+            let lines: Vec<_> = if wrapped.is_empty() {
+                vec![std::borrow::Cow::from("")]
+            } else {
+                wrapped
+            };
+            for line in lines {
+                let padded = format!(
+                    "│   {}{}   │",
+                    line,
+                    " ".repeat(content.saturating_sub(textwrap::core::display_width(&line)))
+                );
+                print_styled(&padded, style, colored);
             }
         }
 
-        // blank padding line
         print_styled(&blank, style, colored);
 
         let bottom = format!("╰{}╯", "─".repeat(inner));

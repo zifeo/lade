@@ -1,11 +1,18 @@
-use anyhow::{Ok, Result};
-use std::{env, io::Read, time::Duration};
+use anyhow::Result;
+use std::{
+    env,
+    io::{IsTerminal, Read},
+    time::Duration,
+};
 
+mod agent;
+mod agent_hooks;
 mod args;
 mod compat;
 mod config;
 mod context;
 mod exec;
+mod exit_codes;
 mod files;
 mod global_config;
 mod hook;
@@ -81,7 +88,7 @@ async fn run() -> Result<()> {
     };
 
     let ctx = InvocationContext::from_command(&command);
-    let upgrade_task = (ctx.may_nudge() && matches!(command, Command::Inject(_)))
+    let upgrade_task = (ctx.is_interactive() && matches!(command, Command::Inject(_)))
         .then(|| tokio::spawn(upgrade::check_message()));
 
     let shell = Shell::detect()?;
@@ -97,10 +104,15 @@ async fn run() -> Result<()> {
         }
         Command::Install => {
             println!("Auto launcher installed in {}", shell.install()?);
+            // Computed here, not from `ctx`: Install maps to Hook mode, so
+            // ctx.is_interactive() is always false even on a real terminal.
+            let may_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+            agent_hooks::install(may_prompt)?;
             return Ok(());
         }
         Command::Uninstall => {
             println!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            agent_hooks::uninstall()?;
             return Ok(());
         }
         Command::Upgrade(opts) => return upgrade::perform(opts).await,
@@ -136,7 +148,7 @@ async fn run() -> Result<()> {
     if let Command::Eval { uri } = command {
         let value =
             hydrate_one(uri.clone(), &current_dir, &std::collections::HashMap::new()).await?;
-        if ctx.may_nudge() {
+        if ctx.is_interactive() {
             compat::warn_outdated(&ctx, compat::known_schemes(std::iter::once(uri.as_str()))).await;
         }
         println!("{}", value);
@@ -144,7 +156,7 @@ async fn run() -> Result<()> {
     }
 
     let config = match LadeFile::build(current_dir.clone()) {
-        std::result::Result::Ok(c) => c,
+        Ok(c) => c,
         Err(e) => {
             message_box::MessageBox::new()
                 .error()
@@ -152,7 +164,7 @@ async fn run() -> Result<()> {
                 .paragraph(e.to_string())
                 .line("Hint: check the file format.")
                 .print_stderr();
-            std::process::exit(1);
+            std::process::exit(exit_codes::FAILURE);
         }
     };
 
@@ -167,11 +179,14 @@ async fn run() -> Result<()> {
         }
         Command::Inject(opts) => {
             let command = opts.commands.join(" ");
-            inject_exit_code =
-                run_inject(command, opts, &ctx, &config, &shell, &current_dir).await?;
+            inject_exit_code = map_disclaimer_exit(
+                run_inject(command, opts, &ctx, &config, &shell, &current_dir).await,
+            )?;
         }
-        Command::Approve => {
-            inject_exit_code = handle_approve(&ctx, &config, &shell, current_dir).await?;
+        Command::Approve { code } => {
+            inject_exit_code = map_disclaimer_exit(
+                handle_approve(&ctx, &config, &shell, current_dir, code).await,
+            )?;
         }
         Command::Set(EvalCommand { commands }) => {
             handle_set(&ctx, &config, &shell, commands, current_dir).await?;
@@ -182,7 +197,7 @@ async fn run() -> Result<()> {
         _ => unreachable!(),
     }
 
-    if inject_exit_code != Some(130)
+    if inject_exit_code != Some(exit_codes::INTERRUPTED)
         && let Some(task) = upgrade_task
         && let Some(msg) = tokio::time::timeout(Duration::from_secs(2), task)
             .await
@@ -203,6 +218,18 @@ async fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Translate a withheld-disclaimer error (already reported to the user) into
+/// the dedicated [`exit_codes::DISCLAIMER_WITHHELD`] code, leaving every other
+/// result untouched so genuine errors still bubble up to `main`.
+fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
+    match result {
+        Err(e) if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() => {
+            Ok(Some(exit_codes::DISCLAIMER_WITHHELD))
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]

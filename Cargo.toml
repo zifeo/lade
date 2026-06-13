@@ -31,7 +31,7 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
 env_logger = "0.11.10"
 openssl = { version = "0.10.80", features = ["vendored"] }
-serde_json = "1.0.150"
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
 futures = "0.3.32"
 path-clean = "1.0.1"
 directories = "6.0.0"
@@ -55,6 +55,7 @@ tempfile = "3.27.0"
 assert_cmd = "2.2.2"
 predicates = "3"
 temp-env = "0.3"
+serde_json = "1.0.150"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]

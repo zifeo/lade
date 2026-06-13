@@ -28,7 +28,9 @@ impl InvocationContext {
 
     pub fn with_tty(command: &Command, stdin_is_terminal: bool, stderr_is_terminal: bool) -> Self {
         let mode = match command {
-            Command::Inject(_) | Command::Approve if stderr_is_terminal && stdin_is_terminal => {
+            Command::Inject(_) | Command::Approve { .. }
+                if stderr_is_terminal && stdin_is_terminal =>
+            {
                 UiMode::Interactive
             }
             _ => UiMode::Hook,
@@ -36,12 +38,8 @@ impl InvocationContext {
         Self { mode }
     }
 
-    pub fn may_nudge(&self) -> bool {
+    pub fn is_interactive(&self) -> bool {
         self.mode == UiMode::Interactive
-    }
-
-    pub fn may_prompt(&self) -> bool {
-        self.may_nudge()
     }
 }
 
@@ -60,7 +58,7 @@ mod tests {
             true,
         );
         assert_eq!(ctx.mode, UiMode::Hook);
-        assert!(!ctx.may_nudge());
+        assert!(!ctx.is_interactive());
     }
 
     #[test]
@@ -92,7 +90,10 @@ mod tests {
     #[test]
     fn status_is_hook() {
         let ctx = InvocationContext::with_tty(
-            &Command::Status(crate::args::StatusCommand { all: false }),
+            &Command::Status(crate::args::StatusCommand {
+                all: false,
+                json: false,
+            }),
             true,
             true,
         );
@@ -101,7 +102,7 @@ mod tests {
 
     #[test]
     fn approve_is_hook_without_tty() {
-        let ctx = InvocationContext::with_tty(&Command::Approve, false, false);
+        let ctx = InvocationContext::with_tty(&Command::Approve { code: None }, false, false);
         assert_eq!(ctx.mode, UiMode::Hook);
     }
 }
