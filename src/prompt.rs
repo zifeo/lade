@@ -130,7 +130,7 @@ pub async fn confirm_disclaimers(disclaimers: &[String]) -> Result<()> {
     let input = read_stdin().await;
     if input.as_deref().map(str::trim) != Some("yes") {
         MessageBox::new()
-            .error()
+            .warning()
             .line("Not injecting secrets, aborting.")
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);

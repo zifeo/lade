@@ -1,4 +1,4 @@
-use std::io::{IsTerminal, stderr, stdin};
+use std::io::IsTerminal;
 
 use crate::args::Command;
 
@@ -19,14 +19,27 @@ pub enum UiMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvocationContext {
     pub mode: UiMode,
+    pub stdin_is_terminal: bool,
+    pub stdout_is_terminal: bool,
+    pub stderr_is_terminal: bool,
 }
 
 impl InvocationContext {
     pub fn from_command(command: &Command) -> Self {
-        Self::with_tty(command, stdin().is_terminal(), stderr().is_terminal())
+        Self::with_tty(
+            command,
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+            std::io::stderr().is_terminal(),
+        )
     }
 
-    pub fn with_tty(command: &Command, stdin_is_terminal: bool, stderr_is_terminal: bool) -> Self {
+    pub fn with_tty(
+        command: &Command,
+        stdin_is_terminal: bool,
+        stdout_is_terminal: bool,
+        stderr_is_terminal: bool,
+    ) -> Self {
         let mode = match command {
             Command::Inject(_) | Command::Approve { .. }
                 if stderr_is_terminal && stdin_is_terminal =>
@@ -35,7 +48,12 @@ impl InvocationContext {
             }
             _ => UiMode::Hook,
         };
-        Self { mode }
+        Self {
+            mode,
+            stdin_is_terminal,
+            stdout_is_terminal,
+            stderr_is_terminal,
+        }
     }
 
     pub fn is_interactive(&self) -> bool {
@@ -56,6 +74,7 @@ mod tests {
             }),
             true,
             true,
+            true,
         );
         assert_eq!(ctx.mode, UiMode::Hook);
         assert!(!ctx.is_interactive());
@@ -67,6 +86,7 @@ mod tests {
             &Command::Unset(EvalCommand {
                 commands: vec!["x".into()],
             }),
+            true,
             true,
             true,
         );
@@ -83,6 +103,7 @@ mod tests {
             }),
             false,
             false,
+            false,
         );
         assert_eq!(ctx.mode, UiMode::Hook);
     }
@@ -96,13 +117,15 @@ mod tests {
             }),
             true,
             true,
+            true,
         );
         assert_eq!(ctx.mode, UiMode::Hook);
     }
 
     #[test]
     fn approve_is_hook_without_tty() {
-        let ctx = InvocationContext::with_tty(&Command::Approve { code: None }, false, false);
+        let ctx =
+            InvocationContext::with_tty(&Command::Approve { code: None }, false, false, false);
         assert_eq!(ctx.mode, UiMode::Hook);
     }
 }

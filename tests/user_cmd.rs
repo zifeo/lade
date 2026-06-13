@@ -11,7 +11,7 @@ fn test_user_set() {
         .args(["user", "testuser"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("testuser"));
+        .stderr(predicates::str::contains("testuser"));
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn test_user_reset() {
         .args(["user", "--reset"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("reset"));
+        .stderr(predicates::str::contains("reset"));
 }
 
 #[test]
@@ -57,5 +57,5 @@ fn test_user_get_no_user_set() {
         .args(["user"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("No user set"));
+        .stderr(predicates::str::contains("No user set"));
 }

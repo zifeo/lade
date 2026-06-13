@@ -17,8 +17,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-
-use crate::message_box::MessageBox;
 use config::AGENTS;
 
 fn home_dir() -> Result<PathBuf> {
@@ -52,11 +50,10 @@ fn report(results: Vec<String>) {
     if results.is_empty() {
         return;
     }
-    MessageBox::new()
-        .info()
-        .line("Agent hooks")
-        .paragraphs(results)
-        .print_stderr();
+    eprintln!("Agent hooks:");
+    for result in results {
+        eprintln!("  {}", result);
+    }
 }
 
 /// Offer to install the `lade hook` interceptor for every agent detected on the

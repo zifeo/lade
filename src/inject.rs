@@ -41,7 +41,7 @@ pub async fn run_inject(
     } else {
         None
     };
-    let code = exec::run(shell.bin(), &command, env, current_dir, redactor);
+    let code = exec::run(ctx, shell.bin(), &command, env, current_dir, redactor);
     remove_files(&mut files.keys())?;
     let code = code?;
     Ok((code != 0).then_some(code))
@@ -168,7 +168,7 @@ pub async fn handle_approve(
         Some(c) => c,
         None => {
             message_box::MessageBox::new()
-                .warning()
+                .error()
                 .line("Run `lade approve <code>` with the code shown in the disclaimer.")
                 .print_stderr();
             std::process::exit(crate::exit_codes::FAILURE);
@@ -178,7 +178,7 @@ pub async fn handle_approve(
         Ok(v) => v,
         Err(_) => {
             message_box::MessageBox::new()
-                .warning()
+                .error()
                 .line("Nothing to approve: no disclaimer is pending.")
                 .print_stderr();
             std::process::exit(crate::exit_codes::FAILURE);
@@ -196,7 +196,7 @@ pub async fn handle_approve(
     };
     if pending.cwd != current_dir {
         message_box::MessageBox::new()
-            .warning()
+            .error()
             .line("The pending disclaimer was for a different directory:")
             .paragraph(pending.cwd.display().to_string())
             .print_stderr();
@@ -204,7 +204,7 @@ pub async fn handle_approve(
     }
     if !prompt::verify_code(&pending.cmd, &code) {
         message_box::MessageBox::new()
-            .warning()
+            .error()
             .line("Wrong or expired approval code. Re-run the command for a fresh one.")
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);

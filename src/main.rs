@@ -1,9 +1,5 @@
 use anyhow::Result;
-use std::{
-    env,
-    io::{IsTerminal, Read},
-    time::Duration,
-};
+use std::{env, io::Read, time::Duration};
 
 mod agent;
 mod agent_hooks;
@@ -103,15 +99,15 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Install => {
-            println!("Auto launcher installed in {}", shell.install()?);
-            // Computed here, not from `ctx`: Install maps to Hook mode, so
-            // ctx.is_interactive() is always false even on a real terminal.
-            let may_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+            eprintln!("Auto launcher installed in {}", shell.install()?);
+            // Computed here, not from `ctx.is_interactive()`: Install maps to Hook mode,
+            // so `is_interactive()` is always false even on a real terminal.
+            let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
             agent_hooks::install(may_prompt)?;
             return Ok(());
         }
         Command::Uninstall => {
-            println!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            eprintln!("Auto launcher uninstalled in {}", shell.uninstall()?);
             agent_hooks::uninstall()?;
             return Ok(());
         }
@@ -120,23 +116,23 @@ async fn run() -> Result<()> {
         Command::User { username, reset } => {
             if reset {
                 GlobalConfig::update(|c| c.user = None).await?;
-                println!("Successfully reset lade user");
+                eprintln!("Successfully reset lade user");
                 return Ok(());
             }
             if let Some(user) = username {
                 if user.is_empty() {
-                    println!("No user provided");
-                    return Ok(());
+                    eprintln!("Error: No user provided");
+                    std::process::exit(exit_codes::FAILURE);
                 }
                 GlobalConfig::update(|c| c.user = Some(user.clone())).await?;
-                println!("Successfully set user to {}", user);
+                eprintln!("Successfully set user to {}", user);
                 return Ok(());
             }
             let config = GlobalConfig::load().await?;
             if let Some(user) = config.user {
                 println!("{}", user);
             } else {
-                println!("No user set. Lade will use the current OS user.");
+                eprintln!("No user set. Lade will use the current OS user.");
             }
             return Ok(());
         }
@@ -172,6 +168,13 @@ async fn run() -> Result<()> {
 
     match command {
         Command::Hook => {
+            if ctx.stdin_is_terminal {
+                eprintln!("Error: `lade hook` is meant to be invoked automatically by AI agents.");
+                eprintln!(
+                    "It reads a JSON payload from stdin. To use it manually, pipe JSON into it."
+                );
+                std::process::exit(exit_codes::FAILURE);
+            }
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
             let output = hook::handle(&config, &input)?;
