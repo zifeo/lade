@@ -1,12 +1,24 @@
-> ./cat-lade.yml per-user
+> ./show-example per-user
 ^printenv GREETING:
   GREETING:
     alice: "hello alice"
     bob: "hello bob"
     .: "hello guest"
+
 > lade user alice
 Successfully set user to alice
+
 > lade inject printenv GREETING
-Lade loaded: GREETING, SHELL.
+Lade loaded: GREETING.
+
 hello alice
+
 > lade user bob
+Successfully set user to bob
+
+> lade inject printenv GREETING
+Lade loaded: GREETING.
+
+hello bob
+
+>

@@ -1,0 +1,6 @@
+eval "$(lade on)"
+clear
+./show-example token
+echo token $TOKEN
+./show-example format
+printenv FROM_FILE

@@ -1,7 +1,8 @@
 
 .DS_Store
 examples/tape/.render-logs/
-examples/tape/.vhs-home/
+examples/tape/.asciinema-home/
+examples/tape/*.cast
 debug/
 target/
 **/*.rs.bk

@@ -1,0 +1,3 @@
+./show-example file
+lade inject --no-mask cat .lade-secrets.json
+ls .lade-secrets.json

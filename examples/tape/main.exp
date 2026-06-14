@@ -1,0 +1,4 @@
+echo hello $GREETING
+lade install
+source ~/.zshrc
+echo hello $GREETING

@@ -1,0 +1,5 @@
+./show-example per-user
+lade user alice
+lade inject printenv GREETING
+lade user bob
+lade inject printenv GREETING

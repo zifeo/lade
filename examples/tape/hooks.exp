@@ -1,0 +1,5 @@
+lade install
+source ~/.zshrc
+clear
+./show-example hooks
+echo hooks $DEMO

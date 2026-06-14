@@ -1,0 +1,3 @@
+./show-example inject
+lade printenv TOKEN
+lade inject --no-mask printenv TOKEN

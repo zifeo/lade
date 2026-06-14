@@ -1,0 +1,3 @@
+unsetopt PROMPT_SP
+PROMPT='> '
+clear
