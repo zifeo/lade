@@ -9,6 +9,15 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-06-14
+
+### Changed
+
+- **"Lade loaded" message** ([#156](https://github.com/zifeo/lade/pull/156)): prints as a plain line on TTY stderr instead of a framed message-box line.
+- **README demos** ([#156](https://github.com/zifeo/lade/pull/156)): terminal recordings now render with asciinema and agg instead of VHS tape files.
+
+[0.15.3]: https://github.com/zifeo/lade/compare/v0.15.2...v0.15.3
+
 ## [0.15.2] - 2026-06-13
 
 ### Added
