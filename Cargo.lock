@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "lade"
-version = "0.15.3-beta.1"
+version = "0.15.3"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "lade-sdk"
-version = "0.15.3-beta.1"
+version = "0.15.3"
 dependencies = [
  "access-json",
  "anyhow",
