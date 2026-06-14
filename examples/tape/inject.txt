@@ -1,12 +1,15 @@
-> ./cat-lade.yml inject
+> ./show-example inject
 ^printenv TOKEN:
   TOKEN: "file://../sources/config.json?query=.token"
+
 > lade printenv TOKEN
-Lade loaded: SHELL, TOKEN.
+Lade loaded: TOKEN.
+
 ${TOKEN:-REDACTED}
+
 > lade inject --no-mask printenv TOKEN
-Lade loaded: SHELL, TOKEN.
+Lade loaded: TOKEN.
+
 super-secret-token-42
+
 >
-
-

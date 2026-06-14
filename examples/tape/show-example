@@ -1,0 +1,17 @@
+#!/bin/bash
+# show-example <tag> [file]
+# Extracts a section from lade.yml (or [file]) based on the tape tag comment.
+TAG=$1
+FILE=${2:-lade.yml}
+awk -v tag="$TAG" '
+  BEGIN { found=0; section="" }
+  /^# tape: / { 
+    if ($3 == tag) { found=1; next } 
+    else if (found) { exit }
+  }
+  found { section = section $0 "\n" }
+  END {
+    sub(/\n+$/, "", section)
+    if (section != "") print section
+  }
+' "$FILE"

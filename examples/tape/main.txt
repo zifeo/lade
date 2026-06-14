@@ -1,12 +1,14 @@
 > echo hello $GREETING
 hello
+
 > lade install
 Auto launcher installed in ~/.zshrc
+
 > source ~/.zshrc
+
 > echo hello $GREETING
+Lade loaded: GREETING.
+
 hello world
+
 >
-
-
-
-

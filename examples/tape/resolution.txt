@@ -1,12 +1,19 @@
-> ./cat-lade.yml format
+> ./show-example token
+^echo token:
+  TOKEN: vault://127.0.0.1:8200/secret/password/value1
+
+> echo token $TOKEN
+Lade loaded: TOKEN.
+
+token itsasecret
+
+> ./show-example format
 ^printenv FROM_FILE:
   FROM_FILE: file://../sources/config.json?query=.format
+
 > printenv FROM_FILE
+Lade loaded: FROM_FILE.
+
 json
+
 >
-
-
-
-
-
-
