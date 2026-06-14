@@ -1,0 +1,3 @@
+./show-example disclaimer
+lade inject --no-mask printenv LADE_DEMO_TOKEN
+yes

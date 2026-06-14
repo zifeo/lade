@@ -101,11 +101,8 @@ pub async fn prepare_secrets(
     let (env, files) = split_env_files(vars);
     let mut names = write_files(&files)?;
     names.extend(env.keys().cloned());
-    if ctx.is_interactive() && !names.is_empty() {
-        names.sort();
-        message_box::MessageBox::new()
-            .line(format!("Lade loaded: {}.", names.join(", ")))
-            .print_plain_stderr();
+    if ctx.stderr_is_terminal {
+        message_box::print_loaded_message(names);
     }
     Ok((env, files, sources, maskable))
 }
