@@ -4,6 +4,16 @@ use anyhow::{Result, bail};
 
 use super::Shell;
 
+#[cfg(debug_assertions)]
+macro_rules! import {
+    ($x:expr) => {
+        include_str!($x)
+            .replace("lade set", "cargo run -- set")
+            .replace("lade unset", "cargo run -- unset")
+    };
+}
+
+#[cfg(not(debug_assertions))]
 macro_rules! import {
     ($x:expr) => {
         include_str!($x).to_string()

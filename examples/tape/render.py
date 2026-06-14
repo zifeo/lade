@@ -229,9 +229,17 @@ def generate_outputs(name):
     if not os.path.exists(exp_file):
         return
 
-    width, height = 80, 24
+    # Original VHS was 640x320 (2:1 ratio). Retina x2 is 1280x640.
+    # To get ~2:1 ratio with Menlo (0.6 width) and 1.2 line height:
+    # Ratio = (cols * 0.6) / (rows * 1.2) = cols / (2 * rows)
+    # For 2:1, cols = 4 * rows.
+    # 80 cols -> 20 rows. 83 cols -> 21 rows.
+    width, height = 80, 20
     if name == "main":
-        width = 83
+        width, height = 83, 21
+
+    target_width = 1280 if width == 80 else 1328
+    target_height = 640
 
     print(f"Recording {name}...")
     record(cast_file, exp_file, width=width, height=height)
@@ -249,8 +257,11 @@ def generate_outputs(name):
         f.write(clean_text)
 
     print(f"Generating GIF {gif_file}...")
-    if os.path.exists(gif_file):
-        os.remove(gif_file)
+    tmp_gif = f"{name}.tmp.gif"
+    if os.path.exists(tmp_gif):
+        os.remove(tmp_gif)
+
+    # Use 32px font for Retina quality
     subprocess.run(
         [
             "agg",
@@ -260,13 +271,33 @@ def generate_outputs(name):
             "Menlo",
             "--font-size",
             "32",
+            "--line-height",
+            "1.2",
             "--renderer",
             "resvg",
             cast_file,
+            tmp_gif,
+        ],
+        check=True,
+    )
+
+    # Scale to exact 2x dimensions while preserving aspect ratio (padding if necessary)
+    # to avoid the "squashed" look.
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            tmp_gif,
+            "-vf",
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color=#FDF6E3,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse=dither=none",
             gif_file,
         ],
         check=True,
     )
+
+    if os.path.exists(tmp_gif):
+        os.remove(tmp_gif)
 
 
 if __name__ == "__main__":
