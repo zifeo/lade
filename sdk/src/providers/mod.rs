@@ -16,6 +16,7 @@ use url::Url;
 use crate::Hydration;
 
 pub mod compat;
+pub mod network;
 
 #[derive(Clone, Default)]
 pub struct Warnings(Arc<Mutex<Vec<String>>>);

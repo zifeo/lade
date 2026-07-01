@@ -15,7 +15,10 @@ mod hook;
 mod inject;
 mod masking;
 mod message_box;
+mod network;
 mod prompt;
+mod provider_progress;
+mod provider_registry;
 mod redact;
 mod shell;
 mod status;
@@ -182,20 +185,32 @@ async fn run() -> Result<()> {
         }
         Command::Inject(opts) => {
             let command = opts.commands.join(" ");
-            inject_exit_code = map_disclaimer_exit(
+            inject_exit_code = match map_disclaimer_exit(
                 run_inject(command, opts, &ctx, &config, &shell, &current_dir).await,
-            )?;
+            ) {
+                Ok(code) => code,
+                Err(e) => {
+                    report_inject_error(&e);
+                    std::process::exit(exit_codes::FAILURE);
+                }
+            };
         }
         Command::Approve { code } => {
-            inject_exit_code = map_disclaimer_exit(
+            inject_exit_code = match map_disclaimer_exit(
                 handle_approve(&ctx, &config, &shell, current_dir, code).await,
-            )?;
+            ) {
+                Ok(code) => code,
+                Err(e) => {
+                    report_inject_error(&e);
+                    std::process::exit(exit_codes::FAILURE);
+                }
+            };
         }
         Command::Set(EvalCommand { commands }) => {
             handle_set(&ctx, &config, &shell, commands, current_dir).await?;
         }
         Command::Unset(EvalCommand { commands }) => {
-            handle_unset(&shell, &config, commands)?;
+            handle_unset(&shell, &config, commands).await?;
         }
         _ => unreachable!(),
     }
@@ -233,6 +248,15 @@ fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
         }
         other => other,
     }
+}
+
+fn report_inject_error(e: &anyhow::Error) {
+    message_box::MessageBox::new()
+        .error()
+        .line("Lade could not prepare command execution:")
+        .paragraph(e.to_string())
+        .line("Hint: verify provider URI format and local CLI access.")
+        .print_stderr();
 }
 
 #[cfg(test)]

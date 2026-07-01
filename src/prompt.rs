@@ -5,7 +5,6 @@ use sha2::{Digest, Sha256};
 use tokio::{io::AsyncBufReadExt, select, signal};
 
 use crate::agent;
-use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::message_box::MessageBox;
 use crate::shell::{LADE_APPROVE, LADE_DISCLAIMER_APPROVED};
@@ -81,13 +80,16 @@ pub fn is_approved(command: &str, disclaimers: &[String]) -> bool {
         .all(|d| approved_ids.contains(disclaimer_id(d).as_str()))
 }
 
+/// Resolves disclaimers already collected for `command` (see
+/// [`crate::config::Config::disclaimers_from_rules`]). Takes the disclaimer
+/// list directly rather than `Config` + `command` so callers that already
+/// matched rules once per invocation don't have to re-match them here.
 pub async fn resolve_disclaimers(
     ctx: &InvocationContext,
-    config: &Config,
+    disclaimers: &[String],
     command: &str,
 ) -> Result<()> {
-    let disclaimers = config.collect_disclaimers(command);
-    if disclaimers.is_empty() || is_approved(command, &disclaimers) {
+    if disclaimers.is_empty() || is_approved(command, disclaimers) {
         return Ok(());
     }
 
@@ -113,7 +115,7 @@ pub async fn resolve_disclaimers(
         return Err(DisclaimerWithheld.into());
     }
 
-    confirm_disclaimers(&disclaimers).await
+    confirm_disclaimers(disclaimers).await
 }
 
 pub async fn confirm_disclaimers(disclaimers: &[String]) -> Result<()> {

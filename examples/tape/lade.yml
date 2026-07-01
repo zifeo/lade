@@ -25,7 +25,7 @@
   LADE_DEMO_TOKEN: "demo-token"
 
 # tape: file
-^cat \.lade-secrets\.json:
+^cat .lade-secrets.json:
   .:
     file: .lade-secrets.json
   KEY: "written-to-disk"
@@ -36,3 +36,8 @@
     alice: "hello alice"
     bob: "hello bob"
     .: "hello guest"
+
+# tape: network
+^curl .*127.0.0.1:18080/.*$:
+  TF_VAR_demo_token: file://../sources/config.json?query=.token
+  18080: kubectl://host.docker.internal:53715/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080

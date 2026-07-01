@@ -105,8 +105,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ubuntu-scripts
-      - name: Pre-build
-        run: cargo build --workspace --locked
 
       - name: Set up Docker
         uses: docker/setup-docker-action@v5
@@ -114,7 +112,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bash fish zsh
+          sudo apt-get install -y bash fish zsh kubectl
+
+      - name: Install k3d
+        run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
       - name: bash, fish, zsh version
         run: |
@@ -132,17 +133,5 @@ jobs:
           sudo apt-get update && sudo apt-get install -y vault=1.18.3-1
           vault --version
 
-      - name: Run test vault
-        run: |
-          env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 bash tests/test_vault.bash
-          env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 zsh tests/test_vault.zsh
-          env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 fish tests/test_vault.fish
-
-      - name: Run bash test
-        run: env -i PATH="$PATH" bash scripts/test.bash
-
-      - name: Run zsh test
-        run: env -i PATH="$PATH" zsh scripts/test.zsh
-
-      - name: Run fish test
-        run: env -i PATH="$PATH" fish scripts/test.fish
+      - name: Run workspace tests (includes shell/vault/k3d)
+        run: cargo test --workspace --locked -- --nocapture

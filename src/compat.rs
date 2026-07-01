@@ -3,17 +3,25 @@ use std::collections::HashMap;
 use anyhow::Result;
 use chrono::{TimeDelta, Utc};
 use log::debug;
+use regex::Regex;
 use rustc_hash::FxHashSet;
+use semver::Version;
 
 use lade_sdk::compat::{self, CompatWarning, spec_for};
 
 use crate::context::InvocationContext;
 use crate::global_config::GlobalConfig;
 use crate::message_box::MessageBox;
+use crate::provider_registry::{NETWORK_CLI_SPECS, all_supported_schemes as all_provider_schemes};
 
 pub fn known_schemes<'a>(uris: impl Iterator<Item = &'a str>) -> Vec<String> {
     uris.filter_map(|uri| uri.split_once("://").map(|(scheme, _)| scheme))
-        .filter(|scheme| spec_for(scheme).is_some())
+        .filter(|scheme| {
+            spec_for(scheme).is_some()
+                || NETWORK_CLI_SPECS
+                    .iter()
+                    .any(|network| network.scheme == *scheme)
+        })
         .map(|scheme| scheme.to_string())
         .collect::<FxHashSet<_>>()
         .into_iter()
@@ -21,10 +29,7 @@ pub fn known_schemes<'a>(uris: impl Iterator<Item = &'a str>) -> Vec<String> {
 }
 
 pub fn all_supported_schemes() -> Vec<String> {
-    compat::CLI_SPECS
-        .iter()
-        .map(|spec| spec.scheme.to_string())
-        .collect()
+    all_provider_schemes()
 }
 
 /// Returns (warnings, due_schemes). Timer is only advanced when there are no warnings.
@@ -49,7 +54,8 @@ async fn check_message(schemes: Vec<String>) -> Result<(Vec<CompatWarning>, Vec<
         return Ok((vec![], vec![]));
     }
 
-    let warnings = compat::check(&due, &HashMap::new()).await;
+    let mut warnings = compat::check(&due, &HashMap::new()).await;
+    warnings.extend(check_network_compat(&due));
 
     if warnings.is_empty() {
         GlobalConfig::update(|c| {
@@ -88,7 +94,7 @@ pub async fn check_schemes(schemes: Vec<String>) -> Result<Vec<CompatWarning>> {
 fn render(warnings: &[CompatWarning]) {
     let mut box_ = MessageBox::new()
         .warning()
-        .line("Some secret CLIs are older than the version Lade is tested against:");
+        .line("Some provider CLIs are older than the version Lade is tested against:");
     for w in warnings {
         box_ = box_.paragraph(format!(
             "{} {} is below the supported {}. Update it if you hit issues: {}",
@@ -96,6 +102,48 @@ fn render(warnings: &[CompatWarning]) {
         ));
     }
     box_.line("Run `lade status` for details.").print_stderr();
+}
+
+fn parse_version(output: &str) -> Option<Version> {
+    let re = Regex::new(r"(\d+)\.(\d+)\.(\d+)").expect("valid version regex");
+    let captures = re.captures(output)?;
+    Version::parse(&format!(
+        "{}.{}.{}",
+        &captures[1], &captures[2], &captures[3]
+    ))
+    .ok()
+}
+
+fn check_network_compat(schemes: &[String]) -> Vec<CompatWarning> {
+    let mut warnings = Vec::new();
+    for spec in NETWORK_CLI_SPECS {
+        if !schemes.iter().any(|scheme| scheme == spec.scheme) {
+            continue;
+        }
+        let output = std::process::Command::new(spec.bin)
+            .args(spec.version_args)
+            .output();
+        let Ok(output) = output else {
+            continue;
+        };
+        let found = parse_version(&String::from_utf8_lossy(&output.stdout))
+            .or_else(|| parse_version(&String::from_utf8_lossy(&output.stderr)));
+        let Some(found) = found else {
+            continue;
+        };
+        let Ok(min) = Version::parse(spec.min_version) else {
+            continue;
+        };
+        if found < min {
+            warnings.push(CompatWarning {
+                name: spec.name.to_string(),
+                found: found.to_string(),
+                min: spec.min_version.to_string(),
+                install_url: spec.install_url.to_string(),
+            });
+        }
+    }
+    warnings
 }
 
 #[cfg(test)]

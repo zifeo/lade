@@ -141,15 +141,6 @@ impl MessageBox {
     }
 }
 
-pub fn print_loaded_message(mut names: Vec<String>) {
-    if names.is_empty() {
-        return;
-    }
-    names.sort();
-    eprintln!("Lade loaded: {}.", names.join(", "));
-    eprintln!();
-}
-
 impl Tone {
     fn label(self) -> &'static str {
         match self {

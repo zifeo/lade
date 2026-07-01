@@ -48,19 +48,26 @@ flowchart TD
     UserCheck -- Yes --> ResolveUser[Resolve for specific user or fallback to `.']
     UserCheck -- No --> ResolveUser
 
-    ResolveUser --> Loaders[Dispatch to Loaders]
+    ResolveUser --> Loaders[Dispatch to Providers]
 
     Match -- No --> Skip[Skip rule]
 
-    Loaders --> |op://| OpLoader[1Password CLI]
-    Loaders --> |vault://| VaultLoader[HashiCorp Vault]
-    Loaders --> |file://| FileLoader[Local File]
-    Loaders --> |Raw| RawLoader[Plaintext]
+    Loaders --> |op:// vault:// ...| SecretProviders[Secret Providers]
+    Loaders --> |kubectl:// kubefwd:// tsh://| NetworkProviders[Network Providers]
 ```
 
-## 3. Execution & Masking (`lade <command>` / `lade inject <command>`)
+Lade keeps two provider families under one registry:
 
-When using the top-level shortcut `lade <command>` (or the explicit form `lade inject <command>`, or in environments where shell hooks aren't available), Lade wraps the command execution. It uses a pseudo-terminal (PTY) to capture the output and redact secrets on the fly.
+- **Secret providers** resolve values (env/file hydration).
+- **Network providers** acquire temporary local port bindings for the wrapped command.
+
+## 3. Execution, Network Acquire & Masking (`lade <command>` / `lade inject <command>`)
+
+When using the top-level shortcut `lade <command>` (or the explicit form
+`lade inject <command>`, or in environments where shell hooks aren't
+available), Lade wraps the command execution. It resolves secrets, acquires any
+matching network providers, then starts the child command. It uses a
+pseudo-terminal (PTY) to capture output and redact secret values on the fly.
 
 ```mermaid
 sequenceDiagram
@@ -71,6 +78,7 @@ sequenceDiagram
 
     User->>Lade: `lade my-command`
     Lade->>Lade: Resolve secrets
+    Lade->>Lade: Acquire network providers
     Lade->>PTY: Create PTY pair
     Lade->>Child: Spawn `my-command` with injected ENV
 
@@ -81,7 +89,14 @@ sequenceDiagram
     Lade->>Lade: Replace secret with `REDACTED`
 
     Lade->>User: Print sanitized output
+    Lade->>Lade: Release network providers + temp files
 ```
+
+Network provider constraints:
+
+- `kubectl port-forward` paths are TCP-only in Kubernetes today.
+- Readiness checks validate local TCP listener availability before running the wrapped command.
+- URI parsing is strict for known network schemes; malformed URIs fail rather than falling back to raw values.
 
 ## 4. UI policy (Hook vs Interactive)
 
@@ -108,8 +123,11 @@ flowchart TD
 | Compat CLI warning | silent | passive box + auto snooze |
 | Upgrade reminder | silent | passive info box after inject |
 | Loader error | one-line stderr + exit 1 | error box + wait + exit 1 |
+| Network providers | unsupported (no supervision) | acquired before child command, released on exit |
 
-Secret resolution (`hydrate_secrets`) is UI-free. Presentation (`prepare_secrets`) applies the policy above.
+Secret resolution (`hydrate_secrets`) is UI-free. Presentation
+(`prepare_secrets`) applies the policy above. Network providers are acquired in
+the inject path only.
 
 ### Disclaimer Flow
 

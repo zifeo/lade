@@ -61,7 +61,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Secret resolution & command matching** - Load from Infisical, 1Password, Doppler, Vault, Passbolt, the [file loader](#file-loader) (`file://…?query=…`), or inline values. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
+**Provider resolution & command matching** - Load secret values from Infisical, 1Password, Doppler, Vault, Passbolt, the [file provider](#file-provider) (`file://…?query=…`), or inline values, and combine them with network providers in the same rule. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
 
 </td>
 <td width="50%">
@@ -73,7 +73,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Manual injection & redaction** - `lade <command>` is the shortcut for one-shot injection when hooks are off or in scripts (explicit form: `lade inject <command>`). Unless `--no-mask` is set, values fetched from loaders are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw loader](#raw-loader) values are not (already plaintext in `lade.yml`).
+**Manual injection & redaction** - `lade <command>` is the shortcut for one-shot injection when hooks are off or in scripts (explicit form: `lade inject <command>`). Unless `--no-mask` is set, values fetched from secret providers are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw provider](#raw-provider) values are not (already plaintext in `lade.yml`).
 
 </td>
 <td width="50%">
@@ -121,7 +121,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**`lade eval`** - Resolve one URI and print the value (uses the same loaders as `lade.yml`).
+**`lade eval`** - Resolve one URI and print the value (uses the same providers as `lade.yml`).
 
 </td>
 <td width="50%">
@@ -135,7 +135,8 @@ Compatible vaults: [Infisical](https://infisical.com),
 ## Usage
 
 See [lade.yml](lade.yml) or [examples/tape/lade.yml](examples/tape/lade.yml) for
-configuration samples.
+configuration samples. Network provider demo transcript:
+[examples/tape/network.txt](examples/tape/network.txt).
 
 ### Per-user secrets
 
@@ -168,14 +169,28 @@ command regex:
 
 When using shell hooks, disclaimers cannot prompt for input. Instead, Lade withholds secrets and prints a per-command approval code; review the disclaimer and run `lade approve <code>` to execute the command, or re-run it prefixed with `LADE_APPROVE=<code>`.
 
-## Loaders
+## Providers
 
-Most of the vault loaders use their native CLI to operate. This means you must
-have them installed locally and your login/credentials must be valid. Lade may
-evolve by integrating directly with the corresponding API, but this is left as
-future work.
+Lade has two first-class provider families used from the same `lade.yml` rule:
 
-### Infisical loader
+- Secret providers resolve values/files into environment variables.
+- Network providers create command-scoped connectivity and clean up automatically.
+
+```yaml
+"psql .*":
+  # secret provider
+  DB_USER: op://my.1password.com/eng/postgres/username
+  # network provider (dynamic local port injected into DB_PORT)
+  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
+  DATABASE_URL: postgres://${DB_USER}@127.0.0.1:${DB_PORT}/app
+```
+
+### Secret providers
+
+Most secret providers use their native CLI. Ensure required binaries are
+installed and authenticated before running commands.
+
+### Infisical provider
 
 ```yaml
 command regex:
@@ -187,7 +202,7 @@ Frequent domain(s): `app.infisical.com`.
 Note: the `/api` is automatically added to the DOMAIN. This source currently
 only support a single domain (you cannot be logged into multiple ones).
 
-### 1Password loader
+### 1Password provider
 
 ```yaml
 command regex:
@@ -199,7 +214,7 @@ Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
 In CI/CD `OP_SERVICE_ACCOUNT_TOKEN` is typically injected directly by the
 platform. For cases where the token itself is stored in another vault, add
 `1password_service_account` to the `.` config block. Lade resolves that URI
-first - using any loader - and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
+first - using any provider - and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
 before resolving the remaining `op://` secrets. This enables recursive
 cross-vault lookups: the token lives in Vault or Infisical, and the actual
 secrets live in 1Password.
@@ -218,7 +233,7 @@ command regex:
   EXPORTED_ENV_VAR: op://...
 ```
 
-### Doppler loader
+### Doppler provider
 
 ```yaml
 command regex:
@@ -227,21 +242,21 @@ command regex:
 
 Frequent domain(s): `api.doppler.com`.
 
-### Vault loader
+### Vault provider
 
 ```yaml
 command regex:
   EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
 ```
 
-### Passbolt loader
+### Passbolt provider
 
 ```yaml
 command regex:
   EXPORTED_ENV_VAR: passbolt://DOMAIN/RESOURCE_ID/FIELD
 ```
 
-### File loader
+### File provider
 
 Supports INI, JSON, YAML and TOML files.
 
@@ -254,15 +269,70 @@ command regex:
 (not recommended when sharing the project with others as they likely have
 different paths).
 
-### Raw loader
+### Raw provider
 
 ```yaml
 command regex:
   EXPORTED_ENV_VAR: "value"
 ```
 
-Escaping a value with the `!` prefix enforces the use of the raw loader and
+Escaping a value with the `!` prefix enforces the use of the raw provider and
 double `!!` escapes itself.
+
+### Network providers
+
+Network providers acquire temporary local forwards for the command lifecycle.
+Current implementation is **TCP only**.
+
+```yaml
+"psql .*":
+  # fixed local port
+  1223: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
+  # dynamic local port in env
+  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
+```
+
+Per-user overrides use the same shape as secret providers:
+
+```yaml
+"psql .*":
+  DB_PORT:
+    alice: kubectl://k8s-a.example.com:6443/claryo-az-02/dev/service/postgres/5432
+    ".": kubectl://k8s-b.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
+```
+
+#### kubectl provider
+
+URI format:
+
+- `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>`
+
+Query options:
+
+- `local=HOST:PORT`
+- `pod-running-timeout=<duration>`
+
+#### kubefwd provider
+
+URI format:
+
+- `kubefwd://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<service-port>`
+
+Query options:
+
+- `local=HOST:PORT`
+- `domain=<domain>`
+- `selector=<selector>`
+
+#### tsh provider
+
+URI format:
+
+- `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>`
+
+Query options:
+
+- `local=HOST:PORT`
 
 ## Using Lade with coding agents
 
@@ -287,7 +357,7 @@ Does your agent support preToolUse / PreToolUse shell hooks?
 
 When the agent runs a shell command, Lade inspects it and — if it matches a
 `lade.yml` rule — rewrites it into `lade inject '<command>'`. The agent never
-sees the secret values: `lade inject` masks loader-provided values in
+sees the secret values: `lade inject` masks provider-resolved values in
 stdout/stderr as `${VAR:-REDACTED}`, so **secrets stay out of the model's
 context window and the chat transcript**. Invoking `lade hook` means an AI agent
 is driving by construction, so no environment detection is needed.

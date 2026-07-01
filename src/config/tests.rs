@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::config::*;
     use tempfile::tempdir;
@@ -142,6 +143,31 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_keys_for_command_uses_saved_user() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  DB_PORT:\n    alice: kubectl://a:6443/ctx/dev/service/postgres/5432\n    \".\": \"plain-default\"\n",
+        )
+        .unwrap();
+        let home = tempdir().unwrap();
+        temp_env::with_var("HOME", Some(home.path()), || {
+            temp_env::with_var("USER", Some("alice"), || {
+                let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let keys = runtime
+                    .block_on(config.collect_keys_for_command("cmd"))
+                    .unwrap();
+                let env_keys = keys.get(&None).cloned().unwrap_or_default();
+                assert!(!env_keys.contains(&"DB_PORT".to_string()));
+            })
+        })
+    }
+
+    #[test]
     fn test_all_secret_sources_collects_values() {
         let dir = tempdir().unwrap();
         std::fs::write(
@@ -153,6 +179,103 @@ mod tests {
         let sources = config.all_secret_sources(&None);
         assert!(sources.contains(&"plain".to_string()));
         assert!(sources.iter().any(|s| s.starts_with("op://")));
+    }
+
+    #[test]
+    fn test_collect_network_bindings_key_types() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  1223: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let bindings = config
+            .collect_network_bindings("cmd", &None)
+            .expect("network bindings");
+        assert_eq!(bindings.len(), 2);
+        assert!(
+            bindings
+                .iter()
+                .any(|binding| binding.key == "1223" && binding.uri.starts_with("kubectl://"))
+        );
+        assert!(
+            bindings
+                .iter()
+                .any(|binding| binding.key == "DB_PORT" && binding.uri.starts_with("kubectl://"))
+        );
+    }
+
+    #[test]
+    fn test_collect_network_bindings_quoted_numeric_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  \"1223\": kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let bindings = config
+            .collect_network_bindings("cmd", &None)
+            .expect("network bindings");
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "1223");
+    }
+
+    #[test]
+    fn test_collect_network_bindings_conflict_same_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n\"cmd2\":\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/6432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let err = config
+            .collect_network_bindings("cmd cmd2", &None)
+            .expect_err("conflict must fail");
+        assert!(err.to_string().contains("conflicting network binding"));
+    }
+
+    #[test]
+    fn test_collect_network_bindings_user_map() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  DB_PORT:\n    alice: kubectl://a:6443/claryo-gcp-01/dev/service/postgres/5432\n    \".\": kubectl://b:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let alice = config
+            .collect_network_bindings("cmd", &Some("alice".to_string()))
+            .expect("alice bindings");
+        assert_eq!(
+            alice[0].uri,
+            "kubectl://a:6443/claryo-gcp-01/dev/service/postgres/5432"
+        );
+        let other = config
+            .collect_network_bindings("cmd", &Some("other".to_string()))
+            .expect("default bindings");
+        assert_eq!(
+            other[0].uri,
+            "kubectl://b:6443/claryo-gcp-01/dev/service/postgres/5432"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_rejects_numeric_non_network_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  1223: plain-secret\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let err = config.collect_hydrate("cmd").await.expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("numeric key '1223' must use a network URI")
+        );
     }
 
     #[test]
