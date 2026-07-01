@@ -21,7 +21,7 @@ runs:
   steps:
     - name: Cache lade binary
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ inputs.out-dir }}
         key: lade-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
