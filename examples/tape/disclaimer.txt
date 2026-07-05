@@ -12,7 +12,12 @@
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 Type "yes" to continue (Ctrl+C to cancel): yes
-Lade loaded: LADE_DEMO_TOKEN.
+
+⠋ Raw: LADE_DEMO_TOKEN
+
+✔︎ Raw: LADE_DEMO_TOKEN 0 ms
+
+✔︎ Raw: LADE_DEMO_TOKEN 0 ms
 
 demo-token
 

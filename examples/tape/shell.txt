@@ -1,0 +1,14 @@
+> ./show-example shell
+^printenv SHELL_VAL:
+  SHELL_VAL: sh://echo hello
+
+> lade inject --no-mask printenv SHELL_VAL
+⠋ sh echo hello: SHELL_VAL
+
+✔︎ sh echo hello: SHELL_VAL 8 ms
+
+✔︎ sh echo hello: SHELL_VAL 8 ms
+
+hello
+
+>

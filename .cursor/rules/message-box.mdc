@@ -1,5 +1,5 @@
 ---
-description: All stderr user-facing messages must go through MessageBox
+description: All stderr/bail user-facing messages must go through MessageBox
 alwaysApply: false
 ---
 

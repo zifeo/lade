@@ -1,0 +1,2 @@
+./show-example shell
+lade inject --no-mask printenv SHELL_VAL

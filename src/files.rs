@@ -2,14 +2,17 @@ use anyhow::{Result, bail};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::{
-    collections::{HashMap, hash_map::Keys},
+    collections::{BTreeMap, HashMap, hash_map::Keys},
     ffi::OsStr,
     fs,
     path::PathBuf,
+    time::Instant,
 };
 use tokio::{signal, time};
 
-use crate::config::{Config, Output};
+use crate::config::{Config, LadeRule, Output};
+use crate::network::{ProviderProgressEvent, ProviderProgressKind, format_timing};
+use crate::provider_progress::ProviderProgressSink;
 
 pub async fn sleep_or_cancel(secs: u64) {
     tokio::select! {
@@ -30,14 +33,81 @@ pub struct LoadedSecrets {
     pub warnings: Vec<String>,
 }
 
-pub async fn hydrate_secrets(config: &Config, command: &str) -> Result<LoadedSecrets> {
-    let (vars, sources, maskable, warnings) = config.collect_hydrate(command).await?;
+/// Hydrates already-collected `rules` against an already-resolved
+/// `saved_user`. Callers should resolve both once per invocation (see
+/// [`Config::collect`]/[`crate::config::saved_user`]) and reuse them here
+/// instead of letting this re-match `command` and re-read the global config.
+pub async fn hydrate_secrets_with_progress(
+    config: &Config,
+    rules: &[(PathBuf, LadeRule)],
+    saved_user: &Option<String>,
+    progress: ProviderProgressSink,
+) -> Result<LoadedSecrets> {
+    let started = Instant::now();
+    let secret_sources = Config::secret_sources_from_rules(rules, saved_user)?;
+    let progress_groups = secret_progress_groups(&secret_sources);
+    for (id, display) in &progress_groups {
+        progress.send(ProviderProgressEvent {
+            id: id.clone(),
+            display: display.clone(),
+            kind: ProviderProgressKind::Connecting,
+        });
+    }
+    let hydrated = config.hydrate_rules(rules, saved_user).await;
+    if let Err(e) = &hydrated {
+        for (id, display) in &progress_groups {
+            progress.send(ProviderProgressEvent {
+                id: id.clone(),
+                display: format_timing(display, started),
+                kind: ProviderProgressKind::Failed,
+            });
+        }
+        return Err(anyhow::anyhow!(e.to_string()));
+    }
+    let (vars, sources, maskable, warnings) = hydrated?;
+    for (id, display) in &progress_groups {
+        progress.send(ProviderProgressEvent {
+            id: id.clone(),
+            display: format_timing(display, started),
+            kind: ProviderProgressKind::Connected,
+        });
+    }
     Ok(LoadedSecrets {
         vars,
         sources,
         maskable,
         warnings,
     })
+}
+
+fn secret_progress_groups(sources: &HashMap<String, String>) -> Vec<(String, String)> {
+    let mut groups = BTreeMap::<String, Vec<String>>::new();
+    for (key, source) in sources {
+        let label = match source.split_once("://") {
+            Some((scheme, rest)) => {
+                let provider = rest.split('/').next().unwrap_or(rest);
+                match scheme {
+                    "op" => format!("1Password {provider}"),
+                    "doppler" => format!("Doppler {provider}"),
+                    "infisical" => format!("Infisical {provider}"),
+                    "vault" => format!("Vault {provider}"),
+                    "passbolt" => format!("Passbolt {provider}"),
+                    "file" => "File".to_string(),
+                    other => format!("{other} {provider}"),
+                }
+            }
+            None => "Raw".to_string(),
+        };
+        groups.entry(label).or_default().push(key.clone());
+    }
+    groups
+        .into_iter()
+        .map(|(label, mut keys)| {
+            keys.sort();
+            let display = format!("{label}: {}", keys.join(", "));
+            (format!("secret|{label}"), display)
+        })
+        .collect()
 }
 
 pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {

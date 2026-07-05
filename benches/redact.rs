@@ -63,13 +63,13 @@ fn match_secrets(density_marker: &str) -> HashMap<String, String> {
 /// Payload: repeating ASCII printable bytes (no embedded secrets for no-match,
 /// or a marker injected every 100 bytes for the match-density case).
 fn payload_no_match(size: usize) -> Vec<u8> {
-    (0..size).map(|i| (b'a' + (i % 26) as u8)).collect()
+    (0..size).map(|i| b'a' + (i % 26) as u8).collect()
 }
 
 fn payload_with_matches(size: usize, marker: &str) -> Vec<u8> {
     let period = 100usize;
     let mut out = Vec::with_capacity(size);
-    let padding: Vec<u8> = (0..period).map(|i| (b'a' + (i % 26) as u8)).collect();
+    let padding: Vec<u8> = (0..period).map(|i| b'a' + (i % 26) as u8).collect();
     let marker_bytes = marker.as_bytes();
     while out.len() < size {
         let remaining = size - out.len();

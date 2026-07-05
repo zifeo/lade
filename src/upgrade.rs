@@ -5,6 +5,7 @@ use semver::Version;
 
 use crate::args::UpgradeCommand;
 use crate::global_config::GlobalConfig;
+use crate::message_box::MessageBox;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionStatus {
@@ -79,14 +80,21 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
 
         match update.build()?.update_extended()? {
             UpdateStatus::UpToDate => {
-                eprintln!("Already up to date!");
+                MessageBox::new()
+                    .info()
+                    .line("Already up to date.")
+                    .print_plain_stderr();
             }
             UpdateStatus::Updated(release) => {
-                eprintln!("Updated successfully to {}!", release.version);
-                eprintln!(
-                    "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
-                    release.name
-                );
+                MessageBox::new()
+                    .info()
+                    .line(format!("Updated successfully to {}.", release.version))
+                    .line("")
+                    .line(format!(
+                        "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
+                        release.name
+                    ))
+                    .print_plain_stderr();
             }
         };
         Ok(())

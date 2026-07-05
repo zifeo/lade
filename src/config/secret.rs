@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use serde::de;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
@@ -22,8 +23,31 @@ pub struct RuleConfig {
 pub struct LadeRule {
     #[serde(rename = ".")]
     pub config: Option<RuleConfig>,
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "deserialize_rule_entries")]
     pub secrets: HashMap<String, LadeSecret>,
+}
+
+fn deserialize_rule_entries<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, LadeSecret>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<serde_yaml::Value, LadeSecret> = HashMap::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|(key, value)| {
+            let key = match key {
+                serde_yaml::Value::String(s) => s,
+                serde_yaml::Value::Number(n) => n.to_string(),
+                other => {
+                    return Err(de::Error::custom(format!(
+                        "invalid key type in rule entries: {other:?}"
+                    )));
+                }
+            };
+            Ok((key, value))
+        })
+        .collect()
 }
 
 pub(super) fn resolve_lade_secret(secret: &LadeSecret, user: &Option<String>) -> Option<String> {

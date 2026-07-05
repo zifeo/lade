@@ -132,6 +132,9 @@ async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 let mut schemes = known_schemes(
                     config
                         .all_secret_sources(&saved_user)
+                        .into_iter()
+                        .chain(config.all_network_sources(&saved_user))
+                        .collect::<Vec<_>>()
                         .iter()
                         .map(|s| s.as_str()),
                 );
@@ -223,12 +226,12 @@ fn print_human(report: &StatusReport) {
     }
     println!("project config: ok ({} rules)", pc.rule_count);
     if pc.vault_clis.checked.is_empty() {
-        println!("vault CLIs: (none referenced in lade.yml)");
+        println!("provider CLIs: (none referenced in lade.yml)");
     } else if pc.vault_clis.warnings.is_empty() {
-        println!("vault CLIs:");
+        println!("provider CLIs:");
         println!("  all checked CLIs meet minimum versions");
     } else {
-        println!("vault CLIs:");
+        println!("provider CLIs:");
         for w in &pc.vault_clis.warnings {
             println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
         }

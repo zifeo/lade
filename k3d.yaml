@@ -1,0 +1,19 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: lade-k3d-shared
+servers: 1
+agents: 0
+options:
+  k3s:
+    extraArgs:
+      - arg: "--disable=traefik"
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: false
+volumes:
+  - volume: ./k3d-manifests.yaml:/var/lib/rancher/k3s/server/manifests/k3d-manifests.yaml
+    nodeFilters:
+      - server:*

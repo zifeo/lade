@@ -7,7 +7,7 @@ use crate::args::Command;
 /// `Hook` — `lade set` / `unset` run inside shell preexec/postexec. The shell
 /// owns the TTY; stdin echo and line editing are unreliable (see
 /// <https://github.com/fish-shell/fish-shell/issues/8484>). stdout is the shell
-/// protocol (`export` / `unset`); stderr stays quiet for nudges.
+/// protocol (`export` / `unset`); stderr may show boxed warnings/errors.
 ///
 /// `Interactive` — `lade inject` with both stdin and stderr attached to a TTY.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

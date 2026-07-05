@@ -3,12 +3,20 @@
   TOKEN: "file://../sources/config.json?query=.token"
 
 > lade printenv TOKEN
-Lade loaded: TOKEN.
+⠋ File: TOKEN
+
+✔︎ File: TOKEN 0 ms
+
+✔︎ File: TOKEN 0 ms
 
 ${TOKEN:-REDACTED}
 
 > lade inject --no-mask printenv TOKEN
-Lade loaded: TOKEN.
+⠋ File: TOKEN
+
+✔︎ File: TOKEN 0 ms
+
+✔︎ File: TOKEN 0 ms
 
 super-secret-token-42
 

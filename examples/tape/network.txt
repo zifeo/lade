@@ -1,0 +1,29 @@
+> ./show-example network
+^curl .*127.0.0.1:18080/.*$:
+  TF_VAR_demo_token: file://../sources/config.json?query=.token
+  18080: kubectl://host.docker.internal:53715/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080
+
+> curl -s --data ping=pong http://127.0.0.1:18080/ | jq -r .body
+⠋ File: TF_VAR_demo_token
+
+✔︎ File: TF_VAR_demo_token 0 ms
+
+✔︎ File: TF_VAR_demo_token 0 ms
+
+⠸ http-echo:8080 on 18080
+
+✔︎ File: TF_VAR_demo_token 0 ms
+
+⠴ http-echo:8080 on 18080
+
+✔︎ File: TF_VAR_demo_token 0 ms
+
+✔︎ http-echo:8080 on 18080 pid=31506 238 ms
+
+✔︎ File: TF_VAR_demo_token 0 ms
+
+✔︎ http-echo:8080 on 18080 pid=31506 238 ms
+
+ping=pong
+
+>
