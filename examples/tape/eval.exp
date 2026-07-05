@@ -1,2 +1,0 @@
-./show-example eval vault.yml
-lade eval vault://127.0.0.1:8200/secret/password/value1

@@ -9,9 +9,21 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Added
+
+- **Ephemeral network providers** ([#168](https://github.com/zifeo/lade/pull/168)): command-scoped local forwards for `kubectl://`, `kubefwd://`, `tsh://`, and `ssh://` URIs. Network entries can export a dynamic local port into an environment variable or bind a fixed local port, and Lade cleans them up after `inject` exits or shell hooks run `unset`.
+- **Shell command secret provider** ([#169](https://github.com/zifeo/lade/pull/169)): `sh://`, `bash://`, `zsh://`, and `fish://` URIs resolve a secret value from a command, then participate in the same masking and hydration flow as other providers.
+- **Lade Cursor skill** ([#168](https://github.com/zifeo/lade/pull/168)): project skill for coding agents that need to run commands requiring secrets or temporary network access.
+- **Network and shell-provider coverage** ([#168](https://github.com/zifeo/lade/pull/168), [#169](https://github.com/zifeo/lade/pull/169)): Docker/k3d integration tests, shell-provider tests, and new README demo recordings.
+
 ### Changed
 
-- **Dropped Windows support**: Lade now targets Unix only (macOS, Linux). The ephemeral port-forward feature relies on POSIX process groups/signals (`setsid`, `killpg`) and interactive masking relies on PTYs, neither of which have a Windows equivalent. The Windows CI matrix, the `x86_64-pc-windows-msvc` release asset, the Windows branch of `installer.sh`, and the Windows step of `setup-lade` (`action.yml`) have been removed. Use WSL or a Linux/macOS host on Windows.
+- **Provider lifecycle** ([#168](https://github.com/zifeo/lade/pull/168)): secret hydration and network acquisition now share a provider registry/progress path, so shell hooks and `lade inject` acquire the same command-scoped resources before running a matched command.
+- **README and architecture docs** ([#168](https://github.com/zifeo/lade/pull/168)): refreshed the product framing around command-scoped secrets, temporary files, private-network access, and AI-agent workflows; added network-provider and shell-provider references.
+
+### Removed
+
+- **Windows support** ([#168](https://github.com/zifeo/lade/pull/168)): Lade now targets Unix only (macOS, Linux). Ephemeral port forwarding relies on POSIX process groups/signals (`setsid`, `killpg`) and interactive masking relies on PTYs. The Windows CI matrix, Windows release asset, Windows installer branch, and Windows `setup-lade` action step were removed. Use WSL or a Linux/macOS host on Windows.
 
 ## [0.15.3] - 2026-06-14
 

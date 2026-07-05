@@ -2,54 +2,101 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
-Lade (/leɪd/) is a tool allowing you to automatically load secrets from your
-preferred vault into environment variables or files. It limits the exposure of
-secrets to the time the command requiring the secrets lives.
+Give shell commands and AI agents temporary access to secrets, files, and
+private networks, then clean everything up automatically.
 
 <p align="center">
   <img src="./examples/tape/main.gif" alt="Demo" />
 </p>
 
-> **Using an AI coding agent?** Lade keeps secrets out of the model's context
-> window. See [Using Lade with coding agents](#using-lade-with-coding-agents).
+Lade (/leɪd/) matches the command you run, loads only what it needs, masks
+provider-resolved secrets from command output, and removes command-scoped files
+and network forwards when the process exits.
+
+## Why Lade?
+
+Modern commands need short-lived access: a deploy needs tokens, a migration needs
+a private database, an AI agent needs to run a tool without seeing the secrets
+behind it. Lade keeps that access scoped to the command instead of your whole
+shell session, CI job, or model context.
+
+- Load secrets from [1Password CLI](https://1password.com/downloads/command-line/),
+  [Infisical](https://infisical.com), [Doppler](https://www.doppler.com),
+  [Vault](https://github.com/hashicorp/vault),
+  [Passbolt](https://www.passbolt.com), local files, shell commands, or inline
+  values.
+- Write temporary JSON/YAML files for tools that expect credentials on disk.
+- Open private network access through `kubectl`, `kubefwd`, Teleport `tsh`, or
+  SSH only while the command runs.
+- Redact provider-resolved secrets from stdout and stderr.
+- Work from shells, CI, Cursor, and Claude Code.
+
+Compatible shells: [Fish](https://fishshell.com),
+[Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io).
+Lade targets Unix systems: macOS and Linux.
 
 ## Getting started
 
-You can download the binary executable from
-[releases page](https://github.com/zifeo/lade/releases) on GitHub, make it
-executable and add it to your `$PATH` or use the method below to automate those
-steps.
-
 ```bash
-# recommended way
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
-
-# or alternative ways via cargo
-cargo install lade --locked
-cargo install --git https://github.com/zifeo/lade --locked
-
-# upgrade
-lade upgrade
-
-# install shell hooks (only required once)
 lade install
 ```
 
-Compatible shells: [Fish](https://fishshell.com),
-[Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io)
+`lade install` adds shell hooks once. After that, matching commands are wrapped
+automatically. Pause and resume hooks with `lade off` and `lade on`.
 
-Compatible vaults: [Infisical](https://infisical.com),
-[1Password CLI](https://1password.com/downloads/command-line/),
-[Doppler](https://www.doppler.com), [Vault](https://github.com/hashicorp/vault),
-[Passbolt](https://www.passbolt.com)
+Alternative installs:
 
-## Features
+```bash
+cargo install lade --locked
+cargo install --git https://github.com/zifeo/lade --locked
+```
+
+Upgrade with:
+
+```bash
+lade upgrade
+```
+
+## How it works
+
+Create a `lade.yml` at your project root. Each top-level key is a regular
+expression matched against the command being run.
+
+```yaml
+"psql .*":
+  DB_USER: op://my.1password.com/eng/postgres/username
+  DB_PORT: kubectl://k8s.example.com:6443/prod/default/service/postgres/5432
+  DATABASE_URL: postgres://${DB_USER}@127.0.0.1:${DB_PORT}/app
+```
+
+Now run the command normally:
+
+```bash
+psql "$DATABASE_URL"
+```
+
+Lade resolves `DB_USER`, opens a local forward for `DB_PORT`, interpolates both
+into `DATABASE_URL`, runs the command, masks resolved secret values from output,
+and cleans up when `psql` exits.
+
+Shell hooks are the recommended path because you keep typing normal commands.
+When hooks are unavailable, prefix the command with `lade` for one-shot
+injection. The explicit form is `lade inject <command>`.
+
+```bash
+lade terraform apply
+lade inject -- terraform apply
+```
+
+## Common patterns
 
 <table>
 <tr>
 <td width="50%">
 
-**Shell hooks** - Run `lade install` once. Secrets load automatically around every matching command; `lade off` / `lade on` to pause.
+**Shell hooks** - Run commands normally. Lade injects access only when the
+command matches `lade.yml`.
 
 </td>
 <td width="50%">
@@ -61,19 +108,21 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Provider resolution & command matching** - Load secret values from Infisical, 1Password, Doppler, Vault, Passbolt, the [file provider](#file-provider) (`file://…?query=…`), or inline values, and combine them with network providers in the same rule. Lade merges every `lade.yml` from the current directory up to the repo root. Each block is a regex on the command you run.
+**Provider resolution** - Match commands and load values from vaults, files, or
+inline config only when needed.
 
 </td>
 <td width="50%">
 
-![Secret resolution](./examples/tape/resolution.gif)
+![Provider resolution](./examples/tape/resolution.gif)
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Manual injection & redaction** - `lade <command>` is the shortcut for one-shot injection when hooks are off or in scripts (explicit form: `lade inject <command>`). Unless `--no-mask` is set, values fetched from secret providers are masked in stdout/stderr as `${VAR_NAME:-REDACTED}`. The [raw provider](#raw-provider) values are not (already plaintext in `lade.yml`).
+**Manual injection** - Use `lade <command>` in scripts, CI, or shells without
+hooks. The explicit form is `lade inject <command>`.
 
 </td>
 <td width="50%">
@@ -85,7 +134,21 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Secrets as files** - `file:` under `.` writes JSON/YAML for the command; Lade removes the file when the command exits.
+**Private networks** - Open a local forward only while the command runs, then
+close it automatically.
+
+</td>
+<td width="50%">
+
+![Private network](./examples/tape/network.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Secrets as files** - Write temporary config files for commands that expect
+credentials on disk.
 
 </td>
 <td width="50%">
@@ -97,7 +160,8 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Per-user secrets** - Map usernames to different values; `lade user` selects who you are (`"."` is the default).
+**Per-user values** - Keep one shared `lade.yml` while developers, CI, and
+environments resolve different values.
 
 </td>
 <td width="50%">
@@ -109,7 +173,8 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**Disclaimer** - Optional `disclaimer:` on a rule; type `yes` before secrets load. In hook mode, consent with `lade approve <code>` (the code is shown in the disclaimer).
+**Human approval** - Add a disclaimer before sensitive commands. Hooks withhold
+access until the approval code is used.
 
 </td>
 <td width="50%">
@@ -121,19 +186,7 @@ Compatible vaults: [Infisical](https://infisical.com),
 <tr>
 <td width="50%">
 
-**`lade eval`** - Resolve one URI and print the value (uses the same providers as `lade.yml`).
-
-</td>
-<td width="50%">
-
-![lade eval](./examples/tape/eval.gif)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Shell command provider** - Execute any command and use its stdout as a secret. Supports `sh://`, `bash://`, `zsh://`, and `fish://`.
+**Shell command provider** - Use stdout from a local command as a secret value.
 
 </td>
 <td width="50%">
@@ -144,269 +197,25 @@ Compatible vaults: [Infisical](https://infisical.com),
 </tr>
 </table>
 
-## Usage
+## AI agents
 
-See [lade.yml](lade.yml) or [examples/tape/lade.yml](examples/tape/lade.yml) for
-configuration samples. Network provider demo transcript:
-[examples/tape/network.txt](examples/tape/network.txt).
+AI coding agents often need to run commands that require secrets, private
+network access, or both. Lade lets the command access what it needs without
+putting secret values in the model context or chat transcript.
 
-### Per-user secrets
+### Recommended usage: transparent hooks
 
-```yaml
-command regex:
-  SAME_SECRET_FOR_EVERYONE: hello_world
-  SECRET_FOR_THE_USER:
-    alex: alex_secret
-    zifeo: zifeo_secret
-    .: default_secret
-```
+Cursor and Claude Code can call `lade hook` before shell commands. When an agent
+runs a matching command, Lade rewrites it through `lade inject`, resolves the
+configured access, and redacts provider-resolved secret values from stdout and
+stderr.
 
-```sh
-lade user              # show currently set user
-lade user tonystark    # set user to tonystark
-lade user --reset      # reset, falling back to the OS user
-```
+The agent keeps using normal commands. Lade handles the sensitive part.
 
-### Outputting as files & interactive disclaimer
-
-Both options live under `.` on a rule.
-
-```yaml
-command regex:
-  .:
-    file: secrets.yml
-    disclaimer: "This command will use your API token."
-  SECRET: op://...
-```
-
-When using shell hooks, disclaimers cannot prompt for input. Instead, Lade withholds secrets and prints a per-command approval code; review the disclaimer and run `lade approve <code>` to execute the command, or re-run it prefixed with `LADE_APPROVE=<code>`.
-
-## Providers
-
-Lade has two first-class provider families used from the same `lade.yml` rule:
-
-- Secret providers resolve values/files into environment variables.
-- Network providers create command-scoped connectivity and clean up automatically.
-
-```yaml
-"psql .*":
-  # secret provider
-  DB_USER: op://my.1password.com/eng/postgres/username
-  # network provider (dynamic local port injected into DB_PORT)
-  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
-  DATABASE_URL: postgres://${DB_USER}@127.0.0.1:${DB_PORT}/app
-```
-
-### Secret providers
-
-Most secret providers use their native CLI. Ensure required binaries are
-installed and authenticated before running commands.
-
-### Infisical provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME
-```
-
-Frequent domain(s): `app.infisical.com`.
-
-Note: the `/api` is automatically added to the DOMAIN. This source currently
-only support a single domain (you cannot be logged into multiple ones).
-
-### 1Password provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: op://DOMAIN/VAULT_NAME/SECRET_NAME/FIELD_NAME
-```
-
-Frequent domain(s): `my.1password.eu`, `my.1password.com` or `my.1password.ca`.
-
-In CI/CD `OP_SERVICE_ACCOUNT_TOKEN` is typically injected directly by the
-platform. For cases where the token itself is stored in another vault, add
-`1password_service_account` to the `.` config block. Lade resolves that URI
-first - using any provider - and injects the result as `OP_SERVICE_ACCOUNT_TOKEN`
-before resolving the remaining `op://` secrets. This enables recursive
-cross-vault lookups: the token lives in Vault or Infisical, and the actual
-secrets live in 1Password.
-
-Per-user mapping lets each developer or environment use a different source for
-the token, or skip it entirely with `null` to fall back on their local `op` session.
-
-```yaml
-command regex:
-  .:
-    # simple: token stored in 1Password itself (requires an active op session)
-    1password_service_account: op://DOMAIN/VAULT/ITEM/FIELD
-    # or per-user: CI pulls token from Vault, others use their local op session
-    # 1password_service_account:
-    #   ci: vault://DOMAIN/MOUNT/KEY/FIELD
-  EXPORTED_ENV_VAR: op://...
-```
-
-### Doppler provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME
-```
-
-Frequent domain(s): `api.doppler.com`.
-
-### Vault provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: vault://DOMAIN/MOUNT/KEY/FIELD
-```
-
-### Passbolt provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: passbolt://DOMAIN/RESOURCE_ID/FIELD
-```
-
-### Shell command provider
-
-Executes a command and uses its stdout as the secret value. Supports `sh://`, `bash://`, `zsh://`, and `fish://`.
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: sh://gcloud auth print-access-token
-```
-
-### File provider
-
-Supports INI, JSON, YAML and TOML files.
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: file://PATH?query=.fields[0].field
-```
-
-`PATH` can be relative to the lade directory, start with `~`/`$HOME` or absolute
-(not recommended when sharing the project with others as they likely have
-different paths).
-
-### Raw provider
-
-```yaml
-command regex:
-  EXPORTED_ENV_VAR: "value"
-```
-
-Escaping a value with the `!` prefix enforces the use of the raw provider and
-double `!!` escapes itself.
-
-### Network providers
-
-Network providers acquire temporary local forwards for the command lifecycle.
-
-```yaml
-"psql .*":
-  # fixed local port
-  1223: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
-  # dynamic local port in env
-  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
-```
-
-Per-user overrides use the same shape as secret providers:
-
-```yaml
-"psql .*":
-  DB_PORT:
-    alice: kubectl://k8s-a.example.com:6443/claryo-az-02/dev/service/postgres/5432
-    ".": kubectl://k8s-b.example.com:6443/claryo-gcp-01/dev/service/postgres/5432
-```
-
-#### kubectl provider
-
-URI format:
-
-- `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>`
-
-Query options:
-
-- `local=HOST:PORT`
-- `pod-running-timeout=<duration>`
-
-#### kubefwd provider
-
-URI format:
-
-- `kubefwd://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<service-port>`
-
-Query options:
-
-- `local=HOST:PORT`
-- `domain=<domain>`
-- `selector=<selector>`
-
-#### tsh provider
-
-URI format:
-
-- `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>`
-
-Query options:
-
-- `local=HOST:PORT`
-
-#### ssh provider
-
-URI format:
-
-- `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>`
-
-Query options:
-
-- `local=HOST:PORT`
-
-## Using Lade with coding agents
-
-Lade is an interceptor, not a data source, so its best agentic story is
-_transparency_: keep secrets out of the model's context window rather than
-teaching the agent a procedure. The right integration depends on whether your
-agent supports `preToolUse` shell hooks.
-
-Cursor agents can also load the concise project skill in
-[`.cursor/skills/lade/SKILL.md`](.cursor/skills/lade/SKILL.md).
-
-```
-Does your agent support preToolUse / PreToolUse shell hooks?
-├─ Yes  (Cursor, Claude Code)
-│        → install .cursor/hooks.json / .claude/settings.json (below).
-│          Lade transparently rewrites matching commands into `lade inject`,
-│          and redacts secrets from the output so they never enter the
-│          agent's context window or chat transcript.
-└─ No   (Gemini CLI, Codex, Copilot CLI, …)
-         → tell the agent, via AGENTS.md, to prefix matching commands with
-           `lade` (e.g. `lade terraform apply`).
-```
-
-### Recommended: preToolUse hooks (transparent)
-
-When the agent runs a shell command, Lade inspects it and — if it matches a
-`lade.yml` rule — rewrites it into `lade inject '<command>'`. The agent never
-sees the secret values: `lade inject` masks provider-resolved values in
-stdout/stderr as `${VAR:-REDACTED}`, so **secrets stay out of the model's
-context window and the chat transcript**. Invoking `lade hook` means an AI agent
-is driving by construction, so no environment detection is needed.
-
-```bash
-lade hook  # reads the tool-call JSON from stdin, writes the platform response to stdout
-```
-
-`lade install` detects the agents present on your machine (a `~/.cursor` or
-`~/.claude` directory) and offers to add the hook to their global config for
-you; `lade uninstall` removes it again. The JSON below is the equivalent manual
-setup (e.g. for a project-local `.cursor/hooks.json` / `.claude/settings.json`).
+`lade install` can add the hook for detected agents. The equivalent project
+configs are:
 
 #### Cursor
-
-[Docs](https://cursor.com/docs/agent/hooks). `.cursor/hooks.json`:
 
 ```json
 {
@@ -416,8 +225,6 @@ setup (e.g. for a project-local `.cursor/hooks.json` / `.claude/settings.json`).
 ```
 
 #### Claude Code
-
-[Docs](https://code.claude.com/docs/en/hooks). `.claude/settings.json`:
 
 ```json
 {
@@ -432,60 +239,145 @@ setup (e.g. for a project-local `.cursor/hooks.json` / `.claude/settings.json`).
 }
 ```
 
-### Fallback: agents without hooks
+Cursor agents can also load the project skill in
+[`.cursor/skills/lade/SKILL.md`](.cursor/skills/lade/SKILL.md).
 
-Gemini CLI, Codex, and Copilot CLI have no `preToolUse` mechanism. Instruct them
-— via an `AGENTS.md` at the repo root — to prefix the commands that need secrets
-with `lade`:
+### Agents without hooks
 
+For agents without shell hooks, add a short instruction to `AGENTS.md`:
+
+```text
+When a command needs access defined in lade.yml, prefix it with lade.
+Example: lade terraform apply
 ```
-When a command needs secrets defined in `lade.yml`, prefix it with `lade`
-(e.g. `lade terraform apply`). Lade injects the secrets and redacts them
-from the command output.
+
+Transparent hooks are preferred because the agent does not need to guess which
+commands match `lade.yml`.
+
+## Configuration reference
+
+Lade has two provider families used from the same `lade.yml` rule:
+
+- Secret providers resolve values into environment variables or temporary files.
+- Network providers create command-scoped connectivity and clean up
+  automatically.
+
+### Secrets
+
+```yaml
+"terraform .*":
+  TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-This is the fallback, not the default: the agent has to guess which commands
-match the `lade.yml` regexes, knowledge that lives in `lade.yml` rather than the
-model. The hook removes that burden entirely.
+Most secret providers use their native CLI. Ensure the required binaries are
+installed and authenticated before running commands. Provider-resolved values
+are masked from command output unless `--no-mask` is set. Inline values are not
+masked because they are already visible in `lade.yml`.
 
-When a matched rule carries a `disclaimer:`, Lade never silently injects
-secrets: it fails closed and prints a per-command approval code that the human
-must copy (`LADE_APPROVE=<code>`), so an agent cannot self-approve with a fixed
-reflex. The machine-readable `lade status --json` output, stable exit codes, and
-how Lade detects an agent are documented in
-[the architecture notes](docs/architecture.md#5-agents-lade-hook--the-direct-path).
+Supported secret providers:
 
-## Continuous integration & containers
+| Provider | URI | Notes |
+| --- | --- | --- |
+| 1Password | `op://DOMAIN/VAULT/ITEM/FIELD` | Uses the 1Password CLI. |
+| Infisical | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | The `/api` suffix is added automatically. |
+| Doppler | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI. |
+| Vault | `vault://DOMAIN/MOUNT/KEY/FIELD` | Uses the Vault CLI. |
+| Passbolt | `passbolt://DOMAIN/RESOURCE_ID/FIELD` | Uses the Passbolt CLI. |
+| File | `file://PATH?query=.fields[0].field` | Supports INI, JSON, YAML, and TOML files. |
+| Shell command | `sh://gcloud auth print-access-token` | Also supports `bash://`, `zsh://`, and `fish://`. |
+| Inline value | `"visible-in-lade-yml"` | Use `!` to force raw values and `!!` to escape `!`. |
 
-The installer runs non-interactively in CI (when `CI=1`, `ASSUME_YES=1`, or
-stdin is not a TTY) and verifies the published SHA256 checksum
-(`<asset>.sha256`): a mismatch aborts, a missing checksum warns and continues.
+Use `lade eval <uri>` to resolve one URI when debugging a provider.
 
-### One-liners
+### Files and disclaimers
+
+Options under `.` configure the matched command itself.
+
+```yaml
+"deploy .*":
+  .:
+    file: secrets.yml
+    disclaimer: "This command will use production credentials."
+  API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
+```
+
+With hooks, disclaimers cannot prompt for input. Lade withholds access and
+prints an approval code; review it, then run `lade approve <code>` or re-run the
+command with `LADE_APPROVE=<code>`.
+
+### Per-user values
+
+```yaml
+"deploy .*":
+  API_TOKEN:
+    alice: op://DOMAIN/VAULT/ALICE_TOKEN/FIELD
+    ci: vault://DOMAIN/MOUNT/ci-token/value
+    .: op://DOMAIN/VAULT/DEFAULT_TOKEN/FIELD
+```
 
 ```bash
-# curl
+lade user
+lade user alice
+lade user --reset
+```
+
+### Networks
+
+Network providers acquire temporary local forwards for the command lifecycle.
+Assign a URI to an environment variable for a dynamic local port, or to a number
+for a fixed local port.
+
+```yaml
+"psql .*":
+  DB_PORT: kubectl://k8s.example.com:6443/prod/default/service/postgres/5432
+  1223: ssh://jump.example.com:22/db.internal/5432
+```
+
+Supported network providers:
+
+| Provider | URI | Query options |
+| --- | --- | --- |
+| `kubectl` | `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>` | `local=HOST:PORT`, `pod-running-timeout=<duration>` |
+| `kubefwd` | `kubefwd://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<service-port>` | `local=HOST:PORT`, `domain=<domain>`, `selector=<selector>` |
+| `tsh` | `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>` | `local=HOST:PORT` |
+| `ssh` | `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>` | `local=HOST:PORT` |
+
+See [examples/tape/lade.yml](examples/tape/lade.yml) and
+[examples/tape/network.txt](examples/tape/network.txt) for more examples.
+
+<details>
+<summary>1Password service account tokens</summary>
+
+In CI, `OP_SERVICE_ACCOUNT_TOKEN` is usually injected directly by the platform.
+If the token itself lives in another vault, add `1password_service_account` to
+the `.` block. Lade resolves that URI first and uses it while resolving
+remaining `op://` secrets.
+
+```yaml
+"deploy .*":
+  .:
+    1password_service_account: vault://DOMAIN/MOUNT/KEY/FIELD
+  API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
+```
+
+</details>
+
+## CI and containers
+
+The installer runs non-interactively in CI when `CI=1`, `ASSUME_YES=1`, or stdin
+is not a TTY.
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
-
-# wget
-wget -qO- https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
-```
-
-Pin a version with `VERSION=x.y.z`; force the downloader with
-`DOWNLOADER=curl|wget`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 VERSION=0.15.1 bash
 ```
 
 ### GitHub Actions
 
 ```yaml
 steps:
-  - uses: zifeo/lade@v0.15.1 # pin to a release tag
+  - uses: zifeo/lade@v0.15.3
     with:
-      version: "0.15.1" # lade version to install (default: "latest")
-      # out-dir: ${{ github.workspace }}/.lade-bin  # added to PATH
+      version: "0.15.3"
   - run: lade inject -- terraform apply
     env:
       OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
@@ -496,17 +388,14 @@ steps:
 ```yaml
 deploy:
   script:
-    - curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 VERSION=0.15.1 bash
+    - curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 VERSION=0.15.3 bash
     - lade inject -- terraform apply
 ```
 
 ### Docker
 
-Compose the static musl binary onto your own image — no build toolchain
-required:
-
 ```dockerfile
-COPY --from=ghcr.io/zifeo/lade:0.15.1 /usr/local/bin/lade /usr/local/bin/lade
+COPY --from=ghcr.io/zifeo/lade:0.15.3 /usr/local/bin/lade /usr/local/bin/lade
 ```
 
 The `ghcr.io/zifeo/lade` image is published for `linux/amd64` and `linux/arm64`
