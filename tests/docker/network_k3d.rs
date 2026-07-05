@@ -2,6 +2,7 @@ use crate::common;
 use predicates::prelude::PredicateBooleanExt;
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
@@ -13,7 +14,8 @@ fn network_k3d_kubectl_provider_lifecycle() {
     let context = format!("k3d-{cluster}");
     let kube_dir = tempdir().expect("kubeconfig dir");
     let kubeconfig = kube_dir.path().join("config").display().to_string();
-    ensure_cluster_context(&cluster, &context, &kubeconfig);
+    let cluster_config = write_cluster_config(kube_dir.path());
+    ensure_cluster_context(&cluster, &context, &kubeconfig, &cluster_config);
     let namespace = "lade-k3d-ns";
     let service = "http-echo";
     let port_local = "18080";
@@ -136,7 +138,7 @@ fn has_cmd(cmd: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str) {
+fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str, config: &Path) {
     if has_kube_context(context, kubeconfig) {
         return;
     }
@@ -148,10 +150,13 @@ fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str) {
         );
         return;
     }
-    let config = cluster_config_path();
     let status = Command::new("k3d")
         .env("KUBECONFIG", kubeconfig)
-        .args(["cluster", "create", "--config", &config, "--wait"])
+        .arg("cluster")
+        .arg("create")
+        .arg("--config")
+        .arg(config)
+        .arg("--wait")
         .output()
         .expect("spawn k3d cluster create");
     assert!(
@@ -165,8 +170,16 @@ fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str) {
     );
 }
 
-fn cluster_config_path() -> String {
-    "k3d.yaml".to_string()
+fn write_cluster_config(dir: &Path) -> PathBuf {
+    let manifest = std::env::current_dir()
+        .expect("current dir")
+        .join("k3d-manifests.yaml");
+    let config = fs::read_to_string("k3d.yaml")
+        .expect("read k3d.yaml")
+        .replace("./k3d-manifests.yaml", &manifest.display().to_string());
+    let path = dir.join("k3d.yaml");
+    fs::write(&path, config).expect("write generated k3d config");
+    path
 }
 
 fn cluster_exists(cluster: &str) -> bool {
