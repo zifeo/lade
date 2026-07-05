@@ -221,9 +221,14 @@ pub fn host_with_port(url: &Url) -> String {
 pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
     #[cfg(unix)]
     {
+        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
+
         let path = dir.path().join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        let mut file = std::fs::File::create(&path).unwrap();
+        write!(file, "#!/bin/sh\n{script_body}\n").unwrap();
+        file.sync_all().unwrap();
+        drop(file);
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 }

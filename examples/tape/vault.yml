@@ -1,3 +1,0 @@
-# tape: eval
-^echo vault:
-  VALUE: vault://127.0.0.1:8200/secret/password/value1
