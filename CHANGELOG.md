@@ -9,6 +9,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-06
+
 ### Added
 
 - **Ephemeral network providers** ([#168](https://github.com/zifeo/lade/pull/168)): command-scoped local forwards for `kubectl://`, `kubefwd://`, `tsh://`, and `ssh://` URIs. Network entries can export a dynamic local port into an environment variable or bind a fixed local port, and Lade cleans them up after `inject` exits or shell hooks run `unset`.
@@ -24,6 +26,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 ### Removed
 
 - **Windows support** ([#168](https://github.com/zifeo/lade/pull/168)): Lade now targets Unix only (macOS, Linux). Ephemeral port forwarding relies on POSIX process groups/signals (`setsid`, `killpg`) and interactive masking relies on PTYs. The Windows CI matrix, Windows release asset, Windows installer branch, and Windows `setup-lade` action step were removed. Use WSL or a Linux/macOS host on Windows.
+
+[0.16.0]: https://github.com/zifeo/lade/compare/v0.15.3...v0.16.0
 
 ## [0.15.3] - 2026-06-14
 
