@@ -1,24 +1,21 @@
-mod common;
-
+use crate::common;
 use predicates::prelude::PredicateBooleanExt;
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
 #[test]
 fn network_k3d_kubectl_provider_lifecycle() {
-    if !is_ready_for_k3d_test() {
-        eprintln!("skip - k3d prerequisites missing");
-        return;
-    }
+    assert!(is_ready_for_k3d_test(), "k3d prerequisites are required");
 
     let cluster = env::var("LADE_K3D_CLUSTER").unwrap_or_else(|_| "lade-k3d-shared".to_string());
     let context = format!("k3d-{cluster}");
-    if !ensure_cluster_context(&context) {
-        eprintln!("skip - k3d context not available: {context}");
-        return;
-    }
+    let kube_dir = tempdir().expect("kubeconfig dir");
+    let kubeconfig = kube_dir.path().join("config").display().to_string();
+    let cluster_config = write_cluster_config(kube_dir.path());
+    ensure_cluster_context(&cluster, &context, &kubeconfig, &cluster_config);
     let namespace = "lade-k3d-ns";
     let service = "http-echo";
     let port_local = "18080";
@@ -27,10 +24,12 @@ fn network_k3d_kubectl_provider_lifecycle() {
 
     run_ok(
         "kubectl",
+        &kubeconfig,
         &["--context", &context, "apply", "-f", "k3d-manifests.yaml"],
     );
     run_ok(
         "kubectl",
+        &kubeconfig,
         &[
             "--context",
             &context,
@@ -45,6 +44,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
 
     let server_url = run_capture(
         "kubectl",
+        &kubeconfig,
         &[
             "--context",
             &context,
@@ -59,7 +59,6 @@ fn network_k3d_kubectl_provider_lifecycle() {
 
     let dir = tempdir().expect("tmp dir");
     let home = tempdir().expect("home dir");
-    let kubeconfig = kubeconfig_path();
     let rule = format!(
         "\"^curl .*http://127.0.0.1:{port_local}/$\":\n  \"{port_local}\": kubectl://{authority}/{context}/{namespace}/service/{service}/{port_remote}\n"
     );
@@ -139,36 +138,85 @@ fn has_cmd(cmd: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn ensure_cluster_context(context: &str) -> bool {
-    if has_kube_context(context) {
-        return true;
+fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str, config: &Path) {
+    if has_kube_context(context, kubeconfig) {
+        return;
     }
-    let config = cluster_config_path();
+    if cluster_exists(cluster) {
+        write_cluster_kubeconfig(cluster, kubeconfig);
+        assert!(
+            has_kube_context(context, kubeconfig),
+            "exported kubeconfig for cluster {cluster}, but context {context} is missing"
+        );
+        return;
+    }
     let status = Command::new("k3d")
-        .args(["cluster", "create", "--config", &config, "--wait"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    if !status.is_ok_and(|s| s.success()) {
-        return false;
-    }
-    has_kube_context(context)
+        .env("KUBECONFIG", kubeconfig)
+        .arg("cluster")
+        .arg("create")
+        .arg("--config")
+        .arg(config)
+        .arg("--wait")
+        .output()
+        .expect("spawn k3d cluster create");
+    assert!(
+        status.status.success(),
+        "k3d cluster create failed: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert!(
+        has_kube_context(context, kubeconfig),
+        "created cluster {cluster}, but context {context} is missing from isolated kubeconfig"
+    );
 }
 
-fn kubeconfig_path() -> String {
-    if let Ok(path) = env::var("KUBECONFIG") {
-        return path;
-    }
-    let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    format!("{home}/.kube/config")
+fn write_cluster_config(dir: &Path) -> PathBuf {
+    let manifest = std::env::current_dir()
+        .expect("current dir")
+        .join("k3d-manifests.yaml");
+    let config = fs::read_to_string("k3d.yaml")
+        .expect("read k3d.yaml")
+        .replace("./k3d-manifests.yaml", &manifest.display().to_string());
+    let path = dir.join("k3d.yaml");
+    fs::write(&path, config).expect("write generated k3d config");
+    path
 }
 
-fn cluster_config_path() -> String {
-    "k3d.yaml".to_string()
+fn cluster_exists(cluster: &str) -> bool {
+    let output = Command::new("k3d")
+        .args(["cluster", "list", "-o", "json"])
+        .output()
+        .expect("spawn k3d cluster list");
+    assert!(
+        output.status.success(),
+        "k3d cluster list failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let clusters: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("parse k3d cluster list JSON");
+    clusters
+        .as_array()
+        .expect("k3d cluster list JSON array")
+        .iter()
+        .any(|c| c.get("name").and_then(serde_json::Value::as_str) == Some(cluster))
 }
 
-fn has_kube_context(context: &str) -> bool {
+fn write_cluster_kubeconfig(cluster: &str, kubeconfig: &str) {
+    let output = Command::new("k3d")
+        .args(["kubeconfig", "get", cluster])
+        .output()
+        .expect("spawn k3d kubeconfig get");
+    assert!(
+        output.status.success(),
+        "k3d kubeconfig get failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::write(kubeconfig, output.stdout).expect("write isolated kubeconfig");
+}
+
+fn has_kube_context(context: &str, kubeconfig: &str) -> bool {
     let output = Command::new("kubectl")
+        .env("KUBECONFIG", kubeconfig)
         .args(["config", "get-contexts", "-o", "name"])
         .output();
     let Ok(output) = output else {
@@ -182,8 +230,9 @@ fn has_kube_context(context: &str) -> bool {
         .any(|line| line.trim() == context)
 }
 
-fn run_ok(cmd: &str, args: &[&str]) {
+fn run_ok(cmd: &str, kubeconfig: &str, args: &[&str]) {
     let output = Command::new(cmd)
+        .env("KUBECONFIG", kubeconfig)
         .args(args)
         .output()
         .expect("spawn command");
@@ -197,8 +246,9 @@ fn run_ok(cmd: &str, args: &[&str]) {
     );
 }
 
-fn run_capture(cmd: &str, args: &[&str]) -> String {
+fn run_capture(cmd: &str, kubeconfig: &str, args: &[&str]) -> String {
     let output = Command::new(cmd)
+        .env("KUBECONFIG", kubeconfig)
         .args(args)
         .output()
         .expect("spawn command");

@@ -26,8 +26,7 @@ runs:
         path: ${{ inputs.out-dir }}
         key: lade-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
-    - name: Install lade (Unix)
-      if: runner.os != 'Windows'
+    - name: Install lade
       shell: bash
       env:
         LADE_VERSION: ${{ inputs.version }}
@@ -46,39 +45,3 @@ runs:
         fi
         echo "$OUT_DIR" >> "$GITHUB_PATH"
         "$OUT_DIR/lade" --version
-
-    # Windows support is best-effort: download and extract the msvc asset.
-    - name: Install lade (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      env:
-        LADE_VERSION: ${{ inputs.version }}
-        OUT_DIR: ${{ inputs.out-dir }}
-      run: |
-        $ErrorActionPreference = "Stop"
-        New-Item -ItemType Directory -Force -Path $env:OUT_DIR | Out-Null
-        $base = "https://github.com/zifeo/lade/releases"
-        if ($env:LADE_VERSION -eq "latest") {
-          $resp = Invoke-WebRequest -Uri "$base/latest" -MaximumRedirection 0 -ErrorAction SilentlyContinue
-          $loc = $resp.Headers.Location
-          $version = ($loc -split "v")[-1]
-        } else {
-          $version = $env:LADE_VERSION -replace "^v", ""
-        }
-        $platform = "x86_64-pc-windows-msvc"
-        $asset = "lade-v$version-$platform"
-        $url = "$base/download/v$version/$asset.tar.gz"
-        $tmp = New-TemporaryFile
-        Invoke-WebRequest -Uri $url -OutFile $tmp
-        try {
-          $sha = (Invoke-WebRequest -Uri "$url.sha256" -UseBasicParsing).Content.Split(" ")[0].Trim()
-          $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()
-          if ($sha -and ($sha -ne $actual)) {
-            throw "Checksum verification failed: expected $sha got $actual"
-          }
-        } catch {
-          Write-Host "Warning: checksum not verified ($_)"
-        }
-        tar -C $env:OUT_DIR -xzf $tmp "lade.exe"
-        Add-Content -Path $env:GITHUB_PATH -Value $env:OUT_DIR
-        & "$env:OUT_DIR/lade.exe" --version

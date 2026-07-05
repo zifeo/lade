@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rustc_hash::FxHashSet;
+use std::future::Future;
 use std::path::Path;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -25,8 +26,8 @@ fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
     message_box::MessageBox::new()
         .error()
         .line("Lade could not get secrets from one loader:")
+        .line("")
         .paragraph(e.to_string())
-        .line("Hint: check whether the loader is connected to the correct vault.")
 }
 
 type SecretBundle = (
@@ -36,6 +37,13 @@ type SecretBundle = (
     FxHashSet<String>,
     Vec<String>,
 );
+
+enum Acquisition<N> {
+    Ready(SecretBundle, N),
+    Failed(anyhow::Error),
+    FailedWithFiles(anyhow::Error, HashMap<PathBuf, HashMap<String, String>>),
+    FailedWithNetwork(anyhow::Error, N),
+}
 
 pub async fn run_inject(
     command: String,
@@ -144,33 +152,75 @@ async fn acquire_secrets_and_network<N: Send + 'static>(
     let provider_progress = start_provider_progress(ctx.stderr_is_terminal);
     let secret_sink = provider_progress.sink();
     let network_sink = provider_progress.sink();
-    let (secret_result, network_result) = tokio::join!(
-        prepare_secrets(config, rules, saved_user, secret_sink),
-        async {
+    let mut provider_progress = Some(provider_progress);
+
+    let acquisition = {
+        let secret_task = prepare_secrets(config, rules, saved_user, secret_sink);
+        let network_task = async {
             let result =
                 tokio::task::spawn_blocking(move || start_network(&network_bindings, network_sink))
                     .await
                     .map_err(|e| anyhow::anyhow!("network task join error: {e}"))?;
             result.map_err(|e| anyhow::anyhow!("network provider error: {e}"))
-        }
-    );
-    let mut provider_progress = Some(provider_progress);
+        };
+        race_provider_tasks(secret_task, network_task).await
+    };
+
     stop_provider_progress(&mut provider_progress);
-    match (secret_result, network_result) {
-        (Ok(secret_result), Ok(network_result)) => (secret_result, network_result),
-        (Ok((_, files, ..)), Err(e)) => {
+    match acquisition {
+        Acquisition::Ready(secret_result, network_result) => (secret_result, network_result),
+        Acquisition::Failed(e) => {
+            handle_provider_failure(ctx, &e).await;
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+        Acquisition::FailedWithFiles(e, files) => {
             let _ = remove_files(&mut files.keys());
             handle_provider_failure(ctx, &e).await;
             std::process::exit(crate::exit_codes::FAILURE);
         }
-        (Err(e), Ok(network_result)) => {
+        Acquisition::FailedWithNetwork(e, network_result) => {
             drop(network_result);
             handle_provider_failure(ctx, &e).await;
             std::process::exit(crate::exit_codes::FAILURE);
         }
-        (Err(e), Err(_)) => {
-            handle_provider_failure(ctx, &e).await;
-            std::process::exit(crate::exit_codes::FAILURE);
+    }
+}
+
+async fn race_provider_tasks<N, S, T>(secret_task: S, network_task: T) -> Acquisition<N>
+where
+    S: Future<Output = Result<SecretBundle>>,
+    T: Future<Output = Result<N>>,
+{
+    tokio::pin!(secret_task);
+    tokio::pin!(network_task);
+
+    tokio::select! {
+        secret_result = &mut secret_task => {
+            match secret_result {
+                Ok(secret_result) => match network_task.await {
+                    Ok(network_result) => Acquisition::Ready(secret_result, network_result),
+                    Err(e) => {
+                        let (_, files, ..) = secret_result;
+                        Acquisition::FailedWithFiles(e, files)
+                    }
+                },
+                Err(e) => {
+                    let network_result = network_task.await;
+                    match network_result {
+                        Ok(network_result) => Acquisition::FailedWithNetwork(e, network_result),
+                        Err(_) => Acquisition::Failed(e),
+                    }
+                }
+            }
+        }
+        network_result = &mut network_task => {
+            match network_result {
+                Ok(network_result) => match secret_task.await {
+                    Ok(secret_result) => Acquisition::Ready(secret_result, network_result),
+                    Err(e) => Acquisition::FailedWithNetwork(e, network_result),
+                },
+                Err(e) => Acquisition::Failed(e),
+            }
         }
     }
 }
@@ -237,6 +287,7 @@ pub async fn handle_set(
             message_box::MessageBox::new()
                 .error()
                 .line("Lade could not resolve network providers:")
+                .line("")
                 .paragraph(e.to_string())
                 .print_stderr();
             std::process::exit(crate::exit_codes::FAILURE);
@@ -268,11 +319,18 @@ pub async fn handle_set(
 
 async fn handle_provider_failure(ctx: &InvocationContext, e: &anyhow::Error) {
     if e.to_string().contains("network provider") {
-        message_box::MessageBox::new()
+        let mut mb = message_box::MessageBox::new()
             .error()
             .line("Lade could not start network providers:")
-            .paragraph(e.to_string())
-            .print_stderr();
+            .line("")
+            .paragraph(e.to_string());
+        if ctx.stderr_is_terminal {
+            mb = mb.line("").line(error_pause_line(ctx));
+        }
+        mb.print_stderr();
+        if ctx.stderr_is_terminal {
+            sleep_or_cancel(5).await;
+        }
         return;
     }
     handle_loader_failure(ctx, e).await;
@@ -280,11 +338,11 @@ async fn handle_provider_failure(ctx: &InvocationContext, e: &anyhow::Error) {
 
 async fn handle_loader_failure(ctx: &InvocationContext, e: &anyhow::Error) {
     let mut mb = loader_error_box(e);
-    if ctx.is_interactive() {
-        mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
+    if ctx.stderr_is_terminal {
+        mb = mb.line("").line(error_pause_line(ctx));
     }
     mb.print_stderr();
-    if ctx.is_interactive() {
+    if ctx.stderr_is_terminal {
         sleep_or_cancel(5).await;
     }
 }
@@ -296,12 +354,22 @@ async fn show_loader_warnings(ctx: &InvocationContext, warnings: &[String]) {
     let mut mb = message_box::MessageBox::new()
         .warning()
         .paragraphs(warnings.iter().map(String::as_str));
-    if ctx.is_interactive() {
-        mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
+    if ctx.stderr_is_terminal {
+        mb = mb
+            .line("")
+            .line("Waiting 2 seconds so this warning is visible...");
     }
     mb.print_stderr();
+    if ctx.stderr_is_terminal {
+        sleep_or_cancel(2).await;
+    }
+}
+
+fn error_pause_line(ctx: &InvocationContext) -> &'static str {
     if ctx.is_interactive() {
-        sleep_or_cancel(5).await;
+        "Waiting 5 seconds before continuing... (Ctrl-C to cancel)"
+    } else {
+        "Waiting 5 seconds before continuing. Press Ctrl-C twice to stop the shell command."
     }
 }
 
@@ -389,6 +457,7 @@ pub async fn handle_approve(
         message_box::MessageBox::new()
             .error()
             .line("The pending disclaimer was for a different directory:")
+            .line("")
             .paragraph(pending.cwd.display().to_string())
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);
@@ -410,4 +479,49 @@ pub async fn handle_approve(
         std::env::set_var(crate::shell::LADE_APPROVE, code);
     }
     run_inject(pending.cmd, opts, ctx, config, shell, &current_dir).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[tokio::test]
+    async fn provider_race_fails_fast_and_does_not_deadlock_progress_renderer() {
+        let mut provider_progress = Some(start_provider_progress(false));
+        let sink = provider_progress.as_ref().unwrap().sink();
+        let started = Instant::now();
+
+        let acquisition = {
+            let secret_task = async move {
+                let _sink = sink;
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok::<_, anyhow::Error>((
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                    FxHashSet::default(),
+                    Vec::new(),
+                ))
+            };
+            let network_task =
+                async { Err::<(), _>(anyhow::anyhow!("network provider error: fast failure")) };
+
+            race_provider_tasks(secret_task, network_task).await
+        };
+
+        assert!(matches!(acquisition, Acquisition::Failed(_)));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "network failure should not wait for the slow secret provider"
+        );
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            tokio::task::spawn_blocking(move || stop_provider_progress(&mut provider_progress)),
+        )
+        .await
+        .expect("progress renderer should not block after fail-fast")
+        .expect("progress renderer join task should complete");
+    }
 }

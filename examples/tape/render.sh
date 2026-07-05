@@ -24,6 +24,16 @@ cleanup() {
 trap cleanup EXIT
 
 prepare_vault() {
+  if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T vault vault status >/dev/null 2>&1; then
+    # Check if a demo secret already exists to avoid re-initializing
+    if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T \
+      -e VAULT_ADDR=http://127.0.0.1:8200 \
+      -e VAULT_TOKEN=token \
+      vault vault kv get secret/password >/dev/null 2>&1; then
+      return
+    fi
+  fi
+
   echo "Starting Vault..."
   if ! docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" up -d vault >/dev/null; then
     echo "Error: Docker not running?" >&2
@@ -49,7 +59,6 @@ prepare_vault() {
 }
 
 prepare_k3d() {
-  echo "Checking K3D..."
   if ! command -v k3d >/dev/null 2>&1; then
     echo "Error: k3d is required for network tape rendering." >&2
     exit 1
@@ -62,16 +71,26 @@ prepare_k3d() {
     echo "Error: Docker must be running for K3D." >&2
     exit 1
   fi
+
+  local needs_apply=0
   if ! kubectl config get-contexts -o name | rg -x "$K3D_CONTEXT" >/dev/null 2>&1; then
+    echo "Creating K3D cluster..."
     k3d cluster create --config "$K3D_CONFIG_FILE" --wait >/dev/null
+    needs_apply=1
   fi
 
   if [ "${LADE_RENDER_RECREATE_K3D:-0}" = "1" ]; then
+    echo "Recreating K3D cluster..."
     k3d cluster delete "$K3D_CLUSTER" >/dev/null 2>&1 || true
     k3d cluster create --config "$K3D_CONFIG_FILE" --wait >/dev/null
+    needs_apply=1
   fi
-  kubectl --context "$K3D_CONTEXT" apply -f "$K3D_MANIFESTS_FILE" >/dev/null
-  kubectl --context "$K3D_CONTEXT" -n lade-k3d-ns rollout status deployment/http-echo --timeout=120s >/dev/null
+
+  if [ "$needs_apply" -eq 1 ] || ! kubectl --context "$K3D_CONTEXT" -n lade-k3d-ns get deployment http-echo >/dev/null 2>&1; then
+    echo "Applying K3D manifests..."
+    kubectl --context "$K3D_CONTEXT" apply -f "$K3D_MANIFESTS_FILE" >/dev/null
+    kubectl --context "$K3D_CONTEXT" -n lade-k3d-ns rollout status deployment/http-echo --timeout=120s >/dev/null
+  fi
 }
 
 sync_network_tape_config() {
@@ -109,8 +128,9 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 }
 
-# Ensure lade is built (already done in retrospective step)
-(cd "$repo_root" && cargo build --release --locked >/dev/null)
+# Ensure lade is built and up to date
+echo "Building lade..."
+(cd "$repo_root" && cargo build --release >/dev/null)
 
 needs_network=0
 needs_vault=1

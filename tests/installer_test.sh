@@ -49,7 +49,7 @@ sha256_of() {
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck "$INSTALLER"; then pass "shellcheck clean"; else fail "shellcheck reported issues"; fi
 else
-  printf "skip - shellcheck not installed\n"
+  fail "shellcheck not installed"
 fi
 
 # --- build fake asset ------------------------------------------------------
@@ -87,8 +87,7 @@ run_installer() {
 # --- 2. positive install (checksum verified) for curl and wget -------------
 for dl in curl wget; do
   if ! command -v "$dl" >/dev/null 2>&1; then
-    printf "skip - %s not installed\n" "$dl"
-    continue
+    fail "$dl not installed"
   fi
   OUT1="$WORK/out1-$dl"
   if run_installer "$OUT1" DOWNLOADER="$dl" >"$WORK/log1-$dl" 2>&1; then

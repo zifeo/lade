@@ -36,6 +36,7 @@ mod infisical;
 mod onepassword;
 mod passbolt;
 mod raw;
+mod sh;
 mod vault;
 
 #[async_trait]
@@ -85,6 +86,30 @@ impl Providers {
         by_scheme.insert("vault", Box::new(vault::Vault::new()));
         by_scheme.insert("passbolt", Box::new(passbolt::Passbolt::new()));
         by_scheme.insert("file", Box::new(file::File::new()));
+        by_scheme.insert(
+            "sh",
+            Box::new(sh::Shell::new(
+                "sh",
+                "sh",
+                "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/sh.html",
+            )),
+        );
+        by_scheme.insert(
+            "bash",
+            Box::new(sh::Shell::new(
+                "bash",
+                "bash",
+                "https://www.gnu.org/software/bash/",
+            )),
+        );
+        by_scheme.insert(
+            "zsh",
+            Box::new(sh::Shell::new("zsh", "zsh", "https://www.zsh.org/")),
+        );
+        by_scheme.insert(
+            "fish",
+            Box::new(sh::Shell::new("fish", "fish", "https://fishshell.com/")),
+        );
         Self {
             by_scheme,
             fallback: Box::new(raw::Raw::new()),

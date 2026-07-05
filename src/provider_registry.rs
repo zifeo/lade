@@ -41,6 +41,14 @@ pub const NETWORK_CLI_SPECS: &[NetworkCliSpec] = &[
         name: "Teleport tsh",
         install_url: "https://goteleport.com/docs/connect-your-client/tsh/",
     },
+    NetworkCliSpec {
+        scheme: "ssh",
+        bin: "ssh",
+        version_args: &["-V"],
+        min_version: "7.6.0",
+        name: "OpenSSH",
+        install_url: "https://www.openssh.com/",
+    },
 ];
 
 pub fn provider_kind_for_scheme(scheme: &str) -> Option<ProviderKind> {

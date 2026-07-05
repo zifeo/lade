@@ -11,6 +11,19 @@ fn has_cmd(cmd: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+fn require_cmds(cmds: &[&str]) {
+    let missing = cmds
+        .iter()
+        .copied()
+        .filter(|cmd| !has_cmd(cmd))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "missing required commands: {}",
+        missing.join(", ")
+    );
+}
+
 fn docker_ready() -> bool {
     Command::new("docker")
         .arg("info")
@@ -42,55 +55,9 @@ fn run_cmd(cmd: &str, args: &[&str]) {
 }
 
 #[test]
-fn shell_scripts_run_from_cargo_test_workspace() {
-    if !(has_cmd("bash") && has_cmd("zsh") && has_cmd("fish")) {
-        eprintln!("skip - bash/zsh/fish are required");
-        return;
-    }
-
-    let path = path_env();
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            "TEST=ok",
-            "bash",
-            "scripts/test.bash",
-        ],
-    );
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            "TEST=ok",
-            "zsh",
-            "scripts/test.zsh",
-        ],
-    );
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            "TEST=ok",
-            "fish",
-            "scripts/test.fish",
-        ],
-    );
-}
-
-#[test]
 fn vault_shell_scripts_run_from_cargo_test_workspace() {
-    if !(has_cmd("bash") && has_cmd("zsh") && has_cmd("fish") && has_cmd("vault")) {
-        eprintln!("skip - bash/zsh/fish/vault are required");
-        return;
-    }
-    if !(has_cmd("docker") && docker_ready()) {
-        eprintln!("skip - docker daemon unavailable");
-        return;
-    }
+    require_cmds(&["bash", "zsh", "fish", "vault", "docker"]);
+    assert!(docker_ready(), "docker daemon is required");
 
     let path = path_env();
     run_cmd(

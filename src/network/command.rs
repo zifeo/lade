@@ -87,6 +87,25 @@ pub(crate) fn build_command(
                 .arg(local_host);
             Ok(cmd)
         }
+        ProviderSpec::Ssh {
+            jump_host,
+            jump_port,
+            remote_host,
+            remote_port,
+        } => {
+            let mut cmd = Command::new("ssh");
+            cmd.arg("-N")
+                .arg("-o")
+                .arg("ExitOnForwardFailure=yes")
+                .arg("-L")
+                .arg(format!(
+                    "{local_host}:{local_port}:{remote_host}:{remote_port}"
+                ))
+                .arg("-p")
+                .arg(jump_port.to_string())
+                .arg(jump_host);
+            Ok(cmd)
+        }
     }
 }
 
@@ -106,6 +125,9 @@ pub(crate) fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
         if !status.success() {
             bail!("tsh kube login failed for cluster '{}'", kube_cluster);
         }
+    }
+    if let ProviderSpec::Ssh { .. } = spec {
+        // No preflight for SSH
     }
     Ok(())
 }

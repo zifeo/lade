@@ -48,6 +48,10 @@ sha2 = "0.11.0"
 hex = "0.4.3"
 url = "2.5"
 
+[features]
+default = ["docker-tests"]
+docker-tests = []
+
 [target.'cfg(target_family = "unix")'.dependencies]
 nix = { version = "0.31.3", features = ["signal", "term"] }
 
@@ -62,3 +66,8 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "redact"
 harness = false
+
+[[test]]
+name = "docker"
+path = "tests/docker/main.rs"
+required-features = ["docker-tests"]

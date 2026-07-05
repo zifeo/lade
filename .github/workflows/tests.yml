@@ -23,26 +23,86 @@ jobs:
       - uses: pre-commit/action@v3.0.1
       - uses: rhysd/actionlint@v1.7.12
 
-  test:
+  test-native:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
           - os: macos-15
-          - os: windows-2025
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-native
+
+      - name: Install dependencies on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash fish zsh
+
+      - name: Install dependencies on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install fish zsh
+
+      - name: Tool versions
+        run: |
+          bash --version
+          fish --version
+          zsh --version
+
+      - name: Run native tests
+        run: |
+          cargo run --no-default-features -- --help
+          cargo test --workspace --locked --no-default-features
+
+  test-docker:
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}
-      - run: |
-          cargo run -- --help
-          cargo test --workspace --locked
+          key: ubuntu-docker
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl fish kubectl wget zsh
+
+      - name: Install k3d
+        run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+      - name: Install Vault CLI
+        run: |
+          wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update && sudo apt-get install -y vault=1.18.3-1
+          vault --version
+
+      - name: Tool versions
+        run: |
+          bash --version
+          fish --version
+          zsh --version
+          docker info
+          k3d version
+          kubectl version --client=true
+          vault --version
+
+      - name: Run Docker tests
+        run: cargo test -p lade --locked --no-default-features --features docker-tests --test docker
 
   installer-unit:
     runs-on: ubuntu-24.04
@@ -54,10 +114,6 @@ jobs:
       - name: Run installer unit test
         run: bash tests/installer_test.sh
 
-  # End-to-end install against real published releases. It needs network and an
-  # existing release, both outside our control, so it is non-blocking
-  # (continue-on-error): a flake or a transient GitHub outage must not block a PR.
-  # The deterministic coverage lives in the required `installer-unit` job above.
   installer-e2e:
     strategy:
       fail-fast: false
@@ -65,73 +121,37 @@ jobs:
         include:
           - os: ubuntu-24.04
           - os: macos-15
-          - os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
-      # Fetch installer.sh from the exact pushed commit (the PR's head) and run
-      # the published curl|bash one-liner against it, installing the latest
-      # release. This validates the script as a user would fetch it for this MR.
+      - name: Install wget on macOS
+        if: runner.os == 'macOS'
+        run: brew install wget
       - name: curl|bash the pushed commit (latest)
         shell: bash
         run: |
-          set -eu
+          set -euo pipefail
           REF="${{ github.event.pull_request.head.sha || github.sha }}"
           REPO="${{ github.event.pull_request.head.repo.full_name || github.repository }}"
           mkdir -p "$HOME/lade-curl"
-          curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/installer.sh" \
-            | CI=1 OUT_DIR="$HOME/lade-curl" bash
-          BIN="$HOME/lade-curl/lade"; [ -x "$BIN" ] || BIN="$BIN.exe"
-          "$BIN" --version
+          for attempt in 1 2; do
+            if curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/installer.sh" \
+              | CI=1 OUT_DIR="$HOME/lade-curl" bash; then
+              break
+            fi
+            test "$attempt" -eq 1
+          done
+          "$HOME/lade-curl/lade" --version
       - name: wget|bash the checked-out installer (latest)
-        if: runner.os != 'Windows'
         shell: bash
         run: |
-          set -eu
-          command -v wget >/dev/null 2>&1 || { echo "wget unavailable, skipping"; exit 0; }
+          set -euo pipefail
           mkdir -p "$HOME/lade-wget"
-          CI=1 DOWNLOADER=wget OUT_DIR="$HOME/lade-wget" sh ./installer.sh
+          for attempt in 1 2; do
+            if CI=1 DOWNLOADER=wget OUT_DIR="$HOME/lade-wget" sh ./installer.sh; then
+              break
+            fi
+            test "$attempt" -eq 1
+          done
           "$HOME/lade-wget/lade" --version
-
-  test-scripts:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ubuntu-scripts
-
-      - name: Set up Docker
-        uses: docker/setup-docker-action@v5
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash fish zsh kubectl
-
-      - name: Install k3d
-        run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-      - name: bash, fish, zsh version
-        run: |
-          echo ""
-          bash --version
-          echo ""
-          fish --version
-          echo ""
-          zsh --version
-
-      - name: Install Vault CLI
-        run: |
-          wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update && sudo apt-get install -y vault=1.18.3-1
-          vault --version
-
-      - name: Run workspace tests (includes shell/vault/k3d)
-        run: cargo test --workspace --locked -- --nocapture

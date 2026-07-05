@@ -87,11 +87,6 @@ if [ "${PLATFORM:-x}" = "x" ]; then
     *"64") PLATFORM='x86_64-apple-darwin' ;;
     esac
     ;;
-  "msys"* | "cygwin"* | "mingw"* | *"_nt"* | "win"*)
-    case "$MACHINE" in
-    *"64") PLATFORM='x86_64-pc-windows-msvc' ;;
-    esac
-    ;;
   esac
   if [ "${PLATFORM:-x}" = "x" ]; then
     cat >&2 <<EOF
@@ -105,7 +100,6 @@ To continue with installation, please choose from one of the following values:
 - x86_64-unknown-linux-musl
 - aarch64-apple-darwin
 - x86_64-apple-darwin
-- x86_64-pc-windows-msvc
 
 Then set the PLATFORM environment variable, and re-run this script:
 $ curl -fsSL $INSTALLER_URL | PLATFORM=x86_64-unknown-linux-musl bash
@@ -114,10 +108,6 @@ EOF
   fi
   printf "Detected platform: %s\n" "$PLATFORM"
 fi
-
-case "$PLATFORM" in
-*-pc-windows-*) EXE="$NAME.exe" ;;
-esac
 
 printf "Detected version: %s\n" "$VERSION"
 ASSET="$NAME-v$VERSION-$PLATFORM"
