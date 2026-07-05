@@ -130,6 +130,18 @@ Compatible vaults: [Infisical](https://infisical.com),
 
 </td>
 </tr>
+<tr>
+<td width="50%">
+
+**Shell command provider** - Execute any command and use its stdout as a secret. Supports `sh://`, `bash://`, `zsh://`, and `fish://`.
+
+</td>
+<td width="50%">
+
+![Shell command provider](./examples/tape/shell.gif)
+
+</td>
+</tr>
 </table>
 
 ## Usage
@@ -256,6 +268,15 @@ command regex:
   EXPORTED_ENV_VAR: passbolt://DOMAIN/RESOURCE_ID/FIELD
 ```
 
+### Shell command provider
+
+Executes a command and uses its stdout as the secret value. Supports `sh://`, `bash://`, `zsh://`, and `fish://`.
+
+```yaml
+command regex:
+  EXPORTED_ENV_VAR: sh://gcloud auth print-access-token
+```
+
 ### File provider
 
 Supports INI, JSON, YAML and TOML files.
@@ -282,7 +303,6 @@ double `!!` escapes itself.
 ### Network providers
 
 Network providers acquire temporary local forwards for the command lifecycle.
-Current implementation is **TCP only**.
 
 ```yaml
 "psql .*":
@@ -334,12 +354,25 @@ Query options:
 
 - `local=HOST:PORT`
 
+#### ssh provider
+
+URI format:
+
+- `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>`
+
+Query options:
+
+- `local=HOST:PORT`
+
 ## Using Lade with coding agents
 
 Lade is an interceptor, not a data source, so its best agentic story is
-*transparency*: keep secrets out of the model's context window rather than
+_transparency_: keep secrets out of the model's context window rather than
 teaching the agent a procedure. The right integration depends on whether your
 agent supports `preToolUse` shell hooks.
+
+Cursor agents can also load the concise project skill in
+[`.cursor/skills/lade/SKILL.md`](.cursor/skills/lade/SKILL.md).
 
 ```
 Does your agent support preToolUse / PreToolUse shell hooks?

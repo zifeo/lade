@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 mod kubectl;
 mod kubefwd;
+mod ssh;
 mod tsh;
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,12 @@ pub enum ProviderSpec {
         name: String,
         remote_port: u16,
     },
+    Ssh {
+        jump_host: String,
+        jump_port: u16,
+        remote_host: String,
+        remote_port: u16,
+    },
 }
 
 pub trait NetworkProvider: Sync {
@@ -63,6 +70,7 @@ impl NetworkProviders {
             Box::new(kubectl::KubectlProvider),
             Box::new(kubefwd::KubefwdProvider),
             Box::new(tsh::TshProvider),
+            Box::new(ssh::SshProvider),
         ];
         let by_scheme = providers
             .into_iter()

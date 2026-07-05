@@ -94,24 +94,26 @@ pub async fn check_schemes(schemes: Vec<String>) -> Result<Vec<CompatWarning>> {
 fn render(warnings: &[CompatWarning]) {
     let mut box_ = MessageBox::new()
         .warning()
-        .line("Some provider CLIs are older than the version Lade is tested against:");
+        .line("Some provider CLIs are older than the version Lade is tested against:")
+        .line("");
     for w in warnings {
         box_ = box_.paragraph(format!(
             "{} {} is below the supported {}. Update it if you hit issues: {}",
             w.name, w.found, w.min, w.install_url
         ));
     }
-    box_.line("Run `lade status` for details.").print_stderr();
+    box_.line("")
+        .line("Run `lade status` for details.")
+        .print_stderr();
 }
 
 fn parse_version(output: &str) -> Option<Version> {
-    let re = Regex::new(r"(\d+)\.(\d+)\.(\d+)").expect("valid version regex");
+    let re = Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").expect("valid version regex");
     let captures = re.captures(output)?;
-    Version::parse(&format!(
-        "{}.{}.{}",
-        &captures[1], &captures[2], &captures[3]
-    ))
-    .ok()
+    let major = &captures[1];
+    let minor = &captures[2];
+    let patch = captures.get(3).map(|m| m.as_str()).unwrap_or("0");
+    Version::parse(&format!("{major}.{minor}.{patch}")).ok()
 }
 
 fn check_network_compat(schemes: &[String]) -> Vec<CompatWarning> {

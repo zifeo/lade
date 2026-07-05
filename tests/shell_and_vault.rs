@@ -11,6 +11,19 @@ fn has_cmd(cmd: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+fn require_cmds(cmds: &[&str]) {
+    let missing = cmds
+        .iter()
+        .copied()
+        .filter(|cmd| !has_cmd(cmd))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "missing required commands: {}",
+        missing.join(", ")
+    );
+}
+
 fn docker_ready() -> bool {
     Command::new("docker")
         .arg("info")
@@ -43,10 +56,7 @@ fn run_cmd(cmd: &str, args: &[&str]) {
 
 #[test]
 fn shell_scripts_run_from_cargo_test_workspace() {
-    if !(has_cmd("bash") && has_cmd("zsh") && has_cmd("fish")) {
-        eprintln!("skip - bash/zsh/fish are required");
-        return;
-    }
+    require_cmds(&["bash", "zsh", "fish"]);
 
     let path = path_env();
     run_cmd(
@@ -83,14 +93,8 @@ fn shell_scripts_run_from_cargo_test_workspace() {
 
 #[test]
 fn vault_shell_scripts_run_from_cargo_test_workspace() {
-    if !(has_cmd("bash") && has_cmd("zsh") && has_cmd("fish") && has_cmd("vault")) {
-        eprintln!("skip - bash/zsh/fish/vault are required");
-        return;
-    }
-    if !(has_cmd("docker") && docker_ready()) {
-        eprintln!("skip - docker daemon unavailable");
-        return;
-    }
+    require_cmds(&["bash", "zsh", "fish", "vault", "docker"]);
+    assert!(docker_ready(), "docker daemon is required");
 
     let path = path_env();
     run_cmd(
@@ -125,5 +129,25 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
             "fish",
             "tests/test_vault.fish",
         ],
+    );
+}
+
+#[tokio::test]
+async fn test_sh_provider_integration() {
+    let mut providers = lade_sdk::Providers::new();
+    providers
+        .add("sh://echo integration-test".to_string())
+        .unwrap();
+    let (hydration, _) = providers
+        .resolve(
+            std::path::Path::new("."),
+            &std::collections::HashMap::new(),
+            &lade_sdk::Warnings::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        hydration.get("sh://echo integration-test").unwrap(),
+        "integration-test"
     );
 }

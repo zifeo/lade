@@ -8,17 +8,14 @@ use tempfile::tempdir;
 
 #[test]
 fn network_k3d_kubectl_provider_lifecycle() {
-    if !is_ready_for_k3d_test() {
-        eprintln!("skip - k3d prerequisites missing");
-        return;
-    }
+    assert!(is_ready_for_k3d_test(), "k3d prerequisites are required");
 
     let cluster = env::var("LADE_K3D_CLUSTER").unwrap_or_else(|_| "lade-k3d-shared".to_string());
     let context = format!("k3d-{cluster}");
-    if !ensure_cluster_context(&context) {
-        eprintln!("skip - k3d context not available: {context}");
-        return;
-    }
+    assert!(
+        ensure_cluster_context(&context),
+        "k3d context not available: {context}"
+    );
     let namespace = "lade-k3d-ns";
     let service = "http-echo";
     let port_local = "18080";

@@ -1,13 +1,14 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::config::NetworkBinding;
 use crate::network::command::{build_command, ensure_provider_preflight};
 use crate::network::parse::{parse_binding, reconcile_local_port};
 use crate::network::process::{
-    RunningForward, configure_child_process, stop_network_pids_list, wait_child_ready,
+    ChildOutputFiles, RunningForward, configure_child_process, stop_network_pids_list,
+    wait_child_ready,
 };
 use crate::network::progress::{ProviderProgressEvent, ProviderProgressKind, format_timing};
 use crate::network::types::{
@@ -206,9 +207,11 @@ fn acquire_detached_binding(
         started,
     } = prepare_binding(binding, &progress)?;
     configure_child_process(&mut cmd);
-    let mut child = match cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+    let logs = ChildOutputFiles::capture(&mut cmd)?;
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
+            logs.cleanup();
             send_failed(&progress, progress_id, display, started);
             return Err(e.into());
         }
@@ -216,9 +219,15 @@ fn acquire_detached_binding(
     if let Err(e) = wait_child_ready(&mut child, &local_host, local_port, DEFAULT_READY_TIMEOUT) {
         let _ = child.kill();
         let _ = child.wait();
+        let log_text = logs.read_text();
+        logs.cleanup();
         send_failed(&progress, progress_id, display, started);
-        return Err(e);
+        if log_text.is_empty() {
+            return Err(e);
+        }
+        return Err(anyhow::anyhow!("{e}\n{log_text}"));
     }
+    logs.cleanup();
     let pid = child.id();
     let env_entry = env_entry_for(&parsed.target, local_port);
     let connected = format!(
@@ -259,6 +268,11 @@ fn connection_label(spec: &ProviderSpec, local_host: &str, local_port: u16) -> S
         ProviderSpec::Tsh {
             name, remote_port, ..
         } => format!("{name}:{remote_port} on {local}"),
+        ProviderSpec::Ssh {
+            remote_host,
+            remote_port,
+            ..
+        } => format!("{remote_host}:{remote_port} on {local}"),
     }
 }
 
@@ -267,6 +281,7 @@ fn provider_label(spec: &ProviderSpec) -> &'static str {
         ProviderSpec::Kubectl { .. } => "kubectl forward",
         ProviderSpec::Kubefwd { .. } => "kubefwd forward",
         ProviderSpec::Tsh { .. } => "tsh forward",
+        ProviderSpec::Ssh { .. } => "ssh forward",
     }
 }
 

@@ -12,7 +12,7 @@ sequenceDiagram
     participant Shell as Shell (Bash/Zsh/Fish)
     participant Lade as Lade CLI
     participant Config as lade.yml
-    participant Providers as Vaults (1Password, etc.)
+    participant Providers as Providers
 
     User->>Shell: Types `my-command`
     Shell->>Lade: Pre-exec hook: `lade set my-command`
@@ -20,9 +20,9 @@ sequenceDiagram
     Config-->>Lade: Matching rules & URIs
 
     alt Command matches a rule
-        Lade->>Providers: Fetch secrets (concurrently)
-        Providers-->>Lade: Raw secret values
-        Lade-->>Shell: Returns `export VAR=secret`
+        Lade->>Providers: Fetch secrets + acquire network providers concurrently
+        Providers-->>Lade: Secret values + local network bindings
+        Lade-->>Shell: Returns `export VAR=secret` and network metadata
         Shell->>Shell: Evaluates exports
     else No match
         Lade-->>Shell: Returns empty string
@@ -30,7 +30,7 @@ sequenceDiagram
 
     Shell->>Shell: Executes `my-command`
     Shell->>Lade: Post-exec hook: `lade unset my-command`
-    Lade-->>Shell: Returns `unset VAR`
+    Lade-->>Shell: Stops detached network providers and returns `unset VAR`
     Shell->>Shell: Cleans up environment
 ```
 
@@ -52,14 +52,19 @@ flowchart TD
 
     Match -- No --> Skip[Skip rule]
 
-    Loaders --> |op:// vault:// ...| SecretProviders[Secret Providers]
-    Loaders --> |kubectl:// kubefwd:// tsh://| NetworkProviders[Network Providers]
+    Loaders --> |op:// vault:// sh:// ...| SecretProviders[Secret Providers]
+    Loaders --> |kubectl:// kubefwd:// tsh:// ssh://| NetworkProviders[Network Providers]
 ```
 
 Lade keeps two provider families under one registry:
 
 - **Secret providers** resolve values (env/file hydration).
-- **Network providers** acquire temporary local port bindings for the wrapped command.
+- **Network providers** acquire temporary local port bindings for the command.
+
+For shell hooks, `lade set` must finish both secret hydration and network
+acquisition before it can print the shell exports. When a matching rule contains
+network providers, the visible pre-command latency is therefore the slower of
+secret resolution and tunnel readiness.
 
 ## 3. Execution, Network Acquire & Masking (`lade <command>` / `lade inject <command>`)
 
@@ -92,15 +97,13 @@ sequenceDiagram
     Lade->>Lade: Release network providers + temp files
 ```
 
-Network provider constraints:
+Network provider notes:
 
-- `kubectl port-forward` paths are TCP-only in Kubernetes today.
-- Readiness checks validate local TCP listener availability before running the wrapped command.
 - URI parsing is strict for known network schemes; malformed URIs fail rather than falling back to raw values.
 
 ## 4. UI policy (Hook vs Interactive)
 
-Shell hooks call `lade set` / `lade unset` inside **preexec/postexec**. At that moment the shell still owns the TTY: input echo and line editing are unreliable (see [fish-shell#8484](https://github.com/fish-shell/fish-shell/issues/8484)). Lade therefore treats hook invocations as **Hook** mode: no nudges, no prompts, no timed waits on stderr. stdout remains the shell protocol (`export` / `unset`).
+Shell hooks call `lade set` / `lade unset` inside **preexec/postexec**. At that moment the shell still owns the TTY: input echo and line editing are unreliable (see [fish-shell#8484](https://github.com/fish-shell/fish-shell/issues/8484)). Lade therefore treats hook invocations as **Hook** mode: no prompts and no optional nudges. stdout remains the shell protocol (`export` / `unset`). Warnings and errors still render on stderr; when stderr is a terminal, Lade pauses briefly after warnings and longer after errors so a user can see the message. In hook mode, the message tells the user to press Ctrl-C twice to stop the pending shell command; in inject mode, one Ctrl-C cancels Lade.
 
 **Interactive** mode applies only to injected execution (`lade <command>` or `lade inject <command>`) when **both** stdin and stderr are TTYs. That is the path where disclaimers, provider warnings, compat notices, upgrade reminders, and `Lade loaded` may appear.
 
@@ -108,9 +111,9 @@ Shell hooks call `lade set` / `lade unset` inside **preexec/postexec**. At that 
 flowchart TD
     Start[lade invocation] --> Ctx[InvocationContext::from_command]
     Ctx --> Mode{UiMode}
-    Mode -->|Hook| Silent[No nudges on stderr]
+    Mode -->|Hook| HookUi[No prompts; stderr boxes may pause]
     Mode -->|Interactive| Nudges[Boxes prompts waits allowed]
-    Silent --> Stdout[stdout = export / unset / value]
+    HookUi --> Stdout[stdout = export / unset / value]
     Nudges --> Inject[lade command/inject + passive upgrade hint]
     Status[lade status] --> Report[Active checks to stdout]
 ```
@@ -118,16 +121,17 @@ flowchart TD
 | Surface | Hook | Interactive |
 |---------|------|-------------|
 | Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` also emits `LADE_PENDING` | box + type `yes` |
-| Provider warnings + 5s wait | silent | box + wait |
+| Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
 | Upgrade reminder | silent | passive info box after inject |
-| Loader error | one-line stderr + exit 1 | error box + wait + exit 1 |
-| Network providers | unsupported (no supervision) | acquired before child command, released on exit |
+| Loader/network error | error box + 5s wait when stderr is a TTY + exit 1 | error box + 5s wait + exit 1 |
+| Network providers | acquired by `lade set` as detached processes, stopped by `lade unset` | acquired before child command, released on exit |
 
 Secret resolution (`hydrate_secrets`) is UI-free. Presentation
-(`prepare_secrets`) applies the policy above. Network providers are acquired in
-the inject path only.
+(`prepare_secrets`) applies the policy above. Network providers are acquired
+alongside secrets on both the shell-hook and inject paths; hook mode stores
+detached provider PIDs in the shell environment so `lade unset` can stop them.
 
 ### Disclaimer Flow
 
