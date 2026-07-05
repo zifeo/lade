@@ -3,7 +3,19 @@
   TOKEN: vault://127.0.0.1:8200/secret/password/value1
 
 > echo token $TOKEN
-Lade loaded: TOKEN.
+⠋ Vault 127.0.0.1:8200: TOKEN
+
+⠙ Vault 127.0.0.1:8200: TOKEN
+
+⠸ Vault 127.0.0.1:8200: TOKEN
+
+⠴ Vault 127.0.0.1:8200: TOKEN
+
+⠦ Vault 127.0.0.1:8200: TOKEN
+
+✔︎ Vault 127.0.0.1:8200: TOKEN 558 ms
+
+✔︎ Vault 127.0.0.1:8200: TOKEN 558 ms
 
 token itsasecret
 
@@ -12,7 +24,11 @@ token itsasecret
   FROM_FILE: file://../sources/config.json?query=.format
 
 > printenv FROM_FILE
-Lade loaded: FROM_FILE.
+⠋ File: FROM_FILE
+
+✔︎ File: FROM_FILE 1 ms
+
+✔︎ File: FROM_FILE 1 ms
 
 json
 

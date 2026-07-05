@@ -9,6 +9,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Changed
+
+- **Dropped Windows support**: Lade now targets Unix only (macOS, Linux). The ephemeral port-forward feature relies on POSIX process groups/signals (`setsid`, `killpg`) and interactive masking relies on PTYs, neither of which have a Windows equivalent. The Windows CI matrix, the `x86_64-pc-windows-msvc` release asset, the Windows branch of `installer.sh`, and the Windows step of `setup-lade` (`action.yml`) have been removed. Use WSL or a Linux/macOS host on Windows.
+
 ## [0.15.3] - 2026-06-14
 
 ### Changed

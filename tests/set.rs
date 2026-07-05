@@ -1,4 +1,5 @@
 mod common;
+use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use tempfile::tempdir;
 
@@ -17,7 +18,10 @@ fn test_set_raw_values() {
         .assert()
         .success()
         .stdout(predicates::str::contains("export SECRET='mysecret'"))
-        .stderr(predicates::str::is_empty());
+        .stderr(
+            predicates::str::contains("Lade connecting: Raw: SECRET")
+                .and(predicates::str::contains("Lade connected: Raw: SECRET")),
+        );
 }
 
 #[test]

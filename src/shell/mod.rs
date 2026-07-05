@@ -12,6 +12,7 @@ use sysinfo::{System, get_current_pid};
 pub const LADE_PENDING: &str = "LADE_PENDING";
 pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
 pub const LADE_APPROVE: &str = "LADE_APPROVE";
+pub const LADE_NETWORK_PIDS: &str = "LADE_NETWORK_PIDS";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingPayload {
@@ -112,6 +113,10 @@ impl Shell {
 
     pub fn clear_pending_line(&self) -> String {
         self.unset(vec![LADE_PENDING.to_string()])
+    }
+
+    pub fn clear_network_line(&self) -> String {
+        self.unset(vec![LADE_NETWORK_PIDS.to_string()])
     }
 }
 

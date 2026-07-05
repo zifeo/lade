@@ -2,10 +2,12 @@ set -e
 
 export LADE_VAULT_HTTP=1
 
-docker compose up -d
+if ! curl -s http://127.0.0.1:8200/v1/sys/health > /dev/null; then
+  docker compose up -d vault
+fi
 
 echo "Checking Vault accessibility..."
-for i in {1..100}; do
+for _ in {1..100}; do
   if curl -s http://127.0.0.1:8200/v1/sys/health > /dev/null; then
     echo "Vault is accessible."
     break

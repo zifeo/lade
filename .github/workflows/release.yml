@@ -78,10 +78,6 @@ jobs:
             target: aarch64-unknown-linux-musl
             suffix: ""
             build_cmd: cross
-          - os: windows-2025
-            target: x86_64-pc-windows-msvc
-            suffix: ".exe"
-            build_cmd: cargo
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

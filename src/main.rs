@@ -15,7 +15,10 @@ mod hook;
 mod inject;
 mod masking;
 mod message_box;
+mod network;
 mod prompt;
+mod provider_progress;
+mod provider_registry;
 mod redact;
 mod shell;
 mod status;
@@ -99,7 +102,10 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Install => {
-            eprintln!("Auto launcher installed in {}", shell.install()?);
+            message_box::MessageBox::new()
+                .info()
+                .line(format!("Auto launcher installed in {}", shell.install()?))
+                .print_plain_stderr();
             // Computed here, not from `ctx.is_interactive()`: Install maps to Hook mode,
             // so `is_interactive()` is always false even on a real terminal.
             let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
@@ -107,7 +113,13 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Uninstall => {
-            eprintln!("Auto launcher uninstalled in {}", shell.uninstall()?);
+            message_box::MessageBox::new()
+                .info()
+                .line(format!(
+                    "Auto launcher uninstalled in {}",
+                    shell.uninstall()?
+                ))
+                .print_plain_stderr();
             agent_hooks::uninstall()?;
             return Ok(());
         }
@@ -116,23 +128,35 @@ async fn run() -> Result<()> {
         Command::User { username, reset } => {
             if reset {
                 GlobalConfig::update(|c| c.user = None).await?;
-                eprintln!("Successfully reset lade user");
+                message_box::MessageBox::new()
+                    .info()
+                    .line("Successfully reset lade user")
+                    .print_plain_stderr();
                 return Ok(());
             }
             if let Some(user) = username {
                 if user.is_empty() {
-                    eprintln!("Error: No user provided");
+                    message_box::MessageBox::new()
+                        .error()
+                        .line("No user provided.")
+                        .print_stderr();
                     std::process::exit(exit_codes::FAILURE);
                 }
                 GlobalConfig::update(|c| c.user = Some(user.clone())).await?;
-                eprintln!("Successfully set user to {}", user);
+                message_box::MessageBox::new()
+                    .info()
+                    .line(format!("Successfully set user to {user}"))
+                    .print_plain_stderr();
                 return Ok(());
             }
             let config = GlobalConfig::load().await?;
             if let Some(user) = config.user {
                 println!("{}", user);
             } else {
-                eprintln!("No user set. Lade will use the current OS user.");
+                message_box::MessageBox::new()
+                    .info()
+                    .line("No user set. Lade will use the current OS user.")
+                    .print_plain_stderr();
             }
             return Ok(());
         }
@@ -157,7 +181,9 @@ async fn run() -> Result<()> {
             message_box::MessageBox::new()
                 .error()
                 .line("Lade could not parse a config file:")
+                .line("")
                 .paragraph(e.to_string())
+                .line("")
                 .line("Hint: check the file format.")
                 .print_stderr();
             std::process::exit(exit_codes::FAILURE);
@@ -169,10 +195,14 @@ async fn run() -> Result<()> {
     match command {
         Command::Hook => {
             if ctx.stdin_is_terminal {
-                eprintln!("Error: `lade hook` is meant to be invoked automatically by AI agents.");
-                eprintln!(
-                    "It reads a JSON payload from stdin. To use it manually, pipe JSON into it."
-                );
+                message_box::MessageBox::new()
+                    .error()
+                    .line("`lade hook` is meant to be invoked automatically by AI agents.")
+                    .line("")
+                    .line(
+                        "It reads a JSON payload from stdin. To use it manually, pipe JSON into it.",
+                    )
+                    .print_stderr();
                 std::process::exit(exit_codes::FAILURE);
             }
             let mut input = String::new();
@@ -182,20 +212,32 @@ async fn run() -> Result<()> {
         }
         Command::Inject(opts) => {
             let command = opts.commands.join(" ");
-            inject_exit_code = map_disclaimer_exit(
+            inject_exit_code = match map_disclaimer_exit(
                 run_inject(command, opts, &ctx, &config, &shell, &current_dir).await,
-            )?;
+            ) {
+                Ok(code) => code,
+                Err(e) => {
+                    report_inject_error(&e);
+                    std::process::exit(exit_codes::FAILURE);
+                }
+            };
         }
         Command::Approve { code } => {
-            inject_exit_code = map_disclaimer_exit(
+            inject_exit_code = match map_disclaimer_exit(
                 handle_approve(&ctx, &config, &shell, current_dir, code).await,
-            )?;
+            ) {
+                Ok(code) => code,
+                Err(e) => {
+                    report_inject_error(&e);
+                    std::process::exit(exit_codes::FAILURE);
+                }
+            };
         }
         Command::Set(EvalCommand { commands }) => {
             handle_set(&ctx, &config, &shell, commands, current_dir).await?;
         }
         Command::Unset(EvalCommand { commands }) => {
-            handle_unset(&shell, &config, commands)?;
+            handle_unset(&shell, &config, commands).await?;
         }
         _ => unreachable!(),
     }
@@ -233,6 +275,17 @@ fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
         }
         other => other,
     }
+}
+
+fn report_inject_error(e: &anyhow::Error) {
+    message_box::MessageBox::new()
+        .error()
+        .line("Lade could not prepare command execution:")
+        .line("")
+        .paragraph(e.to_string())
+        .line("")
+        .line("Hint: verify provider URI format and local CLI access.")
+        .print_stderr();
 }
 
 #[cfg(test)]

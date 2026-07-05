@@ -17,7 +17,10 @@ WAIT_AFTER = 0.5
 def record(output_cast, scenario_file, common_file="common.exp", width=80, height=24):
     name = os.path.basename(scenario_file).replace(".exp", "")
     tape_dir = os.getcwd()
-    lade_bin = os.path.abspath(os.path.join(tape_dir, "../../target/debug/lade"))
+    release_bin = os.path.abspath(os.path.join(tape_dir, "../../target/release/lade"))
+    debug_bin = os.path.abspath(os.path.join(tape_dir, "../../target/debug/lade"))
+    lade_bin = release_bin if os.path.exists(release_bin) else debug_bin
+    host_kubeconfig = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
 
     with tempfile.TemporaryDirectory(prefix=f"lade-tape-{name}-") as home_dir:
         env = {
@@ -25,6 +28,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             "ZDOTDIR": home_dir,
             "TERM": "xterm-256color",
             "PATH": os.path.dirname(lade_bin) + ":" + os.environ.get("PATH", ""),
+            "KUBECONFIG": host_kubeconfig,
             "VAULT_ADDR": "http://127.0.0.1:8200",
             "VAULT_TOKEN": "token",
             "LADE_VAULT_HTTP": "1",
@@ -87,16 +91,18 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             os.write(fd, (cmd + "\r").encode())
             time.sleep(0.1)
 
-        # Clear everything
-        os.write(fd, b"unset LADE_NOT_FIRST; clear\r")
-        time.sleep(0.5)
+        # Reset screen without typing an echoed command.
+        os.write(fd, b"\x1bc")
+        time.sleep(0.3)
 
-        # Flush ALL initial output
+        # Flush all initial/setup output and wait for a quiet terminal.
+        last_output = time.time()
         while True:
-            r, _, _ = select.select([fd], [], [], 0.2)
+            r, _, _ = select.select([fd], [], [], 0.3)
             if r:
                 os.read(fd, 8192)
-            else:
+                last_output = time.time()
+            elif time.time() - last_output >= 1.0:
                 break
 
         # 2. Start recording
@@ -198,7 +204,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
         os.close(fd)
         try:
             os.waitpid(pid, 0)
-        except:
+        except OSError:
             pass
 
 
@@ -214,6 +220,7 @@ def sanitize_text(text):
     text = "".join(chars)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("[?2004h", "").replace("[?2004l", "")
+    text = re.sub(r"^unset LADE_NOT_FIRST; clear\n?", "", text, flags=re.M)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.lstrip("\n")
     text = re.sub(r"(> .*\n)\n([^>\n])", r"\1\2", text)

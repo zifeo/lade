@@ -1,11 +1,15 @@
 > ./show-example file
-^cat \.lade-secrets\.json:
+^cat .lade-secrets.json:
   .:
     file: .lade-secrets.json
   KEY: "written-to-disk"
 
 > lade inject --no-mask cat .lade-secrets.json
-Lade loaded: KEY.
+⠋ Raw: KEY
+
+✔︎ Raw: KEY 0 ms
+
+✔︎ Raw: KEY 0 ms
 
 {"KEY":"written-to-disk"}
 

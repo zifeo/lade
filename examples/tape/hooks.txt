@@ -3,7 +3,11 @@
   DEMO: "hello world"
 
 > echo hooks $DEMO
-Lade loaded: DEMO.
+⠋ Raw: DEMO
+
+✔︎ Raw: DEMO 0 ms
+
+✔︎ Raw: DEMO 0 ms
 
 hooks hello world
 
