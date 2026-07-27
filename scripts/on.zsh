@@ -3,7 +3,7 @@ preexec_lade() {
         return
     fi
     LADE="$1"
-    eval "$(lade set $@)"
+    eval "$(lade set -- "$LADE")"
 }
 
 preexec_functions+=(preexec_lade)
@@ -11,7 +11,7 @@ preexec_functions+=(preexec_lade)
 precmd_lade() {
     if [ -n "${LADE+x}" ]; then
         if [ "$LADE" != "source on.zsh" ]; then
-            eval "$(lade unset $@)"
+            eval "$(lade unset -- "$LADE")"
         fi
         unset -v LADE
     fi

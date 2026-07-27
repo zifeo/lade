@@ -17,8 +17,12 @@ WAIT_AFTER = 0.5
 def record(output_cast, scenario_file, common_file="common.exp", width=80, height=24):
     name = os.path.basename(scenario_file).replace(".exp", "")
     tape_dir = os.getcwd()
-    release_bin = os.path.abspath(os.path.join(tape_dir, "../../target/release/lade"))
-    debug_bin = os.path.abspath(os.path.join(tape_dir, "../../target/debug/lade"))
+    repo_root = os.path.abspath(os.path.join(tape_dir, "../.."))
+    target_dir = os.environ.get("CARGO_TARGET_DIR", os.path.join(repo_root, "target"))
+    if not os.path.isabs(target_dir):
+        target_dir = os.path.join(repo_root, target_dir)
+    release_bin = os.path.join(target_dir, "release", "lade")
+    debug_bin = os.path.join(target_dir, "debug", "lade")
     lade_bin = release_bin if os.path.exists(release_bin) else debug_bin
     host_kubeconfig = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
 
@@ -210,6 +214,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
 
 def sanitize_text(text):
     text = re.sub(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])", "", text)
+    text = text.replace("\r\n", "\n")
     chars = []
     for char in text:
         if char == "\b":
@@ -218,12 +223,33 @@ def sanitize_text(text):
         else:
             chars.append(char)
     text = "".join(chars)
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\r", "\n")
     text = text.replace("[?2004h", "").replace("[?2004l", "")
     text = re.sub(r"^unset LADE_NOT_FIRST; clear\n?", "", text, flags=re.M)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.lstrip("\n")
     text = re.sub(r"(> .*\n)\n([^>\n])", r"\1\2", text)
+    lines = []
+    progress = set()
+    for line in text.splitlines():
+        if line.startswith("> "):
+            progress = set()
+        if line.startswith(("⠋", "⠙", "⠸", "⠴", "⠦", "⠇", "✔", "✘")):
+            if line.startswith("✔"):
+                kind = "success"
+            elif line.startswith("✘"):
+                kind = "failed"
+            else:
+                kind = "loading"
+            resource = re.sub(r"^[^ ]+ ", "", line)
+            resource = re.sub(r"pid=\d+ \d+ ms|\b\d+ ms\b", "", resource).strip()
+            key = (kind, resource)
+            if key in progress:
+                continue
+            progress.add(key)
+        lines.append(line)
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text.rstrip() + "\n"
 
 

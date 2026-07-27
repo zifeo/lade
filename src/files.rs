@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, HashMap, hash_map::Keys},
     ffi::OsStr,
     fs,
+    io::{ErrorKind, Write},
     path::PathBuf,
     time::Instant,
 };
@@ -112,11 +113,9 @@ fn secret_progress_groups(sources: &HashMap<String, String>) -> Vec<(String, Str
 
 pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {
     let mut names = vec![];
+    let mut files = Vec::new();
     for (path, vars) in hydration {
         names.extend(vars.keys().cloned());
-        if path.exists() {
-            bail!("file already exists: {:?}", path)
-        }
         debug!("writing file: {:?}", path);
         let mut content: String = match path
             .extension()
@@ -130,7 +129,35 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
         if !content.ends_with('\n') {
             content.push('\n');
         }
-        fs::write(path, content)?;
+        files.push((path, content));
+    }
+
+    let mut written = Vec::new();
+    for (path, content) in files {
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(file) => file,
+            Err(error) => {
+                for path in written {
+                    let _ = fs::remove_file(path);
+                }
+                if error.kind() == ErrorKind::AlreadyExists {
+                    bail!("file already exists: {:?}", path);
+                }
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = file.write_all(content.as_bytes()) {
+            let _ = fs::remove_file(path);
+            for path in written {
+                let _ = fs::remove_file(path);
+            }
+            return Err(error.into());
+        }
+        written.push(path);
     }
     Ok(names)
 }
@@ -138,10 +165,11 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
 pub fn remove_files<T>(files: &mut Keys<PathBuf, T>) -> Result<()> {
     for path in files {
         debug!("removing file: {:?}", path);
-        if !path.exists() {
-            bail!("file should have existed: {:?}", path)
+        if let Err(error) = fs::remove_file(path)
+            && error.kind() != ErrorKind::NotFound
+        {
+            return Err(error.into());
         }
-        fs::remove_file(path)?;
     }
     Ok(())
 }
@@ -201,6 +229,24 @@ mod tests {
         assert_eq!(
             files.get(&path).unwrap().get("FILE_KEY").unwrap(),
             "file_val"
+        );
+    }
+
+    #[test]
+    fn secret_progress_groups_include_raw_values() {
+        let groups = secret_progress_groups(&HashMap::from([
+            ("USER".to_string(), "demo-user".to_string()),
+            (
+                "PASSWORD".to_string(),
+                "vault://vault.example.com/secret/password/value".to_string(),
+            ),
+        ]));
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().any(|(_, display)| display == "Raw: USER"));
+        assert!(
+            groups
+                .iter()
+                .any(|(_, display)| display == "Vault vault.example.com: PASSWORD")
         );
     }
 
@@ -268,11 +314,11 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_files_missing_error() {
+    fn test_remove_files_missing_is_noop() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("nonexistent_lade_test.json");
         let files: HashMap<PathBuf, HashMap<String, String>> =
             HashMap::from([(path, HashMap::new())]);
-        assert!(remove_files(&mut files.keys()).is_err());
+        remove_files(&mut files.keys()).unwrap();
     }
 }

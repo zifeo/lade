@@ -63,6 +63,15 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
                             .print_plain_stderr();
                     }
                     states.insert(event.id, (event.display, event.kind));
+                    if rich_tty {
+                        drawn_lines = render_network_progress(
+                            &order,
+                            &states,
+                            frames[frame_idx],
+                            drawn_lines,
+                        );
+                    }
+                    continue;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {

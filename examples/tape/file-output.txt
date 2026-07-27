@@ -9,8 +9,6 @@
 
 ✔︎ Raw: KEY 0 ms
 
-✔︎ Raw: KEY 0 ms
-
 {"KEY":"written-to-disk"}
 
 > ls .lade-secrets.json

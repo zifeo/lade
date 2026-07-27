@@ -13,8 +13,6 @@ Successfully set user to alice
 
 ✔︎ Raw: GREETING 0 ms
 
-✔︎ Raw: GREETING 0 ms
-
 hello alice
 
 > lade user bob
@@ -22,8 +20,6 @@ Successfully set user to bob
 
 > lade inject printenv GREETING
 ⠋ Raw: GREETING
-
-✔︎ Raw: GREETING 0 ms
 
 ✔︎ Raw: GREETING 0 ms
 

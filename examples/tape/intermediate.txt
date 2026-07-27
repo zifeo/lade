@@ -1,0 +1,22 @@
+> ./show-example intermediate
+^printenv Authorization user:
+  user: demo-user
+  .password: vault://127.0.0.1:8200/secret/password/value1
+  Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")"'
+
+> printenv Authorization user
+⠋ Raw: user
+
+⠋ Vault 127.0.0.1:8200: .password
+
+⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")": Authorization
+
+✔︎ Raw: user 93 ms
+
+✔︎ Vault 127.0.0.1:8200: .password 93 ms
+
+✔︎ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")": Authorization 93 ms
+
+Basic ZGVtby11c2VyOml0c2FzZWNyZXQ=
+
+>

@@ -195,6 +195,19 @@ access until the approval code is used.
 
 </td>
 </tr>
+<tr>
+<td width="50%">
+
+**Intermediate bindings** - Compose a public value from a private binding
+without injecting the private value itself.
+
+</td>
+<td width="50%">
+
+![Intermediate bindings](./examples/tape/intermediate.gif)
+
+</td>
+</tr>
 </table>
 
 ## AI agents
@@ -240,7 +253,7 @@ configs are:
 ```
 
 Cursor agents can also load the project skill in
-[`.cursor/skills/lade/SKILL.md`](.cursor/skills/lade/SKILL.md).
+[.agents/skills/lade/SKILL.md](.agents/skills/lade/SKILL.md).
 
 ### Agents without hooks
 
@@ -253,6 +266,80 @@ Example: lade terraform apply
 
 Transparent hooks are preferred because the agent does not need to guess which
 commands match `lade.yml`.
+
+## MCP
+
+Desktop MCP clients normally launch a server without the shell environment
+where a secret manager is available. Putting long-lived credentials directly in
+the client configuration is inconvenient and exposes them to every process
+launched from that app. `lade mcp` makes the client launch Lade instead: it
+resolves the matching access only for that MCP connection, then exits and
+cleans up when the connection closes.
+
+Add a server entry in your MCP client's configuration. Use the absolute path to
+the installed `lade` binary when a GUI application does not inherit your shell
+`PATH`.
+
+For a local stdio server, all public mappings become child environment
+variables:
+
+```json
+{
+  "command": "lade",
+  "args": ["mcp", "--", "acme-mcp", "--stdio"]
+}
+```
+
+Match the canonical server command in `lade.yml`:
+
+```yaml
+"^acme-mcp --stdio$":
+  API_TOKEN: op://company/acme/api-token
+```
+
+For a remote Streamable HTTP server, public mapping keys become HTTP header
+names. The URL itself is the matcher:
+
+```yaml
+"^https://mcp\\.secureframe\\.com/$":
+  .API_KEY: op://company/secureframe/api-key
+  .API_SECRET: op://company/secureframe/api-secret
+  Authorization: "${API_KEY} ${API_SECRET}"
+```
+
+```json
+{
+  "command": "lade",
+  "args": ["mcp", "https://mcp.secureframe.com/"]
+}
+```
+
+Keys prefixed with `.` are intermediate variables. They can be referenced with
+`$NAME`, `${NAME}`, or `${.NAME}`, participate in secret masking, and are never emitted to the child
+environment, temporary file, or HTTP headers. `.` on its own remains the rule
+configuration block. A public key and `.KEY` cannot be declared together.
+
+Intermediate variables belong to binding resolution, not MCP: they work with
+shell hooks, `lade inject`, file output, and MCP. For example, only the
+composed value is injected:
+
+```yaml
+"deploy .*":
+  .TOKEN: op://company/production/deploy/token
+  DEPLOY_AUTHORIZATION: "Bearer ${TOKEN}"
+```
+
+```bash
+lade inject -- deploy production
+```
+
+The child receives `DEPLOY_AUTHORIZATION`, never `TOKEN`.
+
+To troubleshoot an MCP connection, add `-v` before `mcp` in the client
+configuration arguments. Lade writes action-only traces to stderr, such as
+`mcp http -> tools/call` and `mcp http <- 200 (42 ms)`. It never logs headers,
+JSON-RPC parameters, request bodies, or resolved values. Use `-vv` for debug
+logs; `LADE_LOG` overrides the command-line verbosity.
 
 ## Configuration reference
 
@@ -276,18 +363,54 @@ masked because they are already visible in `lade.yml`.
 
 Supported secret providers:
 
-| Provider | URI | Notes |
-| --- | --- | --- |
-| 1Password | `op://DOMAIN/VAULT/ITEM/FIELD` | Uses the 1Password CLI. |
-| Infisical | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | The `/api` suffix is added automatically. |
-| Doppler | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI. |
-| Vault | `vault://DOMAIN/MOUNT/KEY/FIELD` | Uses the Vault CLI. |
-| Passbolt | `passbolt://DOMAIN/RESOURCE_ID/FIELD` | Uses the Passbolt CLI. |
-| File | `file://PATH?query=.fields[0].field` | Supports INI, JSON, YAML, and TOML files. |
-| Shell command | `sh://gcloud auth print-access-token` | Also supports `bash://`, `zsh://`, and `fish://`. |
-| Inline value | `"visible-in-lade-yml"` | Use `!` to force raw values and `!!` to escape `!`. |
+| Provider      | URI                                                  | Notes                                               |
+| ------------- | ---------------------------------------------------- | --------------------------------------------------- |
+| 1Password     | `op://DOMAIN/VAULT/ITEM/FIELD`                       | Uses the 1Password CLI.                             |
+| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | The `/api` suffix is added automatically.           |
+| Doppler       | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI.                               |
+| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Uses the Vault CLI.                                 |
+| Passbolt      | `passbolt://DOMAIN/RESOURCE_ID/FIELD`                | Uses the Passbolt CLI.                              |
+| File          | `file://PATH?query=.fields[0].field`                 | Supports INI, JSON, YAML, and TOML files.           |
+| Shell command | `sh://gcloud auth print-access-token`                | Also supports `bash://`, `zsh://`, and `fish://`.   |
+| Inline value  | `"visible-in-lade-yml"`                              | Use `!` to force raw values and `!!` to escape `!`. |
 
 Use `lade eval <uri>` to resolve one URI when debugging a provider.
+
+### Intermediate bindings
+
+Use a `.NAME` binding when a resolved value only helps construct another
+binding. It remains private to the one command invocation, while the public
+binding is injected into the requested output:
+
+```yaml
+"curl .*api\\.example\\.com.*":
+  .API_KEY: op://company/api/key
+  Authorization: "Bearer ${API_KEY}"
+```
+
+Here `Authorization` is injected; `API_KEY` is not. Private bindings can depend
+on other bindings and are included in masking when their resolved values reach
+a public value. The end-to-end terminal demo is
+[examples/tape/intermediate.exp](examples/tape/intermediate.exp).
+
+### Shell transforms
+
+`sh://`, `bash://`, `zsh://`, and `fish://` sources can derive a value with the
+shell. Lade recognizes simple `$NAME` and `${NAME}` references to build the
+dependency graph, then passes their resolved values as environment variables to
+the shell without rewriting the script. The shell remains responsible for all
+other expansion syntax.
+
+```yaml
+"curl .*api\\.example\\.com.*":
+  user: demo-user
+  .password: op://company/api/password
+  Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "$password" | base64 | tr -d "\n")"'
+```
+
+Quote shell variable expansions (`"$user"`, `"$password"`) so their values are
+passed as single arguments. The shell provider output is treated as secret and
+is masked like other provider-resolved values.
 
 ### Files and disclaimers
 
@@ -335,12 +458,12 @@ for a fixed local port.
 
 Supported network providers:
 
-| Provider | URI | Query options |
-| --- | --- | --- |
-| `kubectl` | `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>` | `local=HOST:PORT`, `pod-running-timeout=<duration>` |
+| Provider  | URI                                                                                                   | Query options                                               |
+| --------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `kubectl` | `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>`  | `local=HOST:PORT`, `pod-running-timeout=<duration>`         |
 | `kubefwd` | `kubefwd://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<service-port>` | `local=HOST:PORT`, `domain=<domain>`, `selector=<selector>` |
-| `tsh` | `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>` | `local=HOST:PORT` |
-| `ssh` | `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>` | `local=HOST:PORT` |
+| `tsh`     | `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>`              | `local=HOST:PORT`                                           |
+| `ssh`     | `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>`                                           | `local=HOST:PORT`                                           |
 
 See [examples/tape/lade.yml](examples/tape/lade.yml) and
 [examples/tape/network.txt](examples/tape/network.txt) for more examples.

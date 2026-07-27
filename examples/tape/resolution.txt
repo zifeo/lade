@@ -5,17 +5,7 @@
 > echo token $TOKEN
 ⠋ Vault 127.0.0.1:8200: TOKEN
 
-⠙ Vault 127.0.0.1:8200: TOKEN
-
-⠸ Vault 127.0.0.1:8200: TOKEN
-
-⠴ Vault 127.0.0.1:8200: TOKEN
-
-⠦ Vault 127.0.0.1:8200: TOKEN
-
-✔︎ Vault 127.0.0.1:8200: TOKEN 558 ms
-
-✔︎ Vault 127.0.0.1:8200: TOKEN 558 ms
+✔︎ Vault 127.0.0.1:8200: TOKEN 744 ms
 
 token itsasecret
 
@@ -25,8 +15,6 @@ token itsasecret
 
 > printenv FROM_FILE
 ⠋ File: FROM_FILE
-
-✔︎ File: FROM_FILE 1 ms
 
 ✔︎ File: FROM_FILE 1 ms
 

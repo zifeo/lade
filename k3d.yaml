@@ -4,6 +4,10 @@ metadata:
   name: lade-k3d-shared
 servers: 1
 agents: 0
+kubeAPI:
+  host: 127.0.0.1
+  hostIP: 127.0.0.1
+  hostPort: "6445"
 options:
   k3s:
     extraArgs:
@@ -13,7 +17,3 @@ options:
   kubeconfig:
     updateDefaultKubeconfig: true
     switchCurrentContext: false
-volumes:
-  - volume: ./k3d-manifests.yaml:/var/lib/rancher/k3s/server/manifests/k3d-manifests.yaml
-    nodeFilters:
-      - server:*
