@@ -221,18 +221,21 @@ pub fn host_with_port(url: &Url) -> String {
 pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
     #[cfg(unix)]
     {
+        // Avoid inherited writable descriptors causing ETXTBSY: https://github.com/rust-lang/rust/issues/114554
         use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command, Stdio};
 
         let path = dir.path().join(name);
-        let mut file = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
-        write!(file, "#!/bin/sh\n{script_body}\n").unwrap();
-        file.as_file().sync_all().unwrap();
-        file.as_file()
-            .set_permissions(std::fs::Permissions::from_mode(0o755))
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .spawn()
             .unwrap();
-        let tmp_path = file.into_temp_path();
-        std::fs::rename(tmp_path, path).unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        write!(stdin, "#!/bin/sh\n{script_body}\n").unwrap();
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
     }
 }
 
