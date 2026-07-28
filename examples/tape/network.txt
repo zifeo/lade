@@ -8,9 +8,9 @@
 
 ⠋ http-echo:8080 on 18080
 
-✔︎ File: TF_VAR_demo_token 0 ms
+✔︎ File: TF_VAR_demo_token                                                0 ms
 
-✔︎ http-echo:8080 on 18080 pid=67490 350 ms
+✔︎ http-echo:8080 on 18080 pid=43944                                    309 ms
 
 ping=pong
 

@@ -5,7 +5,7 @@
 > lade inject --no-mask printenv SHELL_VAL
 ⠋ sh echo hello: SHELL_VAL
 
-✔︎ sh echo hello: SHELL_VAL 7 ms
+✔︎ sh echo hello: SHELL_VAL                                               9 ms
 
 hello
 

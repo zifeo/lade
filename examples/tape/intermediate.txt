@@ -9,13 +9,17 @@
 
 ⠋ Vault 127.0.0.1:8200: .password
 
-⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")": Authorization
+⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
 
-✔︎ Raw: user 93 ms
+-d "\n")": Authorization
 
-✔︎ Vault 127.0.0.1:8200: .password 93 ms
+✔︎ Raw: user                                                            135 ms
 
-✔︎ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")": Authorization 93 ms
+✔︎ Vault 127.0.0.1:8200: .password                                      135 ms
+
+✔︎ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
+
+-d "\n")": Authorization 135 ms
 
 Basic ZGVtby11c2VyOml0c2FzZWNyZXQ=
 

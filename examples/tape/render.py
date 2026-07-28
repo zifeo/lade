@@ -8,6 +8,9 @@ import re
 import sys
 import tempfile
 import concurrent.futures
+import fcntl
+import struct
+import termios
 
 # --- CONFIGURATION ---
 TYPE_SPEED = 0.1
@@ -70,6 +73,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             commands = all_commands
 
         fd, child_fd = pty.openpty()
+        fcntl.ioctl(child_fd, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
         pid = os.fork()
 
         if pid == 0:
@@ -231,22 +235,36 @@ def sanitize_text(text):
     text = re.sub(r"(> .*\n)\n([^>\n])", r"\1\2", text)
     lines = []
     progress = set()
+    continuations = set()
+    in_progress = False
+    continuation_kind = ""
     for line in text.splitlines():
         if line.startswith("> "):
             progress = set()
+            continuations = set()
+            in_progress = False
+            continuation_kind = ""
         if line.startswith(("⠋", "⠙", "⠸", "⠴", "⠦", "⠇", "✔", "✘")):
+            in_progress = True
             if line.startswith("✔"):
                 kind = "success"
             elif line.startswith("✘"):
                 kind = "failed"
             else:
                 kind = "loading"
+            continuation_kind = kind
             resource = re.sub(r"^[^ ]+ ", "", line)
             resource = re.sub(r"pid=\d+ \d+ ms|\b\d+ ms\b", "", resource).strip()
             key = (kind, resource)
             if key in progress:
                 continue
             progress.add(key)
+        elif in_progress and line:
+            continuation = re.sub(r"pid=\d+ \d+ ms|\b\d+ ms\b", "", line).strip()
+            key = (continuation_kind, continuation)
+            if key in continuations:
+                continue
+            continuations.add(key)
         lines.append(line)
     text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)

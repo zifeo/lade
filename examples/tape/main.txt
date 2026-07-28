@@ -9,7 +9,7 @@ Auto launcher installed in ~/.zshrc
 > echo hello $GREETING
 ⠋ Raw: GREETING
 
-✔︎ Raw: GREETING 0 ms
+✔︎ Raw: GREETING                                                             0 ms
 
 hello world
 

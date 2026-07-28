@@ -5,14 +5,14 @@
 > lade printenv TOKEN
 ⠋ File: TOKEN
 
-✔︎ File: TOKEN 0 ms
+✔︎ File: TOKEN                                                            1 ms
 
 ${TOKEN:-REDACTED}
 
 > lade inject --no-mask printenv TOKEN
 ⠋ File: TOKEN
 
-✔︎ File: TOKEN 0 ms
+✔︎ File: TOKEN                                                            0 ms
 
 super-secret-token-42
 
