@@ -225,14 +225,13 @@ pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
         use std::os::unix::fs::PermissionsExt;
 
         let path = dir.path().join(name);
-        let tmp_path = dir.path().join(format!(".{name}.tmp"));
-        let mut file = std::fs::File::create(&tmp_path).unwrap();
+        let mut file = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
         write!(file, "#!/bin/sh\n{script_body}\n").unwrap();
-        file.sync_all().unwrap();
-        file.set_permissions(std::fs::Permissions::from_mode(0o755))
+        file.as_file().sync_all().unwrap();
+        file.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o755))
             .unwrap();
-        drop(file);
-        std::fs::rename(tmp_path, path).unwrap();
+        file.persist(path).unwrap();
     }
 }
 
