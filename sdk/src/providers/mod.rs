@@ -231,7 +231,8 @@ pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
         file.as_file()
             .set_permissions(std::fs::Permissions::from_mode(0o755))
             .unwrap();
-        file.persist(path).unwrap();
+        let tmp_path = file.into_temp_path();
+        std::fs::rename(tmp_path, path).unwrap();
     }
 }
 
