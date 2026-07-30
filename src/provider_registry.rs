@@ -37,7 +37,7 @@ pub const NETWORK_CLI_SPECS: &[NetworkCliSpec] = &[
         scheme: "tsh",
         bin: "tsh",
         version_args: &["version"],
-        min_version: "17.0.0",
+        min_version: "17.1.5",
         name: "Teleport tsh",
         install_url: "https://goteleport.com/docs/connect-your-client/tsh/",
     },

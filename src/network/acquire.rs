@@ -265,9 +265,17 @@ fn connection_label(spec: &ProviderSpec, local_host: &str, local_port: u16) -> S
         ProviderSpec::Kubefwd {
             name, service_port, ..
         } => format!("{name}:{service_port} on {local}"),
-        ProviderSpec::Tsh {
+        ProviderSpec::TshKubeCluster {
             name, remote_port, ..
         } => format!("{name}:{remote_port} on {local}"),
+        ProviderSpec::TshApp {
+            app_name,
+            target_port,
+            ..
+        } => match target_port {
+            Some(target_port) => format!("{app_name}:{target_port} on {local}"),
+            None => format!("{app_name} on {local}"),
+        },
         ProviderSpec::Ssh {
             remote_host,
             remote_port,
@@ -280,7 +288,8 @@ fn provider_label(spec: &ProviderSpec) -> &'static str {
     match spec {
         ProviderSpec::Kubectl { .. } => "kubectl forward",
         ProviderSpec::Kubefwd { .. } => "kubefwd forward",
-        ProviderSpec::Tsh { .. } => "tsh forward",
+        ProviderSpec::TshKubeCluster { .. } => "tsh kube_cluster forward",
+        ProviderSpec::TshApp { .. } => "tsh app proxy",
         ProviderSpec::Ssh { .. } => "ssh forward",
     }
 }

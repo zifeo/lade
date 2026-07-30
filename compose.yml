@@ -6,7 +6,7 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: "token"
 
-  # docker exec lade-passbolt-1 su -s /bin/bash -c "./bin/cake passbolt register_user -u test@test.com -f test -l test -r admin" www-data
+  # docker exec lade-passbolt-1 su -s /bin/bash -c "./bin/cake passbolt register_user -u test@example.com -f test -l test -r admin" www-data
   passbolt:
     image: passbolt/passbolt:latest-ce
     ports:
