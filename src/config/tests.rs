@@ -186,7 +186,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
-            "\"cmd\":\n  1223: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+            "\"cmd\":\n  1223: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n",
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -211,7 +211,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
-            "\"cmd\":\n  \"1223\": kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+            "\"cmd\":\n  \"1223\": kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n",
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -227,7 +227,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
-            "\"cmd\":\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432\n\"cmd2\":\n  DB_PORT: kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/6432\n",
+            "\"cmd\":\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n\"cmd2\":\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/6432\n",
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -242,7 +242,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
-            "\"cmd\":\n  DB_PORT:\n    alice: kubectl://a:6443/claryo-gcp-01/dev/service/postgres/5432\n    \".\": kubectl://b:6443/claryo-gcp-01/dev/service/postgres/5432\n",
+            "\"cmd\":\n  DB_PORT:\n    alice: kubectl://a:6443/example-cluster/dev/service/postgres/5432\n    \".\": kubectl://b:6443/example-cluster/dev/service/postgres/5432\n",
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -251,14 +251,14 @@ mod tests {
             .expect("alice bindings");
         assert_eq!(
             alice[0].uri,
-            "kubectl://a:6443/claryo-gcp-01/dev/service/postgres/5432"
+            "kubectl://a:6443/example-cluster/dev/service/postgres/5432"
         );
         let other = config
             .collect_network_bindings("cmd", &Some("other".to_string()))
             .expect("default bindings");
         assert_eq!(
             other[0].uri,
-            "kubectl://b:6443/claryo-gcp-01/dev/service/postgres/5432"
+            "kubectl://b:6443/example-cluster/dev/service/postgres/5432"
         );
     }
 

@@ -133,7 +133,7 @@ mod tests {
     fn parse_kubectl_binding_with_env_key() {
         let binding = NetworkBinding {
             key: "DB_PORT".to_string(),
-            uri: "kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432"
+            uri: "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432"
                 .to_string(),
         };
         let parsed = parse_binding(&binding).expect("parsed");
@@ -144,7 +144,7 @@ mod tests {
     fn parse_tsh_binding_with_local_query() {
         let binding = NetworkBinding {
             key: "15432".to_string(),
-            uri: "tsh://teleport.example.com:443/my-cluster/dev/service/postgres/5432?local=127.0.0.1:15432"
+            uri: "tsh://teleport.example.com:443/kube_cluster/my-cluster/dev/service/postgres/5432?local=127.0.0.1:15432"
                 .to_string(),
         };
         let parsed = parse_binding(&binding).expect("parsed");
@@ -157,8 +157,9 @@ mod tests {
     fn parse_binding_rejects_unknown_query_parameter() {
         let binding = NetworkBinding {
             key: "DB_PORT".to_string(),
-            uri: "kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432?bad=value"
-                .to_string(),
+            uri:
+                "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432?bad=value"
+                    .to_string(),
         };
         let err = parse_binding(&binding).expect_err("must reject unknown query");
         assert!(err.to_string().contains("unsupported query parameter"));
@@ -168,7 +169,7 @@ mod tests {
     fn parse_binding_decodes_local_query_value() {
         let binding = NetworkBinding {
             key: "DB_PORT".to_string(),
-            uri: "kubectl://k8s.example.com:6443/claryo-gcp-01/dev/service/postgres/5432?local=localhost%3A15432"
+            uri: "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432?local=localhost%3A15432"
                 .to_string(),
         };
         let parsed = parse_binding(&binding).expect("parsed");

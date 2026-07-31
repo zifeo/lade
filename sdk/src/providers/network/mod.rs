@@ -28,13 +28,18 @@ pub enum ProviderSpec {
         domain: Option<String>,
         selector: Option<String>,
     },
-    Tsh {
+    TshKubeCluster {
         teleport_proxy: String,
         kube_cluster: String,
         namespace: String,
         kind: String,
         name: String,
         remote_port: u16,
+    },
+    TshApp {
+        teleport_proxy: String,
+        app_name: String,
+        target_port: Option<u16>,
     },
     Ssh {
         jump_host: String,

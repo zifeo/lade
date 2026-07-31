@@ -265,10 +265,10 @@ mod tests {
         // which passes vault/item as separate CLI args (not in a URL reference).
         assert_eq!(
             strip_account_host(
-                "op://host.1password.com/Product&Engineering/item/field",
+                "op://host.1password.com/Example&Team/item/field",
                 "host.1password.com"
             ),
-            "op://Product&Engineering/item/field"
+            "op://Example&Team/item/field"
         );
     }
 
@@ -276,10 +276,10 @@ mod tests {
     fn test_strip_account_host_preserves_spaces() {
         assert_eq!(
             strip_account_host(
-                "op://host.1password.com/vault/Airbyte Claryo az-02/username",
+                "op://host.1password.com/vault/Example Item/username",
                 "host.1password.com"
             ),
-            "op://vault/Airbyte Claryo az-02/username"
+            "op://vault/Example Item/username"
         );
     }
 
@@ -336,7 +336,7 @@ fi"#,
 elif [ "$1" = "item" ] && [ "$2" = "get" ]; then
     # Expected: op item get ITEM --vault VAULT --account ACCOUNT --fields FIELD
     # $3=item  $4=--vault  $5=vault  $6=--account  $7=account  $8=--fields  $9=field
-    if [ "$5" = "Product&Engineering" ]; then
+    if [ "$5" = "Example&Team" ]; then
         printf 'secret_from_item_get'
     else
         printf '[ERROR] --vault arg must be literal vault name, got: %s\n' "$5" >&2
@@ -345,10 +345,8 @@ elif [ "$1" = "item" ] && [ "$2" = "get" ]; then
 fi"#,
         );
         let mut p = OnePassword::new();
-        p.add(
-            "op://my.1password.com/Product&Engineering/Airbyte Claryo az-02/username".to_string(),
-        )
-        .unwrap();
+        p.add("op://my.1password.com/Example&Team/Example Item/username".to_string())
+            .unwrap();
         let extra = HashMap::from([(
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
@@ -357,7 +355,7 @@ fi"#,
         let result = p.resolve(Path::new("."), &extra, &warnings).await.unwrap();
         assert_eq!(
             result
-                .get("op://my.1password.com/Product&Engineering/Airbyte Claryo az-02/username")
+                .get("op://my.1password.com/Example&Team/Example Item/username")
                 .unwrap(),
             "secret_from_item_get"
         );
@@ -521,10 +519,8 @@ fi"#,
         );
 
         let mut p = OnePassword::new();
-        p.add(
-            "op://my.1password.com/Product&Engineering/Airbyte Claryo az-02/username".to_string(),
-        )
-        .unwrap();
+        p.add("op://my.1password.com/Example&Team/Example Item/username".to_string())
+            .unwrap();
         let extra = HashMap::from([(
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
@@ -535,7 +531,7 @@ fi"#,
             .unwrap();
         assert_eq!(
             result
-                .get("op://my.1password.com/Product&Engineering/Airbyte Claryo az-02/username")
+                .get("op://my.1password.com/Example&Team/Example Item/username")
                 .unwrap(),
             "secret_from_item_get"
         );

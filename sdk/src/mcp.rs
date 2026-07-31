@@ -136,8 +136,8 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    if config.url.scheme() != "https" {
-        bail!("MCP HTTP URLs must use https");
+    if !is_allowed_http_url(&config.url) {
+        bail!("MCP HTTP URLs must use https unless they target a loopback address");
     }
     if !config.url.username().is_empty()
         || config.url.password().is_some()
@@ -225,6 +225,14 @@ where
     result
 }
 
+fn is_allowed_http_url(url: &Url) -> bool {
+    url.scheme() == "https" || is_loopback_http_url(url)
+}
+
+fn is_loopback_http_url(url: &Url) -> bool {
+    url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +264,25 @@ mod tests {
             "tools/call"
         );
         assert_eq!(action(r#"{"result":{"secret":"do-not-log"}}"#), "message");
+    }
+
+    #[test]
+    fn allows_https_and_loopback_http_urls() {
+        assert!(is_loopback_http_url(
+            &Url::parse("http://127.0.0.1/mcp").unwrap()
+        ));
+        assert!(is_loopback_http_url(
+            &Url::parse("http://localhost/mcp").unwrap()
+        ));
+        assert!(!is_loopback_http_url(
+            &Url::parse("http://mcp.example.com").unwrap()
+        ));
+        assert!(is_allowed_http_url(
+            &Url::parse("https://127.0.0.1/mcp").unwrap()
+        ));
+        assert!(!is_allowed_http_url(
+            &Url::parse("http://mcp.example.com").unwrap()
+        ));
     }
 
     #[test]
