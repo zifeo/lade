@@ -462,8 +462,13 @@ Supported network providers:
 | --------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `kubectl` | `kubectl://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<remote-port>`  | `local=HOST:PORT`, `pod-running-timeout=<duration>`         |
 | `kubefwd` | `kubefwd://<cluster-host>:<cluster-port>/<context-selector>/<namespace>/<kind>/<name>/<service-port>` | `local=HOST:PORT`, `domain=<domain>`, `selector=<selector>` |
-| `tsh`     | `tsh://<proxy-host>:<proxy-port>/<kube-cluster>/<namespace>/<kind>/<name>/<remote-port>`              | `local=HOST:PORT`                                           |
+| `tsh`     | `tsh://<proxy-host>:<proxy-port>/<kind>/<resource-path>`                                              | `local=HOST:PORT`                                           |
 | `ssh`     | `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>`                                           | `local=HOST:PORT`                                           |
+
+For `tsh`, `<kind>` uses Teleport resource nomenclature:
+
+- `app/<app-name>[/<target-port>]`
+- `kube_cluster/<kube-cluster>/<namespace>/<resource-kind>/<name>/<remote-port>`
 
 See [examples/tape/lade.yml](examples/tape/lade.yml) and
 [examples/tape/network.txt](examples/tape/network.txt) for more examples.

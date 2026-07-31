@@ -345,10 +345,8 @@ elif [ "$1" = "item" ] && [ "$2" = "get" ]; then
 fi"#,
         );
         let mut p = OnePassword::new();
-        p.add(
-            "op://my.1password.com/Example&Team/Example Item/username".to_string(),
-        )
-        .unwrap();
+        p.add("op://my.1password.com/Example&Team/Example Item/username".to_string())
+            .unwrap();
         let extra = HashMap::from([(
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),
@@ -521,10 +519,8 @@ fi"#,
         );
 
         let mut p = OnePassword::new();
-        p.add(
-            "op://my.1password.com/Example&Team/Example Item/username".to_string(),
-        )
-        .unwrap();
+        p.add("op://my.1password.com/Example&Team/Example Item/username".to_string())
+            .unwrap();
         let extra = HashMap::from([(
             "PATH".to_string(),
             fake_bin.path().to_string_lossy().into_owned(),

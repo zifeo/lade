@@ -67,7 +67,7 @@ pub(crate) fn build_command(
             }
             Ok(cmd)
         }
-        ProviderSpec::Tsh {
+        ProviderSpec::TshKubeCluster {
             teleport_proxy,
             namespace,
             kind,
@@ -85,6 +85,25 @@ pub(crate) fn build_command(
                 .arg(format!("{local_port}:{remote_port}"))
                 .arg("--address")
                 .arg(local_host);
+            Ok(cmd)
+        }
+        ProviderSpec::TshApp {
+            teleport_proxy,
+            app_name,
+            target_port,
+        } => {
+            if local_host != "127.0.0.1" && local_host != "localhost" {
+                bail!("tsh app proxy supports only 127.0.0.1 or localhost local hosts");
+            }
+            let port = target_port
+                .map(|target_port| format!("{local_port}:{target_port}"))
+                .unwrap_or_else(|| local_port.to_string());
+            let mut cmd = Command::new("tsh");
+            cmd.arg(format!("--proxy={teleport_proxy}"))
+                .arg("proxy")
+                .arg("app")
+                .arg(format!("--port={port}"))
+                .arg(app_name);
             Ok(cmd)
         }
         ProviderSpec::Ssh {
@@ -110,7 +129,7 @@ pub(crate) fn build_command(
 }
 
 pub(crate) fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
-    if let ProviderSpec::Tsh {
+    if let ProviderSpec::TshKubeCluster {
         teleport_proxy,
         kube_cluster,
         ..
@@ -130,4 +149,72 @@ pub(crate) fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
         // No preflight for SSH
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_app_proxy_command() {
+        let spec = ProviderSpec::TshApp {
+            teleport_proxy: "teleport.example.com:443".to_string(),
+            app_name: "example-app".to_string(),
+            target_port: None,
+        };
+        let command = build_command(&spec, "127.0.0.1", 18000).expect("command");
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            [
+                "--proxy=teleport.example.com:443",
+                "proxy",
+                "app",
+                "--port=18000",
+                "example-app"
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_app_proxy_command_with_target_port() {
+        let spec = ProviderSpec::TshApp {
+            teleport_proxy: "teleport.example.com:443".to_string(),
+            app_name: "example-app".to_string(),
+            target_port: Some(3000),
+        };
+        let command = build_command(&spec, "127.0.0.1", 18000).expect("command");
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            [
+                "--proxy=teleport.example.com:443",
+                "proxy",
+                "app",
+                "--port=18000:3000",
+                "example-app"
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_non_loopback_app_proxy_host() {
+        let spec = ProviderSpec::TshApp {
+            teleport_proxy: "teleport.example.com:443".to_string(),
+            app_name: "example-app".to_string(),
+            target_port: None,
+        };
+
+        let err = build_command(&spec, "0.0.0.0", 18000).expect_err("must reject host");
+
+        assert!(err.to_string().contains("supports only"));
+    }
 }
