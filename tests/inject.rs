@@ -250,6 +250,54 @@ fn test_alias_with_separator() {
 }
 
 #[test]
+fn test_inject_with_separator() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--", "echo", "separator"])
+        .assert()
+        .success()
+        .stdout("separator\n");
+}
+
+#[test]
+fn test_separator_at_end_is_forwarded_to_child() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--", "echo", "separator", "--"])
+        .assert()
+        .success()
+        .stdout("separator --\n");
+}
+
+#[test]
+fn test_inject_requires_command() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("inject")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("A command is required"));
+}
+
+#[test]
+fn test_inject_separator_requires_command() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("A command is required"));
+}
+
+#[test]
 fn test_inject_network_provider_error_is_boxed() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

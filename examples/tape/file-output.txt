@@ -7,9 +7,7 @@
 > lade inject --no-mask cat .lade-secrets.json
 ⠋ Raw: KEY
 
-✔︎ Raw: KEY 0 ms
-
-✔︎ Raw: KEY 0 ms
+✔︎ Raw: KEY                                                               0 ms
 
 {"KEY":"written-to-disk"}
 

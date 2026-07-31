@@ -9,7 +9,7 @@ echo "test=$TEST"
 
 preexec_lade 'echo "test=$TEST"'
 echo "test=$TEST"
-precmd_lade 'echo "test=$TEST"'
+precmd_lade
 
 echo "test=$TEST"
 eval "$(cargo run -- off)"

@@ -10,23 +10,43 @@ pub use secret::*;
 use crate::global_config::GlobalConfig;
 use crate::provider_registry::is_network_scheme;
 use anyhow::{Result, bail};
-use futures::future::try_join_all;
-use lade_sdk::{hydrate_one, hydrate_with_maskable};
+use futures::stream::{FuturesUnordered, StreamExt};
+use lade_sdk::{Dag, Template, hydrate_one, hydrate_with_maskable};
 use regex::RegexSet;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    path::PathBuf,
+};
 
 pub type Output = Option<PathBuf>;
 
-type VarsByOutput = FxHashMap<Output, HashMap<String, String>>;
+#[derive(Debug, Clone)]
+struct Binding {
+    private: bool,
+    source: String,
+    cwd: PathBuf,
+    output: Output,
+    extra_env: HashMap<String, String>,
+}
 
-type CollectHydrateAccum = (
-    VarsByOutput,
-    HashMap<String, String>,
-    FxHashSet<String>,
-    Vec<String>,
-);
+fn binding_name(key: &str) -> Result<(String, bool)> {
+    if key == "." {
+        bail!("'.' is reserved for rule configuration");
+    }
+    if let Some(name) = key.strip_prefix('.') {
+        if name.is_empty() || !is_valid_env_key(name) {
+            bail!("private binding '{key}' must be .NAME");
+        }
+        return Ok((name.to_string(), true));
+    }
+    Ok((key.to_string(), false))
+}
+
+fn is_shell_source(source: &str) -> bool {
+    matches!(split_scheme(source), Some("sh" | "bash" | "zsh" | "fish"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkBinding {
@@ -81,37 +101,6 @@ fn resolve_entry(
     })
 }
 
-fn output_name(output: &Output) -> String {
-    output
-        .as_ref()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "environment".to_string())
-}
-
-fn merge_vars(
-    vars: &mut VarsByOutput,
-    output: Output,
-    incoming: HashMap<String, String>,
-) -> Result<()> {
-    let target = vars.entry(output.clone()).or_default();
-    for (key, value) in incoming {
-        match target.get(&key) {
-            Some(existing) if existing != &value => bail!(
-                "conflicting value for '{}' in {}: '{}' and '{}' match the same command; use more specific rules",
-                key,
-                output_name(&output),
-                existing,
-                value
-            ),
-            Some(_) => {}
-            None => {
-                target.insert(key, value);
-            }
-        }
-    }
-    Ok(())
-}
-
 fn merge_sources(
     sources: &mut HashMap<String, String>,
     incoming: HashMap<String, String>,
@@ -159,6 +148,66 @@ fn rule_sources(rule: &LadeRule, saved_user: &Option<String>) -> Result<HashMap<
     Ok(out)
 }
 
+async fn bindings_from_rules(
+    rules: &[(PathBuf, LadeRule)],
+    saved_user: &Option<String>,
+) -> Result<HashMap<String, Binding>> {
+    let mut bindings = HashMap::<String, Binding>::new();
+    for (cwd, rule) in rules {
+        let output = rule.config.as_ref().and_then(|config| config.file.clone());
+        let extra_env = if let Some(uri) = rule
+            .config
+            .as_ref()
+            .and_then(|config| config.onepassword_service_account.as_ref())
+            .and_then(|secret| resolve_lade_secret(secret, saved_user))
+        {
+            HashMap::from([(
+                "OP_SERVICE_ACCOUNT_TOKEN".to_string(),
+                hydrate_one(uri, cwd, &HashMap::new()).await?,
+            )])
+        } else {
+            HashMap::new()
+        };
+        for (key, secret) in &rule.secrets {
+            let entry = resolve_entry(key, secret, saved_user);
+            let (key, value) = match entry {
+                Some(ResolvedEntry::Secret { key, value }) => (key, value),
+                Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                    "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                    key
+                ),
+                Some(ResolvedEntry::Network { .. }) | None => continue,
+            };
+            let (name, private) = binding_name(&key)?;
+            let binding = Binding {
+                private,
+                source: value,
+                cwd: cwd.clone(),
+                output: output.as_ref().map(|path| cwd.join(path)),
+                extra_env: extra_env.clone(),
+            };
+            match bindings.get(&name) {
+                Some(existing) if existing.private != binding.private => {
+                    bail!("binding '{name}' is declared both public and private")
+                }
+                Some(existing)
+                    if existing.source != binding.source
+                        || existing.cwd != binding.cwd
+                        || existing.output != binding.output
+                        || existing.extra_env != binding.extra_env =>
+                {
+                    bail!("conflicting binding declaration for '{name}'")
+                }
+                Some(_) => {}
+                None => {
+                    bindings.insert(name, binding);
+                }
+            }
+        }
+    }
+    Ok(bindings)
+}
+
 /// The configured user (global config override, falling back to the OS
 /// user), used to resolve per-user secret/network maps. Reads
 /// [`GlobalConfig`] from disk, so callers on the hot path (one shell command
@@ -196,43 +245,6 @@ impl Config {
             .collect()
     }
 
-    async fn hydrate_output(
-        &self,
-        path: PathBuf,
-        rule: LadeRule,
-        saved_user: &Option<String>,
-    ) -> Result<(
-        Output,
-        HashMap<String, String>,
-        HashMap<String, String>,
-        FxHashSet<String>,
-        Vec<String>,
-    )> {
-        let sources = rule_sources(&rule, saved_user)?;
-
-        let config = rule.config.as_ref();
-        let output = config.and_then(|c| c.file.clone());
-        let extra_env = if let Some(uri) = config
-            .and_then(|c| c.onepassword_service_account.as_ref())
-            .and_then(|sa| resolve_lade_secret(sa, saved_user))
-        {
-            let token = hydrate_one(uri, &path, &HashMap::new()).await?;
-            HashMap::from([("OP_SERVICE_ACCOUNT_TOKEN".to_string(), token)])
-        } else {
-            HashMap::new()
-        };
-
-        let (values, maskable, warnings) =
-            hydrate_with_maskable(sources.clone(), path.clone(), extra_env).await?;
-        Ok((
-            output.map(|subpath| path.join(subpath)),
-            values,
-            sources,
-            maskable,
-            warnings,
-        ))
-    }
-
     /// Hydrate already-collected `rules` against an already-resolved
     /// `saved_user`. Hot-path callers (`run_inject`/`handle_set`) should use
     /// this directly with the single `collect`+`saved_user` resolved at the
@@ -248,30 +260,104 @@ impl Config {
         FxHashSet<String>,
         Vec<String>,
     )> {
-        let (vars, sources, maskable, warnings): CollectHydrateAccum = try_join_all(
-            rules
-                .iter()
-                .cloned()
-                .map(|(path, rule)| self.hydrate_output(path, rule, saved_user)),
-        )
-        .await?
-        .into_iter()
-        .try_fold(
-            (
-                FxHashMap::default(),
-                HashMap::new(),
-                FxHashSet::default(),
-                Vec::new(),
-            ),
-            |(mut vars, mut sources, mut maskable, mut warnings),
-             (output, map, rule_sources, rule_maskable, rule_warnings)| {
-                merge_vars(&mut vars, output, map)?;
-                merge_sources(&mut sources, rule_sources)?;
-                maskable.extend(rule_maskable);
-                warnings.extend(rule_warnings);
-                Ok::<_, anyhow::Error>((vars, sources, maskable, warnings))
-            },
-        )?;
+        let bindings = bindings_from_rules(rules, saved_user).await?;
+        let templates = bindings
+            .iter()
+            .map(|(name, binding)| (name.clone(), Template::parse(&binding.source)))
+            .collect::<HashMap<_, _>>();
+        let dag = Dag::new(templates)?;
+        let mut degrees = dag.indegrees();
+        let mut ready = dag.initial_ready();
+        let mut values = HashMap::<String, String>::new();
+        let mut sources = HashMap::<String, String>::new();
+        let mut maskable = FxHashSet::default();
+        let mut warnings = Vec::new();
+
+        let mut running = FuturesUnordered::new();
+        while !ready.is_empty() || !running.is_empty() {
+            let batch = std::mem::take(&mut ready);
+            let mut groups =
+                BTreeMap::<(PathBuf, Vec<(String, String)>, bool), HashMap<String, String>>::new();
+            for name in &batch {
+                let binding = bindings.get(name).expect("planned binding");
+                let template = dag.template(name).expect("planned template");
+                let shell_source = is_shell_source(&binding.source);
+                let rendered = if shell_source {
+                    template.shell_source()
+                } else {
+                    template.render(&values)?
+                };
+                let mut extra_env = binding
+                    .extra_env
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>();
+                if shell_source {
+                    extra_env.extend(template.dependencies().filter_map(|dependency| {
+                        values
+                            .get(dependency)
+                            .map(|value| (dependency.to_string(), value.clone()))
+                    }));
+                }
+                extra_env.sort();
+                groups
+                    .entry((binding.cwd.clone(), extra_env, shell_source))
+                    .or_default()
+                    .insert(name.clone(), rendered);
+            }
+            for ((cwd, extra_env, _), sources_for_group) in groups {
+                running.push(async move {
+                    let extra_env = extra_env.into_iter().collect::<HashMap<_, _>>();
+                    let configured = sources_for_group.clone();
+                    let result = hydrate_with_maskable(sources_for_group, cwd, extra_env).await?;
+                    Ok::<_, anyhow::Error>((configured, result))
+                });
+            }
+            let (configured, (resolved, group_maskable, group_warnings)) = running
+                .next()
+                .await
+                .expect("a planned DAG must have an active group")?;
+            for (name, value) in resolved {
+                let source = configured.get(&name).expect("configured source").clone();
+                if group_maskable.contains(&source)
+                    || dag
+                        .template(&name)
+                        .expect("planned template")
+                        .dependencies()
+                        .any(|dependency| maskable.contains(dependency))
+                {
+                    maskable.insert(name.clone());
+                }
+                if group_maskable.contains(&source) {
+                    maskable.insert(source.clone());
+                }
+                values.insert(name.clone(), value);
+                sources.insert(name, source);
+            }
+            warnings.extend(group_warnings);
+            let mut newly_ready = BTreeSet::new();
+            for name in configured.keys() {
+                for dependent in dag.dependents(name) {
+                    let degree = degrees.get_mut(dependent).expect("planned dependent");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        newly_ready.insert(dependent.clone());
+                    }
+                }
+            }
+            ready.extend(newly_ready);
+        }
+
+        let mut vars = FxHashMap::<Output, HashMap<String, String>>::default();
+        for (name, binding) in bindings {
+            if binding.private {
+                continue;
+            }
+            vars.entry(binding.output).or_default().insert(
+                name.clone(),
+                values.remove(&name).expect("resolved binding"),
+            );
+        }
         Ok((vars.into_iter().collect(), sources, maskable, warnings))
     }
 
@@ -324,7 +410,9 @@ impl Config {
                     .iter()
                     .filter_map(
                         |(key, secret)| match resolve_entry(key, secret, saved_user) {
-                            Some(ResolvedEntry::Secret { key, .. }) if is_valid_env_key(&key) => {
+                            Some(ResolvedEntry::Secret { key, .. })
+                                if !key.starts_with('.') && is_valid_env_key(&key) =>
+                            {
                                 Some(key)
                             }
                             _ => None,
@@ -404,6 +492,9 @@ impl Config {
                 else {
                     continue;
                 };
+                if key.starts_with('.') {
+                    continue;
+                }
                 match by_key.get(&key) {
                     Some(existing) if existing != &uri => bail!(
                         "conflicting network binding for '{}': '{}' and '{}' match the same command",

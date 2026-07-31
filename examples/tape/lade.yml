@@ -40,8 +40,13 @@
 # tape: network
 ^curl .*127.0.0.1:18080/.*$:
   TF_VAR_demo_token: file://../sources/config.json?query=.token
-  18080: kubectl://host.docker.internal:53715/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080
-
+  18080: kubectl://127.0.0.1:6445/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080
 # tape: shell
 ^printenv SHELL_VAL:
   SHELL_VAL: sh://echo hello
+
+# tape: intermediate
+^printenv Authorization user:
+  user: demo-user
+  .password: vault://127.0.0.1:8200/secret/password/value1
+  Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")"'

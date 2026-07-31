@@ -2,6 +2,7 @@ use clap::Subcommand;
 use clap_verbosity_flag::Verbosity;
 
 use clap::Parser;
+use std::ffi::OsString;
 
 #[derive(Parser, Debug)]
 pub struct UpgradeCommand {
@@ -16,7 +17,7 @@ pub struct UpgradeCommand {
 
 #[derive(Parser, Debug)]
 pub struct EvalCommand {
-    #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[clap(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
     pub commands: Vec<String>,
 }
 
@@ -35,6 +36,15 @@ pub struct InjectCommand {
     pub mask_format: String,
     #[clap(trailing_var_arg = true, allow_hyphen_values = true)]
     pub commands: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct McpCommand {
+    /// Remote Streamable HTTP MCP endpoint.
+    pub url: Option<String>,
+    /// Local stdio MCP server command. It must follow `--`.
+    #[arg(last = true, allow_hyphen_values = true)]
+    pub argv: Vec<OsString>,
 }
 
 #[derive(Parser, Debug)]
@@ -63,6 +73,8 @@ pub enum Command {
     Uninstall,
     /// Inject environment into nested command.
     Inject(InjectCommand),
+    /// Resolve secrets for a local or remote MCP server.
+    Mcp(McpCommand),
     /// Set environment for shell.
     Set(EvalCommand),
     /// Unset environment for shell.

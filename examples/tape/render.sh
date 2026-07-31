@@ -10,11 +10,11 @@ cd "$tape_dir"
 
 COMPOSE_FILE="$repo_root/compose.yml"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-lade}"
-K3D_CLUSTER="${LADE_K3D_CLUSTER:-lade-k3d-shared}"
+K3D_CLUSTER="lade-k3d-shared"
 K3D_CONTEXT="k3d-$K3D_CLUSTER"
+K3D_API_SERVER="https://127.0.0.1:6445"
 K3D_CONFIG_FILE="$repo_root/k3d.yaml"
 K3D_MANIFESTS_FILE="$repo_root/k3d-manifests.yaml"
-TAPE_LADE_YML="$tape_dir/lade.yml"
 
 cleanup() {
   echo "Cleaning up..."
@@ -58,7 +58,17 @@ prepare_vault() {
     multiline=$'a\nb' >/dev/null
 }
 
+create_k3d() {
+  k3d cluster create --config "$K3D_CONFIG_FILE" \
+    --volume "$repo_root/k3d-manifests.yaml:/var/lib/rancher/k3s/server/manifests/k3d-manifests.yaml@server:0" \
+    --wait >/dev/null
+}
+
 prepare_k3d() {
+  if [ -n "${LADE_K3D_CLUSTER:-}" ] && [ "$LADE_K3D_CLUSTER" != "$K3D_CLUSTER" ]; then
+    echo "Error: tape rendering requires the $K3D_CLUSTER fixture cluster." >&2
+    exit 1
+  fi
   if ! command -v k3d >/dev/null 2>&1; then
     echo "Error: k3d is required for network tape rendering." >&2
     exit 1
@@ -73,17 +83,25 @@ prepare_k3d() {
   fi
 
   local needs_apply=0
-  if ! kubectl config get-contexts -o name | rg -x "$K3D_CONTEXT" >/dev/null 2>&1; then
+  if ! k3d cluster get "$K3D_CLUSTER" >/dev/null 2>&1; then
     echo "Creating K3D cluster..."
-    k3d cluster create --config "$K3D_CONFIG_FILE" --wait >/dev/null
+    create_k3d
     needs_apply=1
+  elif ! kubectl config get-contexts -o name | rg -x "$K3D_CONTEXT" >/dev/null 2>&1; then
+    echo "Importing K3D kubeconfig..."
+    k3d kubeconfig merge "$K3D_CLUSTER" --kubeconfig-merge-default >/dev/null
   fi
 
+  local server_url
+  server_url="$(kubectl --context "$K3D_CONTEXT" config view --raw -o "jsonpath={.clusters[?(@.name==\"$K3D_CONTEXT\")].cluster.server}")"
   if [ "${LADE_RENDER_RECREATE_K3D:-0}" = "1" ]; then
     echo "Recreating K3D cluster..."
     k3d cluster delete "$K3D_CLUSTER" >/dev/null 2>&1 || true
-    k3d cluster create --config "$K3D_CONFIG_FILE" --wait >/dev/null
+    create_k3d
     needs_apply=1
+  elif [ "$server_url" != "$K3D_API_SERVER" ]; then
+    echo "Error: $K3D_CLUSTER uses $server_url; set LADE_RENDER_RECREATE_K3D=1 to recreate it." >&2
+    exit 1
   fi
 
   if [ "$needs_apply" -eq 1 ] || ! kubectl --context "$K3D_CONTEXT" -n lade-k3d-ns get deployment http-echo >/dev/null 2>&1; then
@@ -91,41 +109,6 @@ prepare_k3d() {
     kubectl --context "$K3D_CONTEXT" apply -f "$K3D_MANIFESTS_FILE" >/dev/null
     kubectl --context "$K3D_CONTEXT" -n lade-k3d-ns rollout status deployment/http-echo --timeout=120s >/dev/null
   fi
-}
-
-sync_network_tape_config() {
-  local server_url
-  server_url="$(kubectl --context "$K3D_CONTEXT" config view --raw -o "jsonpath={.clusters[?(@.name==\"$K3D_CONTEXT\")].cluster.server}")"
-  if [ -z "$server_url" ]; then
-    echo "Error: failed to resolve kube API server for $K3D_CONTEXT." >&2
-    exit 1
-  fi
-  local authority
-  authority="${server_url#https://}"
-  authority="${authority#http://}"
-  authority="${authority%%/*}"
-  python3 - "$TAPE_LADE_YML" "$authority" "$K3D_CONTEXT" <<'PY'
-import re
-import sys
-
-path, authority, context = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path, "r", encoding="utf-8") as f:
-    text = f.read()
-
-pattern = r"(?ms)^# tape: network\n.*?(?=^# tape: |\Z)"
-replacement = (
-    "# tape: network\n"
-    "^curl .*127.0.0.1:18080/.*$:\n"
-    "  TF_VAR_demo_token: file://../sources/config.json?query=.token\n"
-    f"  18080: kubectl://{authority}/{context}/lade-k3d-ns/service/http-echo/8080\n"
-)
-if not re.search(pattern, text):
-    print("missing '# tape: network' section", file=sys.stderr)
-    sys.exit(1)
-text = re.sub(pattern, replacement, text)
-with open(path, "w", encoding="utf-8") as f:
-    f.write(text)
-PY
 }
 
 # Ensure lade is built and up to date
@@ -153,7 +136,6 @@ if [ "$needs_vault" -eq 1 ]; then
 fi
 if [ "$needs_network" -eq 1 ]; then
   prepare_k3d
-  sync_network_tape_config
 fi
 
 if [ $# -gt 0 ]; then

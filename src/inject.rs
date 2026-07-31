@@ -73,7 +73,11 @@ pub async fn run_inject(
     )
     .await;
     show_loader_warnings(ctx, &warnings).await;
-    merge_env_with_conflicts(&mut env, network.env.clone())?;
+    if let Err(error) = merge_env_with_conflicts(&mut env, network.env.clone()) {
+        let _ = remove_files(&mut files.keys());
+        drop(network);
+        return Err(error);
+    }
     compat::warn_outdated(
         ctx,
         compat::known_schemes(
