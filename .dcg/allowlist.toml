@@ -1,0 +1,3 @@
+[[allow]]
+exact_command = "./examples/tape/render.sh"
+reason = "Render Lade’s reviewed terminal demonstrations"

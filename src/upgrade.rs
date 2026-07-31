@@ -40,9 +40,10 @@ pub async fn fetch_version_status() -> Result<VersionStatus> {
     .await??;
 
     let update_available = Version::parse(&latest.version)? > Version::parse(&current)?;
-    if !update_available {
-        GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
-    }
+    // Record both outcomes. Shell hooks invoke the check silently, so leaving
+    // an available update unrecorded would otherwise perform a network request
+    // before every interactive command.
+    GlobalConfig::update(|c| c.update_check = Utc::now()).await?;
 
     Ok(VersionStatus {
         current,

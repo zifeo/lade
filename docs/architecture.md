@@ -118,13 +118,55 @@ flowchart TD
     Status[lade status] --> Report[Active checks to stdout]
 ```
 
+## 5. Binding resolution
+
+Every matching command builds a dependency DAG from its bindings before any
+provider is invoked. A binding can reference another binding with `${NAME}`.
+Ready bindings resolve concurrently; as a provider group completes, its
+dependents become eligible immediately. The graph and its values are scoped to
+one invocation.
+
+Keys prefixed with `.` are intermediate bindings. `.NAME` resolves and can be
+referenced as `$NAME` or `${NAME}`, but is never written to the child environment, a
+temporary file, or an MCP header. `.` on its own is still the rule
+configuration block. A public binding and `.NAME` cannot coexist.
+
+Binding sources support simple `$NAME` and `${NAME}` references. For normal
+providers, Lade renders those references before invoking the provider. Shell
+providers (`sh://`, `bash://`, `zsh://`, `fish://`) are different: the source
+script remains unchanged and direct binding dependencies are injected into that
+shell process environment. This preserves shell syntax such as command
+substitution and pipes without placing secret values in the script text.
+
+```yaml
+"deploy .*":
+  .TOKEN: op://company/production/deploy/token
+  DEPLOY_AUTHORIZATION: "Bearer ${TOKEN}"
+```
+
+The child receives only `DEPLOY_AUTHORIZATION`; `TOKEN` remains resolver-local.
+This is independent of the final sink, so the same pattern works for shell
+hooks, `lade inject`, file output, and MCP.
+
+## 6. MCP
+
+`lade mcp` uses the same rule matcher and binding resolver as command
+injection, but the output sink depends on the transport. A stdio target is
+spawned directly with public bindings in its environment. An HTTPS target is
+exposed locally as stdio and each public binding becomes an upstream HTTP
+header.
+
+MCP stdout is protocol data and is copied without redaction or decoration.
+Lade diagnostics use stderr. The resolver, temporary files, and network
+forwards are owned by the invocation and cleaned up when the transport exits.
+
 | Surface | Hook | Interactive |
 |---------|------|-------------|
 | Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` also emits `LADE_PENDING` | box + type `yes` |
 | Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
-| Upgrade reminder | silent | passive info box after inject |
+| Upgrade reminder | silent daily check | passive info box after inject |
 | Loader/network error | error box + 5s wait when stderr is a TTY + exit 1 | error box + 5s wait + exit 1 |
 | Network providers | acquired by `lade set` as detached processes, stopped by `lade unset` | acquired before child command, released on exit |
 
@@ -155,7 +197,7 @@ To avoid recursion and unnecessary overhead, shell hooks skip any command starti
 
 Use `lade status` for an active report (version, config, hooks, `lade.yml`, vault CLI versions). Upgrade and compat nudges on inject only remind you to run `lade upgrade` or `lade status`.
 
-## 5. Agents (`lade hook`) & the direct path
+## 7. Agents (`lade hook`) & the direct path
 
 Lade distinguishes three driving contexts, each wanting different disclaimer behaviour:
 

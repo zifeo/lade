@@ -303,7 +303,10 @@ mod tests {
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
         let err = config.collect_hydrate("cmd run").await.unwrap_err();
-        assert!(err.to_string().contains("conflicting value for 'TOKEN'"));
+        assert!(
+            err.to_string()
+                .contains("conflicting binding declaration for 'TOKEN'")
+        );
     }
 
     #[tokio::test]
@@ -318,5 +321,61 @@ mod tests {
         let (vars, _, _, _) = config.collect_hydrate("cmd run").await.unwrap();
         let env = vars.get(&None::<std::path::PathBuf>).unwrap();
         assert_eq!(env.get("TOKEN").unwrap(), "same");
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_interpolates_private_binding_without_emitting_it() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  .TOKEN: token\n  Authorization: \"Bearer ${TOKEN}\"\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, maskable, _) = config.collect_hydrate("cmd").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("Authorization"), Some(&"Bearer token".to_string()));
+        assert!(!env.contains_key("TOKEN"));
+        assert!(!maskable.contains("TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_rejects_public_private_collision() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  TOKEN: public\n  .TOKEN: private\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let err = config.collect_hydrate("cmd").await.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("binding 'TOKEN' is declared both public and private")
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_collect_hydrate_injects_dependencies_into_shell_provider() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            r#""cmd":
+  user: demo-user
+  .password: demo-password
+  Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")"'
+"#,
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("cmd").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(
+            env.get("Authorization"),
+            Some(&"Basic ZGVtby11c2VyOmRlbW8tcGFzc3dvcmQ=".to_string())
+        );
+        assert_eq!(env.get("user"), Some(&"demo-user".to_string()));
+        assert!(!env.contains_key("password"));
     }
 }

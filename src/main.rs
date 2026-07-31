@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::{env, io::Read, time::Duration};
 
+mod access;
 mod agent;
 mod agent_hooks;
 mod args;
@@ -14,6 +15,7 @@ mod global_config;
 mod hook;
 mod inject;
 mod masking;
+mod mcp;
 mod message_box;
 mod network;
 mod prompt;
@@ -90,18 +92,19 @@ async fn run() -> Result<()> {
     let upgrade_task = (ctx.is_interactive() && matches!(command, Command::Inject(_)))
         .then(|| tokio::spawn(upgrade::check_message()));
 
-    let shell = Shell::detect()?;
-
     match command {
         Command::On => {
+            let shell = Shell::detect()?;
             println!("{}\n{}", shell.off()?, shell.on()?);
             return Ok(());
         }
         Command::Off => {
+            let shell = Shell::detect()?;
             println!("{}", shell.off()?);
             return Ok(());
         }
         Command::Install => {
+            let shell = Shell::detect()?;
             message_box::MessageBox::new()
                 .info()
                 .line(format!("Auto launcher installed in {}", shell.install()?))
@@ -113,6 +116,7 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Uninstall => {
+            let shell = Shell::detect()?;
             message_box::MessageBox::new()
                 .info()
                 .line(format!(
@@ -211,6 +215,14 @@ async fn run() -> Result<()> {
             print!("{}", output);
         }
         Command::Inject(opts) => {
+            if opts.commands.is_empty() {
+                message_box::MessageBox::new()
+                    .error()
+                    .line("A command is required for `lade inject`.")
+                    .print_stderr();
+                std::process::exit(exit_codes::FAILURE);
+            }
+            let shell = Shell::detect()?;
             let command = opts.commands.join(" ");
             inject_exit_code = match map_disclaimer_exit(
                 run_inject(command, opts, &ctx, &config, &shell, &current_dir).await,
@@ -222,7 +234,18 @@ async fn run() -> Result<()> {
                 }
             };
         }
+        Command::Mcp(opts) => {
+            inject_exit_code =
+                match map_disclaimer_exit(mcp::run(opts, &ctx, &config, &current_dir).await) {
+                    Ok(code) => code,
+                    Err(e) => {
+                        report_inject_error(&e);
+                        std::process::exit(exit_codes::FAILURE);
+                    }
+                };
+        }
         Command::Approve { code } => {
+            let shell = Shell::detect()?;
             inject_exit_code = match map_disclaimer_exit(
                 handle_approve(&ctx, &config, &shell, current_dir, code).await,
             ) {
@@ -234,9 +257,16 @@ async fn run() -> Result<()> {
             };
         }
         Command::Set(EvalCommand { commands }) => {
+            let shell = Shell::detect()?;
+            // Shell hooks are automatic but still part of an interactive
+            // session. Check at most daily and deliberately discard the
+            // result: stdout is the shell protocol and hook stderr must stay
+            // quiet unless the hook itself has an access error.
+            let _ = tokio::time::timeout(Duration::from_secs(2), upgrade::check_message()).await;
             handle_set(&ctx, &config, &shell, commands, current_dir).await?;
         }
         Command::Unset(EvalCommand { commands }) => {
+            let shell = Shell::detect()?;
             handle_unset(&shell, &config, commands).await?;
         }
         _ => unreachable!(),

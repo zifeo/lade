@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Ok, Result};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+pub mod mcp;
 mod providers;
 mod resolve;
 
@@ -13,7 +14,7 @@ pub use providers::Providers;
 pub use providers::Warnings;
 pub use providers::compat;
 pub use providers::network;
-pub use resolve::{resolve, resolve_one};
+pub use resolve::{Dag, Template, resolve, resolve_one};
 
 type Hydration = FxHashMap<String, String>;
 

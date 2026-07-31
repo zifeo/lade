@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use rustc_hash::FxHashSet;
 
 fn should_mask(key: &str, sources: &HashMap<String, String>, maskable: &FxHashSet<String>) -> bool {
-    sources
-        .get(key)
-        .is_some_and(|source| maskable.contains(source))
+    maskable.contains(key)
+        || sources
+            .get(key)
+            .is_some_and(|source| maskable.contains(source))
 }
 
 /// Resolved values whose config source was loaded by a masking provider.

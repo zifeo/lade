@@ -1,0 +1,4 @@
+eval "$(lade on)"
+clear
+./show-example intermediate
+printenv Authorization user
