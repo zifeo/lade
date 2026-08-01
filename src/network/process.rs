@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
@@ -8,8 +8,8 @@ use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 /// accept connections. Kept short for snappier detection; the dominant cost
 /// is the provider CLI starting up, not this poll loop.
 const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(30);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const INITIAL_RESTART_BACKOFF: Duration = Duration::from_millis(250);
+const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(5);
 static LOG_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) struct ChildOutputFiles {
@@ -58,63 +61,56 @@ impl ChildOutputFiles {
 
 #[derive(Debug)]
 pub(crate) struct RunningForward {
+    shutdown: Arc<AtomicBool>,
+    child_pid: Arc<AtomicI32>,
+    shutdown_tx: mpsc::Sender<()>,
+    supervisor: Option<JoinHandle<()>>,
+}
+
+struct SupervisorConfig {
     name: String,
-    pub(crate) child: Child,
-    logs: Arc<Mutex<Vec<u8>>>,
-    stdout_join: Option<JoinHandle<()>>,
-    stderr_join: Option<JoinHandle<()>>,
+    host: String,
+    port: u16,
 }
 
 impl RunningForward {
-    pub(crate) fn spawn(name: &str, mut command: Command) -> Result<Self> {
-        configure_child_process(&mut command);
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let logs = Arc::new(Mutex::new(Vec::new()));
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let stdout_join = stdout.map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
-        let stderr_join = stderr.map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
-        Ok(Self {
-            name: name.to_string(),
-            child,
-            logs,
-            stdout_join,
-            stderr_join,
-        })
-    }
-
-    pub(crate) fn wait_ready(&mut self, host: &str, port: u16, timeout: Duration) -> Result<()> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(status) = self.child.try_wait()? {
-                bail!(
-                    "{} exited before becoming ready (status: {}): {}",
-                    self.name,
-                    status,
-                    self.logs_text()
-                );
-            }
-            if tcp_connects(host, port, Duration::from_millis(200)) {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                bail!(
-                    "{} did not become ready on {}:{} before timeout: {}",
-                    self.name,
-                    host,
-                    port,
-                    self.logs_text()
-                );
-            }
-            std::thread::sleep(READINESS_POLL_INTERVAL);
-        }
-    }
-
-    fn logs_text(&self) -> String {
-        String::from_utf8_lossy(&self.logs.lock().expect("logs mutex")).into_owned()
+    pub(crate) fn supervise<F>(
+        name: String,
+        host: String,
+        port: u16,
+        command: F,
+    ) -> Result<(Self, u32)>
+    where
+        F: Fn() -> Result<Command> + Send + 'static,
+    {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let child_pid = Arc::new(AtomicI32::new(0));
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let supervisor_shutdown = Arc::clone(&shutdown);
+        let supervisor_pid = Arc::clone(&child_pid);
+        let supervisor = std::thread::spawn(move || {
+            supervise(
+                SupervisorConfig { name, host, port },
+                command,
+                supervisor_shutdown,
+                supervisor_pid,
+                shutdown_rx,
+                ready_tx,
+            )
+        });
+        let pid = ready_rx
+            .recv()
+            .map_err(|_| anyhow!("network provider supervisor stopped before readiness"))??;
+        Ok((
+            Self {
+                shutdown,
+                child_pid,
+                shutdown_tx,
+                supervisor: Some(supervisor),
+            },
+            pid,
+        ))
     }
 }
 
@@ -133,16 +129,186 @@ pub(crate) fn configure_child_process(command: &mut Command) {
 
 impl Drop for RunningForward {
     fn drop(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        self.shutdown.store(true, Ordering::Release);
+        let _ = self.shutdown_tx.send(());
+        let pid = self.child_pid.load(Ordering::Acquire);
+        if pid > 0 {
+            let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
         }
+        if let Some(handle) = self.supervisor.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn supervise<F>(
+    config: SupervisorConfig,
+    command: F,
+    shutdown: Arc<AtomicBool>,
+    child_pid: Arc<AtomicI32>,
+    shutdown_rx: mpsc::Receiver<()>,
+    ready_tx: mpsc::SyncSender<Result<u32>>,
+) where
+    F: Fn() -> Result<Command>,
+{
+    let startup_deadline = Instant::now() + STARTUP_TIMEOUT;
+    let mut ready_sent = false;
+    let mut backoff = INITIAL_RESTART_BACKOFF;
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            if !ready_sent {
+                let _ = ready_tx.send(Err(anyhow!("network provider stopped before readiness")));
+            }
+            return;
+        }
+        let mut child = match command().and_then(spawn_forward) {
+            Ok(child) => child,
+            Err(error) => {
+                if !ready_sent && Instant::now() >= startup_deadline {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+                log::warn!("{} failed to start: {error}", config.name);
+                if !wait_restart(&shutdown_rx, backoff) {
+                    return;
+                }
+                backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
+                continue;
+            }
+        };
+        match wait_forward_ready(
+            &mut child,
+            &config.host,
+            config.port,
+            startup_deadline,
+            &shutdown_rx,
+        ) {
+            Ok(()) => {
+                child_pid.store(child.child.id() as i32, Ordering::Release);
+                if !ready_sent {
+                    let _ = ready_tx.send(Ok(child.child.id()));
+                    ready_sent = true;
+                }
+                backoff = INITIAL_RESTART_BACKOFF;
+                let status = child.child.wait();
+                child_pid.store(0, Ordering::Release);
+                child.join_readers();
+                if shutdown.load(Ordering::Acquire) {
+                    return;
+                }
+                log::warn!(
+                    "{} exited after readiness (status: {}): {}",
+                    config.name,
+                    status.map_or_else(|error| error.to_string(), |status| status.to_string()),
+                    child.logs_text()
+                );
+            }
+            Err(error) => {
+                stop_child(&mut child.child);
+                child_pid.store(0, Ordering::Release);
+                child.join_readers();
+                if shutdown.load(Ordering::Acquire) {
+                    return;
+                }
+                if !ready_sent && Instant::now() >= startup_deadline {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+                log::warn!("{} failed before readiness: {error}", config.name);
+            }
+        }
+        if !wait_restart(&shutdown_rx, backoff) {
+            return;
+        }
+        backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
+    }
+}
+
+fn wait_restart(shutdown_rx: &mpsc::Receiver<()>, delay: Duration) -> bool {
+    shutdown_rx.recv_timeout(delay).is_err()
+}
+
+struct ChildForward {
+    child: Child,
+    logs: Arc<Mutex<Vec<u8>>>,
+    stdout_join: Option<JoinHandle<()>>,
+    stderr_join: Option<JoinHandle<()>>,
+}
+
+fn spawn_forward(mut command: Command) -> Result<ChildForward> {
+    configure_child_process(&mut command);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let stdout_join = child
+        .stdout
+        .take()
+        .map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
+    let stderr_join = child
+        .stderr
+        .take()
+        .map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
+    Ok(ChildForward {
+        child,
+        logs,
+        stdout_join,
+        stderr_join,
+    })
+}
+
+impl ChildForward {
+    fn logs_text(&self) -> String {
+        String::from_utf8_lossy(&self.logs.lock().expect("logs mutex")).into_owned()
+    }
+
+    fn join_readers(&mut self) {
         if let Some(handle) = self.stdout_join.take() {
             let _ = handle.join();
         }
         if let Some(handle) = self.stderr_join.take() {
             let _ = handle.join();
         }
+    }
+}
+
+fn wait_forward_ready(
+    child: &mut ChildForward,
+    host: &str,
+    port: u16,
+    deadline: Instant,
+    shutdown_rx: &mpsc::Receiver<()>,
+) -> Result<()> {
+    loop {
+        if let Some(status) = child.child.try_wait()? {
+            bail!(
+                "process exited before becoming ready (status: {status}): {}",
+                child.logs_text()
+            );
+        }
+        if tcp_connects(host, port, Duration::from_millis(200)) {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "timeout waiting for readiness on {host}:{port}: {}",
+                child.logs_text()
+            );
+        }
+        if shutdown_rx.recv_timeout(READINESS_POLL_INTERVAL).is_ok() {
+            bail!("network provider stopped before readiness");
+        }
+    }
+}
+
+fn stop_child(child: &mut Child) {
+    if let Ok(pid) = i32::try_from(child.id()) {
+        let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
+    }
+    if child.try_wait().ok().flatten().is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
@@ -280,5 +446,51 @@ mod tests {
         let text = dedupe_lines(raw);
         assert_eq!(text.matches("memcache.go").count(), 1);
         assert!(text.contains("Unable to connect to the server: same"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn dropping_supervisor_terminates_the_provider_process_group() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (forward, pid) = RunningForward::supervise(
+            "test forward".to_string(),
+            "127.0.0.1".to_string(),
+            address.port(),
+            || {
+                let mut command = Command::new("sh");
+                command.args(["-c", "while :; do :; done"]);
+                Ok(command)
+            },
+        )
+        .unwrap();
+        drop(forward);
+        assert_eq!(kill(Pid::from_raw(pid as i32), None), Err(Errno::ESRCH));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn supervisor_retries_a_startup_failure() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let command_attempts = Arc::clone(&attempts);
+        let (forward, _) = RunningForward::supervise(
+            "test forward".to_string(),
+            "127.0.0.1".to_string(),
+            address.port(),
+            move || {
+                let attempt = command_attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt == 0 {
+                    return Err(anyhow!("simulated startup failure"));
+                }
+                let mut command = Command::new("sh");
+                command.args(["-c", "while :; do :; done"]);
+                Ok(command)
+            },
+        )
+        .unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        drop(forward);
     }
 }

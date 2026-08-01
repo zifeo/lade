@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -97,10 +98,31 @@ struct PreparedBinding {
     parsed: ParsedBinding,
     local_host: String,
     local_port: u16,
-    cmd: Command,
+    command: CommandTemplate,
     progress_id: String,
     display: String,
     started: Instant,
+}
+
+#[derive(Clone)]
+struct CommandTemplate {
+    program: OsString,
+    args: Vec<OsString>,
+}
+
+impl CommandTemplate {
+    fn from_command(command: Command) -> Self {
+        Self {
+            program: command.get_program().to_owned(),
+            args: command.get_args().map(OsString::from).collect(),
+        }
+    }
+
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.program);
+        command.args(&self.args);
+        command
+    }
 }
 
 fn prepare_binding(
@@ -123,7 +145,7 @@ fn prepare_binding(
         send_failed(progress, progress_id, display, started);
         return Err(e);
     }
-    let cmd = match build_command(&parsed.spec, &local_host, local_port) {
+    let command = match build_command(&parsed.spec, &local_host, local_port) {
         Ok(cmd) => cmd,
         Err(e) => {
             send_failed(progress, progress_id, display, started);
@@ -134,7 +156,7 @@ fn prepare_binding(
         parsed,
         local_host,
         local_port,
-        cmd,
+        command: CommandTemplate::from_command(command),
         progress_id,
         display,
         started,
@@ -155,24 +177,24 @@ fn acquire_attached_binding(
         mut parsed,
         local_host,
         local_port,
-        cmd,
+        command,
         progress_id,
         display,
         started,
     } = prepare_binding(binding, &progress)?;
     let label = provider_label(&parsed.spec);
-    let mut process = match RunningForward::spawn(label, cmd) {
+    let (process, pid) = match RunningForward::supervise(
+        label.to_string(),
+        local_host.clone(),
+        local_port,
+        move || Ok(command.command()),
+    ) {
         Ok(process) => process,
         Err(e) => {
             send_failed(&progress, progress_id, display, started);
             return Err(e);
         }
     };
-    if let Err(e) = process.wait_ready(&local_host, local_port, DEFAULT_READY_TIMEOUT) {
-        send_failed(&progress, progress_id, display, started);
-        return Err(e);
-    }
-    let pid = process.child.id();
     let env_entry = env_entry_for(&parsed.target, local_port);
     let connected = format!(
         "{} pid={} {} ms",
@@ -201,14 +223,15 @@ fn acquire_detached_binding(
         parsed,
         local_host,
         local_port,
-        mut cmd,
+        command,
         progress_id,
         display,
         started,
     } = prepare_binding(binding, &progress)?;
-    configure_child_process(&mut cmd);
-    let logs = ChildOutputFiles::capture(&mut cmd)?;
-    let mut child = match cmd.spawn() {
+    let mut command = command.command();
+    configure_child_process(&mut command);
+    let logs = ChildOutputFiles::capture(&mut command)?;
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             logs.cleanup();

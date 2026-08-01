@@ -139,10 +139,8 @@ fn has_cmd(cmd: &str) -> bool {
 }
 
 fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str, config: &Path) {
-    if has_kube_context(context, kubeconfig) {
-        return;
-    }
     if cluster_exists(cluster) {
+        start_cluster(cluster);
         write_cluster_kubeconfig(cluster, kubeconfig);
         assert!(
             has_kube_context(context, kubeconfig),
@@ -167,6 +165,18 @@ fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str, config
     assert!(
         has_kube_context(context, kubeconfig),
         "created cluster {cluster}, but context {context} is missing from isolated kubeconfig"
+    );
+}
+
+fn start_cluster(cluster: &str) {
+    let output = Command::new("k3d")
+        .args(["cluster", "start", cluster, "--wait"])
+        .output()
+        .expect("spawn k3d cluster start");
+    assert!(
+        output.status.success(),
+        "k3d cluster start failed: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
