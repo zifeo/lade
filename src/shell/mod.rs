@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
-use sysinfo::{System, get_current_pid};
+use sysinfo::{ProcessesToUpdate, System, get_current_pid};
 
 pub const LADE_PENDING: &str = "LADE_PENDING";
 pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
@@ -78,16 +78,36 @@ impl Shell {
             return Shell::from_str(name);
         }
 
-        let sys = System::new_all();
-        let process = sys
-            .process(get_current_pid().expect("no pid"))
-            .expect("pid does not exist");
+        let mut sys = System::new();
+        let pid = get_current_pid().map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Only this process and its parent. `System::new_all()` also walks disks,
+        // networks, and every pid, which can stall on a dead volume.
+        sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
+        let process = sys.process(pid).context("pid does not exist")?;
+        let parent_pid = process.parent().context("no parent pid")?;
+        sys.refresh_processes(ProcessesToUpdate::Some(&[parent_pid]), false);
         let parent = sys
-            .process(process.parent().expect("no parent pid"))
-            .expect("parent pid does not exist");
+            .process(parent_pid)
+            .context("parent pid does not exist")?;
         let shell = parent.name().to_string_lossy().trim().to_lowercase();
         let shell = shell.strip_suffix(".exe").unwrap_or(&shell);
         Shell::from_str(shell)
+    }
+
+    fn export_lade_shell(&self) -> String {
+        match self {
+            Shell::Bash | Shell::Zsh | Shell::Sh => {
+                format!("export LADE_SHELL={}", self.bin())
+            }
+            Shell::Fish => format!("set --global --export LADE_SHELL {}", self.bin()),
+        }
+    }
+
+    fn unset_lade_shell(&self) -> String {
+        match self {
+            Shell::Bash | Shell::Zsh | Shell::Sh => "unset -v LADE_SHELL".to_string(),
+            Shell::Fish => "set --global --erase LADE_SHELL".to_string(),
+        }
     }
 
     pub fn set(&self, env: HashMap<String, String>) -> String {
@@ -208,6 +228,32 @@ mod tests {
         assert_eq!(
             Shell::Fish.clear_pending_line(),
             "set --global --erase LADE_PENDING"
+        );
+    }
+
+    #[test]
+    fn on_exports_lade_shell() {
+        let zsh = Shell::Zsh.on().unwrap();
+        assert!(zsh.starts_with("export LADE_SHELL=zsh\n"));
+        let bash = Shell::Bash.on().unwrap();
+        assert!(bash.starts_with("export LADE_SHELL=bash\n"));
+        let fish = Shell::Fish.on().unwrap();
+        assert!(fish.starts_with("set --global --export LADE_SHELL fish\n"));
+    }
+
+    #[test]
+    fn off_unsets_lade_shell() {
+        assert!(
+            Shell::Zsh
+                .off()
+                .unwrap()
+                .starts_with("unset -v LADE_SHELL\n")
+        );
+        assert!(
+            Shell::Fish
+                .off()
+                .unwrap()
+                .starts_with("set --global --erase LADE_SHELL\n")
         );
     }
 }

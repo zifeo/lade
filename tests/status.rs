@@ -16,6 +16,8 @@ fn test_status_reports_version_and_project() {
         .arg("status")
         .assert()
         .stdout(predicates::str::contains("lade version:"))
+        .stdout(predicates::str::contains("latest:"))
+        .stdout(predicates::str::contains("not checked recently"))
         .stdout(predicates::str::contains("project config: ok"));
 }
 
@@ -43,4 +45,6 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert!(value.get("project_config").is_some());
     assert!(value.get("ok").is_some());
     assert!(value["project_config"]["error"].is_null());
+    assert!(value["version"]["latest"].is_null());
+    assert_eq!(value["version"]["update_available"], false);
 }

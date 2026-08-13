@@ -1610,6 +1610,7 @@ dependencies = [
  "path-clean",
  "predicates",
  "regex",
+ "reqwest",
  "rustc-hash",
  "self_update",
  "semver",

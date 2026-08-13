@@ -43,25 +43,27 @@ pub fn hook_installed(shell: &Shell) -> (PathBuf, bool) {
 
 impl Shell {
     pub fn on(&self) -> Result<String> {
-        match self {
-            Shell::Bash => Ok(format!(
+        let body = match self {
+            Shell::Bash => format!(
                 "{}\n{}",
                 import!("../../scripts/bash-preexec.sh"),
                 import!("../../scripts/on.bash")
-            )),
-            Shell::Zsh => Ok(import!("../../scripts/on.zsh")),
-            Shell::Fish => Ok(import!("../../scripts/on.fish")),
+            ),
+            Shell::Zsh => import!("../../scripts/on.zsh"),
+            Shell::Fish => import!("../../scripts/on.fish"),
             _ => bail!("Unsupported behavior on shell {}", self.bin()),
-        }
+        };
+        Ok(format!("{}\n{}", self.export_lade_shell(), body))
     }
 
     pub fn off(&self) -> Result<String> {
-        match self {
-            Shell::Bash => Ok(import!("../../scripts/off.bash")),
-            Shell::Zsh => Ok(import!("../../scripts/off.zsh")),
-            Shell::Fish => Ok(import!("../../scripts/off.fish")),
+        let body = match self {
+            Shell::Bash => import!("../../scripts/off.bash"),
+            Shell::Zsh => import!("../../scripts/off.zsh"),
+            Shell::Fish => import!("../../scripts/off.fish"),
             _ => bail!("Unsupported behavior on shell {}", self.bin()),
-        }
+        };
+        Ok(format!("{}\n{}", self.unset_lade_shell(), body))
     }
 
     pub fn install(&self) -> Result<String> {
