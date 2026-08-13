@@ -10,7 +10,10 @@ use tokio::fs;
 
 #[derive(Deserialize, Serialize)]
 pub struct GlobalConfig {
-    pub update_check: DateTime<Utc>,
+    /// When we last *attempted* a GitHub version check. `None` means never.
+    /// Never invent `Utc::now()` here: that skipped the real lookup for 24h.
+    #[serde(default)]
+    pub update_check: Option<DateTime<Utc>>,
     pub user: Option<String>,
     #[serde(default)]
     pub cli_check: BTreeMap<String, DateTime<Utc>>,
@@ -37,7 +40,7 @@ impl GlobalConfig {
             Ok(config)
         } else {
             Ok(GlobalConfig {
-                update_check: Utc::now(),
+                update_check: None,
                 user: None,
                 cli_check: BTreeMap::new(),
             })
@@ -63,5 +66,48 @@ impl GlobalConfig {
         fs::write(&tmp, &config_str).await?;
         fs::rename(&tmp, &path).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_missing_file_is_never_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.json");
+        temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let config = GlobalConfig::load().await.unwrap();
+                    assert_eq!(config.update_check, None);
+                    assert!(!path.exists());
+                });
+        });
+    }
+
+    #[test]
+    fn load_legacy_datetime_update_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"update_check":"2099-01-01T00:00:00Z","user":null,"cli_check":{}}"#,
+        )
+        .unwrap();
+        temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let config = GlobalConfig::load().await.unwrap();
+                    assert!(config.update_check.is_some());
+                });
+        });
     }
 }

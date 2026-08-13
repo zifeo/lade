@@ -3,7 +3,7 @@ preexec_lade() {
         return
     fi
     LADE="$1"
-    eval "$(lade set -- "$LADE")"
+    eval "$(lade set -- "$LADE" </dev/null)"
 }
 
 preexec_functions+=(preexec_lade)
@@ -11,7 +11,7 @@ preexec_functions+=(preexec_lade)
 precmd_lade() {
     if [ -n "${LADE+x}" ]; then
         if [ "$LADE" != "source on.bash" ]; then
-            eval "$(lade unset -- "$LADE")"
+            eval "$(lade unset -- "$LADE" </dev/null)"
         fi
         unset -v LADE
     fi
