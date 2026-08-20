@@ -42,9 +42,55 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert!(value.get("version").is_some());
     assert!(value.get("global_config").is_some());
     assert!(value.get("hooks").is_some());
+    assert!(value["hooks"].get("preexec").is_some());
+    assert!(value["hooks"].get("pretool").is_some());
+    assert!(value["hooks"]["pretool"].get("cursor").is_some());
+    assert!(value["hooks"]["pretool"].get("claude").is_some());
     assert!(value.get("project_config").is_some());
     assert!(value.get("ok").is_some());
     assert!(value["project_config"]["error"].is_null());
     assert!(value["version"]["latest"].is_null());
     assert_eq!(value["version"]["update_available"], false);
+}
+
+#[test]
+fn test_status_reports_project_pretool_hook() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join(".cursor")).unwrap();
+    fs::write(
+        dir.path().join(".cursor").join("hooks.json"),
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("status")
+        .assert()
+        .stdout(predicates::str::contains("preexec shell hooks"))
+        .stdout(predicates::str::contains("preTool hooks"));
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["status", "--json"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).expect("status --json must emit valid JSON");
+    assert_eq!(
+        value["hooks"]["pretool"]["cursor"]["project"]["installed"],
+        true
+    );
+    assert!(
+        value["hooks"]["pretool"]["cursor"]["project"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with(".cursor/hooks.json")
+    );
 }

@@ -16,11 +16,40 @@ use regex::RegexSet;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::PathBuf,
 };
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SecretSources {
+    pub sources: HashMap<String, String>,
+    pub overridden: HashSet<String>,
+    pub cancelled: HashMap<String, String>,
+    pub silent: HashSet<String>,
+}
+
 pub type Output = Option<PathBuf>;
+
+/// Who secrets are for. Produced by [`crate::audience::detect`], never picked
+/// by callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Audience {
+    Human,
+    Agent,
+}
+
+fn rule_applies_to(rule: &LadeRule, audience: Audience) -> bool {
+    match rule
+        .config
+        .as_ref()
+        .map(|config| config.when)
+        .unwrap_or_default()
+    {
+        RuleWhen::Always => true,
+        RuleWhen::Human => audience == Audience::Human,
+        RuleWhen::Agent => audience == Audience::Agent,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Binding {
@@ -76,6 +105,9 @@ enum ResolvedEntry {
     InvalidNumericSecret {
         key: String,
     },
+    Unset {
+        key: String,
+    },
 }
 
 fn resolve_entry(
@@ -83,6 +115,11 @@ fn resolve_entry(
     secret: &LadeSecret,
     saved_user: &Option<String>,
 ) -> Option<ResolvedEntry> {
+    if matches!(secret, LadeSecret::Unset) {
+        return Some(ResolvedEntry::Unset {
+            key: key.to_string(),
+        });
+    }
     let value = resolve_lade_secret(secret, saved_user)?;
     if split_scheme(&value).is_some_and(is_network_scheme) {
         return Some(ResolvedEntry::Network {
@@ -101,28 +138,7 @@ fn resolve_entry(
     })
 }
 
-fn merge_sources(
-    sources: &mut HashMap<String, String>,
-    incoming: HashMap<String, String>,
-) -> Result<()> {
-    for (key, source) in incoming {
-        match sources.get(&key) {
-            Some(existing) if existing != &source => bail!(
-                "conflicting source for '{}': '{}' and '{}' match the same command; use one source per variable",
-                key,
-                existing,
-                source
-            ),
-            Some(_) => {}
-            None => {
-                sources.insert(key, source);
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn split_scheme(value: &str) -> Option<&str> {
+fn split_scheme(value: &str) -> Option<&str> {
     value.split_once("://").map(|(scheme, _)| scheme)
 }
 
@@ -138,7 +154,7 @@ fn rule_sources(rule: &LadeRule, saved_user: &Option<String>) -> Result<HashMap<
             Some(ResolvedEntry::Secret { key, value }) => {
                 out.insert(key, value);
             }
-            Some(ResolvedEntry::Network { .. }) | None => {}
+            Some(ResolvedEntry::Network { .. }) | Some(ResolvedEntry::Unset { .. }) | None => {}
             Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
                 "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
                 key
@@ -169,37 +185,30 @@ async fn bindings_from_rules(
             HashMap::new()
         };
         for (key, secret) in &rule.secrets {
-            let entry = resolve_entry(key, secret, saved_user);
-            let (key, value) = match entry {
-                Some(ResolvedEntry::Secret { key, value }) => (key, value),
+            match resolve_entry(key, secret, saved_user) {
+                Some(ResolvedEntry::Unset { key }) | Some(ResolvedEntry::Network { key, .. }) => {
+                    let (name, _) = binding_name(&key)?;
+                    bindings.remove(&name);
+                }
                 Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
                     "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
                     key
                 ),
-                Some(ResolvedEntry::Network { .. }) | None => continue,
-            };
-            let (name, private) = binding_name(&key)?;
-            let binding = Binding {
-                private,
-                source: value,
-                cwd: cwd.clone(),
-                output: output.as_ref().map(|path| cwd.join(path)),
-                extra_env: extra_env.clone(),
-            };
-            match bindings.get(&name) {
-                Some(existing) if existing.private != binding.private => {
-                    bail!("binding '{name}' is declared both public and private")
-                }
-                Some(existing)
-                    if existing.source != binding.source
-                        || existing.cwd != binding.cwd
-                        || existing.output != binding.output
-                        || existing.extra_env != binding.extra_env =>
-                {
-                    bail!("conflicting binding declaration for '{name}'")
-                }
-                Some(_) => {}
-                None => {
+                None => {}
+                Some(ResolvedEntry::Secret { key, value }) => {
+                    let (name, private) = binding_name(&key)?;
+                    let binding = Binding {
+                        private,
+                        source: value,
+                        cwd: cwd.clone(),
+                        output: output.as_ref().map(|path| cwd.join(path)),
+                        extra_env: extra_env.clone(),
+                    };
+                    if let Some(existing) = bindings.get(&name)
+                        && existing.private != binding.private
+                    {
+                        bail!("binding '{name}' is declared both public and private");
+                    }
                     bindings.insert(name, binding);
                 }
             }
@@ -232,16 +241,28 @@ impl Config {
         Config { rules, regex_set }
     }
 
-    /// Rules matching `command`. Synchronous and I/O-free: cloning the small
-    /// number of matched rules out of `self.rules`. Callers on the hot path
-    /// should call this once per invocation and reuse the result, rather
-    /// than letting each downstream step (disclaimers, network bindings,
-    /// secret sources, hydration) re-match independently.
+    /// Rules matching `command`, in overlay order: parent `lade.yml` then
+    /// child, and top-to-bottom within a file. Later entries replace the same
+    /// key. Callers on the hot path should call this once per invocation and
+    /// reuse the result, rather than letting each downstream step
+    /// (disclaimers, network bindings, secret sources, hydration) re-match
+    /// independently.
     pub(crate) fn collect(&self, command: &str) -> Vec<(PathBuf, LadeRule)> {
         self.regex_set
             .matches(command)
             .into_iter()
             .map(|i| self.rules[i].clone())
+            .collect()
+    }
+
+    pub(crate) fn collect_for(
+        &self,
+        command: &str,
+        audience: Audience,
+    ) -> Vec<(PathBuf, LadeRule)> {
+        self.collect(command)
+            .into_iter()
+            .filter(|(_, rule)| rule_applies_to(rule, audience))
             .collect()
     }
 
@@ -381,47 +402,80 @@ impl Config {
     pub fn secret_sources_from_rules(
         rules: &[(PathBuf, LadeRule)],
         saved_user: &Option<String>,
-    ) -> Result<HashMap<String, String>> {
-        let mut sources = HashMap::new();
+    ) -> Result<SecretSources> {
+        let mut plan = SecretSources::default();
         for (_, rule) in rules {
-            merge_sources(&mut sources, rule_sources(rule, saved_user)?)?;
+            let silent = rule.config.as_ref().is_some_and(|config| config.silence);
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Secret { key, value }) => {
+                        if plan.sources.contains_key(&key) || plan.cancelled.contains_key(&key) {
+                            plan.overridden.insert(key.clone());
+                        }
+                        plan.cancelled.remove(&key);
+                        mark_silent(&mut plan.silent, &key, silent);
+                        plan.sources.insert(key, value);
+                    }
+                    Some(ResolvedEntry::Unset { key }) => {
+                        plan.overridden.remove(&key);
+                        let previous = plan.sources.remove(&key).unwrap_or_default();
+                        mark_silent(&mut plan.silent, &key, silent);
+                        plan.cancelled.insert(key, previous);
+                    }
+                    Some(ResolvedEntry::Network { key, .. }) => {
+                        plan.overridden.remove(&key);
+                        plan.cancelled.remove(&key);
+                        plan.silent.remove(&key);
+                        plan.sources.remove(&key);
+                    }
+                    Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                        "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                        key
+                    ),
+                    None => {}
+                }
+            }
         }
-        Ok(sources)
+        Ok(plan)
     }
 
     /// Env var names per [`Output`] for already-collected `rules`, used to
-    /// build the `unset` command. Unlike [`rule_sources`], this only keeps
-    /// secrets whose key is a valid env var name (file-routed entries don't
-    /// need that, but only the env-routed ones are ever turned into a shell
-    /// `unset VAR` — see [`crate::files::split_env_files`]). Numeric keys are
-    /// silently skipped rather than rejected: if a numeric key paired with a
-    /// non-network value were ever set, `set`/`inject` would already have
-    /// failed on it, so by the time `unset` runs there is nothing to clean
-    /// up for it.
+    /// remove temporary files on `unset`. Numeric keys are skipped: `set` /
+    /// `inject` would already have failed on a numeric non-network value.
     pub fn keys_from_rules(
         rules: &[(PathBuf, LadeRule)],
         saved_user: &Option<String>,
     ) -> HashMap<Output, Vec<String>> {
-        rules
-            .iter()
-            .map(|(_, rule)| {
-                let keys = rule
-                    .secrets
-                    .iter()
-                    .filter_map(
-                        |(key, secret)| match resolve_entry(key, secret, saved_user) {
-                            Some(ResolvedEntry::Secret { key, .. })
-                                if !key.starts_with('.') && is_valid_env_key(&key) =>
-                            {
-                                Some(key)
-                            }
-                            _ => None,
-                        },
-                    )
-                    .collect::<Vec<_>>();
-                (rule.config.as_ref().and_then(|c| c.file.clone()), keys)
-            })
+        let mut by_output: HashMap<Output, BTreeSet<String>> = HashMap::new();
+        for (_, rule) in rules {
+            let output = rule.config.as_ref().and_then(|c| c.file.clone());
+            let keys = by_output.entry(output).or_default();
+            for (key, secret) in &rule.secrets {
+                if key.starts_with('.') || !is_valid_env_key(key) {
+                    continue;
+                }
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Secret { key, .. }) => {
+                        keys.insert(key);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Network { key, .. }) => {
+                        keys.remove(&key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        by_output
+            .into_iter()
+            .filter(|(_, keys)| !keys.is_empty())
+            .map(|(output, keys)| (output, keys.into_iter().collect()))
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn collect_secret_sources(&self, command: &str) -> Result<SecretSources> {
+        Self::secret_sources_from_rules(&self.collect(command), &None)
     }
 
     #[cfg(test)]
@@ -478,41 +532,33 @@ impl Config {
             .collect()
     }
 
-    /// Network bindings for already-collected `rules`, conflict-checked by
-    /// key across all of them.
+    /// Network bindings for already-collected `rules`. Later matching rules
+    /// overlay the same key; YAML null cancels it.
     pub fn network_bindings_from_rules(
         rules: &[(PathBuf, LadeRule)],
         saved_user: &Option<String>,
-    ) -> Result<Vec<NetworkBinding>> {
+    ) -> Vec<NetworkBinding> {
         let mut by_key = HashMap::<String, String>::new();
         for (_, rule) in rules {
             for (key, secret) in &rule.secrets {
-                let Some(ResolvedEntry::Network { key, uri }) =
-                    resolve_entry(key, secret, saved_user)
-                else {
-                    continue;
-                };
-                if key.starts_with('.') {
-                    continue;
-                }
-                match by_key.get(&key) {
-                    Some(existing) if existing != &uri => bail!(
-                        "conflicting network binding for '{}': '{}' and '{}' match the same command",
-                        key,
-                        existing,
-                        uri
-                    ),
-                    Some(_) => {}
-                    None => {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Secret { key, .. })
+                        if !key.starts_with('.') =>
+                    {
+                        by_key.remove(&key);
+                    }
+                    Some(ResolvedEntry::Network { key, uri }) if !key.starts_with('.') => {
                         by_key.insert(key, uri);
                     }
+                    _ => {}
                 }
             }
         }
-        Ok(by_key
+        by_key
             .into_iter()
             .map(|(key, uri)| NetworkBinding { key, uri })
-            .collect())
+            .collect()
     }
 
     #[cfg(test)]
@@ -520,12 +566,20 @@ impl Config {
         &self,
         command: &str,
         saved_user: &Option<String>,
-    ) -> Result<Vec<NetworkBinding>> {
+    ) -> Vec<NetworkBinding> {
         Self::network_bindings_from_rules(&self.collect(command), saved_user)
     }
 
     pub fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+}
+
+fn mark_silent(silent: &mut HashSet<String>, key: &str, is_silent: bool) {
+    if is_silent {
+        silent.insert(key.to_string());
+    } else {
+        silent.remove(key);
     }
 }
 

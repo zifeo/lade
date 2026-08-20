@@ -9,6 +9,31 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Added
+
+- **`.when` audience detection**: `detect()` classifies every invocation as
+  preexec, pretool, or unset (`LADE_VIA`), then human vs agent. MCP and a bare
+  `lade inject` use the same function, including env signals when Via is empty.
+  The same pattern can be a list of bodies with different `when`.
+- **`.silence` hydration progress**: `silence: true` under `.` skips that
+  rule's secret progress lines at hydrate time. Hydration itself is unchanged.
+
+### Changed
+
+- **`lade status --json` hooks object** (breaking): `hooks` is now
+  `{ "preexec": { shell, profile, installed }, "pretool": { cursor, claude } }`
+  with global and project paths. `ok` still depends only on preexec install,
+  version, project config, and vault CLIs.
+- **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
+  `inject`/`approve` has both stdin and stderr as TTYs.
+
+### Fixed
+
+- **`.when` ignores `CURSOR_VERSION`**: Cursor sets it in human terminals, so it
+  must not select agent rules on `inject` / `mcp`.
+- **`lade status` project preTool paths** walk toward `$HOME` and stop there, so
+  `~/.cursor/hooks.json` / `~/.claude/settings.json` stay in the global slot.
+
 ## [0.16.0] - 2026-07-06
 
 ### Added

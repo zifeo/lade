@@ -24,6 +24,30 @@ fn test_mcp_stdio_injects_public_bindings_only() {
 }
 
 #[test]
+fn test_mcp_agent_when_uses_env_signal() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^env$\":\n  \".\":\n    when: agent\n  PUBLIC: agentsecret\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["mcp", "--", "env"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("PUBLIC=agentsecret").not());
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("CURSOR_AGENT", "1")
+        .args(["mcp", "--", "env"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("PUBLIC=agentsecret"));
+}
+
+#[test]
 fn test_mcp_requires_one_transport_target() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

@@ -1,18 +1,9 @@
 /*
-Agentic tools `preToolUse` hook handler for Cursor and Claude Code.
+preToolUse handler for Cursor and Claude Code (`lade hook`).
 
-Invocation via `lade hook` means an AI agent is driving the CLI: the agent
-itself invokes this hook before running a tool command. We therefore treat the
-context as agent + human-in-the-loop available, and there is no need for the
-env-based agent detection used on the direct inject path (see src/agent.rs).
-
-The hook is the recommended transparent path: matching commands are rewritten
-into `lade inject '...'` so secrets stay out of the model's context window.
-Disclaimer enforcement lives entirely in `lade inject`, which prints the
-disclaimer to stderr and fails closed when the command is unapproved (see
-`prompt::resolve_disclaimers`); the hook rewrites uniformly. A Cursor `deny`
-would make the agent treat the command as forbidden rather than as pending a
-human approval, so we deliberately let `lade inject` be the single gate.
+`detect()` classifies this process as Via::Pretool / Audience::Agent. Matching
+commands are rewritten into `LADE_VIA=pretool … inject '…'` so the child inject
+keeps that classification. Disclaimer enforcement lives in `lade inject`.
 
 # Cursor preToolUse — https://cursor.com/docs/agent/hooks (verified June 2026)
 - Env: `CURSOR_VERSION`, `CURSOR_PROJECT_DIR`
@@ -26,20 +17,21 @@ human approval, so we deliberately let `lade inject` be the single gate.
   "permissionDecision": "allow", "updatedInput": {...}}}`
 */
 
+pub mod install;
 mod platform;
 mod response;
 #[cfg(test)]
 mod tests;
 
-use crate::config::Config;
+use crate::config::{Audience, Config};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::env;
 
-use platform::{detect_platform, extract_command, split_env_prefix};
+use platform::{detect_platform, extract_command, is_already_injected, split_env_prefix};
 use response::{format_allow, format_modify};
 
-pub fn handle(config: &Config, input: &str) -> Result<String> {
+pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String> {
     let platform = detect_platform()?;
     let parsed: Value = serde_json::from_str(input).unwrap_or(json!({}));
 
@@ -52,11 +44,11 @@ pub fn handle(config: &Config, input: &str) -> Result<String> {
     // approval prefix reaches the wrapped `lade inject` process.
     let (env_prefix, command) = split_env_prefix(&raw);
 
-    if command.starts_with("lade inject") {
+    if is_already_injected(&command) {
         return Ok(format_allow(&platform));
     }
 
-    let matches = config.collect(&command);
+    let matches = config.collect_for(&command, audience);
     if matches.is_empty() {
         return Ok(format_allow(&platform));
     }
@@ -65,10 +57,15 @@ pub fn handle(config: &Config, input: &str) -> Result<String> {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "lade".to_string());
     let escaped = command.replace('\'', "'\\''");
+    let stamp = format!(
+        "{}={}",
+        crate::shell::LADE_VIA,
+        crate::shell::LADE_VIA_PRETOOL
+    );
     let new_command = if env_prefix.is_empty() {
-        format!("{} inject '{}'", lade_bin, escaped)
+        format!("{} {} inject '{}'", stamp, lade_bin, escaped)
     } else {
-        format!("{} {} inject '{}'", env_prefix, lade_bin, escaped)
+        format!("{} {} {} inject '{}'", env_prefix, stamp, lade_bin, escaped)
     };
     let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
 

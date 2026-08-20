@@ -20,20 +20,21 @@ bash tests/installer_test.sh
 
 - **All user-facing stderr goes through `message_box::MessageBox`** — never
   `eprintln!`. The box is always emitted; only interactive parts (prompts,
-  countdowns, sleeps) are gated on `UiMode`. See
+  countdowns, sleeps) are gated on `UiMode` (`Quiet` vs `Interactive`). See
   `.cursor/rules/message-box.mdc`.
 - Never rely on default values; be explicit. Prefer the simplest solution that
   compiles. Comment only non-obvious intent, not what the code does.
-- Keep documented exit codes (`src/exit_codes.rs`) and the `lade status --json`
-  shape stable across minor versions; callers branch on them.
+- Keep documented exit codes (`src/exit_codes.rs`) stable across minor
+  versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
+  `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
 
 ## Project layout
 
-- `src/` — CLI crate. Key modules: `hook/` (agent `preToolUse` handler),
-  `agent_hooks/` (install/uninstall `lade hook` into Cursor/Claude configs),
-  `agent.rs` (direct-path agent detection), `prompt.rs` (disclaimer flow),
-  `inject.rs`/`exec/` (PTY execution + masking), `status.rs`, `shell/`
-  (shell-hook integration), `config/`, `message_box/`.
+- `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse handler
+  plus install into Cursor/Claude configs), `audience.rs` (`detect()` for Via,
+  Audience, UI), `prompt.rs` (disclaimer flow), `inject.rs`/`exec/` (PTY
+  execution + masking), `status.rs`, `shell/` (preexec integration), `config/`,
+  `message_box/`.
 - `sdk/` — the secret-loader crate (vault providers).
 - `tests/` — Rust integration tests + `installer_test.sh`.
 - `scripts/`, `examples/tape/` — shell-hook fixtures and README demo tapes.

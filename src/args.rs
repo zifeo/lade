@@ -63,9 +63,9 @@ pub enum Command {
     Upgrade(UpgradeCommand),
     /// Report lade version, config, hooks, and CLI compatibility.
     Status(StatusCommand),
-    /// Enable execution hooks.
+    /// Enable preexec shell hooks.
     On,
-    /// Disable execution hooks.
+    /// Disable preexec shell hooks.
     Off,
     /// Install auto launcher in shell profile.
     Install,
@@ -84,7 +84,7 @@ pub enum Command {
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
-    /// Handle agentic tools hooks. Reads JSON from stdin, outputs platform-specific response.
+    /// Handle preToolUse for Cursor and Claude Code.
     Hook,
     /// Approve a pending disclaimer and run the command, using the code shown in
     /// the disclaimer message.

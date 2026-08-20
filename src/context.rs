@@ -1,23 +1,16 @@
 use std::io::IsTerminal;
 
+use anyhow::Result;
+
 use crate::args::Command;
+use crate::audience::{self, Detection, UiMode, Via};
+use crate::config::Audience;
 
-/// How much interactive UI an invocation may emit.
-///
-/// `Hook` — `lade set` / `unset` run inside shell preexec/postexec. The shell
-/// owns the TTY; stdin echo and line editing are unreliable (see
-/// <https://github.com/fish-shell/fish-shell/issues/8484>). stdout is the shell
-/// protocol (`export` / `unset`); stderr may show boxed warnings/errors.
-///
-/// `Interactive` — `lade inject` with both stdin and stderr attached to a TTY.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UiMode {
-    Hook,
-    Interactive,
-}
-
+/// TTY flags plus the Via / Audience / UI decision from [`audience::detect`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvocationContext {
+    pub via: Via,
+    pub audience: Audience,
     pub mode: UiMode,
     pub stdin_is_terminal: bool,
     pub stdout_is_terminal: bool,
@@ -25,7 +18,7 @@ pub struct InvocationContext {
 }
 
 impl InvocationContext {
-    pub fn from_command(command: &Command) -> Self {
+    pub fn from_command(command: &Command) -> Result<Self> {
         Self::with_tty(
             command,
             std::io::stdin().is_terminal(),
@@ -39,21 +32,17 @@ impl InvocationContext {
         stdin_is_terminal: bool,
         stdout_is_terminal: bool,
         stderr_is_terminal: bool,
-    ) -> Self {
-        let mode = match command {
-            Command::Inject(_) | Command::Approve { .. }
-                if stderr_is_terminal && stdin_is_terminal =>
-            {
-                UiMode::Interactive
-            }
-            _ => UiMode::Hook,
-        };
-        Self {
-            mode,
+    ) -> Result<Self> {
+        let Detection { via, audience, ui } =
+            audience::detect(command, stdin_is_terminal, stderr_is_terminal)?;
+        Ok(Self {
+            via,
+            audience,
+            mode: ui,
             stdin_is_terminal,
             stdout_is_terminal,
             stderr_is_terminal,
-        }
+        })
     }
 
     pub fn is_interactive(&self) -> bool {
@@ -66,66 +55,101 @@ mod tests {
     use super::*;
     use crate::args::{DEFAULT_MASK_FORMAT, EvalCommand, InjectCommand};
 
-    #[test]
-    fn set_is_always_hook() {
-        let ctx = InvocationContext::with_tty(
-            &Command::Set(EvalCommand {
-                commands: vec!["x".into()],
-            }),
-            true,
-            true,
-            true,
-        );
-        assert_eq!(ctx.mode, UiMode::Hook);
-        assert!(!ctx.is_interactive());
+    fn inject() -> Command {
+        Command::Inject(InjectCommand {
+            no_mask: false,
+            mask_format: DEFAULT_MASK_FORMAT.into(),
+            commands: vec!["x".into()],
+        })
+    }
+
+    fn cleared() -> Vec<(&'static str, Option<&'static str>)> {
+        vec![
+            (crate::shell::LADE_VIA, None),
+            ("AI_AGENT", None),
+            ("AGENT", None),
+            ("CLAUDECODE", None),
+            ("CURSOR_AGENT", None),
+            ("COPILOT_MODEL", None),
+            ("CURSOR_VERSION", None),
+        ]
     }
 
     #[test]
-    fn unset_is_always_hook() {
-        let ctx = InvocationContext::with_tty(
-            &Command::Unset(EvalCommand {
-                commands: vec!["x".into()],
-            }),
-            true,
-            true,
-            true,
-        );
-        assert_eq!(ctx.mode, UiMode::Hook);
+    fn set_is_always_quiet() {
+        temp_env::with_vars(cleared(), || {
+            let ctx = InvocationContext::with_tty(
+                &Command::Set(EvalCommand {
+                    commands: vec!["x".into()],
+                }),
+                true,
+                true,
+                true,
+            )
+            .unwrap();
+            assert_eq!(ctx.mode, UiMode::Quiet);
+            assert_eq!(ctx.via, Via::Preexec);
+            assert!(!ctx.is_interactive());
+        });
     }
 
     #[test]
-    fn inject_without_tty_is_hook() {
-        let ctx = InvocationContext::with_tty(
-            &Command::Inject(InjectCommand {
-                no_mask: false,
-                mask_format: DEFAULT_MASK_FORMAT.into(),
-                commands: vec!["x".into()],
-            }),
-            false,
-            false,
-            false,
-        );
-        assert_eq!(ctx.mode, UiMode::Hook);
+    fn unset_is_always_quiet() {
+        temp_env::with_vars(cleared(), || {
+            let ctx = InvocationContext::with_tty(
+                &Command::Unset(EvalCommand {
+                    commands: vec!["x".into()],
+                }),
+                true,
+                true,
+                true,
+            )
+            .unwrap();
+            assert_eq!(ctx.mode, UiMode::Quiet);
+        });
     }
 
     #[test]
-    fn status_is_hook() {
-        let ctx = InvocationContext::with_tty(
-            &Command::Status(crate::args::StatusCommand {
-                all: false,
-                json: false,
-            }),
-            true,
-            true,
-            true,
-        );
-        assert_eq!(ctx.mode, UiMode::Hook);
+    fn inject_without_tty_is_quiet() {
+        temp_env::with_vars(cleared(), || {
+            let ctx = InvocationContext::with_tty(&inject(), false, false, false).unwrap();
+            assert_eq!(ctx.mode, UiMode::Quiet);
+        });
     }
 
     #[test]
-    fn approve_is_hook_without_tty() {
-        let ctx =
-            InvocationContext::with_tty(&Command::Approve { code: None }, false, false, false);
-        assert_eq!(ctx.mode, UiMode::Hook);
+    fn inject_with_tty_is_interactive() {
+        temp_env::with_vars(cleared(), || {
+            let ctx = InvocationContext::with_tty(&inject(), true, true, true).unwrap();
+            assert_eq!(ctx.mode, UiMode::Interactive);
+            assert_eq!(ctx.audience, Audience::Human);
+        });
+    }
+
+    #[test]
+    fn status_is_quiet() {
+        temp_env::with_vars(cleared(), || {
+            let ctx = InvocationContext::with_tty(
+                &Command::Status(crate::args::StatusCommand {
+                    all: false,
+                    json: false,
+                }),
+                true,
+                true,
+                true,
+            )
+            .unwrap();
+            assert_eq!(ctx.mode, UiMode::Quiet);
+        });
+    }
+
+    #[test]
+    fn approve_is_quiet_without_tty() {
+        temp_env::with_vars(cleared(), || {
+            let ctx =
+                InvocationContext::with_tty(&Command::Approve { code: None }, false, false, false)
+                    .unwrap();
+            assert_eq!(ctx.mode, UiMode::Quiet);
+        });
     }
 }

@@ -60,7 +60,10 @@ fn test_unset_keys() {
         .args(["unset", "mycmd"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("unset -v SECRET"));
+        .stdout(
+            predicates::str::contains("unset -v LADE_RESTORE")
+                .and(predicates::str::contains("unset -v SECRET").not()),
+        );
 }
 
 #[test]
@@ -116,6 +119,159 @@ fn test_set_with_file_provider() {
 }
 
 #[test]
+fn test_unset_restores_previous_env() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  EXISTING: after\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    let set_stdout = String::from_utf8_lossy(
+        &common::lade(home.path())
+            .current_dir(dir.path())
+            .env("EXISTING", "before")
+            .args(["set", "mycmd"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .into_owned();
+    let marker = "export LADE_RESTORE='";
+    let start = set_stdout.find(marker).expect("LADE_RESTORE export");
+    let rest = &set_stdout[start + marker.len()..];
+    let end = rest.find('\'').expect("restore payload end");
+    let restore = &rest[..end];
+    let unset_stdout = String::from_utf8_lossy(
+        &common::lade(home.path())
+            .current_dir(dir.path())
+            .env("LADE_RESTORE", restore)
+            .args(["unset", "mycmd"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .into_owned();
+    assert!(
+        unset_stdout.contains("export EXISTING='before'"),
+        "stdout: {unset_stdout}"
+    );
+    assert!(
+        unset_stdout.contains("unset -v SECRET"),
+        "stdout: {unset_stdout}"
+    );
+    assert!(
+        unset_stdout.contains("unset -v LADE_RESTORE"),
+        "stdout: {unset_stdout}"
+    );
+}
+
+#[test]
+fn test_unset_corrupt_restore_fails() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_RESTORE", "v1:bad")
+        .args(["unset", "mycmd"])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicates::str::contains("export").not())
+        .stderr(predicates::str::contains(
+            "The previous environment snapshot is corrupted. Re-run the command.",
+        ));
+}
+
+#[test]
+fn test_set_empty_string_exports_empty() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(dir.path().join("lade.yml"), ".:\n  EMPTY: \"\"\n").unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("export EMPTY=''"));
+}
+
+#[test]
+fn test_set_overlay_shows_overridden_progress() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  TOKEN: a\n\"echo\":\n  TOKEN: b\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("TOKEN (overridden)"));
+}
+
+#[test]
+fn test_set_git_cancel_shows_cancelled_progress() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  SSH_AUTH_SOCK: \"\"\n\"^git \":\n  SSH_AUTH_SOCK: ~\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "git status"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("export SSH_AUTH_SOCK").not())
+        .stderr(predicates::str::contains("SSH_AUTH_SOCK (cancelled)"));
+}
+
+#[test]
+fn test_set_silence_hides_hydration_progress() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"echo\":\n  \".\":\n    silence: true\n  KEY: val\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("export KEY="))
+        .stderr(predicates::str::contains("KEY").not());
+}
+
+#[test]
+fn test_set_without_silence_shows_hydration_progress() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(dir.path().join("lade.yml"), "\"echo\":\n  KEY: val\n").unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("Raw: KEY"));
+}
+
+#[test]
 #[cfg(unix)]
 fn test_inject_with_fake_vault_cli() {
     let dir = tempdir().unwrap();
@@ -145,4 +301,21 @@ fn test_inject_with_fake_vault_cli() {
         .stdout(predicates::str::contains(
             "export PASSWORD='vault_injected'",
         ));
+}
+
+#[test]
+fn test_set_skips_agent_when_rules() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  \".\":\n    when: agent\n  SECRET: agentsecret\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "mycmd"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("export SECRET").not());
 }

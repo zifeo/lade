@@ -4,11 +4,43 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::de;
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum LadeSecret {
     Secret(String),
     User(HashMap<String, Option<String>>),
+    Unset,
+}
+
+impl<'de> Deserialize<'de> for LadeSecret {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        if value.is_null() {
+            return Ok(LadeSecret::Unset);
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Secret(String),
+            User(HashMap<String, Option<String>>),
+        }
+        match Repr::deserialize(value) {
+            Ok(Repr::Secret(value)) => Ok(LadeSecret::Secret(value)),
+            Ok(Repr::User(map)) => Ok(LadeSecret::User(map)),
+            Err(error) => Err(de::Error::custom(error)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleWhen {
+    #[default]
+    Always,
+    Human,
+    Agent,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -17,6 +49,10 @@ pub struct RuleConfig {
     #[serde(rename = "1password_service_account")]
     pub onepassword_service_account: Option<LadeSecret>,
     pub disclaimer: Option<String>,
+    #[serde(default)]
+    pub when: RuleWhen,
+    #[serde(default)]
+    pub silence: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -58,6 +94,7 @@ pub(super) fn resolve_lade_secret(secret: &LadeSecret, user: &Option<String>) ->
             .and_then(|u| map.get(u))
             .or_else(|| map.get("."))
             .and_then(|v| v.clone()),
+        LadeSecret::Unset => None,
     }
 }
 
@@ -136,6 +173,76 @@ mod tests {
     }
 
     #[test]
+    fn test_yaml_null_and_tilde_are_unset() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd\":\n  VIA_TILDE: ~\n  VIA_NULL: null\n  VIA_EMPTY:\n  VIA_STRING: \"\"\n  KEEP: val\n",
+        )
+        .unwrap();
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+        let secrets = &lade_file.commands.get("cmd").unwrap()[0].secrets;
+        assert!(matches!(secrets.get("VIA_TILDE"), Some(LadeSecret::Unset)));
+        assert!(matches!(secrets.get("VIA_NULL"), Some(LadeSecret::Unset)));
+        assert!(matches!(secrets.get("VIA_EMPTY"), Some(LadeSecret::Unset)));
+        assert!(matches!(
+            secrets.get("VIA_STRING"),
+            Some(LadeSecret::Secret(value)) if value.is_empty()
+        ));
+        assert!(matches!(
+            secrets.get("KEEP"),
+            Some(LadeSecret::Secret(value)) if value == "val"
+        ));
+    }
+
+    #[test]
+    fn test_rule_config_silence() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
+        )
+        .unwrap();
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+        let config = lade_file.commands.get("cmd").unwrap()[0]
+            .config
+            .as_ref()
+            .unwrap();
+        assert!(config.silence);
+    }
+
+    #[test]
+    fn test_rule_config_when() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd\":\n  \".\":\n    when: agent\n  KEY: val\n",
+        )
+        .unwrap();
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+        let config = lade_file.commands.get("cmd").unwrap()[0]
+            .config
+            .as_ref()
+            .unwrap();
+        assert_eq!(config.when, RuleWhen::Agent);
+    }
+
+    #[test]
+    fn test_rule_config_when_invalid_fails() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd\":\n  \".\":\n    when: robot\n  KEY: val\n",
+        )
+        .unwrap();
+        assert!(LadeFile::from_path(&file_path).is_err());
+    }
+
+    #[test]
     fn test_lade_secrets_on_yaml() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("lade.yml");
@@ -145,7 +252,7 @@ mod tests {
         ).unwrap();
 
         let lade_file = LadeFile::from_path(&file_path).unwrap();
-        let command = lade_file.commands.get("test command").unwrap();
+        let command = &lade_file.commands.get("test command").unwrap()[0];
         assert_eq!(
             command.config.as_ref().unwrap().file,
             Some(PathBuf::from("output/path"))
@@ -187,7 +294,7 @@ mod tests {
             b"\"cmd\":\n  \".\":\n    1password_service_account: \"op://host/vault/item\"\n  KEY: val\n",
         ).unwrap();
         let lade_file = LadeFile::from_path(&file_path).unwrap();
-        let rule = lade_file.commands.get("cmd").unwrap();
+        let rule = &lade_file.commands.get("cmd").unwrap()[0];
         let config = rule.config.as_ref().unwrap();
         assert!(config.file.is_none());
         assert!(matches!(
@@ -205,7 +312,7 @@ mod tests {
             b"\"cmd\":\n  \".\":\n    1password_service_account:\n      zifeo: \"op://host/vault/item\"\n      \".\": null\n  KEY: val\n",
         ).unwrap();
         let lade_file = LadeFile::from_path(&file_path).unwrap();
-        let rule = lade_file.commands.get("cmd").unwrap();
+        let rule = &lade_file.commands.get("cmd").unwrap()[0];
         let config = rule.config.as_ref().unwrap();
         if let LadeSecret::User(map) = config.onepassword_service_account.as_ref().unwrap() {
             assert_eq!(

@@ -7,7 +7,8 @@ use crate::args::StatusCommand;
 use crate::compat::{self, all_supported_schemes, known_schemes};
 use crate::config::LadeFile;
 use crate::global_config::GlobalConfig;
-use crate::shell::{self, hook_installed};
+use crate::pretool;
+use crate::shell::{self, preexec_installed};
 use crate::upgrade;
 
 #[derive(Serialize)]
@@ -25,10 +26,16 @@ struct GlobalConfigInfo {
 }
 
 #[derive(Serialize)]
-struct HooksInfo {
+struct PreexecHooks {
     shell: String,
     profile: PathBuf,
     installed: bool,
+}
+
+#[derive(Serialize)]
+struct HooksInfo {
+    preexec: PreexecHooks,
+    pretool: pretool::install::PretoolStatus,
 }
 
 #[derive(Serialize)]
@@ -111,11 +118,14 @@ async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     };
 
     let shell = shell::Shell::detect()?;
-    let (profile, installed) = hook_installed(&shell);
+    let (profile, installed) = preexec_installed(&shell);
     let hooks = HooksInfo {
-        shell: shell.bin().to_string(),
-        profile,
-        installed,
+        preexec: PreexecHooks {
+            shell: shell.bin().to_string(),
+            profile,
+            installed,
+        },
+        pretool: pretool::install::inspect(&cwd)?,
     };
 
     let saved_user = global.user.or_else(|| {
@@ -172,7 +182,7 @@ async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
 
     let ok = version.check_error.is_none()
         && !version.update_available
-        && hooks.installed
+        && hooks.preexec.installed
         && project_config.error.is_none()
         && project_config.vault_clis.warnings.is_empty();
 
@@ -193,7 +203,7 @@ fn print_human(report: &StatusReport) {
             println!("lade version: {}", v.current);
             match (&v.latest, v.update_available) {
                 (Some(latest), true) => {
-                    println!("  latest: {latest} (update available — run `lade upgrade`)")
+                    println!("  latest: {latest} (update available. run `lade upgrade`)")
                 }
                 (Some(latest), false) => println!("  latest: {latest} (up to date)"),
                 (None, _) => println!("  latest: (not checked recently)"),
@@ -210,13 +220,19 @@ fn print_human(report: &StatusReport) {
         None => println!("  user: (OS default)"),
     }
 
-    println!("shell hooks ({})", report.hooks.shell);
-    println!("  profile: {}", display_path(&report.hooks.profile));
-    if report.hooks.installed {
+    println!("preexec shell hooks ({})", report.hooks.preexec.shell);
+    println!("  profile: {}", display_path(&report.hooks.preexec.profile));
+    if report.hooks.preexec.installed {
         println!("  installed: yes");
     } else {
         println!("  installed: no (run `lade install`)");
     }
+
+    println!("preTool hooks");
+    print_pretool_line("Cursor global", &report.hooks.pretool.cursor.global);
+    print_pretool_line("Cursor project", &report.hooks.pretool.cursor.project);
+    print_pretool_line("Claude Code global", &report.hooks.pretool.claude.global);
+    print_pretool_line("Claude Code project", &report.hooks.pretool.claude.project);
 
     let pc = &report.project_config;
     if let Some(err) = &pc.error {
@@ -236,6 +252,11 @@ fn print_human(report: &StatusReport) {
             println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
         }
     }
+}
+
+fn print_pretool_line(label: &str, location: &pretool::install::HookLocation) {
+    let flag = if location.installed { "yes" } else { "no" };
+    println!("  {label}: {} ({flag})", display_path(&location.path));
 }
 
 fn display_path(path: &Path) -> String {

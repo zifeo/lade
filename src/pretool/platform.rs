@@ -65,3 +65,19 @@ pub(super) fn split_env_prefix(command: &str) -> (String, String) {
     }
     (prefix.join(" "), rest.to_string())
 }
+
+/// True when a previous `lade hook` already rewrote this into inject.
+/// `current_exe` is usually an absolute path, so `starts_with("lade inject")`
+/// is not enough for a user hook plus a project hook.
+pub(super) fn is_already_injected(command: &str) -> bool {
+    let (_, command) = split_env_prefix(command);
+    let mut parts = command.split_whitespace();
+    let Some(prog) = parts.next() else {
+        return false;
+    };
+    let is_lade = std::path::Path::new(prog)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| matches!(name, "lade" | "lade.exe"));
+    is_lade && parts.any(|part| part == "inject")
+}

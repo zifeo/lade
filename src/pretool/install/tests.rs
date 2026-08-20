@@ -126,3 +126,40 @@ fn merge_preserves_user_key_order() {
     let alpha = out.find("alpha").expect("alpha kept");
     assert!(zebra < alpha, "user's original key order must be preserved");
 }
+
+#[test]
+fn find_project_does_not_treat_home_global_as_project() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("proj");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    std::fs::write(
+        home.path().join(".cursor").join("hooks.json"),
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
+    )
+    .unwrap();
+    let (path, installed) = super::find_project(Agent::Cursor, home.path(), &repo).unwrap();
+    assert!(!installed);
+    assert_eq!(path, repo.join(".cursor").join("hooks.json"));
+}
+
+#[test]
+fn find_project_finds_repo_hooks_before_home() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("proj");
+    std::fs::create_dir_all(repo.join(".cursor")).unwrap();
+    std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    std::fs::write(
+        home.path().join(".cursor").join("hooks.json"),
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        repo.join(".cursor").join("hooks.json"),
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
+    )
+    .unwrap();
+    let (path, installed) = super::find_project(Agent::Cursor, home.path(), &repo).unwrap();
+    assert!(installed);
+    assert_eq!(path, repo.join(".cursor").join("hooks.json"));
+}

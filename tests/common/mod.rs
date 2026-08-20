@@ -13,9 +13,14 @@ pub fn lade(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("lade"));
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
-        // `directories` uses OS APIs (XDG on Linux, SHGetKnownFolderPath on Windows)
-        // that ignore env vars, so we use a dedicated override instead.
-        .env("LADE_CONFIG_PATH", config_path);
+        .env("LADE_CONFIG_PATH", config_path)
+        .env_remove("LADE_VIA")
+        .env_remove("AI_AGENT")
+        .env_remove("AGENT")
+        .env_remove("CLAUDECODE")
+        .env_remove("CURSOR_AGENT")
+        .env_remove("COPILOT_MODEL")
+        .env_remove("CURSOR_VERSION");
     cmd
 }
 

@@ -42,8 +42,8 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 lade install
 ```
 
-`lade install` adds shell hooks once. After that, matching commands are wrapped
-automatically. Pause and resume hooks with `lade off` and `lade on`.
+`lade install` adds preexec shell hooks once. After that, matching commands are wrapped
+automatically. Pause and resume them with `lade off` and `lade on`.
 
 Alternative installs:
 
@@ -80,8 +80,8 @@ Lade resolves `DB_USER`, opens a local forward for `DB_PORT`, interpolates both
 into `DATABASE_URL`, runs the command, masks resolved secret values from output,
 and cleans up when `psql` exits.
 
-Shell hooks are the recommended path because you keep typing normal commands.
-When hooks are unavailable, prefix the command with `lade` for one-shot
+Preexec shell hooks are the recommended path because you keep typing normal commands.
+When they are unavailable, prefix the command with `lade` for one-shot
 injection. The explicit form is `lade inject <command>`.
 
 ```bash
@@ -95,13 +95,13 @@ lade inject -- terraform apply
 <tr>
 <td width="50%">
 
-**Shell hooks** - Run commands normally. Lade injects access only when the
+**preexec shell hooks** - Run commands normally. Lade injects access only when the
 command matches `lade.yml`.
 
 </td>
 <td width="50%">
 
-![Shell hooks](./examples/tape/hooks.gif)
+![preexec shell hooks](./examples/tape/hooks.gif)
 
 </td>
 </tr>
@@ -216,7 +216,7 @@ AI coding agents often need to run commands that require secrets, private
 network access, or both. Lade lets the command access what it needs without
 putting secret values in the model context or chat transcript.
 
-### Recommended usage: transparent hooks
+### Recommended usage: preTool hooks
 
 Cursor and Claude Code can call `lade hook` before shell commands. When an agent
 runs a matching command, Lade rewrites it through `lade inject`, resolves the
@@ -255,7 +255,7 @@ configs are:
 Cursor agents can also load the project skill in
 [.agents/skills/lade/SKILL.md](.agents/skills/lade/SKILL.md).
 
-### Agents without hooks
+### Agents without preTool hooks
 
 For agents without shell hooks, add a short instruction to `AGENTS.md`:
 
@@ -422,6 +422,23 @@ Options under `.` configure the matched command itself.
     file: secrets.yml
     disclaimer: "This command will use production credentials."
   API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
+```
+
+`when` is `always` (default), `human`, or `agent`. Audience comes from
+`detect()`: `LADE_VIA=pretool` or `lade hook` is `agent`; `LADE_VIA=preexec` or
+`lade set`/`unset` is `human`; otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`,
+`CLAUDECODE`, not `CURSOR_VERSION`) select `agent`, else `human`. The same
+pattern can be a YAML list of these blocks when `when` differs. `silence` is
+optional and skips that rule's secret progress lines at hydration.
+
+```yaml
+"^git ":
+  - .:
+      when: human
+    SSH_AUTH_SOCK: sh://launchctl getenv SSH_AUTH_SOCK
+  - .:
+      when: agent
+    SSH_AUTH_SOCK: 'sh://printf %s "$HOME/.ssh/agent.sock"'
 ```
 
 With hooks, disclaimers cannot prompt for input. Lade withholds access and

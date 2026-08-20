@@ -33,7 +33,7 @@ pub fn profile_config_file(shell: &Shell) -> PathBuf {
     }
 }
 
-pub fn hook_installed(shell: &Shell) -> (PathBuf, bool) {
+pub fn preexec_installed(shell: &Shell) -> (PathBuf, bool) {
     let path = profile_config_file(shell);
     let installed = std::fs::read_to_string(&path)
         .map(|content| content.contains(MARKER))

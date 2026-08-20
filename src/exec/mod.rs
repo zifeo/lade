@@ -59,6 +59,7 @@ fn run_plain(shell: &str, command: &str, env: HashMap<String, String>, cwd: &Pat
         .args(["-c", command])
         .current_dir(cwd)
         .envs(std::env::vars())
+        .env_remove(crate::shell::LADE_VIA)
         .envs(env)
         .status()?;
     Ok(status.code().unwrap_or(1))

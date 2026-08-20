@@ -17,7 +17,7 @@ pub async fn run(
     current_dir: &Path,
 ) -> Result<Option<i32>> {
     let target = target(&command)?;
-    let rules = config.collect(&target);
+    let rules = config.collect_for(&target, ctx.audience);
     let disclaimers = Config::disclaimers_from_rules(&rules);
     prompt::resolve_disclaimers(ctx, &disclaimers, &target).await?;
     let mut access = crate::access::acquire_attached(
@@ -85,6 +85,7 @@ async fn run_stdio(
         .args(&argv[1..])
         .current_dir(current_dir)
         .envs(std::env::vars())
+        .env_remove(crate::shell::LADE_VIA)
         .envs(env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

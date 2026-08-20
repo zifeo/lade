@@ -4,7 +4,6 @@ use anyhow::Result;
 use sha2::{Digest, Sha256};
 use tokio::{io::AsyncBufReadExt, select, signal};
 
-use crate::agent;
 use crate::context::InvocationContext;
 use crate::message_box::MessageBox;
 use crate::shell::{LADE_APPROVE, LADE_DISCLAIMER_APPROVED};
@@ -102,7 +101,7 @@ pub async fn resolve_disclaimers(
             .line("");
         // Agents have no persisted LADE_PENDING, so `lade approve` is useless to
         // them; point them at the code prefix instead.
-        mb = if agent::detect_agent().is_some() {
+        mb = if ctx.audience == crate::config::Audience::Agent {
             mb.line(format!(
                 "Ask the user to approve, then re-run the command prefixed with LADE_APPROVE={code}."
             ))
