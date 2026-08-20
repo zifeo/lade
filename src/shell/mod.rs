@@ -1,11 +1,11 @@
-mod hooks;
+mod preexec;
 
-pub use hooks::hook_installed;
+pub use preexec::preexec_installed;
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use sysinfo::{ProcessesToUpdate, System, get_current_pid};
 
@@ -13,6 +13,10 @@ pub const LADE_PENDING: &str = "LADE_PENDING";
 pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
 pub const LADE_APPROVE: &str = "LADE_APPROVE";
 pub const LADE_NETWORK_PIDS: &str = "LADE_NETWORK_PIDS";
+pub const LADE_RESTORE: &str = "LADE_RESTORE";
+pub const LADE_VIA: &str = "LADE_VIA";
+pub const LADE_VIA_PREEXEC: &str = "preexec";
+pub const LADE_VIA_PRETOOL: &str = "pretool";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingPayload {
@@ -22,19 +26,42 @@ pub struct PendingPayload {
 
 impl PendingPayload {
     pub fn encode(&self) -> Result<String> {
-        let json = serde_json::to_string(self)?;
-        Ok(format!("v1:{}", URL_SAFE_NO_PAD.encode(json)))
+        encode_v1("LADE_PENDING", self)
     }
 
     pub fn decode(value: &str) -> Result<Self> {
-        let encoded = value
-            .strip_prefix("v1:")
-            .context("invalid or unsupported LADE_PENDING version")?;
-        let json = URL_SAFE_NO_PAD
-            .decode(encoded)
-            .context("failed to decode LADE_PENDING base64")?;
-        serde_json::from_slice(&json).context("failed to parse LADE_PENDING JSON")
+        decode_v1("LADE_PENDING", value)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RestorePayload {
+    pub env: HashMap<String, Option<String>>,
+}
+
+impl RestorePayload {
+    pub fn encode(&self) -> Result<String> {
+        encode_v1("LADE_RESTORE", self)
+    }
+
+    pub fn decode(value: &str) -> Result<Self> {
+        decode_v1("LADE_RESTORE", value)
+    }
+}
+
+fn encode_v1<T: Serialize>(label: &str, value: &T) -> Result<String> {
+    let json = serde_json::to_string(value).with_context(|| format!("failed to encode {label}"))?;
+    Ok(format!("v1:{}", URL_SAFE_NO_PAD.encode(json)))
+}
+
+fn decode_v1<T: DeserializeOwned>(label: &str, value: &str) -> Result<T> {
+    let encoded = value
+        .strip_prefix("v1:")
+        .with_context(|| format!("invalid or unsupported {label} version"))?;
+    let json = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .with_context(|| format!("failed to decode {label} base64"))?;
+    serde_json::from_slice(&json).with_context(|| format!("failed to parse {label} JSON"))
 }
 
 pub enum Shell {
@@ -131,12 +158,25 @@ impl Shell {
         keys.into_iter().map(format).collect::<Vec<_>>().join(";")
     }
 
-    pub fn clear_pending_line(&self) -> String {
-        self.unset(vec![LADE_PENDING.to_string()])
-    }
-
-    pub fn clear_network_line(&self) -> String {
-        self.unset(vec![LADE_NETWORK_PIDS.to_string()])
+    pub fn restore(&self, previous: HashMap<String, Option<String>>) -> String {
+        let mut set = HashMap::new();
+        let mut unset = Vec::new();
+        for (key, value) in previous {
+            match value {
+                Some(value) => {
+                    set.insert(key, value);
+                }
+                None => unset.push(key),
+            }
+        }
+        let mut parts = Vec::new();
+        if !set.is_empty() {
+            parts.push(self.set(set));
+        }
+        if !unset.is_empty() {
+            parts.push(self.unset(unset));
+        }
+        parts.join(";")
     }
 }
 
@@ -216,19 +256,49 @@ mod tests {
     }
 
     #[test]
+    fn test_restore_replaces_and_erases() {
+        let previous = HashMap::from([
+            ("KEEP".to_string(), Some("sock".to_string())),
+            ("DROP".to_string(), None),
+        ]);
+        let result = Shell::Bash.restore(previous);
+        assert!(result.contains("export KEEP='sock'"));
+        assert!(result.contains("unset -v DROP"));
+    }
+
+    #[test]
+    fn test_restore_payload_roundtrip() {
+        let payload = RestorePayload {
+            env: HashMap::from([
+                (
+                    "SSH_AUTH_SOCK".to_string(),
+                    Some("/tmp/agent.sock".to_string()),
+                ),
+                ("NEW".to_string(), None),
+            ]),
+        };
+        let decoded = RestorePayload::decode(&payload.encode().unwrap()).unwrap();
+        assert_eq!(payload, decoded);
+        assert!(RestorePayload::decode("not-v1").is_err());
+        assert!(RestorePayload::decode("v1:!!!").is_err());
+    }
+
+    #[test]
+    fn test_restore_fish_syntax() {
+        let previous = HashMap::from([
+            ("KEEP".to_string(), Some("sock".to_string())),
+            ("DROP".to_string(), None),
+        ]);
+        let result = Shell::Fish.restore(previous);
+        assert!(result.contains("set --global --export KEEP 'sock'"));
+        assert!(result.contains("set --global --erase DROP"));
+    }
+
+    #[test]
     fn test_set_escaping() {
         let env = HashMap::from([("KEY".to_string(), "val'ue".to_string())]);
         let result = Shell::Bash.set(env);
         assert_eq!(result, "export KEY='val'\\''ue'");
-    }
-
-    #[test]
-    fn test_clear_pending_line() {
-        assert_eq!(Shell::Bash.clear_pending_line(), "unset -v LADE_PENDING");
-        assert_eq!(
-            Shell::Fish.clear_pending_line(),
-            "set --global --erase LADE_PENDING"
-        );
     }
 
     #[test]

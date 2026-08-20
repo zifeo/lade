@@ -53,7 +53,7 @@ pub async fn run_inject(
     shell: &Shell,
     current_dir: &Path,
 ) -> Result<Option<i32>> {
-    let rules = config.collect(&command);
+    let rules = config.collect_for(&command, ctx.audience);
     if rules.is_empty() {
         return run_command_without_providers(&command, &opts, ctx, shell, current_dir);
     }
@@ -62,7 +62,7 @@ pub async fn run_inject(
     prompt::resolve_disclaimers(ctx, &disclaimers, &command).await?;
 
     let saved_user = crate::config::saved_user().await?;
-    let network_bindings = Config::network_bindings_from_rules(&rules, &saved_user)?;
+    let network_bindings = Config::network_bindings_from_rules(&rules, &saved_user);
     let ((mut env, files, sources, maskable, warnings), network) = acquire_secrets_and_network(
         ctx,
         config,
@@ -255,12 +255,15 @@ pub async fn handle_set(
     current_dir: PathBuf,
 ) -> Result<()> {
     println!(
-        "{};{}",
-        shell.clear_pending_line(),
-        shell.clear_network_line()
+        "{}",
+        shell.unset(vec![
+            crate::shell::LADE_PENDING.to_string(),
+            crate::shell::LADE_NETWORK_PIDS.to_string(),
+            crate::shell::LADE_RESTORE.to_string(),
+        ])
     );
     let command = commands.join(" ");
-    let rules = config.collect(&command);
+    let rules = config.collect_for(&command, ctx.audience);
     if rules.is_empty() {
         println!("{}", shell.set(HashMap::new()));
         return Ok(());
@@ -285,18 +288,7 @@ pub async fn handle_set(
         return Err(e);
     }
     let saved_user = crate::config::saved_user().await?;
-    let network_bindings = match Config::network_bindings_from_rules(&rules, &saved_user) {
-        Ok(bindings) => bindings,
-        Err(e) => {
-            message_box::MessageBox::new()
-                .error()
-                .line("Lade could not resolve network providers:")
-                .line("")
-                .paragraph(e.to_string())
-                .print_stderr();
-            std::process::exit(crate::exit_codes::FAILURE);
-        }
-    };
+    let network_bindings = Config::network_bindings_from_rules(&rules, &saved_user);
     let ((mut env, _files, _sources, _maskable, warnings), detached) = acquire_secrets_and_network(
         ctx,
         config,
@@ -317,8 +309,25 @@ pub async fn handle_set(
             .join(",");
         env.insert(crate::shell::LADE_NETWORK_PIDS.to_string(), raw);
     }
-    println!("{}", shell.set(env));
+    println!("{}", stamp_preexec(shell, env)?);
     Ok(())
+}
+
+fn stamp_preexec(shell: &Shell, mut env: HashMap<String, String>) -> Result<String> {
+    env.insert(
+        crate::shell::LADE_VIA.to_string(),
+        crate::shell::LADE_VIA_PREEXEC.to_string(),
+    );
+    let previous = env
+        .keys()
+        .filter(|key| *key != crate::shell::LADE_NETWORK_PIDS)
+        .map(|key| (key.clone(), std::env::var(key).ok()))
+        .collect::<HashMap<_, _>>();
+    env.insert(
+        crate::shell::LADE_RESTORE.to_string(),
+        crate::shell::RestorePayload { env: previous }.encode()?,
+    );
+    Ok(shell.set(env))
 }
 
 async fn handle_provider_failure(ctx: &InvocationContext, e: &anyhow::Error) {
@@ -400,23 +409,51 @@ fn merge_env_with_conflicts(
     Ok(())
 }
 
-pub async fn handle_unset(shell: &Shell, config: &Config, commands: Vec<String>) -> Result<()> {
+pub async fn handle_unset(
+    ctx: &InvocationContext,
+    shell: &Shell,
+    config: &Config,
+    commands: Vec<String>,
+) -> Result<()> {
     if let Ok(raw) = std::env::var(crate::shell::LADE_NETWORK_PIDS) {
         stop_network_pids(&raw);
     }
     let command = commands.join(" ");
-    let rules = config.collect(&command);
+    let rules = config.collect_for(&command, ctx.audience);
     let keys = if rules.is_empty() {
         HashMap::new()
     } else {
         let saved_user = crate::config::saved_user().await?;
         Config::keys_from_rules(&rules, &saved_user)
     };
-    let (env, files) = split_env_files(keys);
+    let (_, files) = split_env_files(keys);
     remove_files(&mut files.keys())?;
-    let mut keys = env;
-    keys.push(crate::shell::LADE_NETWORK_PIDS.to_string());
-    println!("{}", shell.unset(keys));
+    let restore = match std::env::var(crate::shell::LADE_RESTORE) {
+        Err(_) => None,
+        Ok(raw) => match crate::shell::RestorePayload::decode(&raw) {
+            Ok(payload) => Some(payload),
+            Err(_) => {
+                message_box::MessageBox::new()
+                    .error()
+                    .line("The previous environment snapshot is corrupted. Re-run the command.")
+                    .print_stderr();
+                std::process::exit(crate::exit_codes::FAILURE);
+            }
+        },
+    };
+    let env_line = restore
+        .map(|payload| shell.restore(payload.env))
+        .unwrap_or_default();
+    let meta = shell.unset(vec![
+        crate::shell::LADE_RESTORE.to_string(),
+        crate::shell::LADE_NETWORK_PIDS.to_string(),
+    ]);
+    let line = [env_line, meta]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(";");
+    println!("{line}");
     Ok(())
 }
 

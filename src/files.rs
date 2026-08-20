@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::{signal, time};
 
-use crate::config::{Config, LadeRule, Output};
+use crate::config::{Config, LadeRule, Output, SecretSources};
 use crate::network::{ProviderProgressEvent, ProviderProgressKind, format_timing};
 use crate::provider_progress::ProviderProgressSink;
 
@@ -45,8 +45,8 @@ pub async fn hydrate_secrets_with_progress(
     progress: ProviderProgressSink,
 ) -> Result<LoadedSecrets> {
     let started = Instant::now();
-    let secret_sources = Config::secret_sources_from_rules(rules, saved_user)?;
-    let progress_groups = secret_progress_groups(&secret_sources);
+    let plan = Config::secret_sources_from_rules(rules, saved_user)?;
+    let progress_groups = secret_progress_groups(&plan);
     for (id, display) in &progress_groups {
         progress.send(ProviderProgressEvent {
             id: id.clone(),
@@ -81,25 +81,45 @@ pub async fn hydrate_secrets_with_progress(
     })
 }
 
-fn secret_progress_groups(sources: &HashMap<String, String>) -> Vec<(String, String)> {
-    let mut groups = BTreeMap::<String, Vec<String>>::new();
-    for (key, source) in sources {
-        let label = match source.split_once("://") {
-            Some((scheme, rest)) => {
-                let provider = rest.split('/').next().unwrap_or(rest);
-                match scheme {
-                    "op" => format!("1Password {provider}"),
-                    "doppler" => format!("Doppler {provider}"),
-                    "infisical" => format!("Infisical {provider}"),
-                    "vault" => format!("Vault {provider}"),
-                    "passbolt" => format!("Passbolt {provider}"),
-                    "file" => "File".to_string(),
-                    other => format!("{other} {provider}"),
-                }
+fn provider_label(source: &str) -> String {
+    match source.split_once("://") {
+        Some((scheme, rest)) => {
+            let provider = rest.split('/').next().unwrap_or(rest);
+            match scheme {
+                "op" => format!("1Password {provider}"),
+                "doppler" => format!("Doppler {provider}"),
+                "infisical" => format!("Infisical {provider}"),
+                "vault" => format!("Vault {provider}"),
+                "passbolt" => format!("Passbolt {provider}"),
+                "file" => "File".to_string(),
+                other => format!("{other} {provider}"),
             }
-            None => "Raw".to_string(),
+        }
+        None => "Raw".to_string(),
+    }
+}
+
+fn secret_progress_groups(plan: &SecretSources) -> Vec<(String, String)> {
+    let mut groups = BTreeMap::<String, Vec<String>>::new();
+    for (key, source) in &plan.sources {
+        if plan.silent.contains(key) {
+            continue;
+        }
+        let name = if plan.overridden.contains(key) {
+            format!("{key} (overridden)")
+        } else {
+            key.clone()
         };
-        groups.entry(label).or_default().push(key.clone());
+        groups.entry(provider_label(source)).or_default().push(name);
+    }
+    for (key, source) in &plan.cancelled {
+        if plan.silent.contains(key) {
+            continue;
+        }
+        groups
+            .entry(provider_label(source))
+            .or_default()
+            .push(format!("{key} (cancelled)"));
     }
     groups
         .into_iter()
@@ -185,6 +205,7 @@ pub fn split_env_files<T: Default>(mut hydration: HashMap<Output, T>) -> (T, Has
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::LadeFile;
     use std::{collections::HashMap, path::PathBuf};
     use tempfile::tempdir;
 
@@ -233,20 +254,90 @@ mod tests {
     }
 
     #[test]
+    fn secret_progress_groups_omit_silent_keys() {
+        let groups = secret_progress_groups(&SecretSources {
+            sources: HashMap::from([
+                ("QUIET".to_string(), "demo-user".to_string()),
+                ("LOUD".to_string(), "demo-user".to_string()),
+            ]),
+            silent: ["QUIET".to_string()].into_iter().collect(),
+            ..SecretSources::default()
+        });
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].1, "Raw: LOUD");
+    }
+
+    #[test]
+    fn secret_progress_groups_omit_silent_cancelled_keys() {
+        let groups = secret_progress_groups(&SecretSources {
+            cancelled: HashMap::from([(
+                "TOKEN".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            silent: ["TOKEN".to_string()].into_iter().collect(),
+            ..SecretSources::default()
+        });
+        assert!(groups.is_empty());
+    }
+
+    #[test]
     fn secret_progress_groups_include_raw_values() {
-        let groups = secret_progress_groups(&HashMap::from([
-            ("USER".to_string(), "demo-user".to_string()),
-            (
-                "PASSWORD".to_string(),
-                "vault://vault.example.com/secret/password/value".to_string(),
-            ),
-        ]));
+        let groups = secret_progress_groups(&SecretSources {
+            sources: HashMap::from([
+                ("USER".to_string(), "demo-user".to_string()),
+                (
+                    "PASSWORD".to_string(),
+                    "vault://vault.example.com/secret/password/value".to_string(),
+                ),
+            ]),
+            ..SecretSources::default()
+        });
         assert_eq!(groups.len(), 2);
         assert!(groups.iter().any(|(_, display)| display == "Raw: USER"));
         assert!(
             groups
                 .iter()
                 .any(|(_, display)| display == "Vault vault.example.com: PASSWORD")
+        );
+    }
+
+    #[test]
+    fn secret_progress_groups_mark_overrides_and_cancels() {
+        let groups = secret_progress_groups(&SecretSources {
+            sources: HashMap::from([("KEEP".to_string(), "child".to_string())]),
+            overridden: ["KEEP".to_string()].into_iter().collect(),
+            cancelled: HashMap::from([(
+                "TOKEN".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            ..SecretSources::default()
+        });
+        assert!(
+            groups
+                .iter()
+                .any(|(_, display)| display.contains("KEEP (overridden)"))
+        );
+        assert!(groups.iter().any(|(_, display)| {
+            display.contains("TOKEN (cancelled)") && display.contains("1Password")
+        }));
+    }
+
+    #[test]
+    fn secret_progress_groups_label_cancelled_op_from_yaml() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  TOKEN: op://my.1password.eu/vault/item\n\"^git \":\n  TOKEN: ~\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let plan = config.collect_secret_sources("git status").unwrap();
+        let groups = secret_progress_groups(&plan);
+        assert!(
+            groups.iter().any(|(_, display)| {
+                display.contains("1Password my.1password.eu: TOKEN (cancelled)")
+            }),
+            "groups: {groups:?}"
         );
     }
 

@@ -5,6 +5,48 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn test_collect_dot_matches_any_non_empty_command() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yml"), ".:\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect("git status").len(), 1);
+        assert_eq!(config.collect("ssh -T git@github.com").len(), 1);
+        assert!(config.collect("").is_empty());
+    }
+
+    #[test]
+    fn test_collect_for_filters_when() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  \".\":\n    when: agent\n  SOCK: agent-sock\n\"^git \":\n  \".\":\n    when: human\n  SOCK: human-sock\n\"echo\":\n  SOCK: always-sock\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let agent = config.collect_for("git status", Audience::Agent);
+        assert_eq!(agent.len(), 1);
+        assert!(agent[0].1.secrets.contains_key("SOCK"));
+        assert_eq!(agent[0].1.config.as_ref().unwrap().when, RuleWhen::Agent);
+        let human = config.collect_for("git status", Audience::Human);
+        assert_eq!(human.len(), 1);
+        assert_eq!(human[0].1.config.as_ref().unwrap().when, RuleWhen::Human);
+        let echo_agent = config.collect_for("echo hi", Audience::Agent);
+        assert_eq!(echo_agent.len(), 2);
+        let echo_human = config.collect_for("echo hi", Audience::Human);
+        assert_eq!(echo_human.len(), 1);
+        assert!(echo_human[0].1.config.is_none());
+    }
+
+    #[test]
+    fn test_collect_for_default_when_is_always() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        assert_eq!(config.collect_for("cmd", Audience::Agent).len(), 1);
+        assert_eq!(config.collect_for("cmd", Audience::Human).len(), 1);
+    }
+
+    #[test]
     fn test_collect_exact_match() {
         let dir = tempdir().unwrap();
         std::fs::write(
@@ -143,6 +185,22 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_keys_overlays_and_null_cancel() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  KEEP: a\n  DROP: b\n\"^git \":\n  DROP: ~\n  EXTRA: c\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let keys = config.collect_keys("git status");
+        let env_keys = keys.get(&None).unwrap();
+        assert!(env_keys.contains(&"KEEP".to_string()));
+        assert!(env_keys.contains(&"EXTRA".to_string()));
+        assert!(!env_keys.contains(&"DROP".to_string()));
+    }
+
+    #[test]
     fn test_collect_keys_for_command_uses_saved_user() {
         let dir = tempdir().unwrap();
         std::fs::write(
@@ -190,9 +248,7 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let bindings = config
-            .collect_network_bindings("cmd", &None)
-            .expect("network bindings");
+        let bindings = config.collect_network_bindings("cmd", &None);
         assert_eq!(bindings.len(), 2);
         assert!(
             bindings
@@ -215,15 +271,13 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let bindings = config
-            .collect_network_bindings("cmd", &None)
-            .expect("network bindings");
+        let bindings = config.collect_network_bindings("cmd", &None);
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].key, "1223");
     }
 
     #[test]
-    fn test_collect_network_bindings_conflict_same_key() {
+    fn test_collect_network_bindings_later_rule_overlays_same_key() {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
@@ -231,10 +285,75 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let err = config
-            .collect_network_bindings("cmd cmd2", &None)
-            .expect_err("conflict must fail");
-        assert!(err.to_string().contains("conflicting network binding"));
+        let bindings = config.collect_network_bindings("cmd cmd2", &None);
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "DB_PORT");
+        assert!(bindings[0].uri.ends_with("/6432"));
+    }
+
+    #[test]
+    fn test_collect_network_bindings_null_cancels_earlier_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n\"^git \":\n  DB_PORT: ~\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let git = config.collect_network_bindings("git status", &None);
+        assert!(git.is_empty());
+        let ssh = config.collect_network_bindings("ssh -T git@github.com", &None);
+        assert_eq!(ssh.len(), 1);
+        assert_eq!(ssh[0].key, "DB_PORT");
+    }
+
+    #[test]
+    fn test_collect_network_bindings_cancel_then_reset() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n\"cmd\":\n  DB_PORT: ~\n\"cmd run\":\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/6432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let bindings = config.collect_network_bindings("cmd run", &None);
+        assert_eq!(bindings.len(), 1);
+        assert!(bindings[0].uri.ends_with("/6432"));
+    }
+
+    #[tokio::test]
+    async fn test_later_network_replaces_secret() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  DB_PORT: \"5432\"\n\"cmd\":\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("cmd").await.unwrap();
+        assert!(
+            vars.get(&None::<std::path::PathBuf>)
+                .and_then(|env| env.get("DB_PORT"))
+                .is_none()
+        );
+        let bindings = config.collect_network_bindings("cmd", &None);
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "DB_PORT");
+    }
+
+    #[tokio::test]
+    async fn test_later_secret_replaces_network() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n\"cmd\":\n  DB_PORT: \"5432\"\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("cmd").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("DB_PORT").unwrap(), "5432");
+        assert!(config.collect_network_bindings("cmd", &None).is_empty());
     }
 
     #[test]
@@ -246,16 +365,12 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let alice = config
-            .collect_network_bindings("cmd", &Some("alice".to_string()))
-            .expect("alice bindings");
+        let alice = config.collect_network_bindings("cmd", &Some("alice".to_string()));
         assert_eq!(
             alice[0].uri,
             "kubectl://a:6443/example-cluster/dev/service/postgres/5432"
         );
-        let other = config
-            .collect_network_bindings("cmd", &Some("other".to_string()))
-            .expect("default bindings");
+        let other = config.collect_network_bindings("cmd", &Some("other".to_string()));
         assert_eq!(
             other[0].uri,
             "kubectl://b:6443/example-cluster/dev/service/postgres/5432"
@@ -294,7 +409,87 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_collect_hydrate_fails_on_conflicting_values_for_same_output() {
+    async fn test_collect_hydrate_child_file_overlays_parent_file() {
+        let parent = tempdir().unwrap();
+        let child = parent.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(
+            parent.path().join("lade.yml"),
+            "\"cmd\":\n  TOKEN: parent\n",
+        )
+        .unwrap();
+        std::fs::write(child.join("lade.yml"), "\"cmd\":\n  TOKEN: child\n").unwrap();
+        let config = LadeFile::build(child).unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("cmd").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("TOKEN").unwrap(), "child");
+        let plan = config.collect_secret_sources("cmd").unwrap();
+        assert!(plan.overridden.contains("TOKEN"));
+        assert_eq!(plan.sources.get("TOKEN").unwrap(), "child");
+    }
+
+    #[test]
+    fn test_secret_sources_marks_override_and_cancel() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  TOKEN: catch\n  KEEP: stay\n\"^git \":\n  TOKEN: ~\n  KEEP: git\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let git = config.collect_secret_sources("git status").unwrap();
+        assert!(!git.sources.contains_key("TOKEN"));
+        assert_eq!(git.cancelled.get("TOKEN").unwrap(), "catch");
+        assert!(git.overridden.contains("KEEP"));
+        assert_eq!(git.sources.get("KEEP").unwrap(), "git");
+        let ssh = config
+            .collect_secret_sources("ssh -T git@github.com")
+            .unwrap();
+        assert_eq!(ssh.sources.get("TOKEN").unwrap(), "catch");
+        assert!(ssh.cancelled.is_empty());
+        assert!(ssh.overridden.is_empty());
+    }
+
+    #[test]
+    fn test_secret_sources_cancel_then_reset() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  TOKEN: a\n\"git\":\n  TOKEN: ~\n\"git status\":\n  TOKEN: b\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let plan = config.collect_secret_sources("git status").unwrap();
+        assert_eq!(plan.sources.get("TOKEN").unwrap(), "b");
+        assert!(plan.cancelled.is_empty());
+        assert!(plan.overridden.contains("TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_empty_string_is_not_cancel() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  SSH_AUTH_SOCK: \"\"\n\"^git \":\n  SSH_AUTH_SOCK: ~\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _, _) = config
+            .collect_hydrate("ssh -T git@github.com")
+            .await
+            .unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("SSH_AUTH_SOCK").unwrap(), "");
+        let (vars, _, _, _) = config.collect_hydrate("git status").await.unwrap();
+        assert!(
+            vars.get(&None::<std::path::PathBuf>)
+                .and_then(|env| env.get("SSH_AUTH_SOCK"))
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_later_rule_overlays_same_key() {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("lade.yml"),
@@ -302,11 +497,75 @@ mod tests {
         )
         .unwrap();
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let err = config.collect_hydrate("cmd run").await.unwrap_err();
+        let (vars, _, _, _) = config.collect_hydrate("cmd run").await.unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("TOKEN").unwrap(), "child");
+    }
+
+    #[test]
+    fn test_collect_secret_sources_silent_rule_marks_keys() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let plan = config.collect_secret_sources("cmd").unwrap();
+        assert!(plan.silent.contains("KEY"));
+        assert_eq!(plan.sources.get("KEY").unwrap(), "val");
+    }
+
+    #[test]
+    fn test_collect_secret_sources_later_non_silent_overlay_clears_silence() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  \".\":\n    silence: true\n  KEY: a\n\"cmd\":\n  KEY: b\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let plan = config.collect_secret_sources("cmd").unwrap();
+        assert!(!plan.silent.contains("KEY"));
+        assert_eq!(plan.sources.get("KEY").unwrap(), "b");
+        assert!(plan.overridden.contains("KEY"));
+    }
+
+    #[test]
+    fn test_collect_secret_sources_later_silent_overlay_hides_progress() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  KEY: a\n\"cmd\":\n  \".\":\n    silence: true\n  KEY: b\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let plan = config.collect_secret_sources("cmd").unwrap();
+        assert!(plan.silent.contains("KEY"));
+        assert_eq!(plan.sources.get("KEY").unwrap(), "b");
+    }
+
+    #[tokio::test]
+    async fn test_collect_hydrate_null_cancels_earlier_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            ".:\n  TOKEN: catch\n\"^git \":\n  TOKEN: ~\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let (vars, _, _, _) = config.collect_hydrate("git status").await.unwrap();
         assert!(
-            err.to_string()
-                .contains("conflicting binding declaration for 'TOKEN'")
+            vars.get(&None::<std::path::PathBuf>)
+                .and_then(|env| env.get("TOKEN"))
+                .is_none()
         );
+        let (vars, _, _, _) = config
+            .collect_hydrate("ssh -T git@github.com")
+            .await
+            .unwrap();
+        let env = vars.get(&None::<std::path::PathBuf>).unwrap();
+        assert_eq!(env.get("TOKEN").unwrap(), "catch");
     }
 
     #[tokio::test]

@@ -1,3 +1,13 @@
+.:
+  .:
+    silence: true
+  DEFAULT: "default"
+
+"^git ":
+  - .:
+      when: agent
+    SSH_AUTH_SOCK: sh://launchctl getenv SSH_AUTH_SOCK
+
 ^echo a:
   .:
     disclaimer: "This is a disclaimer"

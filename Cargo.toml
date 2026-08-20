@@ -23,7 +23,7 @@ self_update = { version = "0.44.0", features = [
 ] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_yaml = "0.9.34"
-clap = { version = "4.6.4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 regex = "1.13.1"
 lade-sdk = { path = "./sdk", version = "0.17.2" }
 tokio = { version = "1", features = ["rt", "macros", "fs", "time", "signal", "io-std", "io-util", "process"] }
@@ -33,7 +33,7 @@ env_logger = "0.11.11"
 openssl = { version = "0.10.81", features = ["vendored"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "native-tls"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
-futures = "0.3.33"
+futures = "0.3.34"
 path-clean = "1.0.1"
 directories = "6.0.0"
 sysinfo = "0.39.6"
@@ -42,9 +42,9 @@ log = "0.4.33"
 semver = "1.0.28"
 textwrap = "0.16.2"
 owo-colors = "4.3.0"
-aho-corasick = "1.1.4"
+aho-corasick = "1.1.5"
 rustc-hash = "2"
-base64 = "0.23.0"
+base64 = "0.23.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
 url = "2.5"

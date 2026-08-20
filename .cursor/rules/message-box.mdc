@@ -7,15 +7,15 @@ alwaysApply: false
 
 Never use `eprintln!` for user-facing messages. Every message shown to the user — error, warning, or info — must go through `message_box::MessageBox`.
 
-`eprintln!` silently bypasses the box, producing bare unformatted output regardless of context (hook mode, interactive mode, etc.).
+`eprintln!` silently bypasses the box, producing bare unformatted output regardless of context (Quiet mode, interactive mode, etc.).
 
 ## The pattern that broke this
 
-The `may_nudge()` / `UiMode::Hook` flag controls **interactive behaviour** (countdowns, prompts, sleeps). It must **never** suppress the `MessageBox` itself — not for errors, not for warnings.
+The `is_interactive()` / `UiMode::Quiet` flag controls **interactive behaviour** (countdowns, prompts, sleeps). It must **never** suppress the `MessageBox` itself — not for errors, not for warnings.
 
 ```rust
-// ❌ BAD — hook mode skips the box entirely
-if ctx.may_nudge() {
+// ❌ BAD — Quiet mode skips the box entirely
+if ctx.is_interactive() {
     message_box::MessageBox::new().error()...print_stderr();
     sleep_or_cancel(5).await;
 } else {
@@ -23,7 +23,7 @@ if ctx.may_nudge() {
 }
 
 // ❌ BAD — same mistake for warnings
-if ctx.may_nudge() && !warnings.is_empty() {
+if ctx.is_interactive() && !warnings.is_empty() {
     message_box::MessageBox::new().warning()...print_stderr();
     sleep_or_cancel(5).await;
 }
@@ -32,11 +32,11 @@ if ctx.may_nudge() && !warnings.is_empty() {
 let mut mb = message_box::MessageBox::new()
     .error()  // or .warning()
     .paragraph(e.to_string());
-if ctx.may_nudge() {
+if ctx.is_interactive() {
     mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
 }
 mb.print_stderr();
-if ctx.may_nudge() {
+if ctx.is_interactive() {
     sleep_or_cancel(5).await;
 }
 ```

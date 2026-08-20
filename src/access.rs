@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::Result;
 
 use crate::{
-    config::{Config, LadeRule, NetworkBinding, saved_user},
+    config::{Config, LadeRule, saved_user},
     files::{remove_files, split_env_files, write_files},
     network::{self, AcquiredNetwork},
     provider_progress::{
@@ -40,8 +40,7 @@ pub async fn acquire_attached(
     rich_progress: bool,
 ) -> Result<AttachedAccess> {
     let saved_user = saved_user().await?;
-    let network_bindings: Vec<NetworkBinding> =
-        Config::network_bindings_from_rules(rules, &saved_user)?;
+    let network_bindings = Config::network_bindings_from_rules(rules, &saved_user);
     let (vars, _sources, _maskable, warnings) = config.hydrate_rules(rules, &saved_user).await?;
     let mut progress: Option<ProviderProgressRenderer> =
         Some(start_provider_progress(rich_progress));

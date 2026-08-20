@@ -101,19 +101,34 @@ Network provider notes:
 
 - URI parsing is strict for known network schemes; malformed URIs fail rather than falling back to raw values.
 
-## 4. UI policy (Hook vs Interactive)
+## 4. Via, Audience, UI
 
-Shell hooks call `lade set` / `lade unset` inside **preexec/postexec**. At that moment the shell still owns the TTY: input echo and line editing are unreliable (see [fish-shell#8484](https://github.com/fish-shell/fish-shell/issues/8484)). Lade therefore treats hook invocations as **Hook** mode: no prompts and no optional nudges. stdout remains the shell protocol (`export` / `unset`). Warnings and errors still render on stderr; when stderr is a terminal, Lade pauses briefly after warnings and longer after errors so a user can see the message. In hook mode, the message tells the user to press Ctrl-C twice to stop the pending shell command; in inject mode, one Ctrl-C cancels Lade.
+Every invocation runs `audience::detect(command, stdin_tty, stderr_tty)`. That
+single function returns Via, Audience, and UiMode. TTY is an input; Quiet vs
+Interactive is an output. Callers use `ctx.audience` for `.when` and
+`ctx.is_interactive()` for prompts.
 
-**Interactive** mode applies only to injected execution (`lade <command>` or `lade inject <command>`) when **both** stdin and stderr are TTYs. That is the path where disclaimers, provider warnings, compat notices, upgrade reminders, and `Lade loaded` may appear.
+- **Via** (`LADE_VIA`): `preexec` (`lade set`/`unset`), `pretool` (`lade hook`
+  rewrite), or unset. An unknown value fails fast.
+- **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
+  unset falls back to env signals (`AI_AGENT`, `AGENT`, `CLAUDECODE`,
+  `CURSOR_AGENT`, `COPILOT_MODEL`). `CURSOR_VERSION` is ignored: Cursor also
+  sets it in human terminals.
+- **UI**: Interactive only for human `inject`/`approve` with both stdin and
+  stderr as TTYs. Everything else is Quiet, including an agent that happens to
+  have a TTY.
+
+preexec still owns the TTY (see [fish-shell#8484](https://github.com/fish-shell/fish-shell/issues/8484)), so `lade set`/`unset` are Quiet: stdout is the shell protocol (`export` / `unset`). Warnings and errors still render on stderr.
 
 ```mermaid
 flowchart TD
-    Start[lade invocation] --> Ctx[InvocationContext::from_command]
-    Ctx --> Mode{UiMode}
-    Mode -->|Hook| HookUi[No prompts; stderr boxes may pause]
+    Start[lade invocation] --> Detect[audience::detect]
+    Detect --> Via{Via}
+    Detect --> Aud{Audience}
+    Detect --> Mode{UiMode}
+    Mode -->|Quiet| QuietUi[No prompts; stderr boxes may pause]
     Mode -->|Interactive| Nudges[Boxes prompts waits allowed]
-    HookUi --> Stdout[stdout = export / unset / value]
+    QuietUi --> Stdout[stdout = export / unset / value]
     Nudges --> Inject[lade command/inject + passive upgrade hint]
     Status[lade status] --> Report[Active checks to stdout]
 ```
@@ -160,7 +175,7 @@ MCP stdout is protocol data and is copied without redaction or decoration.
 Lade diagnostics use stderr. The resolver, temporary files, and network
 forwards are owned by the invocation and cleaned up when the transport exits.
 
-| Surface | Hook | Interactive |
+| Surface | Quiet | Interactive |
 |---------|------|-------------|
 | Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` also emits `LADE_PENDING` | box + type `yes` |
 | Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
@@ -191,35 +206,35 @@ Alternatively, the user can approve up front by prefixing the command with the p
 
 Note: Fish `preexec` cannot cancel the main command. Lade's security model relies on withholding the secrets rather than preventing execution.
 
-### Hook Short-Circuit
+### Preexec short-circuit
 
-To avoid recursion and unnecessary overhead, shell hooks skip any command starting with `lade ` or exactly `lade`. This ensures `lade approve`, `lade status`, and `lade upgrade` never trigger their own hooks. The implementation uses ultra-fast string slicing (`${1:0:5}` in Bash/Zsh, `string sub` in Fish) to match the prefix exactly without using regex or glob wildcards.
+To avoid recursion and unnecessary overhead, preexec shell hooks skip any command starting with `lade ` or exactly `lade`. This ensures `lade approve`, `lade status`, and `lade upgrade` never trigger their own preexec. The implementation uses ultra-fast string slicing (`${1:0:5}` in Bash/Zsh, `string sub` in Fish) to match the prefix exactly without using regex or glob wildcards.
 
-Use `lade status` for an active report (version, config, hooks, `lade.yml`, vault CLI versions). Upgrade and compat nudges on inject only remind you to run `lade upgrade` or `lade status`.
+Use `lade status` for an active report (version, config, preexec and preTool hooks, `lade.yml`, vault CLI versions). Upgrade and compat nudges on inject only remind you to run `lade upgrade` or `lade status`.
 
-## 7. Agents (`lade hook`) & the direct path
+## 7. Agents (`lade hook`) and the direct path
 
-Lade distinguishes three driving contexts, each wanting different disclaimer behaviour:
+`audience::detect` is the only classifier. Disclaimer UI still follows Quiet vs Interactive (an output of that same function).
 
 | Context | How Lade knows | Disclaimer behaviour |
 |---------|----------------|----------------------|
-| Interactive human | stdin + stderr are TTYs | prompt, type `yes` |
-| CI / non-interactive | non-TTY (and no agent signal) | fail-closed, exit `3` (disclaimers are a human gate; no blanket bypass) |
-| Agent | `lade hook` invoked (agent-by-construction) or env heuristic on the direct path | hook: surface human-in-the-loop; direct: fail-closed with a machine-actionable message |
+| Interactive human | Via unset, no agent signal, inject/approve with both TTYs | prompt, type `yes` |
+| CI / Quiet human | no agent signal, not both TTYs | fail-closed, exit `3` |
+| Agent | Via=pretool, `Command::Hook`, or env signal when Via is unset | fail-closed with `LADE_APPROVE=<code>` |
 
-### Hook path: agent-by-construction
+### preTool path
 
-`lade hook` (`src/hook/`) is the recommended transparent integration. Because the agent literally invokes the hook before running a tool command, **`lade hook` ⇒ an agent is driving** — no env detection is needed. It reads the `preToolUse`/`PreToolUse` tool-call JSON from stdin and rewrites a matching command into `lade inject '<command>'` (so secrets are redacted out of the model's context window) via `allow` + `updated_input`/`updatedInput`. Schemas: <https://cursor.com/docs/agent/hooks>, <https://code.claude.com/docs/en/hooks>.
+`lade hook` (`src/pretool/`) reads Cursor/Claude preToolUse JSON and rewrites a matching command into `LADE_VIA=pretool <lade> inject '…'`. Schemas: <https://cursor.com/docs/agent/hooks>, <https://code.claude.com/docs/en/hooks>.
 
-Disclaimers are **not** special-cased in the hook. The rewrite is uniform, and `lade inject` is the single source of truth: when the wrapped command carries an unapproved `disclaimer:`, `lade inject` prints the disclaimer plus a per-command `LADE_APPROVE=<code>` to stderr and fails closed (exit `3`) — see `prompt::resolve_disclaimers`. The human reads it in the tool output and re-runs the command with that code. The hook re-emits any leading `LADE_APPROVE=...` (or other env assignment) **before** `lade inject` (see `platform::split_env_prefix`) so the approval lands in the wrapped process's environment. This keeps one code path and avoids Cursor's `deny` dead-end (a `deny` makes the agent treat the command as forbidden rather than pending human approval).
+Disclaimers are not special-cased in `lade hook`. `lade inject` is the gate. The rewrite re-emits leading `LADE_APPROVE=...` before inject (`platform::split_env_prefix`).
 
-### Installing the hook (`src/agent_hooks/`)
+### Installing preTool hooks (`src/pretool/install/`)
 
-`lade install` is global and once-only, so it also offers to wire `lade hook` into the agents present on the machine — detected by a `~/.cursor` or `~/.claude` directory. It writes the absolute `lade hook` command to the agent's **global** config (`~/.cursor/hooks.json` `preToolUse`/`Shell`, `~/.claude/settings.json` `PreToolUse`/`Bash`), merging idempotently so unrelated hooks and settings are preserved; `lade uninstall` removes only our entry. Prompts only fire when stdin and stderr are TTYs (a detected-but-unconfigured agent is reported otherwise). The pure JSON merge/remove logic lives in `src/agent_hooks/config.rs`; project-local configs remain a manual copy-paste (README).
+`lade install` offers to wire `lade hook` into agents present on the machine (`~/.cursor`, `~/.claude`). It writes the absolute `lade hook` command to global config (`~/.cursor/hooks.json`, `~/.claude/settings.json`). Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths.
 
-### Direct path: best-effort agent detection
+### Direct path
 
-On the direct `lade inject` / `lade <cmd>` path there is no hook signal, so `src/agent.rs` uses a heuristic only to tailor the fail-closed message (it does not change whether secrets are withheld). Precedence: `AI_AGENT` (Vercel `@vercel/detect-agent`) → `AGENT` (community proposal, [agents.md#136](https://github.com/agentsmd/agents.md/issues/136)) → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL` → `CURSOR_VERSION` (ambiguous: also set in a human's Cursor terminal). Gemini CLI has no detection variable.
+When Via is unset (`lade inject`, `lade mcp`, `lade git …`), `detect()` uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording.
 
 ### Exit codes
 

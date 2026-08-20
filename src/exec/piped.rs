@@ -22,6 +22,7 @@ pub fn run(
         .args(["-c", command])
         .current_dir(cwd)
         .envs(std::env::vars())
+        .env_remove(crate::shell::LADE_VIA)
         .envs(env)
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())

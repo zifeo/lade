@@ -2,9 +2,8 @@ use anyhow::Result;
 use std::{env, io::Read, time::Duration};
 
 mod access;
-mod agent;
-mod agent_hooks;
 mod args;
+mod audience;
 mod compat;
 mod config;
 mod context;
@@ -12,12 +11,12 @@ mod exec;
 mod exit_codes;
 mod files;
 mod global_config;
-mod hook;
 mod inject;
 mod masking;
 mod mcp;
 mod message_box;
 mod network;
+mod pretool;
 mod prompt;
 mod provider_progress;
 mod provider_registry;
@@ -88,7 +87,16 @@ async fn run() -> Result<()> {
         }
     };
 
-    let ctx = InvocationContext::from_command(&command);
+    let ctx = match InvocationContext::from_command(&command) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            message_box::MessageBox::new()
+                .error()
+                .paragraph(e.to_string())
+                .print_stderr();
+            std::process::exit(exit_codes::FAILURE);
+        }
+    };
     let upgrade_task = (ctx.is_interactive() && matches!(command, Command::Inject(_)))
         .then(|| tokio::spawn(upgrade::check_message()));
 
@@ -109,10 +117,9 @@ async fn run() -> Result<()> {
                 .info()
                 .line(format!("Auto launcher installed in {}", shell.install()?))
                 .print_plain_stderr();
-            // Computed here, not from `ctx.is_interactive()`: Install maps to Hook mode,
-            // so `is_interactive()` is always false even on a real terminal.
+            // Install is Quiet, so `is_interactive()` is false even on a TTY.
             let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
-            agent_hooks::install(may_prompt)?;
+            pretool::install::install(may_prompt)?;
             return Ok(());
         }
         Command::Uninstall => {
@@ -124,7 +131,7 @@ async fn run() -> Result<()> {
                     shell.uninstall()?
                 ))
                 .print_plain_stderr();
-            agent_hooks::uninstall()?;
+            pretool::install::uninstall()?;
             return Ok(());
         }
         Command::Upgrade(opts) => return upgrade::perform(opts).await,
@@ -211,7 +218,7 @@ async fn run() -> Result<()> {
             }
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
-            let output = hook::handle(&config, &input)?;
+            let output = pretool::handle(&config, &input, ctx.audience)?;
             print!("{}", output);
         }
         Command::Inject(opts) => {
@@ -267,7 +274,7 @@ async fn run() -> Result<()> {
         }
         Command::Unset(EvalCommand { commands }) => {
             let shell = Shell::detect()?;
-            handle_unset(&shell, &config, commands).await?;
+            handle_unset(&ctx, &shell, &config, commands).await?;
         }
         _ => unreachable!(),
     }

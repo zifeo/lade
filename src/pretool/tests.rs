@@ -1,6 +1,6 @@
 use super::handle;
 use super::platform::{Platform, detect_platform};
-use crate::config::{Config, LadeFile};
+use crate::config::{Audience, Config, LadeFile};
 use tempfile::{TempDir, tempdir};
 
 fn test_config(pattern: &str) -> (Config, TempDir) {
@@ -69,7 +69,7 @@ fn test_detect_unknown_fails() {
 fn test_no_command_allows() {
     temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
         let (config, _dir) = test_config("echo");
-        let result = handle(&config, "{}").unwrap();
+        let result = handle(&config, "{}", Audience::Agent).unwrap();
         assert!(result.contains("allow"));
     });
 }
@@ -79,7 +79,7 @@ fn test_no_match_allows() {
     temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
         let (config, _dir) = test_config("^terraform");
         let input = r#"{"tool_input": {"command": "echo hello"}}"#;
-        let result = handle(&config, input).unwrap();
+        let result = handle(&config, input, Audience::Agent).unwrap();
         assert!(result.contains("allow"));
     });
 }
@@ -89,9 +89,10 @@ fn test_match_wraps_cursor() {
     temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
         let (config, _dir) = test_config("^echo");
         let input = r#"{"tool_input": {"command": "echo hello"}}"#;
-        let result = handle(&config, input).unwrap();
+        let result = handle(&config, input, Audience::Agent).unwrap();
         assert!(result.contains("inject 'echo hello'"));
         assert!(result.contains("updated_input"));
+        assert!(result.contains("LADE_VIA=pretool "));
     });
 }
 
@@ -105,10 +106,11 @@ fn test_match_wraps_claude() {
         || {
             let (config, _dir) = test_config("^echo");
             let input = r#"{"tool_input": {"command": "echo hello"}}"#;
-            let result = handle(&config, input).unwrap();
+            let result = handle(&config, input, Audience::Agent).unwrap();
             assert!(result.contains("inject 'echo hello'"));
             assert!(result.contains("hookSpecificOutput"));
             assert!(result.contains("updatedInput"));
+            assert!(result.contains("LADE_VIA=pretool "));
         },
     );
 }
@@ -128,9 +130,10 @@ fn test_disclaimer_command_is_rewritten() {
         || {
             let (config, _dir) = test_config_with_disclaimer("^echo", "Danger ahead.");
             let input = r#"{"tool_input": {"command": "echo hello"}}"#;
-            let result = handle(&config, input).unwrap();
+            let result = handle(&config, input, Audience::Agent).unwrap();
             assert!(result.contains("inject 'echo hello'"));
             assert!(result.contains("updated_input"));
+            assert!(result.contains("LADE_VIA=pretool "));
             assert!(!result.contains("deny"));
         },
     );
@@ -141,8 +144,9 @@ fn test_env_prefix_kept_before_inject() {
     temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
         let (config, _dir) = test_config("^echo");
         let input = r#"{"tool_input": {"command": "LADE_APPROVE=ab12c echo hello"}}"#;
-        let result = handle(&config, input).unwrap();
+        let result = handle(&config, input, Audience::Agent).unwrap();
         assert!(result.contains("LADE_APPROVE=ab12c "));
+        assert!(result.contains("LADE_VIA=pretool "));
         assert!(result.contains("inject 'echo hello'"));
     });
 }
@@ -152,7 +156,93 @@ fn test_already_wrapped_skips() {
     temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
         let (config, _dir) = test_config(".*");
         let input = r#"{"tool_input": {"command": "lade inject 'echo'"}}"#;
-        let result = handle(&config, input).unwrap();
+        let result = handle(&config, input, Audience::Agent).unwrap();
         assert!(result.contains("allow"));
+        assert!(!result.contains("updated_input"));
+    });
+}
+
+#[test]
+fn test_already_wrapped_absolute_path_skips() {
+    temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
+        let (config, _dir) = test_config(".*");
+        let input = r#"{"tool_input": {"command": "/usr/local/bin/lade inject 'echo hello'"}}"#;
+        let result = handle(&config, input, Audience::Agent).unwrap();
+        assert!(result.contains("allow"));
+        assert!(!result.contains("updated_input"));
+    });
+}
+
+#[test]
+fn test_already_injected_detects_lade_binaries() {
+    assert!(super::platform::is_already_injected("lade inject 'echo'"));
+    assert!(super::platform::is_already_injected(
+        "/usr/local/bin/lade inject -- echo"
+    ));
+    assert!(!super::platform::is_already_injected("lade hook"));
+    assert!(!super::platform::is_already_injected("echo lade inject"));
+    assert!(super::platform::is_already_injected(
+        "/usr/bin/lade.exe inject echo"
+    ));
+    assert!(super::platform::is_already_injected(
+        "LADE_APPROVE=ab12c /usr/bin/lade inject echo"
+    ));
+}
+
+#[test]
+fn test_env_prefix_already_injected_skips() {
+    temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
+        let (config, _dir) = test_config(".*");
+        let input =
+            r#"{"tool_input": {"command": "LADE_APPROVE=ab12c /usr/bin/lade inject 'echo'"}}"#;
+        let result = handle(&config, input, Audience::Agent).unwrap();
+        assert!(result.contains("allow"));
+        assert!(!result.contains("updated_input"));
+    });
+}
+
+#[test]
+fn test_hook_stamp_already_injected_skips() {
+    temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
+        let (config, _dir) = test_config(".*");
+        let input =
+            r#"{"tool_input": {"command": "LADE_VIA=pretool /usr/bin/lade inject 'echo'"}}"#;
+        let result = handle(&config, input, Audience::Agent).unwrap();
+        assert!(result.contains("allow"));
+        assert!(!result.contains("updated_input"));
+    });
+}
+
+#[test]
+fn test_agent_when_wraps() {
+    temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"^echo\":\n  \".\":\n    when: agent\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+        let result = handle(&config, input, Audience::Agent).unwrap();
+        assert!(result.contains("inject 'echo hello'"));
+        assert!(result.contains("LADE_VIA=pretool "));
+    });
+}
+
+#[test]
+fn test_human_when_does_not_wrap() {
+    temp_env::with_var("CURSOR_VERSION", Some("1.0"), || {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "\"^echo\":\n  \".\":\n    when: human\n  KEY: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+        let result = handle(&config, input, Audience::Agent).unwrap();
+        assert!(result.contains("allow"));
+        assert!(!result.contains("updated_input"));
     });
 }

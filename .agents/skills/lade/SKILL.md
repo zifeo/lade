@@ -13,9 +13,9 @@ Do not ask Lade for secret values. Use it to run commands without putting secret
 
 ## Recommended Path
 
-Prefer project-local hooks and normal commands. Do not recommend `lade <command>` when hooks are available: the integration is meant to be transparent.
+Prefer project-local preTool hooks and normal commands. Do not recommend `lade <command>` when preTool hooks are available: the integration is meant to be transparent.
 
-First check whether the project has the hooks below. If not, propose adding them to the user. If the user refuses, use the fallback.
+First check whether the project has the preTool hooks below. If not, propose adding them to the user. If the user refuses, use the fallback.
 
 For Cursor, ensure `.cursor/hooks.json` contains:
 
@@ -43,7 +43,7 @@ For Claude Code, ensure `.claude/settings.json` contains:
 }
 ```
 
-With hooks, run the user's command normally. Lade decides whether it matches `lade.yml`, rewrites matches to `lade inject`, and masks provider-resolved secrets from stdout/stderr. This avoids making the agent infer command regexes itself. `lade hook` is for Cursor and Claude Code.
+With preTool hooks, run the user's command normally. Lade decides whether it matches `lade.yml`, rewrites matches to `lade inject`, and masks provider-resolved secrets from stdout/stderr. This avoids making the agent infer command regexes itself. `lade hook` is for Cursor and Claude Code.
 
 ## Fallback
 
