@@ -233,12 +233,29 @@ pub(crate) async fn saved_user() -> Result<Option<String>> {
 
 pub struct Config {
     rules: Vec<(PathBuf, LadeRule)>,
+    patterns: Vec<String>,
     regex_set: RegexSet,
 }
 
 impl Config {
-    pub(crate) fn new(rules: Vec<(PathBuf, LadeRule)>, regex_set: RegexSet) -> Self {
-        Config { rules, regex_set }
+    pub(crate) fn new(
+        rules: Vec<(PathBuf, LadeRule)>,
+        patterns: Vec<String>,
+        regex_set: RegexSet,
+    ) -> Self {
+        Config {
+            rules,
+            patterns,
+            regex_set,
+        }
+    }
+
+    /// Loaded rules in overlay order, with the file directory and pattern.
+    pub(crate) fn rule_entries(&self) -> impl Iterator<Item = (&PathBuf, &str, &LadeRule)> {
+        self.rules
+            .iter()
+            .zip(self.patterns.iter())
+            .map(|((path, rule), pattern)| (path, pattern.as_str(), rule))
     }
 
     /// Rules matching `command`, in overlay order: parent `lade.yml` then

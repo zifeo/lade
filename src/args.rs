@@ -3,6 +3,7 @@ use clap_verbosity_flag::Verbosity;
 
 use clap::Parser;
 use std::ffi::OsString;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 pub struct UpgradeCommand {
@@ -57,12 +58,51 @@ pub struct StatusCommand {
     pub json: bool,
 }
 
+#[derive(Parser, Debug)]
+pub struct BenchCommand {
+    /// Emit a machine-readable JSON report to stdout instead of human text.
+    #[clap(long, default_value_t = false)]
+    pub json: bool,
+    /// Per-rule hydrate cap, for example `5s` or `500ms`.
+    #[clap(long, default_value = "5s", value_parser = parse_timeout)]
+    pub timeout: Duration,
+}
+
+pub fn parse_timeout(raw: &str) -> Result<Duration, String> {
+    let raw = raw.trim();
+    let (number, unit) = if let Some(number) = raw.strip_suffix("ms") {
+        (number, "ms")
+    } else if let Some(number) = raw.strip_suffix('s') {
+        (number, "s")
+    } else if let Some(number) = raw.strip_suffix('m') {
+        (number, "m")
+    } else {
+        return Err("use a duration like 5s, 500ms, or 2m".to_string());
+    };
+    let amount: u64 = number
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid duration '{raw}'"))?;
+    let timeout = match unit {
+        "ms" => Duration::from_millis(amount),
+        "s" => Duration::from_secs(amount),
+        "m" => Duration::from_secs(amount.saturating_mul(60)),
+        _ => unreachable!("unit is one of ms, s, m"),
+    };
+    if timeout.is_zero() {
+        return Err("timeout must be greater than 0".to_string());
+    }
+    Ok(timeout)
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Upgrade lade.
     Upgrade(UpgradeCommand),
     /// Report lade version, config, hooks, and CLI compatibility.
     Status(StatusCommand),
+    /// Time config parse, match, and per-rule secret resolution.
+    Bench(BenchCommand),
     /// Enable preexec shell hooks.
     On,
     /// Disable preexec shell hooks.
@@ -119,4 +159,36 @@ pub struct Args {
 
     #[command(flatten)]
     pub verbose: Verbosity,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bench_timeout_defaults_to_five_seconds() {
+        let args = Args::try_parse_from(["lade", "bench"]).unwrap();
+        match args.command {
+            Some(Command::Bench(bench)) => {
+                assert!(!bench.json);
+                assert_eq!(bench.timeout, Duration::from_secs(5));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn bench_timeout_parses_ms() {
+        let args = Args::try_parse_from(["lade", "bench", "--timeout", "500ms"]).unwrap();
+        match args.command {
+            Some(Command::Bench(bench)) => assert_eq!(bench.timeout, Duration::from_millis(500)),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_timeout_rejects_zero_and_bare_number() {
+        assert!(parse_timeout("0s").is_err());
+        assert!(parse_timeout("5").is_err());
+    }
 }

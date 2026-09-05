@@ -52,11 +52,15 @@ jobs:
           brew update
           brew install fish zsh
 
+      - name: Install 1Password CLI
+        uses: 1password/install-cli-action@v4
+
       - name: Tool versions
         run: |
           bash --version
           fish --version
           zsh --version
+          op --version
 
       - name: Run native tests
         run: |

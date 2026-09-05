@@ -4,6 +4,7 @@ use std::{env, io::Read, time::Duration};
 mod access;
 mod args;
 mod audience;
+mod bench;
 mod compat;
 mod config;
 mod context;
@@ -136,6 +137,7 @@ async fn run() -> Result<()> {
         }
         Command::Upgrade(opts) => return upgrade::perform(opts).await,
         Command::Status(opts) => return status::run(opts).await,
+        Command::Bench(opts) => return bench::run(opts).await,
         Command::User { username, reset } => {
             if reset {
                 GlobalConfig::update(|c| c.user = None).await?;
