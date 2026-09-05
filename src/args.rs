@@ -124,7 +124,7 @@ pub enum Command {
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
-    /// Handle preToolUse for Cursor and Claude Code.
+    /// Handle preToolUse for Cursor, Claude Code, Codex, Pi, and OpenCode.
     Hook,
     /// Approve a pending disclaimer and run the command, using the code shown in
     /// the disclaimer message.
@@ -153,6 +153,11 @@ pub struct Args {
 
     #[clap(short, long, value_parser)]
     pub help: bool,
+
+    /// Stamp this invocation as preTool. Sets `LADE_VIA=pretool` on the child
+    /// command. Wins over `LADE_VIA`. Shell hooks still use the env var.
+    #[clap(long, global = true, default_value_t = false)]
+    pub pretool: bool,
 
     #[clap(subcommand)]
     pub command: Option<Command>,
@@ -190,5 +195,37 @@ mod tests {
     fn parse_timeout_rejects_zero_and_bare_number() {
         assert!(parse_timeout("0s").is_err());
         assert!(parse_timeout("5").is_err());
+    }
+
+    #[test]
+    fn pretool_before_inject() {
+        let args = Args::try_parse_from(["lade", "--pretool", "inject", "echo"]).unwrap();
+        assert!(args.pretool);
+        match args.command {
+            Some(Command::Inject(inject)) => assert_eq!(inject.commands, vec!["echo"]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn pretool_before_alias() {
+        let args = Args::try_parse_from(["lade", "--pretool", "terraform", "apply"]).unwrap();
+        assert!(args.pretool);
+        match args.command {
+            Some(Command::InjectAlias(commands)) => {
+                assert_eq!(commands, vec!["terraform", "apply"])
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn pretool_before_mcp() {
+        let args = Args::try_parse_from(["lade", "--pretool", "mcp", "--", "acme"]).unwrap();
+        assert!(args.pretool);
+        match args.command {
+            Some(Command::Mcp(mcp)) => assert_eq!(mcp.argv, vec![OsString::from("acme")]),
+            other => panic!("{other:?}"),
+        }
     }
 }

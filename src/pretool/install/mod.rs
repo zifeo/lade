@@ -1,12 +1,11 @@
 //! Optional installation of the `lade hook` interceptor into the agents that
-//! support `preToolUse` shell hooks (Cursor, Claude Code).
+//! support `preToolUse` shell hooks (Cursor, Claude Code, Codex, Pi, OpenCode).
 //!
 //! `lade install` is a global, once-only operation, so these hooks are written
 //! to the agents' global config (`~/.cursor/hooks.json`,
-//! `~/.claude/settings.json`). We only act when the agent's home dir already
-//! exists (i.e. the agent is actually used) and never overwrite unrelated
-//! settings: the config is parsed, our entry merged idempotently (see
-//! `config.rs`), and removed symmetrically on `lade uninstall`.
+//! `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.pi/agent/settings.json`,
+//! `~/.config/opencode/plugins/lade-pretool.js`). We only act when the agent's
+//! home dir already exists and never overwrite unrelated settings.
 
 mod config;
 #[cfg(test)]
@@ -28,9 +27,8 @@ fn home_dir() -> Result<PathBuf> {
         .context("cannot determine home directory")
 }
 
-fn hook_command() -> Result<String> {
-    let exe = std::env::current_exe()?;
-    Ok(format!("{} hook", exe.display()))
+fn hook_command() -> String {
+    format!("{} hook", crate::pretool::invoked_lade_bin())
 }
 
 fn tilde(path: &Path, home: &Path) -> String {
@@ -63,7 +61,7 @@ fn report(results: Vec<String>) {
 /// Offer to install the `lade hook` interceptor for every agent detected on the
 /// machine. `may_prompt` must be true only when both stdin and stderr are TTYs.
 pub fn install(may_prompt: bool) -> Result<()> {
-    let command = hook_command()?;
+    let command = hook_command();
     let home = home_dir()?;
     let mut results = Vec::new();
 
@@ -74,7 +72,23 @@ pub fn install(may_prompt: bool) -> Result<()> {
         let path = agent.config_path(&home);
         let existing = fs::read_to_string(&path).unwrap_or_default();
         if agent.has_hook(&existing)? {
-            results.push(format!("{}: hook already present", agent.name()));
+            if agent.hook_uses_command(&existing, &command)? {
+                results.push(format!("{}: hook already present", agent.name()));
+                continue;
+            }
+            if !may_prompt {
+                results.push(format!(
+                    "{}: detected — re-run `lade install` in a terminal to update its hook",
+                    agent.name()
+                ));
+                continue;
+            }
+            fs::write(&path, agent.merge(&existing, &command)?)?;
+            results.push(format!(
+                "{}: hook updated in {}",
+                agent.name(),
+                tilde(&path, &home)
+            ));
             continue;
         }
         if !may_prompt {
@@ -85,6 +99,9 @@ pub fn install(may_prompt: bool) -> Result<()> {
             continue;
         }
         if confirm(agent.name(), &tilde(&path, &home))? {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
             fs::write(&path, agent.merge(&existing, &command)?)?;
             results.push(format!(
                 "{}: hook installed in {}",
@@ -107,14 +124,19 @@ pub fn uninstall() -> Result<()> {
 
     for agent in AGENTS {
         let path = agent.config_path(&home);
-        let existing = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
-        if !agent.has_hook(&existing)? {
+        let existing = fs::read_to_string(&path).unwrap_or_default();
+        let legacy = leftover_json_hook(agent, &home)?;
+        if !agent.has_hook(&existing)? && legacy.is_none() {
             continue;
         }
-        fs::write(&path, agent.remove(&existing)?)?;
+        if matches!(agent, config::Agent::OpenCode) {
+            let _ = fs::remove_file(&path);
+        } else if agent.has_hook(&existing)? {
+            fs::write(&path, agent.remove(&existing)?)?;
+        }
+        if let Some((legacy_path, content)) = legacy {
+            fs::write(&legacy_path, agent.remove(&content)?)?;
+        }
         results.push(format!(
             "{}: hook removed from {}",
             agent.name(),
@@ -142,14 +164,20 @@ pub struct PretoolAgentStatus {
 pub struct PretoolStatus {
     pub cursor: PretoolAgentStatus,
     pub claude: PretoolAgentStatus,
+    pub codex: PretoolAgentStatus,
+    pub pi: PretoolAgentStatus,
+    pub opencode: PretoolAgentStatus,
 }
 
-/// Global and project-local `lade hook` entries for Cursor and Claude Code.
+/// Global and project-local `lade hook` entries for supported agents.
 pub fn inspect(cwd: &Path) -> Result<PretoolStatus> {
     let home = home_dir()?;
     Ok(PretoolStatus {
         cursor: inspect_agent(config::Agent::Cursor, &home, cwd)?,
         claude: inspect_agent(config::Agent::Claude, &home, cwd)?,
+        codex: inspect_agent(config::Agent::Codex, &home, cwd)?,
+        pi: inspect_agent(config::Agent::Pi, &home, cwd)?,
+        opencode: inspect_agent(config::Agent::OpenCode, &home, cwd)?,
     })
 }
 
@@ -176,8 +204,18 @@ fn hook_present(path: &Path, agent: config::Agent) -> Result<bool> {
     }
 }
 
+fn leftover_json_hook(agent: config::Agent, home: &Path) -> Result<Option<(PathBuf, String)>> {
+    let Some(path) = agent.legacy_json_path(home) else {
+        return Ok(None);
+    };
+    match fs::read_to_string(&path) {
+        Ok(content) if config::Agent::Claude.has_hook(&content)? => Ok(Some((path, content))),
+        _ => Ok(None),
+    }
+}
+
 /// Walk from `cwd` toward `$HOME` looking for a project-local hook file.
-/// `$HOME/.cursor/hooks.json` (and Claude's home settings) stay in `global`.
+/// Home-level agent configs stay in `global`.
 fn find_project(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBuf, bool)> {
     let mut dir = cwd.to_path_buf();
     loop {
@@ -208,6 +246,16 @@ fn project_files(agent: config::Agent, dir: &Path) -> Vec<PathBuf> {
             dir.join(".claude").join("settings.local.json"),
             dir.join(".claude").join("settings.json"),
         ],
+        config::Agent::Codex => vec![dir.join(".codex").join("hooks.json")],
+        config::Agent::Pi => vec![
+            dir.join(".pi").join("settings.json"),
+            dir.join(".pi").join("hooks.json"),
+        ],
+        config::Agent::OpenCode => vec![
+            dir.join(".opencode")
+                .join("plugins")
+                .join("lade-pretool.js"),
+        ],
     }
 }
 
@@ -215,5 +263,11 @@ fn canonical_project_path(agent: config::Agent, cwd: &Path) -> PathBuf {
     match agent {
         config::Agent::Cursor => cwd.join(".cursor").join("hooks.json"),
         config::Agent::Claude => cwd.join(".claude").join("settings.json"),
+        config::Agent::Codex => cwd.join(".codex").join("hooks.json"),
+        config::Agent::Pi => cwd.join(".pi").join("settings.json"),
+        config::Agent::OpenCode => cwd
+            .join(".opencode")
+            .join("plugins")
+            .join("lade-pretool.js"),
     }
 }

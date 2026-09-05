@@ -380,22 +380,60 @@ fn test_inject_agent_when_requires_pretool_stamp() {
         .stdout(predicates::str::contains("agentsecret").not());
     common::lade(home.path())
         .current_dir(dir.path())
+        .args(["--pretool", "inject", "--no-mask", "echo", "$SECRET"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("agentsecret"));
+    common::lade(home.path())
+        .current_dir(dir.path())
         .env("LADE_VIA", "pretool")
         .args(["inject", "--no-mask", "echo", "$SECRET"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("agentsecret"));
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_VIA", "preexec")
+        .args(["--pretool", "inject", "--no-mask", "echo", "$SECRET"])
         .assert()
         .success()
         .stdout(predicates::str::contains("agentsecret"));
 }
 
 #[test]
-fn test_inject_strips_via_stamp_from_child() {
+fn test_inject_pretool_sets_via_on_child() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["--pretool", "inject", "--no-mask", "echo", "via=$LADE_VIA"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("via=pretool"));
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["--pretool", "echo", "via=$LADE_VIA"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("via=pretool"));
     common::lade(home.path())
         .current_dir(dir.path())
         .env("LADE_VIA", "pretool")
         .args(["inject", "--no-mask", "echo", "via=$LADE_VIA"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("via=pretool").not());
+        .stdout(predicates::str::contains("via=pretool"));
+}
+
+#[test]
+fn test_inject_without_stamp_strips_via_from_child() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--no-mask", "echo", "via=$LADE_VIA"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("via=pretool").not())
+        .stdout(predicates::str::contains("via=preexec").not());
 }

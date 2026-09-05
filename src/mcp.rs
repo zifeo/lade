@@ -36,7 +36,16 @@ pub async fn run(
         }
         None => {
             info!("mcp started transport=stdio");
-            run_stdio(command.argv, access.env.clone(), current_dir).await
+            let mut env = access.env.clone();
+            match ctx.via.child_stamp() {
+                Some(value) => {
+                    env.insert(crate::shell::LADE_VIA.to_string(), value.to_string());
+                }
+                None => {
+                    env.remove(crate::shell::LADE_VIA);
+                }
+            }
+            run_stdio(command.argv, env, current_dir).await
         }
     };
     access.cleanup()?;

@@ -27,11 +27,17 @@ bash tests/installer_test.sh
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor
   versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
+- **`lade status` latest**: a successful daily GitHub check must persist
+  the tag (`latest_version` in the global config) so status can show it after
+  shell use. If the fetch failed, print when we last tried (`tried today at
+  14:25`, `tried yesterday at 09:05`). Do not print `not checked recently`
+  when a check was attempted. `version` in `--json` includes `latest`,
+  `last_check`, `update_available`, and `check_error`.
 
 ## Project layout
 
 - `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse handler
-  plus install into Cursor/Claude configs), `audience.rs` (`detect()` for Via,
+  plus install into Cursor/Claude/Codex/Pi/OpenCode configs), `audience.rs` (`detect()` for Via,
   Audience, UI), `prompt.rs` (disclaimer flow), `inject.rs`/`exec/` (PTY
   execution + masking), `status.rs`, `shell/` (preexec integration), `config/`,
   `message_box/`.

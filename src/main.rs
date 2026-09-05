@@ -75,6 +75,7 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
+    let pretool = args.pretool;
     let command = match args.command {
         Some(Command::InjectAlias(commands)) => Command::Inject(InjectCommand {
             no_mask: false,
@@ -88,7 +89,7 @@ async fn run() -> Result<()> {
         }
     };
 
-    let ctx = match InvocationContext::from_command(&command) {
+    let ctx = match InvocationContext::from_command(&command, pretool) {
         Ok(ctx) => ctx,
         Err(e) => {
             message_box::MessageBox::new()

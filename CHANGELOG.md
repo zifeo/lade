@@ -12,9 +12,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 ### Added
 
 - **`.when` audience detection**: `detect()` classifies every invocation as
-  preexec, pretool, or unset (`LADE_VIA`), then human vs agent. MCP and a bare
-  `lade inject` use the same function, including env signals when Via is empty.
-  The same pattern can be a list of bodies with different `when`.
+  preexec, pretool, or unset. `--pretool` (global) wins over `LADE_VIA`, then
+  the subcommand, then env signals when Via is empty. MCP and a bare
+  `lade inject` use the same function. The same pattern can be a list of
+  bodies with different `when`.
 - **`.silence` hydration progress**: `silence: true` under `.` skips that
   rule's secret progress lines at hydrate time. Hydration itself is unchanged.
 - **`lade bench`**: times the incompressible path (parse all `lade.yml` files
@@ -24,22 +25,45 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   (`5s` by default). Errors sit on the next indented line. `--json` includes
   `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire
   is not run.
+- **Claude-compatible preTool hosts**: `lade hook` keeps an explicit detect
+  path for Codex, Pi, and OpenCode, then rewrites with the same `updatedInput`
+  envelope as Claude Code. `lade install` / `status` cover
+  `~/.codex/hooks.json`, `~/.pi/agent/settings.json`, and
+  `~/.config/opencode/plugins/lade-pretool.js`.
 
 ### Changed
 
 - **`lade status --json` hooks object** (breaking): `hooks` is now
-  `{ "preexec": { shell, profile, installed }, "pretool": { cursor, claude } }`
+  `{ "preexec": { shell, profile, installed }, "pretool": { cursor, claude, codex, pi, opencode } }`
   with global and project paths. `ok` still depends only on preexec install,
   version, project config, and vault CLIs.
 - **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
   `inject`/`approve` has both stdin and stderr as TTYs.
+- **`--pretool`**: `lade hook` rewrites matching commands to
+  `<lade> --pretool '…'` (the inject alias). `--pretool` wins over `LADE_VIA`
+  and sets `LADE_VIA=pretool` on the child command, symmetric with preexec
+  exporting `LADE_VIA=preexec`. Shell hooks still use the env var.
+- **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
+  stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
+  Re-running `lade install` updates an existing hook that still has a path.
 
 ### Fixed
 
 - **`.when` ignores `CURSOR_VERSION`**: Cursor sets it in human terminals, so it
   must not select agent rules on `inject` / `mcp`.
+- **preTool envelope**: `CURSOR_VERSION` no longer wins over a `PreToolUse`
+  payload or an explicit Codex, Pi, or OpenCode detect path. Those hosts ignore
+  Cursor's `updated_input`.
+- **Already-injected hook rewrite**: stamp `--pretool` when the command is
+  already `lade inject` or `lade --pretool` without that flag, so `.when: agent`
+  still matches. Older `--via=pretool` and `LADE_VIA=pretool` prefixes still
+  count as stamped.
 - **`lade status` project preTool paths** walk toward `$HOME` and stop there, so
-  `~/.cursor/hooks.json` / `~/.claude/settings.json` stay in the global slot.
+  home-level agent hook files stay in the global slot.
+- **`lade status` latest version**: persist the GitHub tag from a successful
+  daily check so `status` can show it after shell use. If the fetch failed,
+  print when we last tried (`tried today at 14:25`, `tried yesterday at 09:05`)
+  instead of `not checked recently`.
 
 ## [0.16.0] - 2026-07-06
 
