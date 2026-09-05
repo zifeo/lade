@@ -30,6 +30,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   envelope as Claude Code. `lade install` / `status` cover
   `~/.codex/hooks.json`, `~/.pi/agent/settings.json`, and
   `~/.config/opencode/plugins/lade-pretool.js`.
+- **Organic versus unknown via**: `detect()` treats a TTY inject with no
+  `LADE_VIA` and no agent signal as organic human, and a non-TTY empty via
+  as unknown. Organic and unknown strip a leftover parent `LADE_VIA` so it
+  does not leak onto the child.
 
 ### Changed
 

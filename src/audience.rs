@@ -9,23 +9,27 @@ use crate::args::Command;
 use crate::config::Audience;
 use crate::shell::{LADE_VIA, LADE_VIA_PREEXEC, LADE_VIA_PRETOOL};
 
-/// How this process was reached. Empty means neither interceptor classified it.
+/// How this process was reached. That is not the `lade unset` command.
+///
+/// Organic is a best-effort guess: both stdin and stderr are TTYs and no
+/// agent env signal fired. An undetected agent on a TTY still looks organic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Via {
     Preexec,
     Pretool,
-    Unset,
+    Organic,
+    Unknown,
 }
 
 impl Via {
     /// Value written to `LADE_VIA` on the child command. Preexec already
     /// exports `preexec` into the shell; `--pretool` does the same for inject.
-    /// Unset means strip so a leftover parent value does not leak.
+    /// Organic and unknown strip so a leftover parent value does not leak.
     pub fn child_stamp(self) -> Option<&'static str> {
         match self {
             Via::Pretool => Some(LADE_VIA_PRETOOL),
             Via::Preexec => Some(LADE_VIA_PREEXEC),
-            Via::Unset => None,
+            Via::Organic | Via::Unknown => None,
         }
     }
 }
@@ -54,10 +58,16 @@ pub fn detect(
     stderr_is_terminal: bool,
 ) -> Result<Detection> {
     let via = via(command, pretool)?;
+    let via = match via {
+        Via::Unknown if stdin_is_terminal && stderr_is_terminal && agent_signal().is_none() => {
+            Via::Organic
+        }
+        other => other,
+    };
     let audience = match via {
         Via::Pretool => Audience::Agent,
-        Via::Preexec => Audience::Human,
-        Via::Unset => {
+        Via::Preexec | Via::Organic => Audience::Human,
+        Via::Unknown => {
             if agent_signal().is_some() {
                 Audience::Agent
             } else {
@@ -92,11 +102,11 @@ fn via(command: &Command, pretool: bool) -> Result<Via> {
     Ok(match command {
         Command::Set(_) | Command::Unset(_) => Via::Preexec,
         Command::Hook => Via::Pretool,
-        _ => Via::Unset,
+        _ => Via::Unknown,
     })
 }
 
-/// Best-effort agent name from env. Used only when Via is unset.
+/// Best-effort agent name from env. Used only when Via is unknown.
 ///
 /// Precedence (first match wins):
 /// 1. `AI_AGENT` — Vercel `@vercel/detect-agent`; value is the tool name.
@@ -288,7 +298,7 @@ mod tests {
             ],
             || {
                 let d = detect(&inject(), false, true, true).unwrap();
-                assert_eq!(d.via, Via::Unset);
+                assert_eq!(d.via, Via::Unknown);
                 assert_eq!(d.audience, Audience::Agent);
                 assert_eq!(d.ui, UiMode::Quiet);
             },
@@ -296,12 +306,22 @@ mod tests {
     }
 
     #[test]
-    fn empty_via_without_signal_inject_tty_is_human_interactive() {
+    fn empty_via_without_signal_inject_tty_is_organic_human_interactive() {
         temp_env::with_vars(cleared_signals(), || {
             let d = detect(&inject(), false, true, true).unwrap();
-            assert_eq!(d.via, Via::Unset);
+            assert_eq!(d.via, Via::Organic);
             assert_eq!(d.audience, Audience::Human);
             assert_eq!(d.ui, UiMode::Interactive);
+        });
+    }
+
+    #[test]
+    fn empty_via_without_signal_or_tty_is_unknown_human_quiet() {
+        temp_env::with_vars(cleared_signals(), || {
+            let d = detect(&inject(), false, false, false).unwrap();
+            assert_eq!(d.via, Via::Unknown);
+            assert_eq!(d.audience, Audience::Human);
+            assert_eq!(d.ui, UiMode::Quiet);
         });
     }
 
@@ -319,7 +339,7 @@ mod tests {
             ],
             || {
                 let d = detect(&inject(), false, true, true).unwrap();
-                assert_eq!(d.via, Via::Unset);
+                assert_eq!(d.via, Via::Organic);
                 assert_eq!(d.audience, Audience::Human);
                 assert_eq!(d.ui, UiMode::Interactive);
             },
@@ -369,6 +389,7 @@ mod tests {
     fn child_stamp_matches_via() {
         assert_eq!(Via::Pretool.child_stamp(), Some(LADE_VIA_PRETOOL));
         assert_eq!(Via::Preexec.child_stamp(), Some(LADE_VIA_PREEXEC));
-        assert_eq!(Via::Unset.child_stamp(), None);
+        assert_eq!(Via::Organic.child_stamp(), None);
+        assert_eq!(Via::Unknown.child_stamp(), None);
     }
 }
