@@ -17,6 +17,19 @@ pub enum Via {
     Unset,
 }
 
+impl Via {
+    /// Value written to `LADE_VIA` on the child command. Preexec already
+    /// exports `preexec` into the shell; `--pretool` does the same for inject.
+    /// Unset means strip so a leftover parent value does not leak.
+    pub fn child_stamp(self) -> Option<&'static str> {
+        match self {
+            Via::Pretool => Some(LADE_VIA_PRETOOL),
+            Via::Preexec => Some(LADE_VIA_PREEXEC),
+            Via::Unset => None,
+        }
+    }
+}
+
 /// Whether this invocation may prompt on stdin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiMode {
@@ -31,15 +44,16 @@ pub struct Detection {
     pub ui: UiMode,
 }
 
-/// Classify this invocation. `LADE_VIA` wins, then the subcommand, then agent
-/// env signals. UI is an output: Interactive only for human inject/approve with
-/// both stdin and stderr attached to a TTY.
+/// Classify this invocation. `--pretool` wins, then `LADE_VIA`, then the
+/// subcommand, then agent env signals. UI is an output: Interactive only for
+/// human inject/approve with both stdin and stderr attached to a TTY.
 pub fn detect(
     command: &Command,
+    pretool: bool,
     stdin_is_terminal: bool,
     stderr_is_terminal: bool,
 ) -> Result<Detection> {
-    let via = via(command)?;
+    let via = via(command, pretool)?;
     let audience = match via {
         Via::Pretool => Audience::Agent,
         Via::Preexec => Audience::Human,
@@ -63,7 +77,10 @@ pub fn detect(
     Ok(Detection { via, audience, ui })
 }
 
-fn via(command: &Command) -> Result<Via> {
+fn via(command: &Command, pretool: bool) -> Result<Via> {
+    if pretool {
+        return Ok(Via::Pretool);
+    }
     match std::env::var(LADE_VIA) {
         Ok(value) if value == LADE_VIA_PRETOOL => return Ok(Via::Pretool),
         Ok(value) if value == LADE_VIA_PREEXEC => return Ok(Via::Preexec),
@@ -158,7 +175,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
             || {
-                let d = detect(&inject(), true, true).unwrap();
+                let d = detect(&inject(), false, true, true).unwrap();
                 assert_eq!(d.via, Via::Pretool);
                 assert_eq!(d.audience, Audience::Agent);
                 assert_eq!(d.ui, UiMode::Quiet);
@@ -179,7 +196,7 @@ mod tests {
                 ("COPILOT_MODEL", None),
             ],
             || {
-                let d = detect(&inject(), true, true).unwrap();
+                let d = detect(&inject(), false, true, true).unwrap();
                 assert_eq!(d.via, Via::Preexec);
                 assert_eq!(d.audience, Audience::Human);
                 assert_eq!(d.ui, UiMode::Interactive);
@@ -188,9 +205,59 @@ mod tests {
     }
 
     #[test]
+    fn inject_via_flag_is_pretool_agent_quiet() {
+        temp_env::with_vars(cleared_signals(), || {
+            let d = detect(&inject(), true, true, true).unwrap();
+            assert_eq!(d.via, Via::Pretool);
+            assert_eq!(d.audience, Audience::Agent);
+            assert_eq!(d.ui, UiMode::Quiet);
+        });
+    }
+
+    #[test]
+    fn via_flag_on_status_is_pretool_agent() {
+        temp_env::with_vars(cleared_signals(), || {
+            let d = detect(
+                &Command::Status(crate::args::StatusCommand {
+                    all: false,
+                    json: false,
+                }),
+                true,
+                true,
+                true,
+            )
+            .unwrap();
+            assert_eq!(d.via, Via::Pretool);
+            assert_eq!(d.audience, Audience::Agent);
+            assert_eq!(d.ui, UiMode::Quiet);
+        });
+    }
+
+    #[test]
+    fn via_flag_wins_over_env() {
+        temp_env::with_vars(
+            cleared_signals()
+                .into_iter()
+                .map(|(k, v)| {
+                    if k == LADE_VIA {
+                        (k, Some(LADE_VIA_PREEXEC))
+                    } else {
+                        (k, v)
+                    }
+                })
+                .collect::<Vec<_>>(),
+            || {
+                let d = detect(&inject(), true, true, true).unwrap();
+                assert_eq!(d.via, Via::Pretool);
+                assert_eq!(d.audience, Audience::Agent);
+            },
+        );
+    }
+
+    #[test]
     fn set_is_preexec_human_quiet() {
         temp_env::with_vars(cleared_signals(), || {
-            let d = detect(&set_cmd(), true, true).unwrap();
+            let d = detect(&set_cmd(), false, true, true).unwrap();
             assert_eq!(d.via, Via::Preexec);
             assert_eq!(d.audience, Audience::Human);
             assert_eq!(d.ui, UiMode::Quiet);
@@ -200,7 +267,7 @@ mod tests {
     #[test]
     fn hook_is_pretool_agent_quiet() {
         temp_env::with_vars(cleared_signals(), || {
-            let d = detect(&Command::Hook, false, false).unwrap();
+            let d = detect(&Command::Hook, false, false, false).unwrap();
             assert_eq!(d.via, Via::Pretool);
             assert_eq!(d.audience, Audience::Agent);
             assert_eq!(d.ui, UiMode::Quiet);
@@ -220,7 +287,7 @@ mod tests {
                 ("CURSOR_VERSION", None),
             ],
             || {
-                let d = detect(&inject(), true, true).unwrap();
+                let d = detect(&inject(), false, true, true).unwrap();
                 assert_eq!(d.via, Via::Unset);
                 assert_eq!(d.audience, Audience::Agent);
                 assert_eq!(d.ui, UiMode::Quiet);
@@ -231,7 +298,7 @@ mod tests {
     #[test]
     fn empty_via_without_signal_inject_tty_is_human_interactive() {
         temp_env::with_vars(cleared_signals(), || {
-            let d = detect(&inject(), true, true).unwrap();
+            let d = detect(&inject(), false, true, true).unwrap();
             assert_eq!(d.via, Via::Unset);
             assert_eq!(d.audience, Audience::Human);
             assert_eq!(d.ui, UiMode::Interactive);
@@ -251,7 +318,7 @@ mod tests {
                 ("CURSOR_VERSION", Some("1.0")),
             ],
             || {
-                let d = detect(&inject(), true, true).unwrap();
+                let d = detect(&inject(), false, true, true).unwrap();
                 assert_eq!(d.via, Via::Unset);
                 assert_eq!(d.audience, Audience::Human);
                 assert_eq!(d.ui, UiMode::Interactive);
@@ -262,7 +329,7 @@ mod tests {
     #[test]
     fn invalid_via_fails() {
         temp_env::with_var(LADE_VIA, Some("nope"), || {
-            assert!(detect(&inject(), false, false).is_err());
+            assert!(detect(&inject(), false, false, false).is_err());
         });
     }
 
@@ -296,5 +363,12 @@ mod tests {
             ],
             || assert_eq!(agent_signal(), None),
         );
+    }
+
+    #[test]
+    fn child_stamp_matches_via() {
+        assert_eq!(Via::Pretool.child_stamp(), Some(LADE_VIA_PRETOOL));
+        assert_eq!(Via::Preexec.child_stamp(), Some(LADE_VIA_PREEXEC));
+        assert_eq!(Via::Unset.child_stamp(), None);
     }
 }

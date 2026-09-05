@@ -28,10 +28,18 @@ pub fn run(
     ctx: &crate::context::InvocationContext,
     shell: &str,
     command: &str,
-    env: HashMap<String, String>,
+    mut env: HashMap<String, String>,
     cwd: &Path,
     redactor: Option<Redactor>,
 ) -> Result<i32> {
+    match ctx.via.child_stamp() {
+        Some(value) => {
+            env.insert(crate::shell::LADE_VIA.to_string(), value.to_string());
+        }
+        None => {
+            env.remove(crate::shell::LADE_VIA);
+        }
+    }
     let mode = select_mode(
         redactor.is_some(),
         ctx.stdin_is_terminal,

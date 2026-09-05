@@ -76,19 +76,16 @@ impl Shell {
 }
 
 fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
-    let curr_exe = std::env::current_exe()?;
+    let bin = crate::pretool::invoked_lade_bin();
 
     let (command, config_file) = match shell {
         Shell::Bash => (
-            format!("source <(echo \"$({} on)\")", curr_exe.display()),
+            format!("source <(echo \"$({bin} on)\")"),
             profile_config_file(shell),
         ),
-        Shell::Zsh => (
-            format!("eval \"$({} on)\"", curr_exe.display()),
-            profile_config_file(shell),
-        ),
+        Shell::Zsh => (format!("eval \"$({bin} on)\""), profile_config_file(shell)),
         Shell::Fish => (
-            format!("source ({} on | psub)", curr_exe.display()),
+            format!("source ({bin} on | psub)"),
             profile_config_file(shell),
         ),
         _ => bail!("Unsupported behavior on shell {}", shell.bin()),

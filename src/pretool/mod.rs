@@ -1,20 +1,28 @@
 /*
-preToolUse handler for Cursor and Claude Code (`lade hook`).
+preToolUse handler for Cursor, Claude Code, and Codex (`lade hook`).
 
 `detect()` classifies this process as Via::Pretool / Audience::Agent. Matching
-commands are rewritten into `LADE_VIA=pretool … inject '…'` so the child inject
-keeps that classification. Disclaimer enforcement lives in `lade inject`.
+commands are rewritten into `<lade> --pretool '…'` (the inject alias) so the
+child keeps that classification and gets `LADE_VIA=pretool` in its env.
+Disclaimer enforcement lives in inject.
 
 # Cursor preToolUse — https://cursor.com/docs/agent/hooks (verified June 2026)
 - Env: `CURSOR_VERSION`, `CURSOR_PROJECT_DIR`
 - Input: `{"tool_name": "Shell", "tool_input": {"command": "..."}, "hook_event_name": "preToolUse", ...}`
 - Output: `{"permission": "allow", "updated_input": {...}}`
 
-# Claude Code PreToolUse — https://code.claude.com/docs/en/hooks (verified June 2026)
-- Env: `CLAUDE_PROJECT_DIR`
-- Input: `{"tool_name": "Bash", "tool_input": {"command": "..."}, "hook_event_name": "PreToolUse", ...}`
+# Claude-compatible PreToolUse (Claude Code, Codex, Pi, OpenCode)
+- Claude: `CLAUDE_PROJECT_DIR` — https://code.claude.com/docs/en/hooks
+- Codex: `CODEX_THREAD_ID` / `CODEX_SANDBOX` / `CODEX_HOME`, plus `turn_id`/`model`
+  — https://developers.openai.com/codex/hooks
+- Pi: `PI_HOME` / `PI_CODING_AGENT`, payload `tool_name` is often `bash`
+- OpenCode: `OPENCODE` / `OPENCODE_DIR`, or `hook_source=opencode-plugin`
+- Input: `{"tool_name": "Bash"|"bash", "tool_input": {"command": "..."},
+  "hook_event_name": "PreToolUse", ...}`
 - Output: `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
-  "permissionDecision": "allow", "updatedInput": {...}}}`
+  "permissionDecision": "allow", "updatedInput": {...}}}`. Exit 0 with no
+  stdout allows the original command. Shell tools match as `Bash` (or `bash`
+  on Pi).
 */
 
 pub mod install;
@@ -27,13 +35,43 @@ use crate::config::{Audience, Config};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::env;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
-use platform::{detect_platform, extract_command, is_already_injected, split_env_prefix};
+use platform::{
+    detect_platform, extract_command, has_pretool_stamp, is_already_injected, split_env_prefix,
+};
 use response::{format_allow, format_modify};
 
+fn pretool_flag() -> &'static str {
+    "--pretool"
+}
+
+/// Bin name for hook install and match rewrites.
+/// `lade install` / `lade hook` stay `lade`. A path in argv[0] uses current_exe.
+pub(crate) fn invoked_lade_bin() -> String {
+    invoked_lade_bin_from(env::args_os().next(), env::current_exe().ok())
+}
+
+pub(crate) fn invoked_lade_bin_from(
+    argv0: Option<OsString>,
+    current_exe: Option<PathBuf>,
+) -> String {
+    let argv0 = argv0.unwrap_or_default();
+    let path = Path::new(&argv0);
+    if !argv0.is_empty() && path.file_name() == Some(path.as_os_str()) {
+        return path.to_str().unwrap_or("lade").to_string();
+    }
+    current_exe
+        .and_then(|p| p.to_str().map(str::to_string))
+        .or_else(|| argv0.to_str().map(str::to_string))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "lade".to_string())
+}
+
 pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String> {
-    let platform = detect_platform()?;
     let parsed: Value = serde_json::from_str(input).unwrap_or(json!({}));
+    let platform = detect_platform(&parsed)?;
 
     let raw = match extract_command(&parsed) {
         Some(cmd) => cmd,
@@ -41,11 +79,21 @@ pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String
     };
 
     // Keep any leading `LADE_APPROVE=...` (or other env assignments) so the
-    // approval prefix reaches the wrapped `lade inject` process.
+    // approval prefix reaches the wrapped process.
     let (env_prefix, command) = split_env_prefix(&raw);
+    let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
 
     if is_already_injected(&command) {
-        return Ok(format_allow(&platform));
+        if has_pretool_stamp(&env_prefix, &command) {
+            return Ok(format_allow(&platform));
+        }
+        let stamped = insert_pretool_flag(&command);
+        let rewritten = if env_prefix.is_empty() {
+            stamped
+        } else {
+            format!("{} {}", env_prefix, stamped)
+        };
+        return Ok(format_modify(&platform, &tool_input, &rewritten));
     }
 
     let matches = config.collect_for(&command, audience);
@@ -53,21 +101,26 @@ pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String
         return Ok(format_allow(&platform));
     }
 
-    let lade_bin = env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "lade".to_string());
+    let lade_bin = invoked_lade_bin();
     let escaped = command.replace('\'', "'\\''");
-    let stamp = format!(
-        "{}={}",
-        crate::shell::LADE_VIA,
-        crate::shell::LADE_VIA_PRETOOL
-    );
+    let wrapped = format!("{} {} '{}'", lade_bin, pretool_flag(), escaped);
     let new_command = if env_prefix.is_empty() {
-        format!("{} {} inject '{}'", stamp, lade_bin, escaped)
+        wrapped
     } else {
-        format!("{} {} {} inject '{}'", env_prefix, stamp, lade_bin, escaped)
+        format!("{} {}", env_prefix, wrapped)
     };
-    let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
-
     Ok(format_modify(&platform, &tool_input, &new_command))
+}
+
+fn insert_pretool_flag(command: &str) -> String {
+    let mut parts = command.splitn(2, char::is_whitespace);
+    let Some(bin) = parts.next() else {
+        return command.to_string();
+    };
+    let rest = parts.next().unwrap_or("");
+    if rest.is_empty() {
+        format!("{} {}", bin, pretool_flag())
+    } else {
+        format!("{} {} {}", bin, pretool_flag(), rest)
+    }
 }

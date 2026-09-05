@@ -18,9 +18,10 @@ pub struct InvocationContext {
 }
 
 impl InvocationContext {
-    pub fn from_command(command: &Command) -> Result<Self> {
+    pub fn from_command(command: &Command, pretool: bool) -> Result<Self> {
         Self::with_tty(
             command,
+            pretool,
             std::io::stdin().is_terminal(),
             std::io::stdout().is_terminal(),
             std::io::stderr().is_terminal(),
@@ -29,12 +30,13 @@ impl InvocationContext {
 
     pub fn with_tty(
         command: &Command,
+        pretool: bool,
         stdin_is_terminal: bool,
         stdout_is_terminal: bool,
         stderr_is_terminal: bool,
     ) -> Result<Self> {
         let Detection { via, audience, ui } =
-            audience::detect(command, stdin_is_terminal, stderr_is_terminal)?;
+            audience::detect(command, pretool, stdin_is_terminal, stderr_is_terminal)?;
         Ok(Self {
             via,
             audience,
@@ -82,6 +84,7 @@ mod tests {
                 &Command::Set(EvalCommand {
                     commands: vec!["x".into()],
                 }),
+                false,
                 true,
                 true,
                 true,
@@ -100,6 +103,7 @@ mod tests {
                 &Command::Unset(EvalCommand {
                     commands: vec!["x".into()],
                 }),
+                false,
                 true,
                 true,
                 true,
@@ -112,7 +116,7 @@ mod tests {
     #[test]
     fn inject_without_tty_is_quiet() {
         temp_env::with_vars(cleared(), || {
-            let ctx = InvocationContext::with_tty(&inject(), false, false, false).unwrap();
+            let ctx = InvocationContext::with_tty(&inject(), false, false, false, false).unwrap();
             assert_eq!(ctx.mode, UiMode::Quiet);
         });
     }
@@ -120,7 +124,7 @@ mod tests {
     #[test]
     fn inject_with_tty_is_interactive() {
         temp_env::with_vars(cleared(), || {
-            let ctx = InvocationContext::with_tty(&inject(), true, true, true).unwrap();
+            let ctx = InvocationContext::with_tty(&inject(), false, true, true, true).unwrap();
             assert_eq!(ctx.mode, UiMode::Interactive);
             assert_eq!(ctx.audience, Audience::Human);
         });
@@ -134,6 +138,7 @@ mod tests {
                     all: false,
                     json: false,
                 }),
+                false,
                 true,
                 true,
                 true,
@@ -146,9 +151,14 @@ mod tests {
     #[test]
     fn approve_is_quiet_without_tty() {
         temp_env::with_vars(cleared(), || {
-            let ctx =
-                InvocationContext::with_tty(&Command::Approve { code: None }, false, false, false)
-                    .unwrap();
+            let ctx = InvocationContext::with_tty(
+                &Command::Approve { code: None },
+                false,
+                false,
+                false,
+                false,
+            )
+            .unwrap();
             assert_eq!(ctx.mode, UiMode::Quiet);
         });
     }

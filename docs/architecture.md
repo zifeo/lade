@@ -103,13 +103,16 @@ Network provider notes:
 
 ## 4. Via, Audience, UI
 
-Every invocation runs `audience::detect(command, stdin_tty, stderr_tty)`. That
-single function returns Via, Audience, and UiMode. TTY is an input; Quiet vs
+Every invocation runs `audience::detect(command, pretool, stdin_tty, stderr_tty)`.
+That single function returns Via, Audience, and UiMode. TTY is an input; Quiet vs
 Interactive is an output. Callers use `ctx.audience` for `.when` and
 `ctx.is_interactive()` for prompts.
 
-- **Via** (`LADE_VIA`): `preexec` (`lade set`/`unset`), `pretool` (`lade hook`
-  rewrite), or unset. An unknown value fails fast.
+- **Via**: `--pretool` wins, then `LADE_VIA`, then the subcommand (`set`/`unset` are
+  preexec, `hook` is pretool), else unset. An unknown `LADE_VIA` value fails
+  fast. Shell hooks export `LADE_VIA=preexec` into the user's command.
+  `lade hook` rewrites to `<bin> --pretool '…'` (`lade` when invoked as `lade`) and inject sets `LADE_VIA=pretool`
+  on the child.
 - **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
   unset falls back to env signals (`AI_AGENT`, `AGENT`, `CLAUDECODE`,
   `CURSOR_AGENT`, `COPILOT_MODEL`). `CURSOR_VERSION` is ignored: Cursor also
@@ -224,17 +227,17 @@ Use `lade status` for an active report (version, config, preexec and preTool hoo
 
 ### preTool path
 
-`lade hook` (`src/pretool/`) reads Cursor/Claude preToolUse JSON and rewrites a matching command into `LADE_VIA=pretool <lade> inject '…'`. Schemas: <https://cursor.com/docs/agent/hooks>, <https://code.claude.com/docs/en/hooks>.
+`lade hook` (`src/pretool/`) reads preToolUse JSON and rewrites a matching command into `<lade> --pretool '…'`. Envelope comes from the payload first: `PreToolUse` and explicit Codex/Pi/OpenCode signals use `hookSpecificOutput` + `updatedInput`. Cursor's `updated_input` is only for `CURSOR_VERSION` or `preToolUse`. `CURSOR_VERSION` is last because Cursor also sets it in other hosts' terminals.
 
-Disclaimers are not special-cased in `lade hook`. `lade inject` is the gate. The rewrite re-emits leading `LADE_APPROVE=...` before inject (`platform::split_env_prefix`).
+Disclaimers are not special-cased in `lade hook`. Inject is the gate (the `--pretool` alias is `lade inject`). The rewrite re-emits leading `LADE_APPROVE=...` (`platform::split_env_prefix`).
 
 ### Installing preTool hooks (`src/pretool/install/`)
 
-`lade install` offers to wire `lade hook` into agents present on the machine (`~/.cursor`, `~/.claude`). It writes the absolute `lade hook` command to global config (`~/.cursor/hooks.json`, `~/.claude/settings.json`). Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths.
+`lade install` offers to wire `lade hook` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.pi`, `~/.config/opencode`). The bin name follows argv[0]: `lade install` writes `lade hook`; a path invocation writes that resolved `lade hook`. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths. `lade hook` rewrites matches with the same bin name.
 
 ### Direct path
 
-When Via is unset (`lade inject`, `lade mcp`, `lade git …`), `detect()` uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording.
+When Via is unset (`lade inject`, `lade mcp`, `lade git …`), `detect()` uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
 
 ### Exit codes
 

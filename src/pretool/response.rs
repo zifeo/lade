@@ -1,8 +1,9 @@
 use super::platform::Platform;
 use serde_json::{Value, json};
 
-/// Wrap Claude Code's required `hookSpecificOutput` envelope around `fields`.
-fn claude(fields: Value) -> String {
+/// Wrap the Claude-compatible `hookSpecificOutput` envelope around `fields`.
+/// Codex, Pi, and OpenCode use this same PreToolUse rewrite contract.
+fn hook_specific(fields: Value) -> String {
     let mut out = json!({ "hookEventName": "PreToolUse" });
     if let (Some(obj), Some(extra)) = (out.as_object_mut(), fields.as_object()) {
         obj.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -10,26 +11,33 @@ fn claude(fields: Value) -> String {
     json!({ "hookSpecificOutput": out }).to_string()
 }
 
+fn uses_claude_envelope(platform: &Platform) -> bool {
+    matches!(
+        platform,
+        Platform::ClaudeCode | Platform::Codex | Platform::Pi | Platform::OpenCode
+    )
+}
+
 pub(super) fn format_allow(platform: &Platform) -> String {
-    match platform {
-        Platform::Cursor => json!({"permission": "allow"}).to_string(),
-        Platform::ClaudeCode => String::new(), // exit 0 with no output
+    if uses_claude_envelope(platform) {
+        return String::new();
     }
+    json!({"permission": "allow"}).to_string()
 }
 
 pub(super) fn format_modify(platform: &Platform, tool_input: &Value, new_command: &str) -> String {
     let mut updated = tool_input.clone();
     updated["command"] = json!(new_command);
 
-    match platform {
-        Platform::Cursor => json!({
-            "permission": "allow",
-            "updated_input": updated
-        })
-        .to_string(),
-        Platform::ClaudeCode => claude(json!({
+    if uses_claude_envelope(platform) {
+        return hook_specific(json!({
             "permissionDecision": "allow",
             "updatedInput": updated
-        })),
+        }));
     }
+    json!({
+        "permission": "allow",
+        "updated_input": updated
+    })
+    .to_string()
 }

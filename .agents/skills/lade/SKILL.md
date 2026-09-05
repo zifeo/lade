@@ -43,7 +43,43 @@ For Claude Code, ensure `.claude/settings.json` contains:
 }
 ```
 
-With preTool hooks, run the user's command normally. Lade decides whether it matches `lade.yml`, rewrites matches to `lade inject`, and masks provider-resolved secrets from stdout/stderr. This avoids making the agent infer command regexes itself. `lade hook` is for Cursor and Claude Code.
+For Codex, open `/hooks` and trust the Lade command. An untrusted or
+`[features].hooks = false` hook is a silent no-op. Then ensure
+`.codex/hooks.json` contains:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
+```
+
+For Pi, ensure `.pi/settings.json` contains:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
+```
+
+Pi matches on `tool_name`, often lowercase `bash`.
+
+For OpenCode, ensure `.opencode/plugins/lade-pretool.js` is present. Native OpenCode loads that file and does not run Claude-style `hooks.json`. The plugin must export a function that returns a `tool.execute.before` hook.
+
+With preTool hooks, run the user's command normally. Lade decides whether it matches `lade.yml`, rewrites matches to `lade inject`, and masks provider-resolved secrets from stdout/stderr. This avoids making the agent infer command regexes itself. `lade hook` is for Cursor, Claude Code, Codex, Pi, and OpenCode.
 
 ## Fallback
 

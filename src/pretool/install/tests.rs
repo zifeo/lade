@@ -33,6 +33,20 @@ fn cursor_merge_is_idempotent() {
     let twice = Agent::Cursor.merge(&once, "lade hook").unwrap();
     let v: Value = serde_json::from_str(&twice).unwrap();
     assert_eq!(v["hooks"]["preToolUse"].as_array().unwrap().len(), 1);
+    assert_eq!(v["hooks"]["preToolUse"][0]["command"], "lade hook");
+}
+
+#[test]
+fn hook_uses_command_distinguishes_bin() {
+    let absolute = Agent::Cursor.merge("", CMD).unwrap();
+    assert!(Agent::Cursor.hook_uses_command(&absolute, CMD).unwrap());
+    assert!(
+        !Agent::Cursor
+            .hook_uses_command(&absolute, "lade hook")
+            .unwrap()
+    );
+    let bare = Agent::Cursor.merge(&absolute, "lade hook").unwrap();
+    assert!(Agent::Cursor.hook_uses_command(&bare, "lade hook").unwrap());
 }
 
 #[test]
@@ -81,6 +95,10 @@ fn claude_merge_is_idempotent() {
     let twice = Agent::Claude.merge(&once, "lade hook").unwrap();
     let v: Value = serde_json::from_str(&twice).unwrap();
     assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "lade hook"
+    );
 }
 
 #[test]
@@ -111,6 +129,82 @@ fn claude_remove_prunes_only_our_matcher() {
 fn has_hook_false_on_empty() {
     assert!(!Agent::Cursor.has_hook("").unwrap());
     assert!(!Agent::Claude.has_hook("   ").unwrap());
+    assert!(!Agent::Codex.has_hook("").unwrap());
+    assert!(!Agent::Pi.has_hook("").unwrap());
+    assert!(!Agent::OpenCode.has_hook("").unwrap());
+}
+
+#[test]
+fn pi_merge_uses_bash_or_bash_matcher() {
+    let out = Agent::Pi.merge("", CMD).unwrap();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["hooks"]["PreToolUse"][0]["matcher"], "Bash|bash");
+    assert!(Agent::Pi.has_hook(&out).unwrap());
+}
+
+#[test]
+fn opencode_merge_writes_native_plugin() {
+    let out = Agent::OpenCode.merge("", CMD).unwrap();
+    assert!(out.contains("export const LadePretool"));
+    assert!(out.contains("[\"hook\"]"));
+    assert!(out.contains("updatedInput"));
+    assert!(out.contains(CMD.split_whitespace().next().unwrap()));
+    assert!(Agent::OpenCode.has_hook(&out).unwrap());
+}
+
+#[test]
+fn opencode_config_path_is_plugin() {
+    let home = std::path::Path::new("/tmp");
+    let path = Agent::OpenCode.config_path(home);
+    assert!(path.ends_with("plugins/lade-pretool.js"));
+}
+
+#[test]
+fn codex_merge_from_empty_adds_bash_matcher() {
+    let out = Agent::Codex.merge("", CMD).unwrap();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    let arr = v["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["matcher"], "Bash");
+    assert_eq!(arr[0]["hooks"][0]["type"], "command");
+    assert_eq!(arr[0]["hooks"][0]["command"], CMD);
+    assert!(Agent::Codex.has_hook(&out).unwrap());
+}
+
+#[test]
+fn codex_merge_is_idempotent() {
+    let once = Agent::Codex.merge("", CMD).unwrap();
+    let twice = Agent::Codex.merge(&once, "lade hook").unwrap();
+    let v: Value = serde_json::from_str(&twice).unwrap();
+    assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "lade hook"
+    );
+}
+
+#[test]
+fn codex_merge_preserves_existing_hooks() {
+    let existing = r#"{"description":"repo","hooks":{"PreToolUse":[{"matcher":"apply_patch","hooks":[{"type":"command","command":"guard"}]}]}}"#;
+    let out = Agent::Codex.merge(existing, CMD).unwrap();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["description"], "repo");
+    let arr = v["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert!(arr.iter().any(|e| e["matcher"] == "apply_patch"));
+    assert!(arr.iter().any(|e| e["matcher"] == "Bash"));
+}
+
+#[test]
+fn codex_remove_prunes_only_our_matcher() {
+    let existing = r#"{"hooks":{"PreToolUse":[{"matcher":"apply_patch","hooks":[{"type":"command","command":"guard"}]}]}}"#;
+    let merged = Agent::Codex.merge(existing, CMD).unwrap();
+    let cleaned = Agent::Codex.remove(&merged).unwrap();
+    let v: Value = serde_json::from_str(&cleaned).unwrap();
+    let arr = v["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["matcher"], "apply_patch");
+    assert!(!Agent::Codex.has_hook(&cleaned).unwrap());
 }
 
 #[test]
@@ -162,4 +256,41 @@ fn find_project_finds_repo_hooks_before_home() {
     let (path, installed) = super::find_project(Agent::Cursor, home.path(), &repo).unwrap();
     assert!(installed);
     assert_eq!(path, repo.join(".cursor").join("hooks.json"));
+}
+
+#[test]
+fn find_project_does_not_treat_home_codex_as_project() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("proj");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(home.path().join(".codex")).unwrap();
+    std::fs::write(
+        home.path().join(".codex").join("hooks.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
+    )
+    .unwrap();
+    let (path, installed) = super::find_project(Agent::Codex, home.path(), &repo).unwrap();
+    assert!(!installed);
+    assert_eq!(path, repo.join(".codex").join("hooks.json"));
+}
+
+#[test]
+fn find_project_finds_repo_codex_hooks_before_home() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("proj");
+    std::fs::create_dir_all(repo.join(".codex")).unwrap();
+    std::fs::create_dir_all(home.path().join(".codex")).unwrap();
+    std::fs::write(
+        home.path().join(".codex").join("hooks.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        repo.join(".codex").join("hooks.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
+    )
+    .unwrap();
+    let (path, installed) = super::find_project(Agent::Codex, home.path(), &repo).unwrap();
+    assert!(installed);
+    assert_eq!(path, repo.join(".codex").join("hooks.json"));
 }

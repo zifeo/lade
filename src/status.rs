@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use chrono::{DateTime, Local, Utc};
 use serde::Serialize;
 
 use crate::args::StatusCommand;
@@ -17,6 +18,7 @@ struct VersionInfo {
     latest: Option<String>,
     update_available: bool,
     check_error: Option<String>,
+    last_check: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -96,18 +98,21 @@ async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             latest: status.latest,
             update_available: status.update_available,
             check_error: None,
+            last_check: status.last_check,
         },
         Ok(Err(e)) => VersionInfo {
             current,
             latest: None,
             update_available: false,
             check_error: Some(e.to_string()),
+            last_check: None,
         },
         Err(_) => VersionInfo {
             current,
             latest: None,
             update_available: false,
             check_error: Some("update check timed out".to_string()),
+            last_check: None,
         },
     };
 
@@ -206,7 +211,10 @@ fn print_human(report: &StatusReport) {
                     println!("  latest: {latest} (update available. run `lade upgrade`)")
                 }
                 (Some(latest), false) => println!("  latest: {latest} (up to date)"),
-                (None, _) => println!("  latest: (not checked recently)"),
+                (None, _) => match v.last_check {
+                    Some(at) => println!("  latest: ({})", format_tried_at(at, Local::now())),
+                    None => println!("  latest: (not checked yet)"),
+                },
             }
         }
     }
@@ -233,6 +241,12 @@ fn print_human(report: &StatusReport) {
     print_pretool_line("Cursor project", &report.hooks.pretool.cursor.project);
     print_pretool_line("Claude Code global", &report.hooks.pretool.claude.global);
     print_pretool_line("Claude Code project", &report.hooks.pretool.claude.project);
+    print_pretool_line("Codex global", &report.hooks.pretool.codex.global);
+    print_pretool_line("Codex project", &report.hooks.pretool.codex.project);
+    print_pretool_line("Pi global", &report.hooks.pretool.pi.global);
+    print_pretool_line("Pi project", &report.hooks.pretool.pi.project);
+    print_pretool_line("OpenCode global", &report.hooks.pretool.opencode.global);
+    print_pretool_line("OpenCode project", &report.hooks.pretool.opencode.project);
 
     let pc = &report.project_config;
     if let Some(err) = &pc.error {
@@ -269,4 +283,70 @@ fn display_path(path: &Path) -> String {
         return format!("~/{}", stripped.display());
     }
     path.display().to_string()
+}
+
+fn format_tried_at(checked_at: DateTime<Utc>, now: DateTime<Local>) -> String {
+    let local = checked_at.with_timezone(&Local);
+    let today = now.date_naive();
+    let day = local.date_naive();
+    let time = local.format("%H:%M");
+    if day == today {
+        format!("tried today at {time}")
+    } else if day.checked_add_days(chrono::Days::new(1)) == Some(today) {
+        format!("tried yesterday at {time}")
+    } else {
+        format!("tried {} at {time}", local.format("%d %b %Y"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveTime;
+
+    fn local_at(now: DateTime<Local>, days_ago: u64, hour: u32, minute: u32) -> DateTime<Local> {
+        let date = now
+            .date_naive()
+            .checked_sub_days(chrono::Days::new(days_ago))
+            .unwrap();
+        let time = NaiveTime::from_hms_opt(hour, minute, 0).unwrap();
+        date.and_time(time)
+            .and_local_timezone(Local)
+            .earliest()
+            .unwrap()
+    }
+
+    #[test]
+    fn tried_at_today_includes_local_time() {
+        let now = Local::now();
+        let checked = local_at(now, 0, 14, 25);
+        assert_eq!(
+            format_tried_at(checked.with_timezone(&Utc), now),
+            format!("tried today at {}", checked.format("%H:%M"))
+        );
+    }
+
+    #[test]
+    fn tried_at_yesterday_includes_local_time() {
+        let now = Local::now();
+        let checked = local_at(now, 1, 9, 5);
+        assert_eq!(
+            format_tried_at(checked.with_timezone(&Utc), now),
+            format!("tried yesterday at {}", checked.format("%H:%M"))
+        );
+    }
+
+    #[test]
+    fn tried_at_older_uses_calendar_date() {
+        let now = Local::now();
+        let checked = local_at(now, 3, 18, 0);
+        assert_eq!(
+            format_tried_at(checked.with_timezone(&Utc), now),
+            format!(
+                "tried {} at {}",
+                checked.format("%d %b %Y"),
+                checked.format("%H:%M")
+            )
+        );
+    }
 }

@@ -29,7 +29,7 @@ shell session, CI job, or model context.
 - Open private network access through `kubectl`, `kubefwd`, Teleport `tsh`, or
   SSH only while the command runs.
 - Redact provider-resolved secrets from stdout and stderr.
-- Work from shells, CI, Cursor, and Claude Code.
+- Work from shells, CI, Cursor, Claude Code, Codex, Pi, and OpenCode.
 
 Compatible shells: [Fish](https://fishshell.com),
 [Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io).
@@ -218,17 +218,18 @@ putting secret values in the model context or chat transcript.
 
 ### Recommended usage: preTool hooks
 
-Cursor and Claude Code can call `lade hook` before shell commands. When an agent
-runs a matching command, Lade rewrites it through `lade inject`, resolves the
-configured access, and redacts provider-resolved secret values from stdout and
-stderr.
+Cursor, Claude Code, Codex, Pi, and OpenCode can call `lade hook` before shell
+commands. When an agent runs a matching command, Lade rewrites it through
+`lade inject`, resolves the configured access, and redacts provider-resolved
+secret values from stdout and stderr.
 
 The agent keeps using normal commands. Lade handles the sensitive part.
 
 `lade install` can add the hook for detected agents. The equivalent project
 configs are:
 
-#### Cursor
+<details>
+<summary>Cursor (<code>.cursor/hooks.json</code>)</summary>
 
 ```json
 {
@@ -237,7 +238,10 @@ configs are:
 }
 ```
 
-#### Claude Code
+</details>
+
+<details>
+<summary>Claude Code (<code>.claude/settings.json</code>)</summary>
 
 ```json
 {
@@ -251,6 +255,99 @@ configs are:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary>Codex (<code>.codex/hooks.json</code>)</summary>
+
+After `lade install`, open `/hooks` in Codex and trust the Lade command. An
+untrusted hook or `[features].hooks = false` is a silent no-op. Global file:
+`~/.codex/hooks.json`.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Pi (<code>.pi/settings.json</code>)</summary>
+
+Pi matches on `tool_name`, often lowercase `bash`. Global file:
+`~/.pi/agent/settings.json`.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>OpenCode (<code>.opencode/plugins/lade-pretool.js</code>)</summary>
+
+Native OpenCode loads plugins, not Claude-style `hooks.json`. Global:
+`~/.config/opencode/plugins/`. The plugin runs `lade hook` on
+`tool.execute.before` and applies the rewritten command.
+
+```js
+import { spawnSync } from "node:child_process";
+
+const lade = process.env.LADE_BIN ?? "lade";
+
+export const LadePretool = async () => ({
+  "tool.execute.before": async (input, output) => {
+    const command = output.args?.command;
+    if (input.tool !== "bash" || typeof command !== "string") {
+      return;
+    }
+    const payload = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      hook_source: "opencode-plugin",
+    });
+    const result = spawnSync(lade, ["hook"], {
+      input: payload,
+      encoding: "utf8",
+      env: { ...process.env, OPENCODE: "1" },
+    });
+    if (result.status !== 0 || !result.stdout?.trim()) {
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      return;
+    }
+    const updated = parsed?.hookSpecificOutput?.updatedInput?.command;
+    if (typeof updated === "string") {
+      output.args.command = updated;
+    }
+  },
+});
+```
+
+</details>
 
 Cursor agents can also load the project skill in
 [.agents/skills/lade/SKILL.md](.agents/skills/lade/SKILL.md).
@@ -425,11 +522,13 @@ Options under `.` configure the matched command itself.
 ```
 
 `when` is `always` (default), `human`, or `agent`. Audience comes from
-`detect()`: `LADE_VIA=pretool` or `lade hook` is `agent`; `LADE_VIA=preexec` or
-`lade set`/`unset` is `human`; otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`,
-`CLAUDECODE`, not `CURSOR_VERSION`) select `agent`, else `human`. The same
-pattern can be a YAML list of these blocks when `when` differs. `silence` is
-optional and skips that rule's secret progress lines at hydration.
+`detect()`: `--pretool` or `lade hook` is `agent`; `lade set`/`unset` is
+`human`. `--pretool` wins over `LADE_VIA`. `LADE_VIA` is the courier in the
+child command env (`preexec` from shell hooks, `pretool` from `--pretool`).
+Otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`, `CLAUDECODE`, not
+`CURSOR_VERSION`) select `agent`, else `human`. The same pattern can be a
+YAML list of these blocks when `when` differs. `silence` is optional and
+skips that rule's secret progress lines at hydration.
 
 ```yaml
 "^git ":

@@ -14,6 +14,10 @@ pub struct GlobalConfig {
     /// Never invent `Utc::now()` here: that skipped the real lookup for 24h.
     #[serde(default)]
     pub update_check: Option<DateTime<Utc>>,
+    /// Last GitHub latest tag we successfully fetched. Separate from
+    /// `update_check`, which is stamped even when the request fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
     pub user: Option<String>,
     #[serde(default)]
     pub cli_check: BTreeMap<String, DateTime<Utc>>,
@@ -41,6 +45,7 @@ impl GlobalConfig {
         } else {
             Ok(GlobalConfig {
                 update_check: None,
+                latest_version: None,
                 user: None,
                 cli_check: BTreeMap::new(),
             })
@@ -107,6 +112,7 @@ mod tests {
                 .block_on(async {
                     let config = GlobalConfig::load().await.unwrap();
                     assert!(config.update_check.is_some());
+                    assert_eq!(config.latest_version, None);
                 });
         });
     }

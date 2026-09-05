@@ -20,6 +20,7 @@ pub struct VersionStatus {
     pub current: String,
     pub latest: Option<String>,
     pub update_available: bool,
+    pub last_check: Option<DateTime<Utc>>,
 }
 
 pub fn check_is_due(update_check: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
@@ -67,24 +68,30 @@ pub async fn fetch_version_status() -> Result<VersionStatus> {
     let local_config = GlobalConfig::load().await?;
 
     if !check_is_due(local_config.update_check, Utc::now()) {
+        let latest = local_config.latest_version;
+        let available = update_available(&latest, &current);
         return Ok(VersionStatus {
             current,
-            latest: None,
-            update_available: false,
+            latest,
+            update_available: available,
+            last_check: local_config.update_check,
         });
     }
 
     // Stamp first so a slow or failing GitHub call is not retried on every
     // subsequent `lade set` / `lade inject` in this 24h window.
-    GlobalConfig::update(|c| c.update_check = Some(Utc::now())).await?;
+    let now = Utc::now();
+    GlobalConfig::update(|c| c.update_check = Some(now)).await?;
 
     let latest = tokio::task::spawn_blocking(fetch_latest_tag).await??;
+    GlobalConfig::update(|c| c.latest_version = Some(latest.clone())).await?;
     let available = update_available(&Some(latest.clone()), &current);
 
     Ok(VersionStatus {
         current,
         latest: Some(latest),
         update_available: available,
+        last_check: Some(now),
     })
 }
 
@@ -191,6 +198,32 @@ mod tests {
                     let status = fetch_version_status().await.unwrap();
                     assert_eq!(status.latest, None);
                     assert!(!status.update_available);
+                    assert!(status.last_check.is_some());
+                });
+        });
+    }
+
+    #[test]
+    fn fetch_returns_cached_latest_when_not_due() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"update_check":"2099-01-01T00:00:00Z","latest_version":"0.18.0","user":null,"cli_check":{}}"#,
+        )
+        .unwrap();
+        temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let status = fetch_version_status().await.unwrap();
+                    assert_eq!(status.latest.as_deref(), Some("0.18.0"));
+                    assert_eq!(
+                        status.update_available,
+                        update_available(&Some("0.18.0".to_string()), cargo_crate_version!())
+                    );
                 });
         });
     }

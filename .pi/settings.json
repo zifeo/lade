@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|bash",
+        "hooks": [{ "type": "command", "command": "lade hook" }]
+      }
+    ]
+  }
+}
