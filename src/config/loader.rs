@@ -95,7 +95,7 @@ impl LadeFile {
         }
 
         let regex_set = RegexSet::new(&regex_strs)?;
-        Ok(Config::new(rules, regex_set))
+        Ok(Config::new(rules, regex_strs, regex_set))
     }
 }
 

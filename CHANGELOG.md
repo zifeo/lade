@@ -17,6 +17,13 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   The same pattern can be a list of bodies with different `when`.
 - **`.silence` hydration progress**: `silence: true` under `.` skips that
   rule's secret progress lines at hydrate time. Hydration itself is unchanged.
+- **`lade bench`**: times the incompressible path (parse all `lade.yml` files
+  and regex match) and the variable path (secret hydrate per loaded rule).
+  Human mode prints parse/match first, then each rule as it finishes, then
+  wall-clock `total`. Hydrates run concurrently. `--timeout` caps each rule
+  (`5s` by default). Errors sit on the next indented line. `--json` includes
+  `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire
+  is not run.
 
 ### Changed
 
