@@ -221,9 +221,9 @@ Use `lade status` for an active report (version, config, preexec and preTool hoo
 
 | Context | How Lade knows | Disclaimer behaviour |
 |---------|----------------|----------------------|
-| Interactive human | Via unset, no agent signal, inject/approve with both TTYs | prompt, type `yes` |
+| Interactive human | Via organic (both TTYs, no agent signal), inject/approve | prompt, type `yes` |
 | CI / Quiet human | no agent signal, not both TTYs | fail-closed, exit `3` |
-| Agent | Via=pretool, `Command::Hook`, or env signal when Via is unset | fail-closed with `LADE_APPROVE=<code>` |
+| Agent | Via=pretool, `Command::Hook`, or env signal when Via is unknown | fail-closed with `LADE_APPROVE=<code>` |
 
 ### preTool path
 
@@ -237,7 +237,7 @@ Disclaimers are not special-cased in `lade hook`. Inject is the gate (the `--pre
 
 ### Direct path
 
-When Via is unset (`lade inject`, `lade mcp`, `lade git …`), `detect()` uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
+When Via is not preexec or pretool (`lade inject`, `lade mcp`, `lade git …`), `detect()` promotes to organic if stdin and stderr are TTYs and no agent env signal fired. Otherwise Via stays unknown. `detect()` then uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
 
 ### Exit codes
 
