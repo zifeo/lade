@@ -189,6 +189,10 @@ pub async fn run_cli(
         .envs(extra_env.iter())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // bash -c sources $BASH_ENV even though it does not read .bashrc.
+    if cmd[0] == "bash" {
+        c.env_remove("BASH_ENV");
+    }
     if let Some(dir) = cwd {
         c.current_dir(dir);
     }

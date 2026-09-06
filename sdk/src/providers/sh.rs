@@ -25,6 +25,14 @@ impl Shell {
     }
 }
 
+fn invocation<'a>(bin: &'a str, cmd: &'a str) -> Vec<&'a str> {
+    match bin {
+        "fish" => vec![bin, "--no-config", "-c", cmd],
+        "zsh" => vec![bin, "-f", "-c", cmd],
+        _ => vec![bin, "-c", cmd],
+    }
+}
+
 #[async_trait]
 impl Provider for Shell {
     fn add(&mut self, value: String) -> Result<()> {
@@ -75,7 +83,13 @@ impl Provider for Shell {
             async move {
                 let output = tokio::time::timeout(
                     Duration::from_secs(30),
-                    run_cli(&[bin, "-c", &cmd_str], &extra_env, name, install_url, None),
+                    run_cli(
+                        &invocation(bin, &cmd_str),
+                        &extra_env,
+                        name,
+                        install_url,
+                        None,
+                    ),
                 )
                 .await
                 .map_err(|_| {
@@ -109,6 +123,20 @@ mod tests {
     }
 
     #[test]
+    fn test_invocation_skips_startup_files() {
+        assert_eq!(
+            invocation("fish", "echo hi"),
+            vec!["fish", "--no-config", "-c", "echo hi"]
+        );
+        assert_eq!(invocation("bash", "echo hi"), vec!["bash", "-c", "echo hi"]);
+        assert_eq!(
+            invocation("zsh", "echo hi"),
+            vec!["zsh", "-f", "-c", "echo hi"]
+        );
+        assert_eq!(invocation("sh", "echo hi"), vec!["sh", "-c", "echo hi"]);
+    }
+
+    #[test]
     fn test_add_routing() {
         let mut p = Shell::new("sh", "sh", "url");
         assert!(p.add("sh://echo hi".to_string()).is_ok());
@@ -130,6 +158,33 @@ mod tests {
         assert_eq!(
             result.get("sh://echo \"hello world\"").unwrap(),
             "hello world"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_fish_ignores_config_overwrite() {
+        let home = tempdir().unwrap();
+        let fish_dir = home.path().join(".config/fish");
+        std::fs::create_dir_all(&fish_dir).unwrap();
+        std::fs::write(
+            fish_dir.join("config.fish"),
+            "set -x TOKEN from_fish_profile\n",
+        )
+        .unwrap();
+        let mut p = Shell::new("fish", "fish", "url");
+        p.add("fish://printf %s \"$TOKEN\"".to_string()).unwrap();
+        let extra = HashMap::from([
+            ("HOME".to_string(), home.path().display().to_string()),
+            ("TOKEN".to_string(), "from_binding".to_string()),
+        ]);
+        let result = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            result.get("fish://printf %s \"$TOKEN\"").unwrap(),
+            "from_binding"
         );
     }
 

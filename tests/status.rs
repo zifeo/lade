@@ -18,7 +18,10 @@ fn test_status_reports_version_and_project() {
         .stdout(predicates::str::contains("lade version:"))
         .stdout(predicates::str::contains("latest:"))
         .stdout(predicates::str::contains("tried"))
-        .stdout(predicates::str::contains("project config: ok"));
+        .stdout(predicates::str::contains("project config: ok"))
+        .stdout(predicates::str::contains(
+            "inject wrap: skips startup files",
+        ));
 }
 
 #[test]
@@ -51,6 +54,10 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert!(value["hooks"]["pretool"].get("opencode").is_some());
     assert!(value.get("project_config").is_some());
     assert!(value.get("ok").is_some());
+    assert_eq!(
+        value["hooks"]["preexec"]["inject_skips_startup_files"],
+        true
+    );
     assert!(value["project_config"]["error"].is_null());
     assert!(value["version"]["latest"].is_null());
     assert_eq!(value["version"]["update_available"], false);
@@ -138,4 +145,20 @@ fn test_status_reports_project_codex_pretool_hook() {
             .unwrap()
             .ends_with(".codex/hooks.json")
     );
+}
+
+#[test]
+fn test_status_names_present_fish_startup_file() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".config/fish")).unwrap();
+    fs::write(home.path().join(".config/fish/config.fish"), "set -x X 1\n").unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_SHELL", "fish")
+        .arg("status")
+        .assert()
+        .stdout(predicates::str::contains(
+            "inject wrap: skips startup files (config.fish present)",
+        ));
 }

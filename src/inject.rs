@@ -96,7 +96,7 @@ pub async fn run_inject(
     } else {
         None
     };
-    let code = exec::run(ctx, shell.bin(), &command, env, current_dir, redactor);
+    let code = exec::run(ctx, shell, &command, env, current_dir, redactor);
     let code = match code {
         Ok(code) => {
             remove_files(&mut files.keys())?;
@@ -127,14 +127,7 @@ fn run_command_without_providers(
     } else {
         None
     };
-    let code = exec::run(
-        ctx,
-        shell.bin(),
-        command,
-        HashMap::new(),
-        current_dir,
-        redactor,
-    )?;
+    let code = exec::run(ctx, shell, command, HashMap::new(), current_dir, redactor)?;
     Ok((code != 0).then_some(code))
 }
 

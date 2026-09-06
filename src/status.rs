@@ -32,6 +32,9 @@ struct PreexecHooks {
     shell: String,
     profile: PathBuf,
     installed: bool,
+    inject_skips_startup_files: bool,
+    /// Set when inject will skip a file or `$BASH_ENV` that exists now.
+    inject_startup_skipped: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -129,6 +132,8 @@ async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             shell: shell.bin().to_string(),
             profile,
             installed,
+            inject_skips_startup_files: true,
+            inject_startup_skipped: inject_startup_skipped(&shell),
         },
         pretool: pretool::install::inspect(&cwd)?,
     };
@@ -235,6 +240,10 @@ fn print_human(report: &StatusReport) {
     } else {
         println!("  installed: no (run `lade install`)");
     }
+    match &report.hooks.preexec.inject_startup_skipped {
+        Some(name) => println!("  inject wrap: skips startup files ({name} present)"),
+        None => println!("  inject wrap: skips startup files"),
+    }
 
     println!("preTool hooks");
     print_pretool_line("Cursor global", &report.hooks.pretool.cursor.global);
@@ -266,6 +275,22 @@ fn print_human(report: &StatusReport) {
             println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
         }
     }
+}
+
+fn inject_startup_skipped(shell: &shell::Shell) -> Option<String> {
+    if matches!(shell, shell::Shell::Bash) && std::env::var_os("BASH_ENV").is_some() {
+        return Some("BASH_ENV".to_string());
+    }
+    let path = shell.wrap_startup_file()?;
+    if !path.is_file() {
+        return None;
+    }
+    Some(
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("startup file")
+            .to_string(),
+    )
 }
 
 fn print_pretool_line(label: &str, location: &pretool::install::HookLocation) {

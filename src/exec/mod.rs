@@ -1,4 +1,5 @@
 use crate::redact::Redactor;
+use crate::shell::Shell;
 use anyhow::Result;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
@@ -26,7 +27,7 @@ fn select_mode(has_redactor: bool, stdin_tty: bool, stdout_tty: bool) -> Mode {
 
 pub fn run(
     ctx: &crate::context::InvocationContext,
-    shell: &str,
+    shell: &Shell,
     command: &str,
     mut env: HashMap<String, String>,
     cwd: &Path,
@@ -62,12 +63,18 @@ pub fn run(
     }
 }
 
-fn run_plain(shell: &str, command: &str, env: HashMap<String, String>, cwd: &Path) -> Result<i32> {
-    let status = std::process::Command::new(shell)
-        .args(["-c", command])
+fn run_plain(
+    shell: &Shell,
+    command: &str,
+    env: HashMap<String, String>,
+    cwd: &Path,
+) -> Result<i32> {
+    let status = shell
+        .prepare_command(command)
         .current_dir(cwd)
         .envs(std::env::vars())
         .env_remove(crate::shell::LADE_VIA)
+        .env_remove("BASH_ENV")
         .envs(env)
         .status()?;
     Ok(status.code().unwrap_or(1))
