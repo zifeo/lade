@@ -14,6 +14,7 @@ pub fn run(
     // stdin forwarded by a helper thread risks SIGPIPE (SIG_DFL at startup
     // kills the process) when the child exits before consuming forwarded
     // bytes, which is observable on Linux CI.
+    let watch = crate::child_signals::ChildWatch::new();
     let mut child = shell
         .prepare_command(command)
         .current_dir(cwd)
@@ -25,6 +26,7 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    watch.set_pid(child.id(), false);
 
     let child_stdout = child.stdout.take().unwrap();
     let child_stderr = child.stderr.take().unwrap();
@@ -42,6 +44,7 @@ pub fn run(
     });
 
     let status = child.wait()?;
+    watch.clear_pid();
     stdout_thread.join().ok();
     stderr_thread.join().ok();
 

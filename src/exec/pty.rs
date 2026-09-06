@@ -34,6 +34,7 @@ pub fn run(
     // manage their own termios for reading a line.
     let _raw_guard = RawStdinGuard::enter();
 
+    let watch = crate::child_signals::ChildWatch::new();
     let mut child = shell
         .prepare_command(command)
         .current_dir(cwd)
@@ -45,6 +46,7 @@ pub fn run(
         .stdout(Stdio::from(slave_out))
         .stderr(Stdio::from(slave_err))
         .spawn()?;
+    watch.set_pid(child.id(), false);
 
     let master_fd = master.as_raw_fd();
     drop(slave);
@@ -58,6 +60,7 @@ pub fn run(
     let _ = redactor.stream(&mut master_reader, &mut std::io::stdout().lock());
 
     let status = child.wait()?;
+    watch.clear_pid();
     drop(master);
     Ok(status.code().unwrap_or(1))
 }

@@ -69,14 +69,20 @@ fn run_plain(
     env: HashMap<String, String>,
     cwd: &Path,
 ) -> Result<i32> {
-    let status = shell
+    let watch = crate::child_signals::ChildWatch::new();
+    // Stay in lade's session. A new session here would let the child take
+    // the inherited TTY and hang it up on exit.
+    let mut child = shell
         .prepare_command(command)
         .current_dir(cwd)
         .envs(std::env::vars())
         .env_remove(crate::shell::LADE_VIA)
         .env_remove("BASH_ENV")
         .envs(env)
-        .status()?;
+        .spawn()?;
+    watch.set_pid(child.id(), false);
+    let status = child.wait()?;
+    watch.clear_pid();
     Ok(status.code().unwrap_or(1))
 }
 

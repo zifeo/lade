@@ -1,6 +1,8 @@
 use assert_cmd::Command;
+use std::path::Path;
+use std::process::Command as StdCommand;
 
-pub fn lade(home: &std::path::Path) -> Command {
+pub fn lade_std(home: &Path) -> StdCommand {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
         // Far-future stamp: tests must not hit GitHub on `set` / `status`.
@@ -10,7 +12,7 @@ pub fn lade(home: &std::path::Path) -> Command {
         )
         .unwrap();
     }
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("lade"));
+    let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
         .env("LADE_CONFIG_PATH", config_path)
@@ -22,6 +24,11 @@ pub fn lade(home: &std::path::Path) -> Command {
         .env_remove("COPILOT_MODEL")
         .env_remove("CURSOR_VERSION");
     cmd
+}
+
+#[allow(dead_code)]
+pub fn lade(home: &Path) -> Command {
+    Command::from_std(lade_std(home))
 }
 
 #[cfg(unix)]
