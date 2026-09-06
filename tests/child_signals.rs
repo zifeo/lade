@@ -445,10 +445,8 @@ exec cat
     );
     let mut lade = spawn_mcp(home.path(), dir.path(), &script, &[]);
     wait_exists(&dir.path().join("started"));
-    std::thread::sleep(Duration::from_millis(80));
     drop(lade.child.stdin.take());
     let _ = lade.wait_exit();
-    std::thread::sleep(Duration::from_millis(400));
     assert_eq!(fs::read_to_string(&starts).unwrap(), "x");
 }
 
