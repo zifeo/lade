@@ -51,7 +51,7 @@ pub async fn run_inject(
     let work = match work {
         Some(work) => work,
         None => {
-            emit_seen_if_walk_log(config, ctx, &command, current_dir, &saved_user);
+            emit_seen_if_walk_log(config, ctx, &command, current_dir, &saved_user, None);
             return run_command_without_providers(&command, &opts, ctx, shell, current_dir);
         }
     };
@@ -67,6 +67,7 @@ pub async fn run_inject(
                     actor: event::actor(&saved_user),
                     cwd: current_dir.to_path_buf(),
                     command: command.clone(),
+                    argv: None,
                     hydrated: None,
                     matches: work.matches.clone(),
                     hydrate_ms: None,
@@ -129,6 +130,7 @@ pub async fn run_inject(
             actor: event::actor(&saved_user),
             cwd: current_dir.to_path_buf(),
             command: command.clone(),
+            argv: None,
             hydrated,
             matches: work.matches,
             hydrate_ms,

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use super::{fetch_events, filter_opt, query_window, repo_filter};
 use crate::args::{LogAction, LogCommand};
 use crate::catalog;
-use crate::event;
+use crate::event::{self, Event};
 use crate::log_pack;
 use crate::message_box;
 use crate::window;
@@ -83,11 +83,22 @@ pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
                 row.ts,
                 row.kind,
                 row.via.as_deref().unwrap_or("-"),
-                row.command
+                log_command(&row)
             );
         }
     }
     Ok(())
+}
+
+fn log_command(row: &Event) -> String {
+    crate::event::display_line(&row.command, row.argv.as_ref()).unwrap_or_else(|| {
+        row.agent
+            .as_ref()
+            .and_then(|agent| agent.get("launch"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("-")
+            .to_string()
+    })
 }
 
 fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<()> {

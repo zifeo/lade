@@ -8,32 +8,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
-pub const LADE_PENDING: &str = "LADE_PENDING";
-pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
 pub const LADE_APPROVE: &str = "LADE_APPROVE";
-pub const LADE_NETWORK_PIDS: &str = "LADE_NETWORK_PIDS";
 pub const LADE_RESTORE: &str = "LADE_RESTORE";
 pub const LADE_VIA: &str = "LADE_VIA";
 pub const LADE_T: &str = "LADE_T";
 
 /// Protocol env the child must not inherit. `LADE_APPROVE` stays.
-/// Stale names stay here so an upgraded binary still strips leftovers.
-pub const CHILD_UNSET: [&str; 6] = [
-    LADE_VIA,
-    LADE_T,
-    LADE_PENDING,
-    LADE_RESTORE,
-    LADE_NETWORK_PIDS,
-    LADE_DISCLAIMER_APPROVED,
-];
-
-/// Dropped protocol keys. `set` / `unset` still clear them in the shell.
-pub const STALE_UNSET: [&str; 4] = [
-    LADE_PENDING,
-    LADE_NETWORK_PIDS,
-    LADE_VIA,
-    LADE_DISCLAIMER_APPROVED,
-];
+pub const CHILD_UNSET: [&str; 3] = [LADE_VIA, LADE_T, LADE_RESTORE];
 
 pub fn strip_child_protocol(cmd: &mut std::process::Command) {
     for key in CHILD_UNSET {

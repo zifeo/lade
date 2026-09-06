@@ -9,17 +9,10 @@ pub(super) enum Agent {
     Cursor,
     Claude,
     Codex,
-    Pi,
     OpenCode,
 }
 
-pub(super) const AGENTS: [Agent; 5] = [
-    Agent::Cursor,
-    Agent::Claude,
-    Agent::Codex,
-    Agent::Pi,
-    Agent::OpenCode,
-];
+pub(super) const AGENTS: [Agent; 4] = [Agent::Cursor, Agent::Claude, Agent::Codex, Agent::OpenCode];
 
 impl Agent {
     pub(super) fn name(self) -> &'static str {
@@ -27,7 +20,6 @@ impl Agent {
             Agent::Cursor => "Cursor",
             Agent::Claude => "Claude Code",
             Agent::Codex => "Codex",
-            Agent::Pi => "Pi",
             Agent::OpenCode => "OpenCode",
         }
     }
@@ -37,7 +29,6 @@ impl Agent {
             Agent::Cursor => "cursor",
             Agent::Claude => "claude",
             Agent::Codex => "codex",
-            Agent::Pi => "pi",
             Agent::OpenCode => "opencode",
         }
     }
@@ -47,7 +38,6 @@ impl Agent {
             Agent::Cursor => home.join(".cursor").join("hooks.json"),
             Agent::Claude => home.join(".claude").join("settings.json"),
             Agent::Codex => home.join(".codex").join("hooks.json"),
-            Agent::Pi => home.join(".pi").join("agent").join("settings.json"),
             Agent::OpenCode => home
                 .join(".config")
                 .join("opencode")
@@ -61,16 +51,19 @@ impl Agent {
             Agent::Cursor => home.join(".cursor"),
             Agent::Claude => home.join(".claude"),
             Agent::Codex => home.join(".codex"),
-            Agent::Pi => home.join(".pi"),
             Agent::OpenCode => home.join(".config").join("opencode"),
         }
     }
 
+    pub(super) fn skill_path(self, home: &Path) -> PathBuf {
+        self.home_dir(home)
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md")
+    }
+
     fn shell_matcher(self) -> &'static str {
-        match self {
-            Agent::Pi => "Bash|bash",
-            _ => "Bash",
-        }
+        "Bash"
     }
 
     /// Claude-compat `hooks.json` left by an older install. Native OpenCode
@@ -96,7 +89,7 @@ impl Agent {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().any(command_is_lade_hook))
                 .unwrap_or(false),
-            Agent::Claude | Agent::Codex | Agent::Pi => root
+            Agent::Claude | Agent::Codex => root
                 .pointer("/hooks/PreToolUse")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().any(matcher_has_hook))
@@ -107,6 +100,15 @@ impl Agent {
     }
 
     pub(super) fn hook_uses_command(self, existing: &str, command: &str) -> Result<bool> {
+        self.hook_uses_command_scoped(existing, command, false)
+    }
+
+    pub(super) fn hook_uses_command_scoped(
+        self,
+        existing: &str,
+        command: &str,
+        project: bool,
+    ) -> Result<bool> {
         if !self.has_hook(existing)? {
             return Ok(false);
         }
@@ -115,40 +117,29 @@ impl Agent {
         }
         let root = parse_root(existing, self)?;
         Ok(match self {
-            Agent::Cursor => root
-                .pointer("/hooks/preToolUse")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries.iter().any(|entry| {
-                        command_is_lade_hook(entry)
-                            && entry.get("command").and_then(Value::as_str) == Some(command)
-                    })
-                })
-                .unwrap_or(false),
-            Agent::Claude | Agent::Codex | Agent::Pi => root
-                .pointer("/hooks/PreToolUse")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries.iter().any(|entry| {
-                        entry
-                            .get("hooks")
-                            .and_then(Value::as_array)
-                            .map(|hooks| {
-                                hooks.iter().any(|hook| {
-                                    command_is_lade_hook(hook)
-                                        && hook.get("command").and_then(Value::as_str)
-                                            == Some(command)
-                                })
-                            })
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false),
+            Agent::Cursor => {
+                cursor_has_matcher(&root, "Shell", command)
+                    && cursor_has_matcher(&root, "MCP:", command)
+                    && (project || cursor_has_before_mcp(&root, command))
+            }
+            Agent::Claude | Agent::Codex => {
+                claude_has_matcher(&root, "Bash", command)
+                    && claude_has_matcher(&root, "mcp__.*", command)
+            }
             Agent::OpenCode => false,
         })
     }
 
     pub(super) fn merge(self, existing: &str, command: &str) -> Result<String> {
+        self.merge_scoped(existing, command, false)
+    }
+
+    pub(super) fn merge_scoped(
+        self,
+        existing: &str,
+        command: &str,
+        project: bool,
+    ) -> Result<String> {
         if matches!(self, Agent::OpenCode) {
             return Ok(opencode_plugin_body(command));
         }
@@ -159,23 +150,28 @@ impl Agent {
         match self {
             Agent::Cursor => {
                 obj.entry("version").or_insert_with(|| json!(1));
-                let arr = obj
+                let hooks = obj
                     .entry("hooks")
                     .or_insert_with(|| json!({}))
                     .as_object_mut()
-                    .context("\"hooks\" must be an object")?
+                    .context("\"hooks\" must be an object")?;
+                let arr = hooks
                     .entry("preToolUse")
                     .or_insert_with(|| json!([]))
                     .as_array_mut()
                     .context("\"preToolUse\" must be an array")?;
-                if let Some(entry) = arr.iter_mut().find(|e| command_is_lade_hook(e)) {
-                    entry["command"] = json!(command);
-                } else {
-                    arr.push(json!({ "command": command, "matcher": "Shell" }));
+                upsert_cursor_matcher(arr, command, "Shell");
+                upsert_cursor_matcher(arr, command, "MCP:");
+                if !project {
+                    let before = hooks
+                        .entry("beforeMCPExecution")
+                        .or_insert_with(|| json!([]))
+                        .as_array_mut()
+                        .context("\"beforeMCPExecution\" must be an array")?;
+                    upsert_cursor_before_mcp(before, command);
                 }
             }
-            Agent::Claude | Agent::Codex | Agent::Pi => {
-                let matcher = self.shell_matcher();
+            Agent::Claude | Agent::Codex => {
                 let arr = obj
                     .entry("hooks")
                     .or_insert_with(|| json!({}))
@@ -185,20 +181,8 @@ impl Agent {
                     .or_insert_with(|| json!([]))
                     .as_array_mut()
                     .context("\"PreToolUse\" must be an array")?;
-                if let Some(entry) = arr.iter_mut().find(|e| matcher_has_hook(e)) {
-                    if let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) {
-                        for hook in hooks.iter_mut() {
-                            if command_is_lade_hook(hook) {
-                                hook["command"] = json!(command);
-                            }
-                        }
-                    }
-                } else {
-                    arr.push(json!({
-                        "matcher": matcher,
-                        "hooks": [{ "type": "command", "command": command }]
-                    }));
-                }
+                upsert_claude_matcher(arr, command, self.shell_matcher());
+                upsert_claude_matcher(arr, command, "mcp__.*");
             }
             Agent::OpenCode => {}
         }
@@ -217,8 +201,15 @@ impl Agent {
                     {
                         arr.retain(|e| !command_is_lade_hook(e));
                     }
+                    if let Some(arr) = obj
+                        .get_mut("hooks")
+                        .and_then(|h| h.get_mut("beforeMCPExecution"))
+                        .and_then(Value::as_array_mut)
+                    {
+                        arr.retain(|e| !command_is_lade_hook(e));
+                    }
                 }
-                Agent::Claude | Agent::Codex | Agent::Pi | Agent::OpenCode => {
+                Agent::Claude | Agent::Codex | Agent::OpenCode => {
                     // OpenCode here is leftover Claude-compat hooks.json only.
                     if let Some(arr) = obj
                         .get_mut("hooks")
@@ -246,6 +237,92 @@ impl Agent {
         }
         to_pretty(&root)
     }
+}
+
+fn cursor_has_matcher(root: &Value, matcher: &str, command: &str) -> bool {
+    root.pointer("/hooks/preToolUse")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries.iter().any(|entry| {
+                command_is_lade_hook(entry)
+                    && entry.get("matcher").and_then(Value::as_str) == Some(matcher)
+                    && entry.get("command").and_then(Value::as_str) == Some(command)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn cursor_has_before_mcp(root: &Value, command: &str) -> bool {
+    root.pointer("/hooks/beforeMCPExecution")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries.iter().any(|entry| {
+                command_is_lade_hook(entry)
+                    && entry.get("command").and_then(Value::as_str) == Some(command)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn claude_has_matcher(root: &Value, matcher: &str, command: &str) -> bool {
+    root.pointer("/hooks/PreToolUse")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries.iter().any(|entry| {
+                entry.get("matcher").and_then(Value::as_str) == Some(matcher)
+                    && entry
+                        .get("hooks")
+                        .and_then(Value::as_array)
+                        .map(|hooks| {
+                            hooks.iter().any(|hook| {
+                                command_is_lade_hook(hook)
+                                    && hook.get("command").and_then(Value::as_str) == Some(command)
+                            })
+                        })
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn upsert_cursor_matcher(arr: &mut Vec<Value>, command: &str, matcher: &str) {
+    if let Some(entry) = arr.iter_mut().find(|entry| {
+        command_is_lade_hook(entry) && entry.get("matcher").and_then(Value::as_str) == Some(matcher)
+    }) {
+        entry["command"] = json!(command);
+        return;
+    }
+    arr.push(json!({ "command": command, "matcher": matcher }));
+}
+
+fn upsert_cursor_before_mcp(arr: &mut Vec<Value>, command: &str) {
+    if let Some(entry) = arr.iter_mut().find(|entry| command_is_lade_hook(entry)) {
+        entry["command"] = json!(command);
+        return;
+    }
+    arr.push(json!({ "command": command }));
+}
+
+fn upsert_claude_matcher(arr: &mut Vec<Value>, command: &str, matcher: &str) {
+    if let Some(entry) = arr
+        .iter_mut()
+        .find(|entry| entry.get("matcher").and_then(Value::as_str) == Some(matcher))
+    {
+        if let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) {
+            if let Some(hook) = hooks.iter_mut().find(|hook| command_is_lade_hook(hook)) {
+                hook["command"] = json!(command);
+                return;
+            }
+            hooks.push(json!({ "type": "command", "command": command }));
+            return;
+        }
+        entry["hooks"] = json!([{ "type": "command", "command": command }]);
+        return;
+    }
+    arr.push(json!({
+        "matcher": matcher,
+        "hooks": [{ "type": "command", "command": command }]
+    }));
 }
 
 fn matcher_has_hook(entry: &Value) -> bool {
@@ -308,27 +385,44 @@ fn opencode_plugin_body(command: &str) -> String {
         r#"import {{ spawnSync }} from "node:child_process";
 
 const lade = process.env.LADE_BIN ?? "{bin}";
+const local = new Set(["bash", "read", "write", "grep", "toolsearch", "edit", "glob", "list"]);
 
 // OpenCode loads every exported function in this file and calls it for hooks.
 export const LadePretool = async () => ({{
   "tool.execute.before": async (input, output) => {{
-    const command = output.args?.command;
-    if (input.tool !== "bash" || typeof command !== "string") {{
+    const tool = input.tool;
+    if (tool === "bash") {{
+      const command = output.args?.command;
+      if (typeof command !== "string") {{
+        return;
+      }}
+      const result = spawnSync(lade, ["hook", "--harness", "opencode"], {{
+        input: JSON.stringify({{ command, session_id: input.sessionID }}),
+        encoding: "utf8",
+      }});
+      if (result.status !== 0 || !result.stdout?.trim()) {{
+        return;
+      }}
+      try {{
+        const updated = JSON.parse(result.stdout)?.command;
+        if (typeof updated === "string") {{
+          output.args.command = updated;
+        }}
+      }} catch {{}}
       return;
     }}
-    const result = spawnSync(lade, ["hook", "--harness", "opencode"], {{
-      input: JSON.stringify({{ command, session_id: input.sessionID }}),
+    if (typeof tool !== "string" || local.has(tool.toLowerCase())) {{
+      return;
+    }}
+    spawnSync(lade, ["hook", "--harness", "opencode"], {{
+      input: JSON.stringify({{
+        tool,
+        args: output.args ?? {{}},
+        session_id: input.sessionID,
+        hook_source: "opencode-plugin",
+      }}),
       encoding: "utf8",
     }});
-    if (result.status !== 0 || !result.stdout?.trim()) {{
-      return;
-    }}
-    try {{
-      const updated = JSON.parse(result.stdout)?.command;
-      if (typeof updated === "string") {{
-        output.args.command = updated;
-      }}
-    }} catch {{}}
   }},
 }});
 "#

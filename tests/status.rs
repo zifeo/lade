@@ -52,14 +52,16 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert!(value["hooks"]["pretool"].get("cursor").is_some());
     assert!(value["hooks"]["pretool"].get("claude").is_some());
     assert!(value["hooks"]["pretool"].get("codex").is_some());
-    assert!(value["hooks"]["pretool"].get("pi").is_some());
     assert!(value["hooks"]["pretool"].get("opencode").is_some());
+    assert!(value["hooks"]["pretool"].get("pi").is_none());
     assert!(value.get("project_config").is_some());
     assert!(value.get("ok").is_some());
     assert_eq!(
         value["hooks"]["preexec"]["inject_skips_startup_files"],
         true
     );
+    assert!(value.get("skills").is_some());
+    assert!(value["skills"].get("cursor").is_some());
     assert!(value.get("log").is_some());
     assert!(value["log"].get("path").is_some());
     assert_eq!(value["log"]["events"], 0);

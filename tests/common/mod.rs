@@ -49,10 +49,25 @@ pub fn log_rows(home: &Path, dir: &Path) -> serde_json::Value {
 
 #[allow(dead_code)]
 pub fn stored_command(home: &Path, dir: &Path) -> String {
-    log_rows(home, dir)[0]["command"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    row_line(&log_rows(home, dir)[0])
+}
+
+pub fn row_line(row: &serde_json::Value) -> String {
+    let command = row["command"].as_str().unwrap_or("");
+    match &row["argv"] {
+        serde_json::Value::Array(items) if !items.is_empty() => {
+            let rest: Vec<&str> = items.iter().filter_map(|item| item.as_str()).collect();
+            if rest.is_empty() {
+                command.to_string()
+            } else {
+                format!("{} {}", command, rest.join(" "))
+            }
+        }
+        serde_json::Value::Object(map) if !map.is_empty() => {
+            format!("{command} {}", row["argv"])
+        }
+        _ => command.to_string(),
+    }
 }
 
 #[allow(dead_code)]
@@ -158,11 +173,17 @@ pub fn lade_std(home: &Path) -> StdCommand {
         .unwrap();
     }
     let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
+    // Drop leftover preexec protocol from the developer shell. An inherited
+    // LADE_T would replay a ticket (often the repo `.` catch-all) and skip
+    // the temp lade.yml the test just wrote.
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
         .env("LADE_CONFIG_PATH", config_path)
         .env("LADE_EVENTS_PATH", home.join("events.db"))
         .env_remove("LADE_VIA")
+        .env_remove("LADE_T")
+        .env_remove("LADE_RESTORE")
+        .env_remove("LADE_APPROVE")
         .env_remove("AI_AGENT")
         .env_remove("AGENT")
         .env_remove("CLAUDECODE")

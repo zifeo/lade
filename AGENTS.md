@@ -33,6 +33,9 @@ bash tests/installer_test.sh
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor
   versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
+  `skills` is additive (same agent shape as `hooks.pretool`). A skill is
+  Lade-managed when its sha256 matches the bundled `SKILL.md` or a previous
+  official hash kept in the binary.
 - **`lade status` latest**: a successful daily GitHub check must persist
   the tag (`latest_version` in the global config) so status can show it after
   shell use. If the fetch failed, print when we last tried (`tried today at
@@ -42,11 +45,12 @@ bash tests/installer_test.sh
 
 ## Project layout
 
-- `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse handler
-  plus install into Cursor/Claude/Codex/Pi/OpenCode configs), `audience.rs` (`detect()` for Via,
-  Audience, UI), `prompt.rs` (disclaimer flow), `inject.rs`/`exec/` (PTY
-  execution + masking), `network/` (acquire and process groups), `status.rs`,
-  `shell/` (preexec integration), `config/`, `message_box/`.
+- `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse / MCP verb
+  handler plus install into Cursor/Claude/Codex/OpenCode configs), `audience.rs`
+  (`detect()` for Via, Audience, UI), `prompt.rs` (disclaimer flow),
+  `inject.rs`/`exec/` (PTY execution + masking), `network/` (acquire and
+  process groups), `status.rs`, `shell/` (preexec integration), `config/`,
+  `message_box/`.
 - `sdk/` — providers: vault hydrate, network URI parse, tunnel command
   builders, CLI version tables. MCP HTTP byte bridge.
 - `tests/` — Rust integration tests + `installer_test.sh`.

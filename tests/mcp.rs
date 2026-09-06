@@ -74,7 +74,7 @@ fn test_mcp_agent_when_uses_env_signal() {
         .args(["mcp", "--", "env"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("PUBLIC=agentsecret").not());
+        .stdout(predicates::str::contains("PUBLIC=agentsecret"));
     common::lade(home.path())
         .current_dir(dir.path())
         .env("CURSOR_AGENT", "1")

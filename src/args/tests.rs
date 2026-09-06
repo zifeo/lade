@@ -107,6 +107,44 @@ fn log_is_not_inject_alias() {
 }
 
 #[test]
+fn help_with_verbose_flag_lists_internal() {
+    let quiet = Args::try_parse_from(["lade", "--help"]).unwrap();
+    assert!(quiet.help);
+    assert!(!help_lists_internal(&quiet.verbose));
+    let short = Args::try_parse_from(["lade", "--help", "-v"]).unwrap();
+    assert!(short.help);
+    assert!(help_lists_internal(&short.verbose));
+    let long = Args::try_parse_from(["lade", "--help", "--verbose"]).unwrap();
+    assert!(long.help);
+    assert!(help_lists_internal(&long.verbose));
+}
+
+#[test]
+fn default_help_hides_internal_commands() {
+    let help = Args::command()
+        .after_help(super::INTERNAL_HINT)
+        .render_help()
+        .to_string();
+    assert!(help.contains("Internal commands: lade --help -v"));
+    assert!(!help.contains("\n  set "));
+    assert!(!help.contains("\n  unset "));
+    assert!(!help.contains("\n  hook "));
+    assert!(!help.contains("--pretool"));
+}
+
+#[test]
+fn verbose_help_lists_internal_commands() {
+    let mut cmd = Args::command();
+    super::reveal_internal(&mut cmd);
+    let help = cmd.render_help().to_string();
+    assert!(help.contains("  set "));
+    assert!(help.contains("  unset "));
+    assert!(help.contains("  hook "));
+    assert!(help.contains("--pretool"));
+    assert!(!help.contains("Internal commands: lade --help -v"));
+}
+
+#[test]
 fn usage_all_and_path_conflict() {
     assert!(Args::try_parse_from(["lade", "usage", "--all", "--path", "/tmp"]).is_err());
     let args = Args::try_parse_from(["lade", "usage", "--all"]).unwrap();

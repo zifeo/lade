@@ -1,5 +1,6 @@
 # rustc-wrapper, not rustc-workspace-wrapper: Cargo's rustc -vV probe
-# goes through both, so the workspace-only wrapper does not skip it.
+# goes through both. The wrapper skips sccache on that probe so
+# cargo clean survives a blocked or wiped daemon.
 # The project wrapper overrides ~/.cargo/config.toml rustc-wrapper.
 # In the Cursor sandbox it execs rustc (Seatbelt denies sccache's
 # AF_UNIX connect). Outside the sandbox it uses sccache.

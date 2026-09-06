@@ -188,12 +188,13 @@ pub(super) async fn resolve_provider_work(
     )?)))
 }
 
-pub(super) fn emit_seen_if_walk_log(
+pub(crate) fn emit_seen_if_walk_log(
     config: &Config,
     ctx: &InvocationContext,
     command: &str,
     current_dir: &Path,
     saved_user: &Option<String>,
+    argv: Option<serde_json::Value>,
 ) {
     if !config.log_on_walk() {
         return;
@@ -207,6 +208,7 @@ pub(super) fn emit_seen_if_walk_log(
             actor: event::actor(saved_user),
             cwd: current_dir.to_path_buf(),
             command: command.to_string(),
+            argv,
             hydrated: None,
             matches: json!([]),
             hydrate_ms: None,
@@ -215,7 +217,7 @@ pub(super) fn emit_seen_if_walk_log(
     );
 }
 
-pub(super) fn public_hydrate(
+pub(crate) fn public_hydrate(
     env: &HashMap<String, String>,
     files: &HashMap<PathBuf, HashMap<String, String>>,
 ) -> HashMap<String, String> {
@@ -231,8 +233,6 @@ pub(super) fn public_hydrate(
         if key.starts_with('.')
             || key == crate::shell::LADE_VIA
             || key == crate::shell::LADE_RESTORE
-            || key == crate::shell::LADE_NETWORK_PIDS
-            || key == crate::shell::LADE_PENDING
             || key == crate::shell::LADE_T
         {
             continue;

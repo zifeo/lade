@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
+use serde_json::Value;
+
 use crate::pretool::split_command_env_prefix;
 use crate::redact::Redactor;
 
@@ -25,7 +27,6 @@ const PREFIXES: &[&str] = &[
 
 pub struct Redacted {
     pub command: String,
-    pub truncated: bool,
 }
 
 /// Redact a command for the diary. `hydrated` is every public value on
@@ -40,17 +41,152 @@ pub fn redact_command(raw: &str, hydrated: Option<&HashMap<String, String>>) -> 
         {
             return Redacted {
                 command: String::new(),
-                truncated: false,
             };
         }
     }
-    let truncated = command.chars().count() > CAP;
-    if truncated {
-        command = command.chars().take(CAP).collect();
-    }
     command = apply_context_needles(&command);
     command = apply_prefix_and_length(&command);
-    Redacted { command, truncated }
+    Redacted { command }
+}
+
+pub fn peel_command(line: &str) -> (String, Option<Value>) {
+    let tokens = tokenize(line);
+    match tokens.as_slice() {
+        [] => (String::new(), None),
+        [command] => (command.clone(), None),
+        [command, rest @ ..] => (
+            command.clone(),
+            Some(Value::Array(
+                rest.iter().cloned().map(Value::String).collect(),
+            )),
+        ),
+    }
+}
+
+pub fn cap_text(text: String) -> (String, bool) {
+    let truncated = text.chars().count() > CAP;
+    if truncated {
+        (text.chars().take(CAP).collect(), true)
+    } else {
+        (text, false)
+    }
+}
+
+fn tokenize(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote = None;
+    for ch in line.chars() {
+        match (quote, ch) {
+            (None, '\'') | (None, '"') => quote = Some(ch),
+            (Some(q), c) if c == q => quote = None,
+            (None, c) if c.is_whitespace() => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            (_, c) => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+pub fn redact_argv(
+    value: Option<Value>,
+    hydrated: Option<&HashMap<String, String>>,
+) -> Option<Value> {
+    let mut value = value?;
+    if value.is_null() {
+        return None;
+    }
+    if let Some(values) = hydrated {
+        replace_known_in_json(&mut value, values);
+        if json_contains_hydrate(&value, values) {
+            return None;
+        }
+    }
+    walk_scrub(&mut value);
+    cap_json(&mut value);
+    match &value {
+        Value::Null => None,
+        Value::Object(map) if map.is_empty() => None,
+        Value::Array(items) if items.is_empty() => None,
+        _ => Some(value),
+    }
+}
+
+fn replace_known_in_json(value: &mut Value, hydrated: &HashMap<String, String>) {
+    match value {
+        Value::String(text) => *text = replace_known_values(text, hydrated),
+        Value::Array(items) => {
+            for item in items {
+                replace_known_in_json(item, hydrated);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                replace_known_in_json(item, hydrated);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn json_contains_hydrate(value: &Value, hydrated: &HashMap<String, String>) -> bool {
+    match value {
+        Value::String(text) => hydrated
+            .values()
+            .any(|secret| !secret.is_empty() && text.contains(secret.as_str())),
+        Value::Array(items) => items
+            .iter()
+            .any(|item| json_contains_hydrate(item, hydrated)),
+        Value::Object(map) => map
+            .values()
+            .any(|item| json_contains_hydrate(item, hydrated)),
+        _ => false,
+    }
+}
+
+fn walk_scrub(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            *text = apply_context_needles(text);
+            *text = apply_prefix_and_length(text);
+        }
+        Value::Array(items) => {
+            for item in items {
+                walk_scrub(item);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                walk_scrub(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn cap_json(value: &mut Value) {
+    match value {
+        Value::String(text) if text.chars().count() > CAP => {
+            *text = text.chars().take(CAP).collect();
+        }
+        Value::Array(items) => {
+            for item in items {
+                cap_json(item);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                cap_json(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn replace_known_values(command: &str, values: &HashMap<String, String>) -> String {
@@ -196,6 +332,7 @@ fn prefix_or_len_hit(tok: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const SECRET: &str = "tok_example_0000000001";
     const OTHER: &str = "other_example_0000000002";
@@ -305,15 +442,31 @@ mod tests {
         values.insert("API_TOKEN".into(), "API".into());
         let out = redact_command("echo API", Some(&values));
         assert_eq!(out.command, "");
-        assert!(!out.truncated);
     }
 
     #[test]
     fn cap_1024_sets_truncated() {
         let raw: String = "a".repeat(1025);
-        let out = redact_command(&raw, None);
-        assert_eq!(out.command.chars().count(), 1024);
-        assert!(out.truncated);
+        let (out, truncated) = cap_text(raw);
+        assert_eq!(out.chars().count(), 1024);
+        assert!(truncated);
+    }
+
+    #[test]
+    fn peel_command_splits_like_docker() {
+        assert_eq!(
+            peel_command("npm run deploy"),
+            ("npm".into(), Some(json!(["run", "deploy"])))
+        );
+        assert_eq!(
+            peel_command(r#"echo hello | grep foo"#),
+            ("echo".into(), Some(json!(["hello", "|", "grep", "foo"])))
+        );
+        assert_eq!(
+            peel_command(r#"sh -c "echo hello | grep foo""#),
+            ("sh".into(), Some(json!(["-c", "echo hello | grep foo"])))
+        );
+        assert_eq!(peel_command("ls"), ("ls".into(), None));
     }
 
     #[test]
@@ -324,5 +477,26 @@ mod tests {
         let auth = seen(r#"curl -H "Authorization: basic hunter2""#);
         assert!(auth.contains("Authorization: basic ?"), "{auth}");
         assert!(!auth.contains("hunter2"), "{auth}");
+    }
+
+    #[test]
+    fn json_args_are_scrubbed_and_capped() {
+        let sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+        let out = redact_argv(Some(json!({"token": sha, "ok": "lade"})), None).unwrap();
+        assert_eq!(out["token"], "?");
+        assert_eq!(out["ok"], "lade");
+        let huge = "a".repeat(2000);
+        let capped = redact_argv(Some(json!({"z": huge, "a": "keep"})), None).unwrap();
+        assert_eq!(capped["z"].as_str().unwrap().chars().count(), 1024);
+        assert_eq!(capped["a"], "keep");
+    }
+
+    #[test]
+    fn argv_hydrate_leftover_drops_column() {
+        let mut values = HashMap::new();
+        values.insert("API_TOKEN".into(), "API".into());
+        assert!(redact_argv(Some(json!(["echo", "API"])), Some(&values)).is_none());
+        let kept = redact_argv(Some(json!(["engram", "--stdio"])), None).unwrap();
+        assert_eq!(kept, json!(["engram", "--stdio"]));
     }
 }

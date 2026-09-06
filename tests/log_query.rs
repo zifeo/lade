@@ -1,5 +1,5 @@
 mod common;
-use common::{SECRET, filter_log, init_git, inject, log_rows, write_yml};
+use common::{SECRET, filter_log, init_git, inject, log_rows, row_line, write_yml};
 use std::fs;
 use tempfile::tempdir;
 
@@ -287,12 +287,9 @@ fn usage_and_log_all_reads_every_repo() {
         .stdout
         .clone();
     let rows: Vec<serde_json::Value> = serde_json::from_slice(&log).unwrap();
-    let cmds: Vec<&str> = rows
-        .iter()
-        .map(|r| r["command"].as_str().unwrap())
-        .collect();
-    assert!(cmds.contains(&"echo a"), "{cmds:?}");
-    assert!(cmds.contains(&"echo b"), "{cmds:?}");
+    let cmds: Vec<String> = rows.iter().map(row_line).collect();
+    assert!(cmds.iter().any(|c| c == "echo a"), "{cmds:?}");
+    assert!(cmds.iter().any(|c| c == "echo b"), "{cmds:?}");
 }
 
 #[test]
@@ -341,5 +338,5 @@ fn usage_and_log_path_scopes_to_that_root() {
         .clone();
     let rows: Vec<serde_json::Value> = serde_json::from_slice(&log).unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0]["command"], "echo b");
+    assert_eq!(row_line(&rows[0]), "echo b");
 }

@@ -53,10 +53,18 @@ pub(super) fn print_human(report: &StatusReport) {
     print_pretool_line("Claude Code project", &report.hooks.pretool.claude.project);
     print_pretool_line("Codex global", &report.hooks.pretool.codex.global);
     print_pretool_line("Codex project", &report.hooks.pretool.codex.project);
-    print_pretool_line("Pi global", &report.hooks.pretool.pi.global);
-    print_pretool_line("Pi project", &report.hooks.pretool.pi.project);
     print_pretool_line("OpenCode global", &report.hooks.pretool.opencode.global);
     print_pretool_line("OpenCode project", &report.hooks.pretool.opencode.project);
+
+    println!("skills");
+    print_pretool_line("Cursor global", &report.skills.cursor.global);
+    print_pretool_line("Cursor project", &report.skills.cursor.project);
+    print_pretool_line("Claude Code global", &report.skills.claude.global);
+    print_pretool_line("Claude Code project", &report.skills.claude.project);
+    print_pretool_line("Codex global", &report.skills.codex.global);
+    print_pretool_line("Codex project", &report.skills.codex.project);
+    print_pretool_line("OpenCode global", &report.skills.opencode.global);
+    print_pretool_line("OpenCode project", &report.skills.opencode.project);
 
     let pc = &report.project_config;
     println!(

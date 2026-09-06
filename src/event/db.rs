@@ -6,10 +6,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 use rusqlite_migration::{M, Migrations};
 use serde_json::{Value, json};
 
-use super::{BUSY_MS, EVENTS_AGENT_DDL, EVENTS_DDL, Event, LogInfo, db_path};
+use super::{BUSY_MS, EVENTS_AGENT_DDL, EVENTS_ARGV_DDL, EVENTS_DDL, Event, LogInfo, db_path};
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(EVENTS_DDL), M::up(EVENTS_AGENT_DDL)])
+    Migrations::new(vec![
+        M::up(EVENTS_DDL),
+        M::up(EVENTS_AGENT_DDL),
+        M::up(EVENTS_ARGV_DDL),
+    ])
 }
 
 pub fn open() -> rusqlite::Result<Connection> {
@@ -38,7 +42,8 @@ pub fn query(
     let conn = open()?;
     let mut sql = String::from(
         "SELECT id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, json(matches), json(agent)
+                command, command_truncated, hydrate_ms, json(matches), json(agent),
+                json(argv)
          FROM events WHERE 1=1",
     );
     if since.is_some() {
@@ -97,12 +102,8 @@ pub fn query(
 pub(crate) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let matches_raw: String = row.get(11)?;
     let matches = serde_json::from_str(&matches_raw).unwrap_or(json!([]));
-    let agent = row
-        .get::<_, Option<String>>(12)
-        .ok()
-        .flatten()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .filter(|value: &Value| !value.is_null());
+    let agent = json_col(row, 12);
+    let argv = json_col(row, 13);
     Ok(Event {
         id: row.get(0)?,
         ts: row.get(1)?,
@@ -114,10 +115,19 @@ pub(crate) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event>
         git_commit: row.get(7)?,
         command: row.get(8)?,
         command_truncated: row.get::<_, i64>(9)? != 0,
+        argv,
         hydrate_ms: row.get(10)?,
         matches,
         agent,
     })
+}
+
+fn json_col(row: &rusqlite::Row<'_>, idx: usize) -> Option<Value> {
+    row.get::<_, Option<String>>(idx)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .filter(|value: &Value| !value.is_null())
 }
 
 pub fn prune_before(ts: &DateTime<Utc>) -> rusqlite::Result<usize> {

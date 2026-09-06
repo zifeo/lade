@@ -70,28 +70,6 @@ fn test_match_wraps_codex() {
 }
 
 #[test]
-fn test_match_wraps_pi() {
-    temp_env::with_vars(
-        [
-            ("CURSOR_VERSION", None),
-            ("CLAUDE_PROJECT_DIR", None),
-            ("CODEX_THREAD_ID", None),
-            ("PI_HOME", Some("/tmp/pi")),
-            ("OPENCODE", None),
-        ],
-        || {
-            with_ticket_tmpdir(|| {
-                let (config, _dir) = test_config("^echo");
-                let input = r#"{"tool_name":"bash","tool_input":{"command":"echo hello"},"hook_event_name":"PreToolUse"}"#;
-                let result = handle(&config, input, Audience::Agent, None).unwrap();
-                assert_wraps_with_ticket(&result, "echo hello");
-                assert!(result.contains("updatedInput"));
-            });
-        },
-    );
-}
-
-#[test]
 fn test_claude_no_match_allows_silently() {
     temp_env::with_vars(
         [
@@ -125,7 +103,6 @@ fn test_disclaimer_command_is_rewritten() {
             ("PI_HOME", None),
             ("OPENCODE", None),
             ("LADE_APPROVE", None),
-            ("LADE_DISCLAIMER_APPROVED", None),
         ],
         || {
             with_ticket_tmpdir(|| {

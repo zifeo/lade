@@ -6,12 +6,10 @@ pub(super) enum Platform {
     Cursor,
     ClaudeCode,
     Codex,
-    Pi,
     OpenCode,
 }
 
 const CODEX_ENV: [&str; 2] = ["CODEX_THREAD_ID", "CODEX_SANDBOX"];
-const PI_ENV: [&str; 2] = ["PI_HOME", "PI_CODING_AGENT"];
 const OPENCODE_ENV: [&str; 2] = ["OPENCODE", "OPENCODE_DIR"];
 
 impl Platform {
@@ -20,7 +18,6 @@ impl Platform {
             Platform::Cursor => "cursor",
             Platform::ClaudeCode => "claude",
             Platform::Codex => "codex",
-            Platform::Pi => "pi",
             Platform::OpenCode => "opencode",
         }
     }
@@ -31,7 +28,6 @@ pub(super) fn parse_harness(raw: &str) -> Option<Platform> {
         "cursor" => Some(Platform::Cursor),
         "claude" | "claude-code" | "claudecode" => Some(Platform::ClaudeCode),
         "codex" => Some(Platform::Codex),
-        "pi" => Some(Platform::Pi),
         "opencode" => Some(Platform::OpenCode),
         _ => None,
     }
@@ -44,7 +40,7 @@ pub(super) fn resolve_platform(harness: Option<&str>, input: &Value) -> Option<P
     }
     detect_platform(input).or_else(
         || match input.get("hook_event_name").and_then(Value::as_str) {
-            Some("preToolUse") => Some(Platform::Cursor),
+            Some("preToolUse" | "beforeMCPExecution") => Some(Platform::Cursor),
             Some("PreToolUse") => Some(Platform::ClaudeCode),
             _ => None,
         },
@@ -105,9 +101,6 @@ pub(super) fn detect_platform(input: &Value) -> Option<Platform> {
     if is_opencode(input) {
         return Some(Platform::OpenCode);
     }
-    if is_pi(input) {
-        return Some(Platform::Pi);
-    }
     if env::var("CLAUDE_PROJECT_DIR").is_ok() || is_pretool_use(input) {
         return Some(Platform::ClaudeCode);
     }
@@ -126,18 +119,6 @@ fn is_codex(input: &Value) -> bool {
 /// `turn_id` is Codex-specific. `model` is not: Cursor now sends it too.
 fn is_codex_payload(input: &Value) -> bool {
     is_pretool_use(input) && input.get("turn_id").and_then(Value::as_str).is_some()
-}
-
-fn is_pi(input: &Value) -> bool {
-    PI_ENV.iter().any(|key| env::var(key).is_ok()) || is_pi_payload(input)
-}
-
-fn is_pi_payload(input: &Value) -> bool {
-    is_pretool_use(input)
-        && input
-            .get("tool_name")
-            .and_then(Value::as_str)
-            .is_some_and(|name| name == "bash")
 }
 
 fn is_opencode(input: &Value) -> bool {

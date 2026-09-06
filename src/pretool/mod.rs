@@ -11,19 +11,17 @@ Disclaimer enforcement lives in inject.
 - Input: `{"tool_name": "Shell", "tool_input": {"command": "..."}, "hook_event_name": "preToolUse", ...}`
 - Output: `{"permission": "allow", "updated_input": {...}}`
 
-# Claude-compatible PreToolUse (Claude Code, Codex, Pi)
+# Claude-compatible PreToolUse (Claude Code, Codex)
 - Claude: `CLAUDE_PROJECT_DIR` — https://code.claude.com/docs/en/hooks
 - Codex: `CODEX_THREAD_ID` / `CODEX_SANDBOX` / `CODEX_HOME`, plus `turn_id`/`model`
   — https://developers.openai.com/codex/hooks
-- Pi: `PI_HOME` / `PI_CODING_AGENT`, payload `tool_name` is often `bash`
 - OpenCode: `--harness opencode`, or `OPENCODE` / `OPENCODE_DIR` /
   `hook_source=opencode-plugin`
 - Input (Claude-compat): `{"tool_name": "Bash"|"bash",
   "tool_input": {"command": "..."}, "hook_event_name": "PreToolUse", ...}`
 - Output (Claude-compat): `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
   "permissionDecision": "allow", "updatedInput": {...}}}`. Exit 0 with no
-  stdout allows the original command. Shell tools match as `Bash` (or `bash`
-  on Pi).
+  stdout allows the original command. Shell tools match as `Bash`.
 - OpenCode plugin input: `{"command": "...", "session_id": "..."}`.
   Output: `{"command": "..."}`.
 */
@@ -33,6 +31,7 @@ mod platform;
 mod response;
 #[cfg(test)]
 mod tests;
+mod verb;
 
 use crate::audience::Via;
 use crate::config::{Audience, Config};
@@ -49,9 +48,10 @@ use platform::{
     collect_agent, extract_command, has_pretool_stamp, is_already_injected, resolve_platform,
     split_env_prefix,
 };
+use verb::{hook_event, is_post_event, is_verb, normalize, verb_agent, verb_args};
 
 pub(crate) use platform::split_env_prefix as split_command_env_prefix;
-use response::{format_allow, format_modify};
+use response::{format_allow, format_allow_verb, format_modify};
 
 fn pretool_flag() -> &'static str {
     "--pretool"
@@ -87,6 +87,12 @@ pub fn handle(
 ) -> Result<String> {
     let parsed: Value = serde_json::from_str(input).unwrap_or(json!({}));
     let platform = resolve_platform(harness, &parsed);
+    if is_post_event(&parsed) {
+        return Ok(allow_verb(platform));
+    }
+    if is_verb(&parsed) {
+        return handle_verb(config, &parsed, platform, audience);
+    }
     let agent = collect_agent(platform, &parsed);
 
     let raw = match extract_command(&parsed) {
@@ -126,6 +132,7 @@ pub fn handle(
                     actor: event::actor(&saved_user),
                     cwd,
                     command: command.clone(),
+                    argv: None,
                     hydrated: None,
                     matches: json!([]),
                     hydrate_ms: None,
@@ -184,10 +191,58 @@ pub fn handle(
     Ok(modify(platform, &tool_input, &new_command))
 }
 
+fn handle_verb(
+    config: &Config,
+    parsed: &Value,
+    platform: Option<platform::Platform>,
+    audience: Audience,
+) -> Result<String> {
+    let command = normalize(parsed);
+    let argv = verb_args(parsed);
+    let patterned = config.collect_for_with_pattern(&command, audience);
+    let saved_user = GlobalConfig::user_from_disk();
+    let (log, matches) = if patterned.is_empty() {
+        (config.log_on_walk(), json!([]))
+    } else {
+        match Config::pre_event_work(&patterned, &saved_user) {
+            Ok(work) => (work.log, work.matches),
+            Err(_) => (config.log_on_walk(), json!([])),
+        }
+    };
+    let agent = crate::agent_meta::merge(verb_agent(collect_agent(platform, parsed), parsed));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    event::emit_verb(
+        log,
+        hook_event(parsed),
+        parsed.get("tool_use_id").and_then(Value::as_str),
+        Emit {
+            kind: Kind::Seen,
+            via: Via::Mcp,
+            audience,
+            actor: event::actor(&saved_user),
+            cwd,
+            command,
+            argv,
+            hydrated: None,
+            matches,
+            hydrate_ms: None,
+            agent,
+        },
+    );
+    Ok(allow_verb(platform))
+}
+
 fn allow(platform: Option<platform::Platform>) -> String {
     match platform {
         Some(platform) => format_allow(&platform),
         None => String::new(),
+    }
+}
+
+fn allow_verb(platform: Option<platform::Platform>) -> String {
+    match platform {
+        Some(platform) => format_allow_verb(&platform),
+        None => "{}".to_string(),
     }
 }
 

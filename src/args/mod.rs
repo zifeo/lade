@@ -199,16 +199,19 @@ pub enum Command {
     Inject(InjectCommand),
     /// Resolve secrets for a local or remote MCP server.
     Mcp(McpCommand),
-    /// Set environment for shell.
+    /// Set environment for the interactive shell. Called by the preexec hook.
+    #[command(hide = true)]
     Set(EvalCommand),
-    /// Unset environment for shell.
+    /// Restore the shell environment. Called by the preexec hook.
+    #[command(hide = true)]
     Unset(EvalCommand),
     /// Evaluate a secret URI and print its resolved value.
     Eval {
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
-    /// Handle preToolUse for Cursor, Claude Code, Codex, Pi, and OpenCode.
+    /// Handle agent preToolUse / MCP verb JSON on stdin. Called by the preTool hook.
+    #[command(hide = true)]
     Hook {
         /// Host that installed this hook. Unknown values are ignored.
         #[clap(long)]
@@ -246,9 +249,8 @@ pub struct Args {
     #[clap(short, long, value_parser, global = true)]
     pub help: bool,
 
-    /// Stamp this invocation as preTool. Wins over the subcommand. Via is
-    /// stored on the ticket, not on the child env.
-    #[clap(long, global = true, default_value_t = false)]
+    /// Stamp this invocation as preTool. Via is stored on the ticket, not the child env.
+    #[clap(long, global = true, default_value_t = false, hide = true)]
     pub pretool: bool,
 
     #[clap(subcommand)]
@@ -258,7 +260,13 @@ pub struct Args {
     pub verbose: Verbosity,
 }
 
-pub fn print_command_help(command: &Option<Command>, db_path: &Path) -> Result<()> {
+pub(super) const INTERNAL_HINT: &str = "Internal commands: lade --help -v";
+
+pub fn help_lists_internal(verbose: &Verbosity) -> bool {
+    verbose.log_level_filter() > log::LevelFilter::Error
+}
+
+pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bool) -> Result<()> {
     let mut cmd = Args::command();
     match command {
         Some(Command::Log(_)) => {
@@ -281,9 +289,34 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path) -> Result<(
                 return Ok(());
             }
         }
+        Some(Command::Set(_)) => return print_hidden_command(&mut cmd, "set"),
+        Some(Command::Unset(_)) => return print_hidden_command(&mut cmd, "unset"),
+        Some(Command::Hook { .. }) => return print_hidden_command(&mut cmd, "hook"),
         _ => {}
     }
+    if verbose {
+        reveal_internal(&mut cmd);
+    } else {
+        cmd = std::mem::take(&mut cmd).after_help(INTERNAL_HINT);
+    }
     cmd.print_help()?;
+    Ok(())
+}
+
+pub(super) fn reveal_internal(cmd: &mut clap::Command) {
+    for name in ["set", "unset", "hook"] {
+        if let Some(sub) = cmd.find_subcommand_mut(name) {
+            *sub = std::mem::take(sub).hide(false);
+        }
+    }
+    *cmd = std::mem::take(cmd).mut_arg("pretool", |arg| arg.hide(false));
+}
+
+fn print_hidden_command(cmd: &mut clap::Command, name: &str) -> Result<()> {
+    if let Some(sub) = cmd.find_subcommand_mut(name) {
+        *sub = std::mem::take(sub).hide(false);
+        sub.print_help()?;
+    }
     Ok(())
 }
 

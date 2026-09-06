@@ -34,6 +34,7 @@ fn redact_strips_home_and_git_root_prefixes() {
         git_commit: None,
         command: "/Users/me/proj/bin/deploy".into(),
         command_truncated: false,
+        argv: None,
         hydrate_ms: None,
         matches: json!([]),
         agent: Some(json!({"harness": "cursor"})),
@@ -54,6 +55,7 @@ fn redact_strips_home_and_git_root_prefixes() {
         git_commit: event.git_commit,
         command: "/Users/me/bin/deploy".into(),
         command_truncated: false,
+        argv: None,
         hydrate_ms: None,
         matches: json!([]),
         agent: event.agent.clone(),
@@ -61,6 +63,30 @@ fn redact_strips_home_and_git_root_prefixes() {
     let out = redact_for_share(&home_first, Path::new("/Users/me")).unwrap();
     assert_eq!(out.command, "bin/deploy");
     assert_eq!(out.agent, Some(json!({"harness": "cursor"})));
+}
+
+#[test]
+fn share_keeps_empty_mcp_command() {
+    let event = Event {
+        id: "1".into(),
+        ts: "2026-09-05T00:00:00.000Z".into(),
+        kind: "seen".into(),
+        via: Some("mcp".into()),
+        audience: Some("agent".into()),
+        actor: Some("alice".into()),
+        repo: None,
+        git_commit: None,
+        command: String::new(),
+        command_truncated: false,
+        argv: None,
+        hydrate_ms: None,
+        matches: json!([]),
+        agent: Some(json!({"launch": "engram", "hook": "beforeMCPExecution"})),
+    };
+    let out = redact_for_share(&event, Path::new("/Users/me")).unwrap();
+    assert_eq!(out.command, "");
+    assert_eq!(out.via.as_deref(), Some("mcp"));
+    assert_eq!(out.agent.unwrap()["launch"], "engram");
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub use git::git_stamp;
 #[allow(unused_imports)]
 pub use write::emit;
 pub use write::emit_if;
+pub use write::emit_verb;
 
 pub(crate) use db::event_from_row;
 
@@ -43,8 +44,10 @@ pub(crate) const EVENTS_DDL: &str = "CREATE TABLE events (
 
 pub(crate) const EVENTS_AGENT_DDL: &str = "ALTER TABLE events ADD COLUMN agent BLOB";
 
+pub(crate) const EVENTS_ARGV_DDL: &str = "ALTER TABLE events ADD COLUMN argv JSONB";
+
 pub(crate) fn events_ddl() -> String {
-    format!("{EVENTS_DDL}{EVENTS_AGENT_DDL};")
+    format!("{EVENTS_DDL}{EVENTS_AGENT_DDL};{EVENTS_ARGV_DDL};")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +79,8 @@ pub struct Event {
     pub git_commit: Option<String>,
     pub command: String,
     pub command_truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Value>,
     pub hydrate_ms: Option<f64>,
     pub matches: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,6 +137,26 @@ pub fn match_tree_from(
     Value::Array(out)
 }
 
+pub fn display_line(command: &str, argv: Option<&Value>) -> Option<String> {
+    if command.is_empty() {
+        return None;
+    }
+    match argv {
+        Some(Value::Array(items)) if !items.is_empty() => {
+            let rest: Vec<&str> = items.iter().filter_map(Value::as_str).collect();
+            if rest.is_empty() {
+                Some(command.to_string())
+            } else {
+                Some(format!("{} {}", command, rest.join(" ")))
+            }
+        }
+        Some(Value::Object(map)) if !map.is_empty() => {
+            Some(format!("{} {}", command, Value::Object(map.clone())))
+        }
+        _ => Some(command.to_string()),
+    }
+}
+
 pub fn logged_kind(matches: &Value) -> Kind {
     match matches.as_array() {
         Some(items) if !items.is_empty() => Kind::Access,
@@ -146,6 +171,7 @@ pub struct Emit {
     pub actor: Option<String>,
     pub cwd: PathBuf,
     pub command: String,
+    pub argv: Option<Value>,
     pub hydrated: Option<HashMap<String, String>>,
     pub matches: Value,
     pub hydrate_ms: Option<f64>,

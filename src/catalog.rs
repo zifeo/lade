@@ -159,6 +159,7 @@ mod tests {
             git_commit: None,
             command: command.into(),
             command_truncated: false,
+            argv: None,
             hydrate_ms: None,
             matches: match rule {
                 Some((file, r)) => json!([{
