@@ -103,7 +103,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   the previous env. `LADE_APPROVE` is `sha256(command + window)[:5]`.
   `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_PENDING`, and
   `LADE_DISCLAIMER_APPROVED` are no longer classifiers or messengers.
-  `set` / `unset` still clear leftovers.
+- **No stale protocol broom**: `set` / `unset` no longer emit `unset`
+  for dropped keys. `unset` stops tunnels from the T ticket only.
 - **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
   stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
   Re-running `lade install` updates an existing hook that still has a path.

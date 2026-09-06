@@ -1,9 +1,9 @@
 //! Optional installation of the `lade hook` interceptor into the agents that
-//! support `preToolUse` shell hooks (Cursor, Claude Code, Codex, Pi, OpenCode).
+//! support `preToolUse` shell hooks (Cursor, Claude Code, Codex, OpenCode).
 //!
 //! `lade install` is a global, once-only operation, so these hooks are written
 //! to the agents' global config (`~/.cursor/hooks.json`,
-//! `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.pi/agent/settings.json`,
+//! `~/.claude/settings.json`, `~/.codex/hooks.json`,
 //! `~/.config/opencode/plugins/lade-pretool.js`). We only act when the agent's
 //! home dir already exists and never overwrite unrelated settings.
 
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use config::AGENTS;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::message_box::MessageBox;
 
@@ -45,6 +46,44 @@ fn hook_command(agent: config::Agent) -> String {
     format!("{} hook --harness {}", install_bin(), agent.slug())
 }
 
+pub(super) const SKILL_MD: &str = include_str!("../../../.agents/skills/lade/SKILL.md");
+
+/// sha256 of official SKILL.md blobs this binary still rewrites.
+const SKILL_PREVIOUS: &[&str] = &[
+    "1e8636e98007c49b9b2cb78f716c67e714fbda2bfdcd6070c0abda9b436a914a",
+    "dee189b102053fbc2a672bcfa6ce7a6b6e4c483ba68ee71244848d60f35fedca",
+];
+
+fn skill_sha256(content: &str) -> String {
+    hex::encode(Sha256::digest(content.as_bytes()))
+}
+
+pub(super) fn is_lade_skill(content: &str) -> bool {
+    skill_is_current(content)
+        || SKILL_PREVIOUS
+            .iter()
+            .any(|known| *known == skill_sha256(content))
+        || test_previous_official(content)
+}
+
+#[cfg(test)]
+const STALE_OFFICIAL: &str =
+    "---\nname: lade\ndescription: previous official lade skill\n---\n\n# Lade\n";
+
+#[cfg(test)]
+fn test_previous_official(content: &str) -> bool {
+    content == STALE_OFFICIAL
+}
+
+#[cfg(not(test))]
+fn test_previous_official(_: &str) -> bool {
+    false
+}
+
+pub(super) fn skill_is_current(content: &str) -> bool {
+    content == SKILL_MD
+}
+
 fn tilde(path: &Path, home: &Path) -> String {
     match path.strip_prefix(home) {
         Ok(rest) => format!("~/{}", rest.display()),
@@ -52,8 +91,8 @@ fn tilde(path: &Path, home: &Path) -> String {
     }
 }
 
-fn confirm(name: &str, path: &str) -> Result<bool> {
-    eprint!("Install Lade hook for {name} in {path}? [y/N]: ");
+fn confirm(kind: &str, name: &str, path: &str) -> Result<bool> {
+    eprint!("Install Lade {kind} for {name} in {path}? [y/N]: ");
     io::stderr().flush()?;
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
@@ -61,11 +100,11 @@ fn confirm(name: &str, path: &str) -> Result<bool> {
     Ok(answer == "y" || answer == "yes")
 }
 
-fn report(results: Vec<String>) {
+fn report(title: &str, results: Vec<String>) {
     if results.is_empty() {
         return;
     }
-    let mut mb = MessageBox::new().info().line("preTool hooks:");
+    let mut mb = MessageBox::new().info().line(title);
     for result in results {
         mb = mb.line(format!("- {result}"));
     }
@@ -76,58 +115,129 @@ fn report(results: Vec<String>) {
 /// machine. `may_prompt` must be true only when both stdin and stderr are TTYs.
 pub fn install(may_prompt: bool) -> Result<()> {
     let home = home_dir()?;
-    let mut results = Vec::new();
+    let mut hook_results = Vec::new();
+    let mut skill_results = Vec::new();
 
     for agent in AGENTS {
-        let command = hook_command(agent);
         if !agent.home_dir(&home).is_dir() {
             continue;
         }
-        let path = agent.config_path(&home);
-        let existing = fs::read_to_string(&path).unwrap_or_default();
-        if agent.has_hook(&existing)? {
-            if agent.hook_uses_command(&existing, &command)? {
-                results.push(format!("{}: hook already present", agent.name()));
-                continue;
-            }
-            if !may_prompt {
-                results.push(format!(
-                    "{}: detected. Re-run `lade install` in a terminal to update its hook",
-                    agent.name()
-                ));
-                continue;
-            }
-            fs::write(&path, agent.merge(&existing, &command)?)?;
-            results.push(format!(
-                "{}: hook updated in {}",
-                agent.name(),
-                tilde(&path, &home)
-            ));
-            continue;
+        install_hook(agent, &home, may_prompt, &mut hook_results)?;
+        install_skill(agent, &home, may_prompt, &mut skill_results)?;
+    }
+
+    report("preTool hooks:", hook_results);
+    report("skills:", skill_results);
+    Ok(())
+}
+
+fn install_hook(
+    agent: config::Agent,
+    home: &Path,
+    may_prompt: bool,
+    results: &mut Vec<String>,
+) -> Result<()> {
+    let command = hook_command(agent);
+    let path = agent.config_path(home);
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    if agent.has_hook(&existing)? {
+        if agent.hook_uses_command_scoped(&existing, &command, false)? {
+            results.push(format!("{}: hook already present", agent.name()));
+            return Ok(());
         }
         if !may_prompt {
             results.push(format!(
-                "{}: detected. Re-run `lade install` in a terminal to add its hook",
+                "{}: detected. Re-run `lade install` in a terminal to update its hook",
                 agent.name()
             ));
-            continue;
+            return Ok(());
         }
-        if confirm(agent.name(), &tilde(&path, &home))? {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::write(&path, agent.merge(&existing, &command)?)?;
-            results.push(format!(
-                "{}: hook installed in {}",
-                agent.name(),
-                tilde(&path, &home)
-            ));
-        } else {
-            results.push(format!("{}: skipped", agent.name()));
-        }
+        fs::write(&path, agent.merge(&existing, &command)?)?;
+        results.push(format!(
+            "{}: hook updated in {}",
+            agent.name(),
+            tilde(&path, home)
+        ));
+        return Ok(());
     }
+    if !may_prompt {
+        results.push(format!(
+            "{}: detected. Re-run `lade install` in a terminal to add its hook",
+            agent.name()
+        ));
+        return Ok(());
+    }
+    if confirm("hook", agent.name(), &tilde(&path, home))? {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, agent.merge(&existing, &command)?)?;
+        results.push(format!(
+            "{}: hook installed in {}",
+            agent.name(),
+            tilde(&path, home)
+        ));
+    } else {
+        results.push(format!("{}: hook skipped", agent.name()));
+    }
+    Ok(())
+}
 
-    report(results);
+fn install_skill(
+    agent: config::Agent,
+    home: &Path,
+    may_prompt: bool,
+    results: &mut Vec<String>,
+) -> Result<()> {
+    let path = agent.skill_path(home);
+    if path.is_file() {
+        let existing = fs::read_to_string(&path).unwrap_or_default();
+        if !is_lade_skill(&existing) {
+            results.push(format!(
+                "{}: skill present but not Lade-managed",
+                agent.name()
+            ));
+            return Ok(());
+        }
+        if skill_is_current(&existing) {
+            results.push(format!("{}: skill already present", agent.name()));
+            return Ok(());
+        }
+        if !may_prompt {
+            results.push(format!(
+                "{}: detected. Re-run `lade install` in a terminal to update its skill",
+                agent.name()
+            ));
+            return Ok(());
+        }
+        fs::write(&path, SKILL_MD)?;
+        results.push(format!(
+            "{}: skill updated in {}",
+            agent.name(),
+            tilde(&path, home)
+        ));
+        return Ok(());
+    }
+    if !may_prompt {
+        results.push(format!(
+            "{}: detected. Re-run `lade install` in a terminal to add its skill",
+            agent.name()
+        ));
+        return Ok(());
+    }
+    if confirm("skill", agent.name(), &tilde(&path, home))? {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, SKILL_MD)?;
+        results.push(format!(
+            "{}: skill installed in {}",
+            agent.name(),
+            tilde(&path, home)
+        ));
+    } else {
+        results.push(format!("{}: skill skipped", agent.name()));
+    }
     Ok(())
 }
 
@@ -152,14 +262,31 @@ pub fn refresh_installed() {
 pub(crate) fn refresh_at(home: &Path, cwd: &Path) {
     for agent in AGENTS {
         let command = hook_command(agent);
-        refresh_path(agent, &agent.config_path(home), &command);
+        refresh_path(agent, &agent.config_path(home), &command, false);
         if let Ok((project_path, true)) = find_project(agent, home, cwd) {
-            refresh_path(agent, &project_path, &command);
+            refresh_path(agent, &project_path, &command, true);
         }
+        refresh_skill(&agent.skill_path(home));
+        if let Ok((path, true)) = find_project_skill(agent, home, cwd) {
+            refresh_skill(&path);
+        }
+    }
+    if let Some(path) = find_agents_skill(home, cwd) {
+        refresh_skill(&path);
     }
 }
 
-fn refresh_path(agent: config::Agent, path: &Path, command: &str) {
+fn refresh_skill(path: &Path) {
+    let Ok(existing) = fs::read_to_string(path) else {
+        return;
+    };
+    if !is_lade_skill(&existing) || skill_is_current(&existing) {
+        return;
+    }
+    let _ = fs::write(path, SKILL_MD);
+}
+
+fn refresh_path(agent: config::Agent, path: &Path, command: &str, project: bool) {
     let Ok(existing) = fs::read_to_string(path) else {
         return;
     };
@@ -167,12 +294,12 @@ fn refresh_path(agent: config::Agent, path: &Path, command: &str) {
         Ok(true) => {}
         _ => return,
     }
-    match agent.hook_uses_command(&existing, command) {
+    match agent.hook_uses_command_scoped(&existing, command, project) {
         Ok(true) => return,
         Ok(false) => {}
         Err(_) => return,
     }
-    if let Ok(updated) = agent.merge(&existing, command) {
+    if let Ok(updated) = agent.merge_scoped(&existing, command, project) {
         let _ = fs::write(path, updated);
     }
 }
@@ -180,32 +307,50 @@ fn refresh_path(agent: config::Agent, path: &Path, command: &str) {
 /// Remove the `lade hook` interceptor from every agent config that contains it.
 pub fn uninstall() -> Result<()> {
     let home = home_dir()?;
-    let mut results = Vec::new();
+    let mut hook_results = Vec::new();
+    let mut skill_results = Vec::new();
 
     for agent in AGENTS {
         let path = agent.config_path(&home);
         let existing = fs::read_to_string(&path).unwrap_or_default();
         let legacy = leftover_json_hook(agent, &home)?;
-        if !agent.has_hook(&existing)? && legacy.is_none() {
-            continue;
+        if agent.has_hook(&existing)? || legacy.is_some() {
+            if matches!(agent, config::Agent::OpenCode) {
+                let _ = fs::remove_file(&path);
+            } else if agent.has_hook(&existing)? {
+                fs::write(&path, agent.remove(&existing)?)?;
+            }
+            if let Some((legacy_path, content)) = legacy {
+                fs::write(&legacy_path, agent.remove(&content)?)?;
+            }
+            hook_results.push(format!(
+                "{}: hook removed from {}",
+                agent.name(),
+                tilde(&path, &home)
+            ));
         }
-        if matches!(agent, config::Agent::OpenCode) {
-            let _ = fs::remove_file(&path);
-        } else if agent.has_hook(&existing)? {
-            fs::write(&path, agent.remove(&existing)?)?;
-        }
-        if let Some((legacy_path, content)) = legacy {
-            fs::write(&legacy_path, agent.remove(&content)?)?;
-        }
-        results.push(format!(
-            "{}: hook removed from {}",
-            agent.name(),
-            tilde(&path, &home)
-        ));
+        uninstall_skill(agent, &home, &mut skill_results);
     }
 
-    report(results);
+    report("preTool hooks:", hook_results);
+    report("skills:", skill_results);
     Ok(())
+}
+
+fn uninstall_skill(agent: config::Agent, home: &Path, results: &mut Vec<String>) {
+    let path = agent.skill_path(home);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return;
+    };
+    if !is_lade_skill(&content) {
+        return;
+    }
+    let _ = fs::remove_file(&path);
+    results.push(format!(
+        "{}: skill removed from {}",
+        agent.name(),
+        tilde(&path, home)
+    ));
 }
 
 #[derive(Debug, Serialize)]
@@ -226,8 +371,51 @@ pub struct PretoolStatus {
     pub cursor: PretoolAgentStatus,
     pub claude: PretoolAgentStatus,
     pub codex: PretoolAgentStatus,
-    pub pi: PretoolAgentStatus,
     pub opencode: PretoolAgentStatus,
+}
+
+pub type SkillsStatus = PretoolStatus;
+
+/// Global and project-local Lade-managed skills.
+pub fn inspect_skills(cwd: &Path) -> Result<SkillsStatus> {
+    let home = home_dir()?;
+    Ok(SkillsStatus {
+        cursor: inspect_skill_agent(config::Agent::Cursor, &home, cwd)?,
+        claude: inspect_skill_agent(config::Agent::Claude, &home, cwd)?,
+        codex: inspect_skill_agent(config::Agent::Codex, &home, cwd)?,
+        opencode: inspect_skill_agent(config::Agent::OpenCode, &home, cwd)?,
+    })
+}
+
+fn inspect_skill_agent(
+    agent: config::Agent,
+    home: &Path,
+    cwd: &Path,
+) -> Result<PretoolAgentStatus> {
+    let global_path = agent.skill_path(home);
+    let (global_installed, global_current) = skill_state(&global_path);
+    let (project_path, project_installed) = find_project_skill(agent, home, cwd)?;
+    let project_current = project_installed && skill_state(&project_path).1;
+    Ok(PretoolAgentStatus {
+        global: HookLocation {
+            path: global_path,
+            installed: global_installed,
+            current: global_current,
+        },
+        project: HookLocation {
+            path: project_path,
+            installed: project_installed,
+            current: project_current,
+        },
+    })
+}
+
+fn skill_state(path: &Path) -> (bool, bool) {
+    let Ok(content) = fs::read_to_string(path) else {
+        return (false, false);
+    };
+    let installed = is_lade_skill(&content);
+    (installed, installed && skill_is_current(&content))
 }
 
 /// Global and project-local `lade hook` entries for supported agents.
@@ -237,7 +425,6 @@ pub fn inspect(cwd: &Path) -> Result<PretoolStatus> {
         cursor: inspect_agent(config::Agent::Cursor, &home, cwd)?,
         claude: inspect_agent(config::Agent::Claude, &home, cwd)?,
         codex: inspect_agent(config::Agent::Codex, &home, cwd)?,
-        pi: inspect_agent(config::Agent::Pi, &home, cwd)?,
         opencode: inspect_agent(config::Agent::OpenCode, &home, cwd)?,
     })
 }
@@ -309,6 +496,80 @@ fn find_project(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBu
     Ok((canonical_project_path(agent, cwd), false))
 }
 
+fn find_project_skill(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBuf, bool)> {
+    let under_home = cwd.starts_with(home);
+    let mut dir = cwd.to_path_buf();
+    loop {
+        if dir == home {
+            break;
+        }
+        let path = project_skill_file(agent, &dir);
+        if path.is_file() && skill_state(&path).0 {
+            return Ok((path, true));
+        }
+        if path.is_file() {
+            return Ok((path, false));
+        }
+        match dir.parent() {
+            Some(parent) if under_home => dir = parent.to_path_buf(),
+            _ => break,
+        }
+    }
+    Ok((canonical_project_skill_path(agent, cwd), false))
+}
+
+fn find_agents_skill(home: &Path, cwd: &Path) -> Option<PathBuf> {
+    let under_home = cwd.starts_with(home);
+    let mut dir = cwd.to_path_buf();
+    loop {
+        if dir == home {
+            break;
+        }
+        let path = dir
+            .join(".agents")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md");
+        if path.is_file() {
+            return Some(path);
+        }
+        match dir.parent() {
+            Some(parent) if under_home => dir = parent.to_path_buf(),
+            _ => break,
+        }
+    }
+    None
+}
+
+fn project_skill_file(agent: config::Agent, dir: &Path) -> PathBuf {
+    match agent {
+        config::Agent::Cursor => dir
+            .join(".cursor")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        config::Agent::Claude => dir
+            .join(".claude")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        config::Agent::Codex => dir
+            .join(".codex")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        config::Agent::OpenCode => dir
+            .join(".opencode")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+    }
+}
+
+fn canonical_project_skill_path(agent: config::Agent, cwd: &Path) -> PathBuf {
+    project_skill_file(agent, cwd)
+}
+
 fn project_files(agent: config::Agent, dir: &Path) -> Vec<PathBuf> {
     match agent {
         config::Agent::Cursor => vec![dir.join(".cursor").join("hooks.json")],
@@ -317,10 +578,6 @@ fn project_files(agent: config::Agent, dir: &Path) -> Vec<PathBuf> {
             dir.join(".claude").join("settings.json"),
         ],
         config::Agent::Codex => vec![dir.join(".codex").join("hooks.json")],
-        config::Agent::Pi => vec![
-            dir.join(".pi").join("settings.json"),
-            dir.join(".pi").join("hooks.json"),
-        ],
         config::Agent::OpenCode => vec![
             dir.join(".opencode")
                 .join("plugins")
@@ -334,7 +591,6 @@ fn canonical_project_path(agent: config::Agent, cwd: &Path) -> PathBuf {
         config::Agent::Cursor => cwd.join(".cursor").join("hooks.json"),
         config::Agent::Claude => cwd.join(".claude").join("settings.json"),
         config::Agent::Codex => cwd.join(".codex").join("hooks.json"),
-        config::Agent::Pi => cwd.join(".pi").join("settings.json"),
         config::Agent::OpenCode => cwd
             .join(".opencode")
             .join("plugins")

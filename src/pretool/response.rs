@@ -2,7 +2,7 @@ use super::platform::Platform;
 use serde_json::{Value, json};
 
 /// Wrap the Claude-compatible `hookSpecificOutput` envelope around `fields`.
-/// Codex and Pi use this same PreToolUse rewrite contract.
+/// Codex uses this same PreToolUse rewrite contract.
 fn hook_specific(fields: Value) -> String {
     let mut out = json!({ "hookEventName": "PreToolUse" });
     if let (Some(obj), Some(extra)) = (out.as_object_mut(), fields.as_object()) {
@@ -14,7 +14,14 @@ fn hook_specific(fields: Value) -> String {
 pub(super) fn format_allow(platform: &Platform) -> String {
     match platform {
         Platform::Cursor => json!({"permission": "allow"}).to_string(),
-        Platform::ClaudeCode | Platform::Codex | Platform::Pi | Platform::OpenCode => String::new(),
+        Platform::ClaudeCode | Platform::Codex | Platform::OpenCode => String::new(),
+    }
+}
+
+pub(super) fn format_allow_verb(platform: &Platform) -> String {
+    match platform {
+        Platform::Cursor => json!({"permission": "allow"}).to_string(),
+        Platform::ClaudeCode | Platform::Codex | Platform::OpenCode => "{}".to_string(),
     }
 }
 
@@ -23,7 +30,7 @@ pub(super) fn format_modify(platform: &Platform, tool_input: &Value, new_command
     updated["command"] = json!(new_command);
 
     match platform {
-        Platform::ClaudeCode | Platform::Codex | Platform::Pi => hook_specific(json!({
+        Platform::ClaudeCode | Platform::Codex => hook_specific(json!({
             "permissionDecision": "allow",
             "updatedInput": updated
         })),

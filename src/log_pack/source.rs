@@ -154,13 +154,17 @@ pub(super) fn query_attached(
         .enumerate()
         .map(|(idx, _)| {
             let alias = format!("p{idx}");
-            attached_events_select(&alias, attached_has_agent(&conn, &alias))
+            attached_events_select(
+                &alias,
+                attached_has_column(&conn, &alias, "agent"),
+                attached_has_column(&conn, &alias, "argv"),
+            )
         })
         .collect::<Vec<_>>()
         .join(" UNION ALL ");
     let mut sql = format!(
         "SELECT id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, matches, agent
+                command, command_truncated, hydrate_ms, matches, agent, argv
          FROM ({union}) WHERE 1=1"
     );
     if since.is_some() {
@@ -217,7 +221,7 @@ pub(super) fn query_attached(
     Ok(out)
 }
 
-fn attached_has_agent(conn: &Connection, alias: &str) -> bool {
+fn attached_has_column(conn: &Connection, alias: &str, column: &str) -> bool {
     let sql = format!("PRAGMA {alias}.table_info(events)");
     let Ok(mut stmt) = conn.prepare(&sql) else {
         return false;
@@ -229,22 +233,28 @@ fn attached_has_agent(conn: &Connection, alias: &str) -> bool {
         let Ok(name) = row.get::<_, String>(1) else {
             continue;
         };
-        if name == "agent" {
+        if name == column {
             return true;
         }
     }
     false
 }
 
-fn attached_events_select(alias: &str, has_agent: bool) -> String {
+fn attached_events_select(alias: &str, has_agent: bool, has_argv: bool) -> String {
     let agent = if has_agent {
         "json(agent) AS agent".to_string()
     } else {
         "NULL AS agent".to_string()
     };
+    let argv = if has_argv {
+        "json(argv) AS argv".to_string()
+    } else {
+        "NULL AS argv".to_string()
+    };
     format!(
         "SELECT id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, json(matches) AS matches, {agent}
+                command, command_truncated, hydrate_ms, json(matches) AS matches,
+                {agent}, {argv}
          FROM {alias}.events"
     )
 }

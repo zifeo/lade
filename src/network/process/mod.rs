@@ -64,15 +64,6 @@ pub(crate) fn wait_child_ready(
     }
 }
 
-pub fn stop_network_pids(raw: &str) {
-    let pids = raw
-        .split(',')
-        .filter_map(|part| part.trim().parse::<i32>().ok())
-        .filter_map(|pid| u32::try_from(pid).ok())
-        .collect::<Vec<_>>();
-    stop_network_pids_list(&pids);
-}
-
 pub fn stop_network_pids_list(pids: &[u32]) {
     for pid in pids.iter().filter_map(|pid| i32::try_from(*pid).ok()) {
         match killpg(Pid::from_raw(pid), Signal::SIGTERM) {

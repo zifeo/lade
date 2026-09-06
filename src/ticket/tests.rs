@@ -1,5 +1,17 @@
 use super::*;
 use serde_json::json;
+use std::sync::{Mutex, OnceLock};
+
+fn ticket_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn with_ticket_dir(f: impl FnOnce()) {
+    let _guard = ticket_env_lock().lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    temp_env::with_var("LADE_TICKET_DIR", Some(tmp.path().to_str().unwrap()), f);
+}
 
 fn sample_pre_event() -> PreEvent {
     PreEvent {
@@ -58,45 +70,47 @@ fn peel_pretool_equals_form() {
 
 #[test]
 fn peel_pretool_space_form() {
-    fs::create_dir_all(dir()).unwrap();
-    fs::write(path("x7Km"), "{}").unwrap();
-    let (id, argv) = peel_pretool(vec![
-        OsString::from("lade"),
-        OsString::from("--pretool"),
-        OsString::from("x7Km"),
-        OsString::from("echo"),
-    ]);
-    unlink("x7Km").unwrap();
-    assert_eq!(id.as_deref(), Some("x7Km"));
-    assert_eq!(
-        argv,
-        vec![
+    with_ticket_dir(|| {
+        fs::write(path("x7Km"), "{}").unwrap();
+        let (id, argv) = peel_pretool(vec![
             OsString::from("lade"),
             OsString::from("--pretool"),
+            OsString::from("x7Km"),
             OsString::from("echo"),
-        ]
-    );
+        ]);
+        unlink("x7Km").unwrap();
+        assert_eq!(id.as_deref(), Some("x7Km"));
+        assert_eq!(
+            argv,
+            vec![
+                OsString::from("lade"),
+                OsString::from("--pretool"),
+                OsString::from("echo"),
+            ]
+        );
+    });
 }
 
 #[test]
 fn peel_pretool_does_not_consume_echo_without_file() {
-    let _ = unlink("echo");
-    let (id, argv) = peel_pretool(vec![
-        OsString::from("lade"),
-        OsString::from("--pretool"),
-        OsString::from("echo"),
-        OsString::from("hi"),
-    ]);
-    assert!(id.is_none());
-    assert_eq!(
-        argv,
-        vec![
+    with_ticket_dir(|| {
+        let (id, argv) = peel_pretool(vec![
             OsString::from("lade"),
             OsString::from("--pretool"),
             OsString::from("echo"),
             OsString::from("hi"),
-        ]
-    );
+        ]);
+        assert!(id.is_none());
+        assert_eq!(
+            argv,
+            vec![
+                OsString::from("lade"),
+                OsString::from("--pretool"),
+                OsString::from("echo"),
+                OsString::from("hi"),
+            ]
+        );
+    });
 }
 
 #[test]
@@ -121,9 +135,7 @@ fn peel_pretool_does_not_consume_inject() {
 
 #[test]
 fn write_twice_in_one_ms_does_not_spin() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().to_str().unwrap();
-    temp_env::with_var("LADE_TICKET_DIR", Some(path), || {
+    with_ticket_dir(|| {
         let pre = sample_pre_event();
         let mut ids = std::collections::HashSet::new();
         for _ in 0..16 {
@@ -137,29 +149,21 @@ fn write_twice_in_one_ms_does_not_spin() {
 
 #[test]
 fn write_read_unlink_roundtrip() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().to_str().unwrap();
-    temp_env::with_var("LADE_TICKET_DIR", Some(path), || {
-        write_read_unlink_roundtrip_inner();
+    with_ticket_dir(|| {
+        let pre = sample_pre_event();
+        let id = write(&pre).expect("write ticket");
+        assert!(is_id(&id));
+        let read_back = read(&id).expect("read ticket");
+        assert_eq!(read_back, pre);
+        unlink(&id).expect("unlink ticket");
+        assert!(!path(&id).exists());
+        unlink(&id).expect("unlink missing is ok");
     });
-}
-
-fn write_read_unlink_roundtrip_inner() {
-    let pre = sample_pre_event();
-    let id = write(&pre).expect("write ticket");
-    assert!(is_id(&id));
-    let read_back = read(&id).expect("read ticket");
-    assert_eq!(read_back, pre);
-    unlink(&id).expect("unlink ticket");
-    assert!(!path(&id).exists());
-    unlink(&id).expect("unlink missing is ok");
 }
 
 #[test]
 fn replace_updates_same_id() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().to_str().unwrap();
-    temp_env::with_var("LADE_TICKET_DIR", Some(dir), || {
+    with_ticket_dir(|| {
         let mut pre = sample_pre_event();
         let id = write(&pre).unwrap();
         pre.pending = true;

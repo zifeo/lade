@@ -23,12 +23,10 @@ pub async fn handle_set(
     commands: Vec<String>,
     current_dir: PathBuf,
 ) -> Result<()> {
-    let mut stale: Vec<String> = crate::shell::STALE_UNSET
-        .iter()
-        .map(|key| (*key).to_string())
-        .collect();
-    stale.push(crate::shell::LADE_RESTORE.to_string());
-    println!("{}", shell.unset(stale));
+    println!(
+        "{}",
+        shell.unset(vec![crate::shell::LADE_RESTORE.to_string()])
+    );
     let command = commands.join(" ");
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
     let saved_user = crate::config::saved_user().await?;
@@ -44,7 +42,7 @@ pub async fn handle_set(
     let work = match work {
         Some(work) => work,
         None => {
-            emit_seen_if_walk_log(config, ctx, &command, &current_dir, &saved_user);
+            emit_seen_if_walk_log(config, ctx, &command, &current_dir, &saved_user, None);
             println!("{}", shell.set(HashMap::new()));
             return Ok(());
         }
@@ -71,6 +69,7 @@ pub async fn handle_set(
                     actor: event::actor(&saved_user),
                     cwd: current_dir.clone(),
                     command: command.clone(),
+                    argv: None,
                     hydrated: None,
                     matches: work.matches.clone(),
                     hydrate_ms: None,
@@ -116,6 +115,7 @@ pub async fn handle_set(
             actor: event::actor(&saved_user),
             cwd: current_dir.clone(),
             command: command.clone(),
+            argv: None,
             hydrated: Some(public_hydrate(&env, &files)),
             matches: work.matches,
             hydrate_ms: Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),

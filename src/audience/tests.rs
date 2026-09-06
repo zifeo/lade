@@ -42,6 +42,25 @@ fn set_cmd() -> Command {
 }
 
 #[test]
+fn mcp_command_is_mcp_agent() {
+    temp_env::with_vars(cleared_signals(), || {
+        let d = detect(
+            &Command::Mcp(crate::args::McpCommand {
+                url: None,
+                argv: vec!["env".into()],
+            }),
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(d.via, Via::Mcp);
+        assert_eq!(d.audience, Audience::Agent);
+        assert_eq!(d.ui, UiMode::Quiet);
+    });
+}
+
+#[test]
 fn leftover_via_env_does_not_classify() {
     temp_env::with_vars(
         cleared_signals()
@@ -230,4 +249,5 @@ fn child_stamp_matches_via() {
     assert_eq!(Via::Preexec.child_stamp(), Some(Via::PREEXEC));
     assert_eq!(Via::Organic.child_stamp(), None);
     assert_eq!(Via::Unknown.child_stamp(), None);
+    assert_eq!(Via::Mcp.child_stamp(), None);
 }

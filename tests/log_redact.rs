@@ -33,7 +33,7 @@ fn inject_seen_does_not_store_secret() {
         ],
     );
     let rows = log_rows(home.path(), dir.path());
-    let cmd = rows[0]["command"].as_str().unwrap();
+    let cmd = stored_command(home.path(), dir.path());
     assert!(cmd.contains("Authorization: Bearer ?"), "{cmd}");
     assert!(!cmd.contains(SECRET), "{cmd}");
     assert_eq!(rows[0]["kind"], "seen");
@@ -161,7 +161,7 @@ fn access_hydrate_replaces_name() {
     );
     inject(home.path(), dir.path(), &["echo", SECRET]);
     let rows = log_rows(home.path(), dir.path());
-    let cmd = rows[0]["command"].as_str().unwrap();
+    let cmd = stored_command(home.path(), dir.path());
     assert!(cmd.contains("${API_TOKEN}"), "{cmd}");
     assert!(!cmd.contains(SECRET), "{cmd}");
     assert_eq!(rows[0]["kind"], "access");

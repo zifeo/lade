@@ -69,6 +69,7 @@ struct StatusReport {
     version: VersionInfo,
     global_config: GlobalConfigInfo,
     hooks: HooksInfo,
+    skills: crate::pretool::install::SkillsStatus,
     project_config: ProjectConfig,
     log: event::LogInfo,
     ok: bool,

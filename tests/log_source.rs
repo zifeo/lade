@@ -1,6 +1,7 @@
 mod common;
 use common::{
-    backdate_all, filter_log, inject, lade_user, leftover_src_dirs_in, share_pack, write_yml,
+    backdate_all, filter_log, inject, lade_user, leftover_src_dirs_in, row_line, share_pack,
+    write_yml,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -142,12 +143,9 @@ fn source_pack_excludes_later_live_rows() {
         dir.path(),
         &["--source", pack.to_str().unwrap()],
     );
-    let cmds: Vec<&str> = packed
-        .iter()
-        .map(|r| r["command"].as_str().unwrap())
-        .collect();
-    assert!(cmds.contains(&"echo packed"), "{cmds:?}");
-    assert!(!cmds.contains(&"echo live-only"), "{cmds:?}");
+    let cmds: Vec<String> = packed.iter().map(row_line).collect();
+    assert!(cmds.iter().any(|c| c == "echo packed"), "{cmds:?}");
+    assert!(!cmds.iter().any(|c| c == "echo live-only"), "{cmds:?}");
 }
 
 #[test]
@@ -181,7 +179,7 @@ fn source_since_filters_packed_window() {
         .clone();
     let all: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
     assert_eq!(all.len(), 1);
-    assert_eq!(all[0]["command"], "echo old");
+    assert_eq!(row_line(&all[0]), "echo old");
 }
 
 #[test]
@@ -261,9 +259,6 @@ fn source_directory_is_not_recursive() {
         dir.path(),
         &["--source", packs.to_str().unwrap()],
     );
-    let cmds: Vec<&str> = rows
-        .iter()
-        .map(|r| r["command"].as_str().unwrap())
-        .collect();
-    assert_eq!(cmds, vec!["echo top"]);
+    let cmds: Vec<String> = rows.iter().map(row_line).collect();
+    assert_eq!(cmds, vec!["echo top".to_string()]);
 }

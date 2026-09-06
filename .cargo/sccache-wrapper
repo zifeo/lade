@@ -4,8 +4,19 @@
 # reach its server in the Cursor sandbox. Skip it there. This also
 # overrides ~/.cargo/config.toml rustc-wrapper = "sccache".
 # Fall back to rustc when sccache is absent (CI, fresh clones).
+# rustc -vV is a version probe (cargo clean, metadata). No objects.
+# cargo clean also wipes target/sccache; starting the daemon then
+# is wasted and fails if the socket is blocked.
 if [ -n "${CURSOR_SANDBOX:-}" ]; then
   exec "$@"
+fi
+for arg in "$@"; do
+  if [ "$arg" = "-vV" ]; then
+    exec "$@"
+  fi
+done
+if [ -n "${SCCACHE_DIR:-}" ]; then
+  mkdir -p "$SCCACHE_DIR" 2>/dev/null || true
 fi
 if command -v sccache >/dev/null 2>&1; then
   exec sccache "$@"

@@ -38,7 +38,8 @@ The child never sees the id or `LADE_T`. Direct inject ignores a leftover
 | Preexec unset | `lade unset` | (none) |
 | Direct inject | `lade inject` / `lade <cmd>` | `organic` or `unknown` |
 | Approve | then inject | same as inject |
-| MCP | `lade mcp` | same as inject |
+| MCP spawn | `lade mcp` | `mcp` |
+| MCP verb | `lade hook` (no T) | `mcp` |
 | Eval URI | `lade eval <uri>` | (none) |
 
 ## Flow
@@ -104,7 +105,8 @@ No-match `seen` uses the last explicit `log` on the loaded walk.
 | Preexec unset | read pids | restore / pids / output files | yes, if `LADE_T` | no |
 | Direct inject | none | walk | | if match log, `seen` on no match |
 | Approve | read if `pending` | from file, then inject | wrap, after the child | if match log |
-| MCP | none | walk | | no |
+| MCP spawn | none | walk | | if match log, `seen` on no match |
+| MCP verb | none | no | | `seen` if match log or walk log |
 
 ## Disclaimer
 
@@ -154,13 +156,14 @@ not the row id.
 | `id` | uuid v7 |
 | `ts` | emit time |
 | `kind` | `access` / `denied` / `seen` |
-| `via` | `pretool` / `preexec` / `organic` / `unknown` |
+| `via` | `pretool` / `preexec` / `mcp` / `organic` / `unknown` |
 | `audience` | `human` / `agent` |
 | `actor` | same |
 | `repo` | `git_stamp(cwd)` |
 | `git_commit` | `git_stamp(cwd)` |
-| `command` | Scrubbed |
-| `command_truncated` | after the cap |
+| `command` | Scrubbed match/display text |
+| `command_truncated` | `command` cut at 1024 scalars |
+| `argv` | JSONB object or array, or null |
 | `hydrate_ms` | ms, or null |
 | `matches` | from the pre-event, or `[]` |
-| `agent` | Same object as the pre-event, or null |
+| `agent` | Sparse hook metadata, or null |

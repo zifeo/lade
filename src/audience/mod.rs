@@ -16,6 +16,7 @@ use crate::config::Audience;
 pub enum Via {
     Preexec,
     Pretool,
+    Mcp,
     Organic,
     Unknown,
 }
@@ -23,13 +24,14 @@ pub enum Via {
 impl Via {
     pub const PREEXEC: &'static str = "preexec";
     pub const PRETOOL: &'static str = "pretool";
+    pub const MCP: &'static str = "mcp";
 
     /// Value stored on the ticket and in diary rows. Not written to child env.
     pub fn child_stamp(self) -> Option<&'static str> {
         match self {
             Via::Pretool => Some(Self::PRETOOL),
             Via::Preexec => Some(Self::PREEXEC),
-            Via::Organic | Via::Unknown => None,
+            Via::Mcp | Via::Organic | Via::Unknown => None,
         }
     }
 }
@@ -65,7 +67,7 @@ pub fn detect(
         other => other,
     };
     let audience = match via {
-        Via::Pretool => Audience::Agent,
+        Via::Pretool | Via::Mcp => Audience::Agent,
         Via::Preexec | Via::Organic => Audience::Human,
         Via::Unknown => {
             if agent_signal().is_some() {
@@ -94,6 +96,7 @@ fn via(command: &Command, pretool: bool) -> Via {
     match command {
         Command::Set(_) | Command::Unset(_) => Via::Preexec,
         Command::Hook { .. } => Via::Pretool,
+        Command::Mcp(_) => Via::Mcp,
         _ => Via::Unknown,
     }
 }

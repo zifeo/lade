@@ -38,7 +38,7 @@ pub fn share(
     };
     let to_label = compact_utc(to_ts);
     let manifest = json!({
-        "v": 1,
+        "v": 2,
         "exported_at": now.to_rfc3339_opts(SecondsFormat::Millis, true),
         "since": since
             .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Millis, true))
@@ -87,11 +87,15 @@ fn write_snapshot_db(events: &[Event], path: &Path) -> Result<()> {
             .agent
             .as_ref()
             .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
+        let argv = event
+            .argv
+            .as_ref()
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
         conn.execute(
             "INSERT INTO events (
                 id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, matches, agent
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, jsonb(?12), jsonb(?13))",
+                command, command_truncated, hydrate_ms, matches, agent, argv
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, jsonb(?12), jsonb(?13), jsonb(?14))",
             params![
                 event.id,
                 event.ts,
@@ -106,6 +110,7 @@ fn write_snapshot_db(events: &[Event], path: &Path) -> Result<()> {
                 event.hydrate_ms,
                 matches,
                 agent,
+                argv,
             ],
         )?;
     }
@@ -127,7 +132,7 @@ fn write_tar_gz(out: &Path, manifest: &Path, events_db: &Path) -> Result<()> {
 }
 
 pub(super) fn redact_for_share(event: &Event, home: &Path) -> Option<Event> {
-    if event.command.is_empty() {
+    if event.command.is_empty() && event.via.as_deref() != Some("mcp") {
         return None;
     }
     let git_root = event.repo.as_deref();
@@ -145,6 +150,7 @@ pub(super) fn redact_for_share(event: &Event, home: &Path) -> Option<Event> {
         git_commit: event.git_commit.clone(),
         command,
         command_truncated: event.command_truncated,
+        argv: event.argv.clone(),
         hydrate_ms: event.hydrate_ms,
         matches,
         agent: event.agent.clone(),

@@ -2,10 +2,12 @@ use std::{collections::HashMap, ffi::OsString, path::Path};
 
 use anyhow::{Result, bail};
 use log::info;
+use serde_json::{Value, json};
 use url::Url;
 
 use crate::{
-    args::McpCommand, config::Config, context::InvocationContext, message_box::MessageBox, prompt,
+    args::McpCommand, config::Config, context::InvocationContext, event, inject,
+    message_box::MessageBox, prompt,
 };
 
 mod stdio;
@@ -27,15 +29,70 @@ pub async fn run(
     current_dir: &Path,
 ) -> Result<Option<i32>> {
     let target = target(&command)?;
-    let rules = config.collect_for(&target, ctx.audience);
+    let stored = spawn_command(&command);
+    let argv = spawn_argv(&command);
+    let patterned = config.collect_for_with_pattern(&target, ctx.audience);
+    let rules = patterned
+        .iter()
+        .map(|(path, _, rule)| (path.clone(), rule.clone()))
+        .collect::<Vec<_>>();
+    let saved_user = crate::config::saved_user().await?;
+    let work = if patterned.is_empty() {
+        None
+    } else {
+        Some(Config::pre_event_work(&patterned, &saved_user)?)
+    };
     let disclaimers = Config::disclaimers_from_rules(&rules);
-    prompt::resolve_disclaimers(ctx, &disclaimers, &target).await?;
+    if let Err(e) = prompt::resolve_disclaimers(ctx, &disclaimers, &target).await {
+        if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some()
+            && let Some(work) = &work
+        {
+            event::emit_if(
+                work.log,
+                event::Emit {
+                    kind: event::Kind::Denied,
+                    via: ctx.via,
+                    audience: ctx.audience,
+                    actor: event::actor(&saved_user),
+                    cwd: current_dir.to_path_buf(),
+                    command: stored.clone(),
+                    argv: argv.clone(),
+                    hydrated: None,
+                    matches: work.matches.clone(),
+                    hydrate_ms: None,
+                    agent: crate::agent_meta::merge(serde_json::Value::Null),
+                },
+            );
+        }
+        return Err(e);
+    }
+    let hydrate_started = std::time::Instant::now();
     let mut access = crate::access::acquire_attached(
         config,
         &rules,
         ctx.stderr_is_terminal && !ctx.stdin_is_terminal,
     )
     .await?;
+    let hydrate_ms = Some(hydrate_started.elapsed().as_secs_f64() * 1000.0);
+    match &work {
+        Some(work) => event::emit_if(
+            work.log,
+            event::Emit {
+                kind: event::logged_kind(&work.matches),
+                via: ctx.via,
+                audience: ctx.audience,
+                actor: event::actor(&saved_user),
+                cwd: current_dir.to_path_buf(),
+                command: stored.clone(),
+                argv: argv.clone(),
+                hydrated: Some(access.public_hydrate()),
+                matches: work.matches.clone(),
+                hydrate_ms,
+                agent: crate::agent_meta::merge(serde_json::Value::Null),
+            },
+        ),
+        None => inject::emit_seen_if_walk_log(config, ctx, &stored, current_dir, &saved_user, argv),
+    }
     for warning in &access.warnings {
         MessageBox::new().warning().line(warning).print_stderr();
     }
@@ -56,6 +113,29 @@ pub async fn run(
     access.cleanup()?;
     info!("mcp stopped");
     result
+}
+
+fn spawn_command(command: &McpCommand) -> String {
+    if let Some(url) = &command.url {
+        return url.clone();
+    }
+    command
+        .argv
+        .first()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn spawn_argv(command: &McpCommand) -> Option<Value> {
+    if command.argv.len() < 2 {
+        return None;
+    }
+    Some(json!(
+        command.argv[1..]
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+    ))
 }
 
 fn target(command: &McpCommand) -> Result<String> {

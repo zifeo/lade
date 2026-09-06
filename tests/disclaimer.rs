@@ -36,7 +36,7 @@ fn test_disclaimer_hook_flow() {
     assert!(!out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stdout.contains("unset -v LADE_PENDING"));
+    assert!(stdout.contains("unset -v LADE_RESTORE"));
     assert!(stdout.contains("export LADE_T='"));
     assert!(!stdout.contains("export LADE_PENDING='"));
     assert!(stderr.contains("Disclaimer required to uncover the secrets"));
@@ -57,6 +57,7 @@ fn test_disclaimer_hook_flow() {
     // 3. a wrong code (including the old `1` reflex) stays blocked
     common::lade(home.path())
         .current_dir(dir.path())
+        .env("LADE_TICKET_DIR", tickets.path())
         .env("LADE_APPROVE", "1")
         .args(["set", "deploy"])
         .assert()

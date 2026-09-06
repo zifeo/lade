@@ -1,5 +1,5 @@
 mod common;
-use common::{SECRET, inject, log_rows, write_yml, write_yml_raw};
+use common::{SECRET, inject, log_rows, row_line, write_yml, write_yml_raw};
 use std::fs;
 use std::thread;
 use tempfile::tempdir;
@@ -21,7 +21,7 @@ fn disclaimer_denied_writes_kind() {
     let rows = log_rows(home.path(), dir.path());
     assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["kind"], "denied");
-    assert_eq!(rows[0]["command"], "echo hi");
+    assert_eq!(row_line(&rows[0]), "echo hi");
     assert!(rows[0]["hydrate_ms"].is_null());
     let matches = rows[0]["matches"].as_array().unwrap();
     assert_eq!(matches[0]["rule"], "^echo");
@@ -105,7 +105,7 @@ fn set_emits_seen_without_event_id() {
     let rows = log_rows(home.path(), dir.path());
     assert_eq!(rows[0]["kind"], "seen");
     assert_eq!(rows[0]["via"], "preexec");
-    assert_eq!(rows[0]["command"], "echo hi");
+    assert_eq!(row_line(&rows[0]), "echo hi");
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn hook_match_is_silent_inject_writes() {
     assert_eq!(rows[0]["kind"], "access");
     assert_eq!(rows[0]["via"], "pretool");
     assert_eq!(rows[0]["audience"], "agent");
-    assert_eq!(rows[0]["command"], "echo hi");
+    assert_eq!(row_line(&rows[0]), "echo hi");
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn hook_no_match_walk_log_writes_seen() {
     let rows = log_rows(home.path(), dir.path());
     assert_eq!(rows[0]["kind"], "seen");
     assert_eq!(rows[0]["via"], "pretool");
-    assert_eq!(rows[0]["command"], "echo hi");
+    assert_eq!(row_line(&rows[0]), "echo hi");
     assert_eq!(rows[0]["agent"]["harness"], "cursor");
     assert_eq!(rows[0]["agent"]["session"], "conv_1");
 }
@@ -229,7 +229,7 @@ fn dot_log_then_later_secret_is_access() {
     inject(home.path(), dir.path(), &["echo", SECRET]);
     let rows = log_rows(home.path(), dir.path());
     assert_eq!(rows[0]["kind"], "access");
-    let cmd = rows[0]["command"].as_str().unwrap();
+    let cmd = row_line(&rows[0]);
     assert!(cmd.contains("${API_TOKEN}"), "{cmd}");
     assert!(!cmd.contains(SECRET), "{cmd}");
 }
@@ -245,7 +245,7 @@ fn child_secrets_inherit_parent_dot_log() {
     inject(home.path(), &child, &["echo", SECRET]);
     let rows = log_rows(home.path(), &child);
     assert_eq!(rows[0]["kind"], "access");
-    let cmd = rows[0]["command"].as_str().unwrap();
+    let cmd = row_line(&rows[0]);
     assert!(cmd.contains("${API_TOKEN}"), "{cmd}");
 }
 
@@ -264,15 +264,10 @@ fn overlay_log_parent_then_child() {
     inject(home.path(), &child, &["git", "status"]);
     inject(home.path(), &child, &["npm", "run", "deploy"]);
     let rows = log_rows(home.path(), &child);
-    let cmds: Vec<&str> = rows
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|r| r["command"].as_str().unwrap())
-        .collect();
-    assert!(cmds.contains(&"echo hi"), "{cmds:?}");
+    let cmds: Vec<String> = rows.as_array().unwrap().iter().map(row_line).collect();
+    assert!(cmds.iter().any(|c| c == "echo hi"), "{cmds:?}");
     assert!(!cmds.iter().any(|c| c.contains("git status")), "{cmds:?}");
-    assert!(cmds.contains(&"npm run deploy"), "{cmds:?}");
+    assert!(cmds.iter().any(|c| c == "npm run deploy"), "{cmds:?}");
 }
 
 #[test]

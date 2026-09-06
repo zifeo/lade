@@ -80,7 +80,11 @@ async fn run() -> Result<()> {
     }
 
     if args.help {
-        args::print_command_help(&args.command, &event::db_path())?;
+        args::print_command_help(
+            &args.command,
+            &event::db_path(),
+            args::help_lists_internal(&args.verbose),
+        )?;
         return Ok(());
     }
 
@@ -93,7 +97,7 @@ async fn run() -> Result<()> {
         }),
         Some(command) => command,
         None => {
-            args::print_command_help(&None, &event::db_path())?;
+            args::print_command_help(&None, &event::db_path(), false)?;
             return Ok(());
         }
     };

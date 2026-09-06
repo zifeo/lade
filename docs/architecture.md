@@ -191,6 +191,10 @@ hooks, `lade inject`, file output, and MCP.
 
 ## 6. MCP
 
+`lade mcp` hydrates a server process. Every MCP `tools/call` that
+reaches `lade hook` is a verb row. Diary shapes are in
+[log.md](log.md).
+
 `lade mcp` uses the same rule matcher and binding resolver as command
 injection, but the output sink depends on the transport. A stdio target is
 spawned directly with public bindings in its environment. An HTTPS target is
@@ -223,7 +227,7 @@ detached provider PIDs on the T ticket so `lade unset` can stop them.
 Interactive prompts are forbidden in hook mode due to shell limitations (stdin hijacking, lack of echo). When a command matches a rule with a `disclaimer:`, the hook flow behaves as follows:
 
 1. **`lade set`** (preexec) detects the disclaimer.
-2. It outputs `unset` of leftover protocol keys (`LADE_PENDING`, `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_DISCLAIMER_APPROVED`) so older shells clean up.
+2. It outputs `unset` of `LADE_RESTORE` so a previous snapshot cannot leak into the next set.
 3. It writes T with `pending: true` and outputs `export LADE_T=<id>`.
 4. It prints the disclaimer text in a single **Warning MessageBox** to stderr and exits with code 3 (`DISCLAIMER_WITHHELD`). It is not a loader failure, so no second error box is shown.
 5. The user's command runs **without secrets** (fail-closed).
@@ -261,7 +265,7 @@ and per-rule hydrate. It does not acquire network.
 
 The **pretool handler** (`src/pretool/`, invoked as `lade hook`) reads
 preToolUse JSON. Envelope comes from the payload first: `PreToolUse`
-and explicit Codex/Pi signals use `hookSpecificOutput` +
+and explicit Codex signals use `hookSpecificOutput` +
 `updatedInput`. Cursor's `updated_input` is only for `CURSOR_VERSION`
 or `preToolUse`. OpenCode's plugin sends `{ command, session_id }` and
 reads `{ command }` back. `CURSOR_VERSION` is last because Cursor also
@@ -278,11 +282,11 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing preTool hooks (`src/pretool/install/`)
 
-`lade install` offers to wire `lade hook --harness <slug>` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.pi`, `~/.config/opencode`). The bin name follows argv[0]. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths, plus whether the installed command is current. The daily version check also refreshes already-installed hook files. `lade upgrade` voids that stamp so the first run of the new binary refreshes them. `lade hook` rewrites matches with the same bin name and stores a free-form `agent` object on the diary row.
+`lade install` offers to wire `lade hook --harness <slug>` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.config/opencode`). The bin name follows argv[0]. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths, plus whether the installed command is current. The daily version check also refreshes already-installed hook files and Lade-managed skills (content hash of the bundled `SKILL.md`). `lade upgrade` voids that stamp so the first run of the new binary refreshes them. `lade hook` rewrites shell matches with the same bin name and stores a free-form `agent` object on the diary row. MCP verbs are allow-only.
 
 ### Direct path
 
-When Via is not preexec or pretool (`lade inject`, `lade mcp`, `lade git …`), `detect()` promotes to organic if stdin and stderr are TTYs and no agent env signal fired. Otherwise Via stays unknown. `detect()` then uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
+When Via is not preexec, pretool, or mcp (`lade inject`, `lade git …`), `detect()` promotes to organic if stdin and stderr are TTYs and no agent env signal fired. Otherwise Via stays unknown. `lade mcp` is `Via::Mcp` / Agent. `detect()` then uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
 
 ### Exit codes
 

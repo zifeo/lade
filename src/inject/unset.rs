@@ -50,9 +50,6 @@ pub async fn handle_unset(
         }
         let _ = ticket::unlink(id);
     }
-    if let Ok(raw) = std::env::var(crate::shell::LADE_NETWORK_PIDS) {
-        network::stop_network_pids(&raw);
-    }
     remove_files(&mut files.keys())?;
     let restore = match std::env::var(crate::shell::LADE_RESTORE) {
         Err(_) => None,
@@ -70,12 +67,10 @@ pub async fn handle_unset(
     let env_line = restore
         .map(|payload| shell.restore(payload.env))
         .unwrap_or_default();
-    let mut unset_keys: Vec<String> = crate::shell::STALE_UNSET
-        .iter()
-        .map(|key| (*key).to_string())
-        .collect();
-    unset_keys.push(crate::shell::LADE_RESTORE.to_string());
-    unset_keys.push(crate::shell::LADE_T.to_string());
+    let unset_keys = vec![
+        crate::shell::LADE_RESTORE.to_string(),
+        crate::shell::LADE_T.to_string(),
+    ];
     let meta = shell.unset(unset_keys);
     let line = [env_line, meta]
         .into_iter()

@@ -29,7 +29,7 @@ shell session, CI job, or model context.
 - Open private network access through `kubectl`, `kubefwd`, Teleport `tsh`, or
   SSH only while the command runs.
 - Redact provider-resolved secrets from stdout and stderr.
-- Work from shells, CI, Cursor, Claude Code, Codex, Pi, and OpenCode.
+- Work from shells, CI, Cursor, Claude Code, Codex, and OpenCode.
 
 Compatible shells: [Fish](https://fishshell.com),
 [Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io).
@@ -277,7 +277,7 @@ putting secret values in the model context or chat transcript.
 
 ### Recommended usage: preTool hooks
 
-Cursor, Claude Code, Codex, Pi, and OpenCode can call `lade hook` before shell
+Cursor, Claude Code, Codex, and OpenCode can call `lade hook` before shell
 commands. When an agent runs a matching command, Lade rewrites it through
 `lade inject`, resolves the configured access, and redacts provider-resolved
 secret values from stdout and stderr.
@@ -346,32 +346,6 @@ untrusted hook or `[features].hooks = false` is a silent no-op. Global file:
           {
             "type": "command",
             "command": "lade hook --harness codex"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-</details>
-
-<details>
-<summary>Pi (<code>.pi/settings.json</code>)</summary>
-
-Pi matches on `tool_name`, often lowercase `bash`. Global file:
-`~/.pi/agent/settings.json`.
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "lade hook --harness pi"
           }
         ]
       }
