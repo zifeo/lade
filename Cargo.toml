@@ -28,7 +28,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 regex = "1.13.1"
 lade-sdk = { path = "./sdk", version = "0.17.3-beta.1" }
 tokio = { version = "1", features = ["rt", "macros", "fs", "time", "signal", "io-std", "io-util", "process"] }
-indexmap = { version = "2.14.0", features = ["serde"] }
+indexmap = { version = "2.14.2", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
 env_logger = "0.11.11"
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
@@ -36,32 +36,38 @@ serde_json = { version = "1.0.151", features = ["preserve_order"] }
 futures = "0.3.34"
 directories = "6.0.0"
 chrono = { version = "0.4.45", features = ["serde"] }
-log = "0.4.33"
+log = "0.4.34"
 semver = "1.0.28"
 textwrap = "0.16.2"
-owo-colors = "4.3.0"
+owo-colors = "4.4.0"
 aho-corasick = "1.1.5"
 rustc-hash = "2"
 base64 = "0.23.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
 url = "2.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+uuid = { version = "1.26.0", features = ["v7"] }
+tar = "0.4.44"
+flate2 = "1.1.2"
+tempfile = "3.27.0"
 
 [features]
 default = ["docker-tests"]
 docker-tests = []
 
 [target.'cfg(target_family = "unix")'.dependencies]
-nix = { version = "0.31.3", features = ["signal", "term"] }
+nix = { version = "0.31.3", features = ["signal", "term", "process"] }
 libc = "0.2"
 
 [dev-dependencies]
-tempfile = "3.27.0"
 assert_cmd = "2.2.2"
 predicates = "3"
 temp-env = "0.3"
 serde_json = "1.0.151"
 criterion = { version = "0.8", features = ["html_reports"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [[bench]]
 name = "redact"

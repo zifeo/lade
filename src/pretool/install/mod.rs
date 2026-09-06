@@ -22,13 +22,27 @@ use serde::Serialize;
 use crate::message_box::MessageBox;
 
 fn home_dir() -> Result<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(home));
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(home));
+    }
     directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("cannot determine home directory")
 }
 
-fn hook_command() -> String {
-    format!("{} hook", crate::pretool::invoked_lade_bin())
+fn install_bin() -> String {
+    let bin = crate::pretool::invoked_lade_bin();
+    match Path::new(&bin).file_name().and_then(|name| name.to_str()) {
+        Some("lade" | "lade.exe") => bin,
+        _ => "lade".to_string(),
+    }
+}
+
+fn hook_command(agent: config::Agent) -> String {
+    format!("{} hook --harness {}", install_bin(), agent.slug())
 }
 
 fn tilde(path: &Path, home: &Path) -> String {
@@ -61,11 +75,11 @@ fn report(results: Vec<String>) {
 /// Offer to install the `lade hook` interceptor for every agent detected on the
 /// machine. `may_prompt` must be true only when both stdin and stderr are TTYs.
 pub fn install(may_prompt: bool) -> Result<()> {
-    let command = hook_command();
     let home = home_dir()?;
     let mut results = Vec::new();
 
     for agent in AGENTS {
+        let command = hook_command(agent);
         if !agent.home_dir(&home).is_dir() {
             continue;
         }
@@ -78,7 +92,7 @@ pub fn install(may_prompt: bool) -> Result<()> {
             }
             if !may_prompt {
                 results.push(format!(
-                    "{}: detected — re-run `lade install` in a terminal to update its hook",
+                    "{}: detected. Re-run `lade install` in a terminal to update its hook",
                     agent.name()
                 ));
                 continue;
@@ -93,7 +107,7 @@ pub fn install(may_prompt: bool) -> Result<()> {
         }
         if !may_prompt {
             results.push(format!(
-                "{}: detected — re-run `lade install` in a terminal to add its hook",
+                "{}: detected. Re-run `lade install` in a terminal to add its hook",
                 agent.name()
             ));
             continue;
@@ -115,6 +129,52 @@ pub fn install(may_prompt: bool) -> Result<()> {
 
     report(results);
     Ok(())
+}
+
+/// Rewrite already-installed hook files to today's command. Never creates
+/// a hook the user did not install. Errors are ignored.
+///
+/// No-op in the unit-test binary: `current_dir()` is the crate and
+/// `argv0` is the rustc harness. Refresh still runs in `lade set` /
+/// `lade inject` via the real binary. Tests that need a rewrite call
+/// `refresh_at` with an isolated home.
+pub fn refresh_installed() {
+    if cfg!(test) {
+        return;
+    }
+    let Ok(home) = home_dir() else {
+        return;
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    refresh_at(&home, &cwd);
+}
+
+pub(crate) fn refresh_at(home: &Path, cwd: &Path) {
+    for agent in AGENTS {
+        let command = hook_command(agent);
+        refresh_path(agent, &agent.config_path(home), &command);
+        if let Ok((project_path, true)) = find_project(agent, home, cwd) {
+            refresh_path(agent, &project_path, &command);
+        }
+    }
+}
+
+fn refresh_path(agent: config::Agent, path: &Path, command: &str) {
+    let Ok(existing) = fs::read_to_string(path) else {
+        return;
+    };
+    match agent.has_hook(&existing) {
+        Ok(true) => {}
+        _ => return,
+    }
+    match agent.hook_uses_command(&existing, command) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(_) => return,
+    }
+    if let Ok(updated) = agent.merge(&existing, command) {
+        let _ = fs::write(path, updated);
+    }
 }
 
 /// Remove the `lade hook` interceptor from every agent config that contains it.
@@ -152,6 +212,7 @@ pub fn uninstall() -> Result<()> {
 pub struct HookLocation {
     pub path: PathBuf,
     pub installed: bool,
+    pub current: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,26 +243,34 @@ pub fn inspect(cwd: &Path) -> Result<PretoolStatus> {
 }
 
 fn inspect_agent(agent: config::Agent, home: &Path, cwd: &Path) -> Result<PretoolAgentStatus> {
+    let expected = hook_command(agent);
     let global_path = agent.config_path(home);
-    let global_installed = hook_present(&global_path, agent)?;
+    let (global_installed, global_current) = hook_state(&global_path, agent, Some(&expected));
     let (project_path, project_installed) = find_project(agent, home, cwd)?;
+    let project_current = project_installed && hook_state(&project_path, agent, Some(&expected)).1;
     Ok(PretoolAgentStatus {
         global: HookLocation {
             path: global_path,
             installed: global_installed,
+            current: global_current,
         },
         project: HookLocation {
             path: project_path,
             installed: project_installed,
+            current: project_current,
         },
     })
 }
 
-fn hook_present(path: &Path, agent: config::Agent) -> Result<bool> {
-    match fs::read_to_string(path) {
-        Ok(content) => agent.has_hook(&content),
-        Err(_) => Ok(false),
-    }
+fn hook_state(path: &Path, agent: config::Agent, expected: Option<&str>) -> (bool, bool) {
+    let Ok(content) = fs::read_to_string(path) else {
+        return (false, false);
+    };
+    let installed = agent.has_hook(&content).unwrap_or(false);
+    let current = installed
+        && expected
+            .is_some_and(|command| agent.hook_uses_command(&content, command).unwrap_or(false));
+    (installed, current)
 }
 
 fn leftover_json_hook(agent: config::Agent, home: &Path) -> Result<Option<(PathBuf, String)>> {
@@ -217,6 +286,7 @@ fn leftover_json_hook(agent: config::Agent, home: &Path) -> Result<Option<(PathB
 /// Walk from `cwd` toward `$HOME` looking for a project-local hook file.
 /// Home-level agent configs stay in `global`.
 fn find_project(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBuf, bool)> {
+    let under_home = cwd.starts_with(home);
     let mut dir = cwd.to_path_buf();
     loop {
         if dir == home {
@@ -224,7 +294,7 @@ fn find_project(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBu
         }
         let files = project_files(agent, &dir);
         for path in &files {
-            if path.is_file() && hook_present(path, agent)? {
+            if path.is_file() && hook_state(path, agent, None).0 {
                 return Ok((path.clone(), true));
             }
         }
@@ -232,8 +302,8 @@ fn find_project(agent: config::Agent, home: &Path, cwd: &Path) -> Result<(PathBu
             return Ok((found, false));
         }
         match dir.parent() {
-            Some(parent) => dir = parent.to_path_buf(),
-            None => break,
+            Some(parent) if under_home => dir = parent.to_path_buf(),
+            _ => break,
         }
     }
     Ok((canonical_project_path(agent, cwd), false))

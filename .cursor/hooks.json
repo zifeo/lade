@@ -3,7 +3,7 @@
   "hooks": {
     "preToolUse": [
       {
-        "command": "lade hook",
+        "command": "lade hook --harness cursor",
         "matcher": "Shell"
       }
     ]

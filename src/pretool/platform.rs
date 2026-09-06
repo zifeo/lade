@@ -1,8 +1,7 @@
-use anyhow::Result;
 use serde_json::Value;
 use std::env;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Platform {
     Cursor,
     ClaudeCode,
@@ -11,48 +10,122 @@ pub(super) enum Platform {
     OpenCode,
 }
 
-const CODEX_ENV: [&str; 3] = ["CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_HOME"];
+const CODEX_ENV: [&str; 2] = ["CODEX_THREAD_ID", "CODEX_SANDBOX"];
 const PI_ENV: [&str; 2] = ["PI_HOME", "PI_CODING_AGENT"];
 const OPENCODE_ENV: [&str; 2] = ["OPENCODE", "OPENCODE_DIR"];
+
+impl Platform {
+    pub(super) fn slug(self) -> &'static str {
+        match self {
+            Platform::Cursor => "cursor",
+            Platform::ClaudeCode => "claude",
+            Platform::Codex => "codex",
+            Platform::Pi => "pi",
+            Platform::OpenCode => "opencode",
+        }
+    }
+}
+
+pub(super) fn parse_harness(raw: &str) -> Option<Platform> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cursor" => Some(Platform::Cursor),
+        "claude" | "claude-code" | "claudecode" => Some(Platform::ClaudeCode),
+        "codex" => Some(Platform::Codex),
+        "pi" => Some(Platform::Pi),
+        "opencode" => Some(Platform::OpenCode),
+        _ => None,
+    }
+}
+
+/// Flag first. Unknown flag values are ignored. Detection never fails the hook.
+pub(super) fn resolve_platform(harness: Option<&str>, input: &Value) -> Option<Platform> {
+    if let Some(platform) = harness.and_then(parse_harness) {
+        return Some(platform);
+    }
+    detect_platform(input).or_else(
+        || match input.get("hook_event_name").and_then(Value::as_str) {
+            Some("preToolUse") => Some(Platform::Cursor),
+            Some("PreToolUse") => Some(Platform::ClaudeCode),
+            _ => None,
+        },
+    )
+}
+
+pub(super) fn collect_agent(platform: Option<Platform>, input: &Value) -> Value {
+    let mut obj = serde_json::Map::new();
+    if let Some(platform) = platform {
+        obj.insert("harness".to_string(), serde_json::json!(platform.slug()));
+    }
+    if let Some(model) = model_from(platform, input) {
+        obj.insert("model".to_string(), serde_json::json!(model));
+    }
+    if let Some(session) = session_from(input) {
+        obj.insert("session".to_string(), serde_json::json!(session));
+    }
+    if obj.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(obj)
+    }
+}
+
+fn model_from(platform: Option<Platform>, input: &Value) -> Option<String> {
+    match platform {
+        Some(Platform::Cursor) => crate::agent_meta::pinned(
+            input
+                .get("model_id")
+                .and_then(Value::as_str)
+                .or_else(|| input.get("model").and_then(Value::as_str)),
+        ),
+        Some(Platform::Codex) => {
+            crate::agent_meta::pinned(input.get("model").and_then(Value::as_str))
+        }
+        _ => None,
+    }
+}
+
+fn session_from(input: &Value) -> Option<String> {
+    input
+        .get("conversation_id")
+        .and_then(Value::as_str)
+        .or_else(|| input.get("session_id").and_then(Value::as_str))
+        .or_else(|| input.get("sessionID").and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
 
 /// Detect the host agent from payload, then hook environment. `CURSOR_VERSION`
 /// is last among env signals: Cursor also sets it in other hosts' terminals,
 /// and a `PreToolUse` payload must keep the Claude `updatedInput` envelope.
-pub(super) fn detect_platform(input: &Value) -> Result<Platform> {
+/// `--harness opencode` uses a native `{ command }` rewrite.
+pub(super) fn detect_platform(input: &Value) -> Option<Platform> {
     if is_codex(input) {
-        return Ok(Platform::Codex);
+        return Some(Platform::Codex);
     }
     if is_opencode(input) {
-        return Ok(Platform::OpenCode);
+        return Some(Platform::OpenCode);
     }
     if is_pi(input) {
-        return Ok(Platform::Pi);
+        return Some(Platform::Pi);
     }
     if env::var("CLAUDE_PROJECT_DIR").is_ok() || is_pretool_use(input) {
-        return Ok(Platform::ClaudeCode);
+        return Some(Platform::ClaudeCode);
     }
     if env::var("CURSOR_VERSION").is_ok()
         || input.get("hook_event_name").and_then(Value::as_str) == Some("preToolUse")
     {
-        return Ok(Platform::Cursor);
+        return Some(Platform::Cursor);
     }
-    anyhow::bail!(
-        "Unknown platform: none of CURSOR_VERSION, CLAUDE_PROJECT_DIR, \
-         CODEX_THREAD_ID, CODEX_SANDBOX, CODEX_HOME, PI_HOME, PI_CODING_AGENT, \
-         OPENCODE, or OPENCODE_DIR is set. lade hook supports Cursor, \
-         Claude Code, Codex, Pi, and OpenCode."
-    )
+    None
 }
 
 fn is_codex(input: &Value) -> bool {
     CODEX_ENV.iter().any(|key| env::var(key).is_ok()) || is_codex_payload(input)
 }
 
-/// Codex documents `turn_id` and `model` as PreToolUse extensions.
+/// `turn_id` is Codex-specific. `model` is not: Cursor now sends it too.
 fn is_codex_payload(input: &Value) -> bool {
-    is_pretool_use(input)
-        && (input.get("turn_id").and_then(Value::as_str).is_some()
-            || input.get("model").and_then(Value::as_str).is_some())
+    is_pretool_use(input) && input.get("turn_id").and_then(Value::as_str).is_some()
 }
 
 fn is_pi(input: &Value) -> bool {
@@ -84,6 +157,7 @@ pub(super) fn extract_command(input: &Value) -> Option<String> {
         .get("tool_input")
         .and_then(|ti| ti.get("command"))
         .and_then(|c| c.as_str())
+        .or_else(|| input.get("command").and_then(Value::as_str))
         .map(|s| s.to_string())
 }
 
@@ -107,7 +181,7 @@ fn is_env_assignment(token: &str) -> bool {
 /// rest of the command. The hook re-emits them before `lade inject` so an
 /// approval prefix lands in the wrapped process's environment instead of being
 /// swallowed into the quoted inject argument.
-pub(super) fn split_env_prefix(command: &str) -> (String, String) {
+pub(crate) fn split_env_prefix(command: &str) -> (String, String) {
     let mut prefix: Vec<&str> = Vec::new();
     let mut rest = command.trim_start();
     while let Some((head, tail)) = rest.split_once(char::is_whitespace) {
@@ -123,8 +197,8 @@ pub(super) fn split_env_prefix(command: &str) -> (String, String) {
 
 /// True when a previous `lade hook` already rewrote this into inject.
 /// The rewrite may be `lade` or an absolute path, so `starts_with("lade inject")`
-/// is not enough for a user hook plus a project hook. `--pretool` is the
-/// alias form (`lade --pretool '…'`).
+/// is not enough for a user hook plus a project hook. `--pretool` and
+/// `--pretool=<id>` are the alias form.
 pub(super) fn is_already_injected(command: &str) -> bool {
     let (_, command) = split_env_prefix(command);
     let mut parts = command.split_whitespace();
@@ -135,16 +209,17 @@ pub(super) fn is_already_injected(command: &str) -> bool {
         .file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| matches!(name, "lade" | "lade.exe"));
-    is_lade && parts.any(|part| part == "inject" || part == "--pretool" || part == "--via=pretool")
+    is_lade
+        && parts.any(|part| part == "inject" || is_pretool_flag(part) || part == "--via=pretool")
 }
 
-/// True when the rewrite already carries pretool: `--pretool`, older
-/// `--via=pretool`, or a `LADE_VIA=pretool` env prefix.
+/// True when the rewrite already carries pretool: `--pretool`,
+/// `--pretool=<id>`, older `--via=pretool`, or a `LADE_VIA=pretool` env prefix.
 pub(super) fn has_pretool_stamp(env_prefix: &str, command: &str) -> bool {
     let stamp = format!(
         "{}={}",
         crate::shell::LADE_VIA,
-        crate::shell::LADE_VIA_PRETOOL
+        crate::audience::Via::PRETOOL
     );
     if env_prefix.split_whitespace().any(|part| part == stamp) {
         return true;
@@ -152,8 +227,12 @@ pub(super) fn has_pretool_stamp(env_prefix: &str, command: &str) -> bool {
     let parts: Vec<&str> = command.split_whitespace().collect();
     parts
         .iter()
-        .any(|part| *part == "--pretool" || *part == "--via=pretool")
+        .any(|part| is_pretool_flag(part) || *part == "--via=pretool")
         || parts
             .windows(2)
-            .any(|pair| pair[0] == "--via" && pair[1] == crate::shell::LADE_VIA_PRETOOL)
+            .any(|pair| pair[0] == "--via" && pair[1] == crate::audience::Via::PRETOOL)
+}
+
+fn is_pretool_flag(part: &str) -> bool {
+    part == "--pretool" || part.starts_with("--pretool=")
 }

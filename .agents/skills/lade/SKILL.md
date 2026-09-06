@@ -23,7 +23,12 @@ For Cursor, ensure `.cursor/hooks.json` contains:
 {
   "version": 1,
   "hooks": {
-    "preToolUse": [{ "command": "lade hook", "matcher": "Shell" }]
+    "preToolUse": [
+      {
+        "command": "lade hook --harness cursor",
+        "matcher": "Shell"
+      }
+    ]
   }
 }
 ```
@@ -36,7 +41,12 @@ For Claude Code, ensure `.claude/settings.json` contains:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness claude"
+          }
+        ]
       }
     ]
   }
@@ -53,7 +63,12 @@ For Codex, open `/hooks` and trust the Lade command. An untrusted or
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness codex"
+          }
+        ]
       }
     ]
   }
@@ -68,7 +83,12 @@ For Pi, ensure `.pi/settings.json` contains:
     "PreToolUse": [
       {
         "matcher": "Bash|bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness pi"
+          }
+        ]
       }
     ]
   }
@@ -87,9 +107,29 @@ Use `lade <command>` only when hooks are unavailable, disabled, refused by the u
 
 Do not guess secret values. Do not print vault output. Do not use `lade eval` or `--no-mask` unless the human explicitly asks. For troubleshooting, prefer `lade status --json`.
 
+## Local diary
+
+Recording is opt-in. Last explicit `log` on matching rules wins.
+No-match `seen` uses the last explicit `log` on the loaded walk.
+`lade log` is the typed-command diary. `lade log --group command`
+counts commands. `lade usage` is Lade usage in this tree: matched
+rules only, most frequent first, with the file path. Unused rules
+and catch-all `.` are omitted. There is no npm / make / `scripts/`
+catalog. `lade.yml` walk stops at `$HOME`. Queries stay on the
+current git root. `--all` reads every repo. `--path` scopes to
+another tree. Prefer `--json`. `lade log share` writes a gzipped SQLite
+snapshot. `lade log --source` / `lade usage --source` read packs
+without writing the live db. Do not invent merge or import.
+
+`lade log` and `lade usage` do not write rows. Inject and set write
+when `log: true` matches. See `docs/log.md`.
+
 ## `lade.yml` Changes
 
-Read existing `lade.yml` rules before changing them. It is OK to add or adjust a rule for debugging, such as adding a `curl` command matcher, when that is the task.
+Read existing `lade.yml` rules before changing them. Lade walks from
+the current directory up to `$HOME` and merges every file it finds.
+It is OK to add or adjust a rule for debugging, such as adding a
+`curl` command matcher, when that is the task.
 
 Keep debug-only rules narrow. Before finishing, remove them or turn them into the standard project rule the human wants to keep.
 

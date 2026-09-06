@@ -76,6 +76,9 @@ impl LadeFile {
                     ));
                 }
             }
+            if at_user_home(&path) {
+                break;
+            }
             match path.parent() {
                 Some(parent) => path = parent.to_path_buf(),
                 None => break,
@@ -97,6 +100,10 @@ impl LadeFile {
         let regex_set = RegexSet::new(&regex_strs)?;
         Ok(Config::new(rules, regex_strs, regex_set))
     }
+}
+
+fn at_user_home(path: &Path) -> bool {
+    directories::UserDirs::new().is_some_and(|u| u.home_dir() == path)
 }
 
 #[cfg(test)]
@@ -191,6 +198,28 @@ mod tests {
         let matches = config.collect("cmd");
         assert_eq!(matches.len(), 1);
         assert!(matches[0].1.secrets.contains_key("KEY_YAML"));
+    }
+
+    #[test]
+    fn test_build_stops_at_user_home() {
+        let root = tempdir().unwrap();
+        let home = root.path().join("home");
+        let proj = home.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(root.path().join("lade.yml"), "\"cmd\":\n  ABOVE: x\n").unwrap();
+        std::fs::write(home.join("lade.yml"), "\"cmd\":\n  HOME_KEY: h\n").unwrap();
+        std::fs::write(proj.join("lade.yml"), "\"cmd\":\n  PROJ: p\n").unwrap();
+        temp_env::with_var("HOME", Some(home.as_os_str()), || {
+            let config = LadeFile::build(proj.clone()).unwrap();
+            let matches = config.collect("cmd");
+            let keys: Vec<String> = matches
+                .iter()
+                .flat_map(|(_, rule)| rule.secrets.keys().cloned())
+                .collect();
+            assert!(keys.contains(&"HOME_KEY".into()), "{keys:?}");
+            assert!(keys.contains(&"PROJ".into()), "{keys:?}");
+            assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
+        });
     }
 
     #[test]

@@ -11,45 +11,70 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Added
 
-- **`.when` audience detection**: `detect()` classifies every invocation as
-  preexec, pretool, or unset. `--pretool` (global) wins over `LADE_VIA`, then
-  the subcommand, then env signals when Via is empty. MCP and a bare
-  `lade inject` use the same function. The same pattern can be a list of
-  bodies with different `when`.
-- **`.silence` hydration progress**: `silence: true` under `.` skips that
+- **Local command diary**: `lade log` and `lade usage` read a local SQLite
+  WAL at `ProjectDirs` `data_local_dir()/events.db` (same library and
+  qualifier as `config.json` on `config_local_dir()`). Recording is opt-in
+  with `log: true` on matching `lade.yml` rules. Secret values are never
+  stored. Default read window is 90 days. `--since` / `--until` bound
+  it. `--limit` is an extra cap. `lade log --group command` counts
+  commands. `lade usage` lists matched rules in this tree, most
+  frequent first, with the file path.   `lade.yml` walk stops at
+  `$HOME`. Queries stay on the current git root, including
+  worktrees. `--all` reads every repo. `--path` scopes to another
+  tree.
+  `lade log prune --keep` is the only delete. `lade status` reports
+  event count and a human size. `--json` keeps raw `bytes` and does
+  not change `ok`.
+- **`.when` audience detection** ([#184](https://github.com/zifeo/lade/pull/184)): `detect()` classifies every invocation as
+  preexec, pretool, or unset. `--pretool` (global) wins, then the
+  subcommand, then env signals when Via is empty. Leftover `LADE_VIA` is
+  ignored. MCP and a bare `lade inject` use the same function. The same
+  pattern can be a list of bodies with different `when`.
+- **`.silence` hydration progress** ([#184](https://github.com/zifeo/lade/pull/184)): `silence: true` under `.` skips that
   rule's secret progress lines at hydrate time. Hydration itself is unchanged.
-- **`lade bench`**: times the incompressible path (parse all `lade.yml` files
+- **`lade bench`** ([#190](https://github.com/zifeo/lade/pull/190)): times the incompressible path (parse all `lade.yml` files
   and regex match) and the variable path (secret hydrate per loaded rule).
   Human mode prints parse/match first, then each rule as it finishes, then
   wall-clock `total`. Hydrates run concurrently. `--timeout` caps each rule
   (`5s` by default). Errors sit on the next indented line. `--json` includes
   `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire
   is not run.
-- **Claude-compatible preTool hosts**: `lade hook` keeps an explicit detect
+- **Claude-compatible preTool hosts** ([#191](https://github.com/zifeo/lade/pull/191)): `lade hook` keeps an explicit detect
   path for Codex, Pi, and OpenCode, then rewrites with the same `updatedInput`
   envelope as Claude Code. `lade install` / `status` cover
   `~/.codex/hooks.json`, `~/.pi/agent/settings.json`, and
   `~/.config/opencode/plugins/lade-pretool.js`.
-- **Organic versus unknown via**: `detect()` treats a TTY inject with no
-  `LADE_VIA` and no agent signal as organic human, and a non-TTY empty via
-  as unknown. Organic and unknown strip a leftover parent `LADE_VIA` so it
-  does not leak onto the child.
+- **Organic versus unknown via** ([#192](https://github.com/zifeo/lade/pull/192)): `detect()` treats a TTY inject with no
+  `--pretool` and no agent signal as organic human, and a non-TTY empty via
+  as unknown. The child never inherits `LADE_VIA`.
+- **MCP stdio restart** ([#195](https://github.com/zifeo/lade/pull/195)): if the
+  stdio child exits before the client `initialize` line is forwarded, Lade
+  respawns it with the already hydrated env instead of calling vaults again.
+  After `initialize`, a child exit does not restart.
+- **T protocol**: first match writes `{temp}/lade-t/{id}.json`. The wrap
+  and `lade set` hydrate from that file. No rematch. `set` writes T on
+  every match and exports `LADE_T`. The ticket holds `via`,
+  `network_pids`, and `pending`. Env keeps `LADE_T`, `LADE_RESTORE`,
+  and `LADE_APPROVE`. Pretool wrap unlinks after the child. `lade unset`
+  reads pids from T, unlinks, and clears `LADE_T`. Diary `log` is last
+  explicit `log` on matching rules. No-match `seen` uses the last
+  explicit `log` on the loaded walk. See `docs/protocol.md` and
+  `docs/log.md`.
+- **Diary `agent` object**: free-form JSON on each event (`harness`,
+  `model`, `session`, plus later keys). Hook payload wins over env.
+  Missing or unknown fields stay absent. Empty objects are omitted.
+- **`lade hook --harness`**: each installed hook names its host
+  (`cursor`, `claude`, `codex`, `pi`, `opencode`). Unknown values are
+  ignored. Detect and ticket writes fail open so a harness change does
+  not block the tool call.
+- **Daily hook refresh**: the same 24h window as the GitHub version
+  check rewrites already-installed hook files when the command is
+  stale. It never creates a hook the user did not install. `lade
+  upgrade` clears `update_check` and `self_version` so the first run
+  of the new binary checks GitHub and refreshes those files.
 
 ### Changed
 
-- **`lade status --json` hooks object** (breaking): `hooks` is now
-  `{ "preexec": { shell, profile, installed }, "pretool": { cursor, claude, codex, pi, opencode } }`
-  with global and project paths. `ok` still depends only on preexec install,
-  version, project config, and vault CLIs.
-- **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
-  `inject`/`approve` has both stdin and stderr as TTYs.
-- **`--pretool`**: `lade hook` rewrites matching commands to
-  `<lade> --pretool '…'` (the inject alias). `--pretool` wins over `LADE_VIA`
-  and sets `LADE_VIA=pretool` on the child command, symmetric with preexec
-  exporting `LADE_VIA=preexec`. Shell hooks still use the env var.
-- **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
-  stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
-  Re-running `lade install` updates an existing hook that still has a path.
 - **Single rustls stack**: CLI `reqwest` and `self_update` use rustls
   like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and
   unused zip/bzip2 codecs on `self_update`. Parent shell detect reads
@@ -61,6 +86,27 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   example fixtures, not crate versions. `compression-flate2` is now
   `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to
   rustls). `lade upgrade` uses `release_tag` and `ReleaseStatus`.
+- **`lade status --json` hooks object** (breaking): `hooks` is now
+  `{ "preexec": { shell, profile, installed, inject_skips_startup_files, inject_startup_skipped }, "pretool": { cursor, claude, codex, pi, opencode } }`
+  with global and project paths. `ok` still depends only on preexec install,
+  version, project config, and vault CLIs.
+- **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
+  `inject`/`approve` has both stdin and stderr as TTYs.
+- **OpenCode plugin**: `lade hook --harness opencode` takes
+  `{ command, session_id }` and returns `{ command }`. No Claude
+  envelope, no `OPENCODE=1`.
+- **`--pretool`**: `lade hook` rewrites matching commands to
+  `<lade> --pretool=<id> '…'` (the inject alias). The id is a 4-character
+  T ticket. `--pretool` wins over the subcommand. Via is stored on the
+  ticket. The child never sees `LADE_T` or `LADE_VIA`.
+- **Protocol env**: `LADE_T` is the preexec pointer. `LADE_RESTORE` is
+  the previous env. `LADE_APPROVE` is `sha256(command + window)[:5]`.
+  `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_PENDING`, and
+  `LADE_DISCLAIMER_APPROVED` are no longer classifiers or messengers.
+  `set` / `unset` still clear leftovers.
+- **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
+  stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
+  Re-running `lade install` updates an existing hook that still has a path.
 
 ### Fixed
 
@@ -79,6 +125,61 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   daily check so `status` can show it after shell use. If the fetch failed,
   print when we last tried (`tried today at 14:25`, `tried yesterday at 09:05`)
   instead of `not checked recently`.
+- **Wrap profile overwrite** ([#194](https://github.com/zifeo/lade/pull/194)):
+  `lade inject` and `lade hook` wrap fish with `--no-config` and zsh with `-f`,
+  and clear `$BASH_ENV`, so a user profile cannot overwrite resolved secrets
+  after spawn. `sh://` / `fish://` / `zsh://` use the same argv. Preexec
+  (`lade set`) still evals in the live interactive shell. `lade status`
+  reports `inject wrap: skips startup files` and names `config.fish`,
+  `.zshenv`, or `BASH_ENV` when present.
+- **Child signals** ([#195](https://github.com/zifeo/lade/pull/195)): `lade mcp`
+  and `lade inject` share Unix signal wrapping. Hangup is ignored. Stop
+  signals (`INT`/`TERM`/`QUIT`) end the wrapper. `USR1`/`USR2`/`WINCH` are
+  forwarded. MCP children get their own session and process group. Inject
+  stays on the TTY session.
+
+## [0.17.2] - 2026-08-13
+
+### Fixed
+
+- **Shell hook stall** ([#182](https://github.com/zifeo/lade/pull/182)): stamp
+  and time out the upgrade check, export `LADE_SHELL` from `lade on` so `set`
+  skips a full process scan, and unregister hooks without leaving empty array
+  slots.
+
+[0.17.2]: https://github.com/zifeo/lade/compare/v0.17.1...v0.17.2
+
+## [0.17.1] - 2026-08-02
+
+### Fixed
+
+- **Network tunnel restart** ([#180](https://github.com/zifeo/lade/pull/180)):
+  supervise command-scoped forwards and restart a provider that exits during
+  the command, instead of leaving the local port dead.
+
+[0.17.1]: https://github.com/zifeo/lade/compare/v0.17.0...v0.17.1
+
+## [0.17.0] - 2026-07-31
+
+### Added
+
+- **`lade mcp`** ([#171](https://github.com/zifeo/lade/pull/171)): resolve the
+  matching `lade.yml` rule for a local stdio MCP server or a remote Streamable
+  HTTP endpoint. Public bindings become child env vars or HTTP headers.
+  Intermediate `.NAME` bindings stay resolver-local.
+- **Binding DAG** ([#171](https://github.com/zifeo/lade/pull/171)): bindings
+  can reference each other with `$NAME` / `${NAME}` / `${.NAME}`. Ready
+  providers resolve concurrently. Shell providers receive those values as
+  environment variables without rewriting the script.
+
+### Fixed
+
+- **Teleport `tsh` URIs** ([#172](https://github.com/zifeo/lade/pull/172)):
+  accept `/app/<name>[/<target-port>]` and
+  `/kube_cluster/<cluster>/<namespace>/<kind>/<name>/<remote-port>`. Loopback
+  local binds stay on `127.0.0.1`.
+
+[0.17.0]: https://github.com/zifeo/lade/compare/v0.16.0...v0.17.0
 
 ## [0.16.0] - 2026-07-06
 

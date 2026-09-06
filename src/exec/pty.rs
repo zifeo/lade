@@ -35,13 +35,7 @@ pub fn run(
     let _raw_guard = RawStdinGuard::enter();
 
     let watch = crate::child_signals::ChildWatch::new();
-    let mut child = shell
-        .prepare_command(command)
-        .current_dir(cwd)
-        .envs(std::env::vars())
-        .env_remove(crate::shell::LADE_VIA)
-        .env_remove("BASH_ENV")
-        .envs(env)
+    let mut child = super::prepare_child(shell, command, env, cwd)
         .stdin(Stdio::inherit())
         .stdout(Stdio::from(slave_out))
         .stderr(Stdio::from(slave_err))

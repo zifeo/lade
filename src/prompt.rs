@@ -6,7 +6,7 @@ use tokio::{io::AsyncBufReadExt, select, signal};
 
 use crate::context::InvocationContext;
 use crate::message_box::MessageBox;
-use crate::shell::{LADE_APPROVE, LADE_DISCLAIMER_APPROVED};
+use crate::shell::LADE_APPROVE;
 
 /// Marker error: a disclaimer-protected command was invoked without approval,
 /// so secrets were withheld (fail-closed). The user-facing message has already
@@ -28,13 +28,6 @@ const APPROVAL_CODE_LEN: usize = 5;
 /// and the current time window, so a fixed `LADE_APPROVE=1` reflex can no longer
 /// bypass a disclaimer: each approval is a deliberate, freshly copied value.
 const APPROVAL_WINDOW_SECS: u64 = 300;
-
-pub fn disclaimer_id(text: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(text.as_bytes());
-    let result = hasher.finalize();
-    hex::encode(&result[..8]) // 16 hex chars
-}
 
 fn current_window() -> u64 {
     std::time::SystemTime::now()
@@ -64,19 +57,13 @@ pub fn verify_code(command: &str, candidate: &str) -> bool {
         || candidate == code_for_window(command, w.saturating_sub(1))
 }
 
-pub fn is_approved(command: &str, disclaimers: &[String]) -> bool {
+pub fn is_approved(command: &str) -> bool {
     if let Ok(val) = std::env::var(LADE_APPROVE)
         && verify_code(command, &val)
     {
         return true;
     }
-
-    let approved_env = std::env::var(LADE_DISCLAIMER_APPROVED).unwrap_or_default();
-    let approved_ids: std::collections::HashSet<_> = approved_env.split_whitespace().collect();
-
-    disclaimers
-        .iter()
-        .all(|d| approved_ids.contains(disclaimer_id(d).as_str()))
+    false
 }
 
 /// Resolves disclaimers already collected for `command` (see
@@ -88,7 +75,7 @@ pub async fn resolve_disclaimers(
     disclaimers: &[String],
     command: &str,
 ) -> Result<()> {
-    if disclaimers.is_empty() || is_approved(command, disclaimers) {
+    if disclaimers.is_empty() || is_approved(command) {
         return Ok(());
     }
 
@@ -99,7 +86,7 @@ pub async fn resolve_disclaimers(
             .line("Disclaimer required to uncover the secrets for this command:")
             .paragraphs(disclaimers.iter().map(|d| format!("> {d}")))
             .line("");
-        // Agents have no persisted LADE_PENDING, so `lade approve` is useless to
+        // Agents have no shell-held ticket, so `lade approve` is useless to
         // them; point them at the code prefix instead.
         mb = if ctx.audience == crate::config::Audience::Agent {
             mb.line(format!(
@@ -158,30 +145,21 @@ mod tests {
     }
 
     #[test]
-    fn test_disclaimer_id_stable() {
-        let text = "This will destroy production.";
-        let id = disclaimer_id(text);
-        assert_eq!(id.len(), 16);
-        assert_eq!(id, disclaimer_id(text));
-        assert_ne!(id, disclaimer_id("different text"));
-    }
-
-    #[test]
     fn test_is_approved_with_code() {
         let cmd = "deploy prod";
         let code = approval_code(cmd);
         temp_env::with_var(LADE_APPROVE, Some(code.as_str()), || {
-            assert!(is_approved(cmd, &["any".to_string()]));
+            assert!(is_approved(cmd));
         });
     }
 
     #[test]
     fn test_is_approved_rejects_wrong_code_and_one() {
         temp_env::with_var(LADE_APPROVE, Some("1"), || {
-            assert!(!is_approved("deploy prod", &["any".to_string()]));
+            assert!(!is_approved("deploy prod"));
         });
         temp_env::with_var(LADE_APPROVE, Some("00000"), || {
-            assert!(!is_approved("deploy prod", &["any".to_string()]));
+            assert!(!is_approved("deploy prod"));
         });
     }
 
@@ -197,28 +175,5 @@ mod tests {
         assert!(verify_code(cmd, &approval_code(cmd)));
         assert!(!verify_code(cmd, "00000"));
         assert!(!verify_code(cmd, "1"));
-    }
-
-    #[test]
-    fn test_is_approved_session() {
-        let d1 = "Disclaimer 1".to_string();
-        let d2 = "Disclaimer 2".to_string();
-        let id1 = disclaimer_id(&d1);
-        let id2 = disclaimer_id(&d2);
-
-        temp_env::with_vars(
-            [
-                (LADE_APPROVE, None),
-                (
-                    LADE_DISCLAIMER_APPROVED,
-                    Some(format!("{id1} {id2}").as_str()),
-                ),
-            ],
-            || {
-                assert!(is_approved("cmd", &[d1.clone(), d2.clone()]));
-                assert!(is_approved("cmd", std::slice::from_ref(&d1)));
-                assert!(!is_approved("cmd", &[d1.clone(), "other".to_string()]));
-            },
-        );
     }
 }

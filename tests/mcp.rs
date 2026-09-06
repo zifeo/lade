@@ -12,7 +12,10 @@ fn lade_process(home: &Path) -> std::process::Command {
     if !config_path.exists() {
         fs::write(
             &config_path,
-            r#"{"update_check":"2099-01-01T00:00:00Z","user":null,"cli_check":{}}"#,
+            format!(
+                r#"{{"update_check":"2099-01-01T00:00:00Z","self_version":"{}","user":null,"cli_check":{{}}}}"#,
+                env!("CARGO_PKG_VERSION")
+            ),
         )
         .unwrap();
     }
@@ -25,7 +28,17 @@ fn lade_process(home: &Path) -> std::process::Command {
         .env_remove("CLAUDECODE")
         .env_remove("CURSOR_AGENT")
         .env_remove("COPILOT_MODEL")
-        .env_remove("CURSOR_VERSION");
+        .env_remove("CURSOR_VERSION")
+        .env_remove("CLAUDE_CODE")
+        .env_remove("CURSOR_EXTENSION_HOST_ROLE")
+        .env_remove("CURSOR_SANDBOX")
+        .env_remove("CODEX_THREAD_ID")
+        .env_remove("CODEX_SANDBOX")
+        .env_remove("CODEX_CI")
+        .env_remove("PI_MODEL")
+        .env_remove("PI_SESSION_ID")
+        .env_remove("OPENCODE")
+        .env_remove("OPENCODE_PID");
     cmd
 }
 

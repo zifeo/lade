@@ -2,6 +2,9 @@
 
 This document provides an overview of Lade's internal architecture, explaining how commands are intercepted, how configurations are resolved, and how secrets are securely injected and masked.
 
+Match tickets (T) are specified in [protocol.md](protocol.md).
+The local diary is specified in [log.md](log.md).
+
 ## 1. High-Level Flow (Shell Hooks)
 
 When a user runs `lade on`, Lade registers a pre-execution hook in their shell (Bash, Zsh, or Fish). This hook intercepts commands before they are run to check if they require secrets.
@@ -36,24 +39,28 @@ sequenceDiagram
 
 ## 2. Configuration Resolution
 
-Lade traverses the directory tree upwards to find and merge all `lade.yml` files. It then evaluates the rules against the current command.
+Lade walks from the current directory up to `$HOME`, loads every
+`lade.yml` / `lade.yaml` it finds, then evaluates the rules against
+the current command. `~/lade.yml` is included. Parents above `$HOME`
+are not. A later file overlays the same key. Last explicit `log`
+wins.
 
 ```mermaid
 flowchart TD
-    Start[Command: `npm run build`] --> Find[Find all `lade.yml` from CWD to Git Root]
-    Find --> Merge[Merge configs (deep merge)]
-    Merge --> Match{Regex matches command?}
+    Start["Command: npm run build"] --> Find["Find all lade.yml from CWD to HOME"]
+    Find --> Merge["Merge configs, last explicit key wins"]
+    Merge --> Match{"Regex matches command?"}
 
-    Match -- Yes --> UserCheck{Is user specified?}
-    UserCheck -- Yes --> ResolveUser[Resolve for specific user or fallback to `.']
+    Match -- Yes --> UserCheck{"Is user specified?"}
+    UserCheck -- Yes --> ResolveUser["Resolve for specific user or fallback to dot"]
     UserCheck -- No --> ResolveUser
 
-    ResolveUser --> Loaders[Dispatch to Providers]
+    ResolveUser --> Loaders["Dispatch to Providers"]
 
-    Match -- No --> Skip[Skip rule]
+    Match -- No --> Skip["Skip rule"]
 
-    Loaders --> |op:// vault:// sh:// ...| SecretProviders[Secret Providers]
-    Loaders --> |kubectl:// kubefwd:// tsh:// ssh://| NetworkProviders[Network Providers]
+    Loaders --> |"op, vault, sh, ..."| SecretProviders["Secret Providers"]
+    Loaders --> |"kubectl, kubefwd, tsh, ssh"| NetworkProviders["Network Providers"]
 ```
 
 Lade keeps two provider families under one registry:
@@ -75,8 +82,12 @@ secret resolution and tunnel readiness.
 When using the top-level shortcut `lade <command>` (or the explicit form
 `lade inject <command>`, or in environments where shell hooks aren't
 available), Lade wraps the command execution. It resolves secrets, acquires any
-matching network providers, then starts the child command. It uses a
+matching network providers, then starts the child command. The wrap skips
+the user profile (`fish --no-config`, `zsh -f`, `$BASH_ENV` unset) so
+startup files cannot overwrite a resolved secret. It uses a
 pseudo-terminal (PTY) to capture output and redact secret values on the fly.
+Hangup is ignored. Stop signals end the wrapper. `USR1` / `USR2` / `WINCH`
+are forwarded.
 
 ```mermaid
 sequenceDiagram
@@ -113,15 +124,20 @@ That single function returns Via, Audience, and UiMode. TTY is an input; Quiet v
 Interactive is an output. Callers use `ctx.audience` for `.when` and
 `ctx.is_interactive()` for prompts.
 
-- **Via**: `--pretool` wins, then `LADE_VIA`, then the subcommand (`set`/`unset` are
-  preexec, `hook` is pretool), else unset. An unknown `LADE_VIA` value fails
-  fast. Shell hooks export `LADE_VIA=preexec` into the user's command.
-  `lade hook` rewrites to `<bin> --pretool '…'` (`lade` when invoked as `lade`) and inject sets `LADE_VIA=pretool`
-  on the child.
+- **Via**: `--pretool` wins, then the subcommand (`set`/`unset` are preexec,
+  `hook` is pretool), else unset. Leftover `LADE_VIA` is ignored. The
+  pretool handler rewrites to `<bin> --pretool=<id> '…'` (`lade` when
+  invoked as `lade`). Via is stored on the ticket, not stamped onto the
+  child env. Preexec `set` writes T on every match and exports `LADE_T`.
+  See [protocol.md](protocol.md).
 - **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
   unset falls back to env signals (`AI_AGENT`, `AGENT`, `CLAUDECODE`,
-  `CURSOR_AGENT`, `COPILOT_MODEL`). `CURSOR_VERSION` is ignored: Cursor also
-  sets it in human terminals.
+  `CLAUDE_CODE`, `CURSOR_AGENT`, `CURSOR_EXTENSION_HOST_ROLE`,
+  `CURSOR_SANDBOX`, `CODEX_*`, `PI_*`, `OPENCODE*`, `COPILOT_MODEL`).
+  `CURSOR_VERSION` is ignored: Cursor also sets it in human terminals.
+  Optional diary metadata (`harness`, `model`, `session`) is collected from
+  the hook payload and env (`src/agent_meta.rs`), stored on the T pre-event
+  and in `events.agent`.
 - **UI**: Interactive only for human `inject`/`approve` with both stdin and
   stderr as TTYs. Everything else is Quiet, including an agent that happens to
   have a TTY.
@@ -152,7 +168,9 @@ one invocation.
 Keys prefixed with `.` are intermediate bindings. `.NAME` resolves and can be
 referenced as `$NAME` or `${NAME}`, but is never written to the child environment, a
 temporary file, or an MCP header. `.` on its own is still the rule
-configuration block. A public binding and `.NAME` cannot coexist.
+configuration block (`file`, `disclaimer`, `when`, `silence`, `log`).
+`silence: true` skips that rule's secret progress lines. Hydration
+itself is unchanged. A public binding and `.NAME` cannot coexist.
 
 Binding sources support simple `$NAME` and `${NAME}` references. For normal
 providers, Lade renders those references before invoking the provider. Shell
@@ -177,7 +195,9 @@ hooks, `lade inject`, file output, and MCP.
 injection, but the output sink depends on the transport. A stdio target is
 spawned directly with public bindings in its environment. An HTTPS target is
 exposed locally as stdio and each public binding becomes an upstream HTTP
-header.
+header. If a stdio child exits before the client `initialize` line is
+forwarded, Lade respawns it with the already hydrated env. After
+`initialize`, a child exit does not restart.
 
 MCP stdout is protocol data and is copied without redaction or decoration.
 Lade diagnostics use stderr. The resolver, temporary files, and network
@@ -185,7 +205,7 @@ forwards are owned by the invocation and cleaned up when the transport exits.
 
 | Surface | Quiet | Interactive |
 |---------|------|-------------|
-| Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` also emits `LADE_PENDING` | box + type `yes` |
+| Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` writes T with `pending` and exports `LADE_T` | box + type `yes` |
 | Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
@@ -196,19 +216,19 @@ forwards are owned by the invocation and cleaned up when the transport exits.
 Secret resolution (`hydrate_secrets`) is UI-free. Presentation
 (`prepare_secrets`) applies the policy above. Network providers are acquired
 alongside secrets on both the shell-hook and inject paths; hook mode stores
-detached provider PIDs in the shell environment so `lade unset` can stop them.
+detached provider PIDs on the T ticket so `lade unset` can stop them.
 
 ### Disclaimer Flow
 
 Interactive prompts are forbidden in hook mode due to shell limitations (stdin hijacking, lack of echo). When a command matches a rule with a `disclaimer:`, the hook flow behaves as follows:
 
 1. **`lade set`** (preexec) detects the disclaimer.
-2. It outputs `unset LADE_PENDING` to clear any stale state.
-3. It outputs `export LADE_PENDING=v1:...` (base64url JSON of cmd and cwd).
+2. It outputs `unset` of leftover protocol keys (`LADE_PENDING`, `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_DISCLAIMER_APPROVED`) so older shells clean up.
+3. It writes T with `pending: true` and outputs `export LADE_T=<id>`.
 4. It prints the disclaimer text in a single **Warning MessageBox** to stderr and exits with code 3 (`DISCLAIMER_WITHHELD`). It is not a loader failure, so no second error box is shown.
 5. The user's command runs **without secrets** (fail-closed).
 6. To proceed, the user runs **`lade approve <code>`** with the code shown in the message.
-7. `lade approve` reads `LADE_PENDING`, verifies the code against the pending command, and executes it (equivalent to injected execution via `lade <command>` / `lade inject <command>`). The explicit code is the consent, so it proceeds without further prompting.
+7. `lade approve` reads T via `LADE_T`, requires `pending: true`, verifies the code against the pending command, and executes it (equivalent to injected execution via `lade <command>` / `lade inject <command>`). The explicit code is the consent, so it proceeds without further prompting.
 
 Alternatively, the user can approve up front by prefixing the command with the per-command code shown in the message: **`LADE_APPROVE=<code>`**. The code is `sha256(command + window)` truncated to 5 hex chars, where `window = unix_time / 300` (5 min); validation accepts the current and previous window. It is intentionally **not** a secret (an agent could recompute it) — its purpose is to break the scriptable `LADE_APPROVE=1` reflex and force a deliberate, fresh copy per command. There is no blanket bypass.
 
@@ -218,7 +238,14 @@ Note: Fish `preexec` cannot cancel the main command. Lade's security model relie
 
 To avoid recursion and unnecessary overhead, preexec shell hooks skip any command starting with `lade ` or exactly `lade`. This ensures `lade approve`, `lade status`, and `lade upgrade` never trigger their own preexec. The implementation uses ultra-fast string slicing (`${1:0:5}` in Bash/Zsh, `string sub` in Fish) to match the prefix exactly without using regex or glob wildcards.
 
-Use `lade status` for an active report (version, config, preexec and preTool hooks, `lade.yml`, vault CLI versions). Upgrade and compat nudges on inject only remind you to run `lade upgrade` or `lade status`.
+Use `lade status` for an active report (version, config, preexec and
+preTool hooks, `lade.yml`, vault CLI versions, diary path and size).
+`--json` keeps `version`, `global_config`, `hooks`, `project_config`,
+and `ok`. `hooks` is `preexec` plus `pretool`. `log` is extra (`path`,
+`events`, raw `bytes`). A successful daily GitHub check persists the
+latest tag. Upgrade and compat nudges on inject only remind you to
+run `lade upgrade` or `lade status`. `lade bench` times parse, match,
+and per-rule hydrate. It does not acquire network.
 
 ## 7. Agents (`lade hook`) and the direct path
 
@@ -232,13 +259,26 @@ Use `lade status` for an active report (version, config, preexec and preTool hoo
 
 ### preTool path
 
-`lade hook` (`src/pretool/`) reads preToolUse JSON and rewrites a matching command into `<lade> --pretool '…'`. Envelope comes from the payload first: `PreToolUse` and explicit Codex/Pi/OpenCode signals use `hookSpecificOutput` + `updatedInput`. Cursor's `updated_input` is only for `CURSOR_VERSION` or `preToolUse`. `CURSOR_VERSION` is last because Cursor also sets it in other hosts' terminals.
+The **pretool handler** (`src/pretool/`, invoked as `lade hook`) reads
+preToolUse JSON. Envelope comes from the payload first: `PreToolUse`
+and explicit Codex/Pi signals use `hookSpecificOutput` +
+`updatedInput`. Cursor's `updated_input` is only for `CURSOR_VERSION`
+or `preToolUse`. OpenCode's plugin sends `{ command, session_id }` and
+reads `{ command }` back. `CURSOR_VERSION` is last because Cursor also
+sets it in other hosts' terminals.
 
-Disclaimers are not special-cased in `lade hook`. Inject is the gate (the `--pretool` alias is `lade inject`). The rewrite re-emits leading `LADE_APPROVE=...` (`platform::split_env_prefix`).
+On match it writes a T pre-event and rewrites to
+`<lade> --pretool=<id> '…'`. That wrap **is** inject. On no match it
+allows the original line and may write a `seen` row. Disclaimers are
+not special-cased in the handler. Inject is the gate. The rewrite
+re-emits leading `LADE_APPROVE=...` (`platform::split_env_prefix`).
+The wrap runs providers from that file and unlinks it after the child.
+The approve code is a 5-hex `sha256` of the command and a 5-minute
+window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing preTool hooks (`src/pretool/install/`)
 
-`lade install` offers to wire `lade hook` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.pi`, `~/.config/opencode`). The bin name follows argv[0]: `lade install` writes `lade hook`; a path invocation writes that resolved `lade hook`. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths. `lade hook` rewrites matches with the same bin name.
+`lade install` offers to wire `lade hook --harness <slug>` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.pi`, `~/.config/opencode`). The bin name follows argv[0]. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths, plus whether the installed command is current. The daily version check also refreshes already-installed hook files. `lade upgrade` voids that stamp so the first run of the new binary refreshes them. `lade hook` rewrites matches with the same bin name and stores a free-form `agent` object on the diary row.
 
 ### Direct path
 
@@ -259,3 +299,11 @@ When Via is not preexec or pretool (`lade inject`, `lade mcp`, `lade git …`), 
 ### MCP: out of scope
 
 An MCP server is a deliberate non-goal. Lade is an interceptor, not a data source, so the agent already knows how to drive it via the CLI; an MCP surface would add context cost for no benefit.
+
+## 8. Local command diary
+
+Recording is opt-in. Last explicit `log` on **matching** rules wins.
+No-match `seen` uses last explicit `log` on the loaded walk. Secret
+values are never stored. Vault addresses are.
+
+Commands, schema, scrub, and share live in [log.md](log.md).

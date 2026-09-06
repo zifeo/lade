@@ -7,21 +7,27 @@ use crate::audience::{self, Detection, UiMode, Via};
 use crate::config::Audience;
 
 /// TTY flags plus the Via / Audience / UI decision from [`audience::detect`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvocationContext {
     pub via: Via,
     pub audience: Audience,
     pub mode: UiMode,
+    pub ticket_id: Option<String>,
     pub stdin_is_terminal: bool,
     pub stdout_is_terminal: bool,
     pub stderr_is_terminal: bool,
 }
 
 impl InvocationContext {
-    pub fn from_command(command: &Command, pretool: bool) -> Result<Self> {
+    pub fn from_command(
+        command: &Command,
+        pretool: bool,
+        ticket_id: Option<String>,
+    ) -> Result<Self> {
         Self::with_tty(
             command,
             pretool,
+            ticket_id,
             std::io::stdin().is_terminal(),
             std::io::stdout().is_terminal(),
             std::io::stderr().is_terminal(),
@@ -31,6 +37,7 @@ impl InvocationContext {
     pub fn with_tty(
         command: &Command,
         pretool: bool,
+        ticket_id: Option<String>,
         stdin_is_terminal: bool,
         stdout_is_terminal: bool,
         stderr_is_terminal: bool,
@@ -41,6 +48,7 @@ impl InvocationContext {
             via,
             audience,
             mode: ui,
+            ticket_id,
             stdin_is_terminal,
             stdout_is_terminal,
             stderr_is_terminal,
@@ -71,9 +79,19 @@ mod tests {
             ("AI_AGENT", None),
             ("AGENT", None),
             ("CLAUDECODE", None),
+            ("CLAUDE_CODE", None),
             ("CURSOR_AGENT", None),
+            ("CURSOR_EXTENSION_HOST_ROLE", None),
+            ("CURSOR_SANDBOX", None),
             ("COPILOT_MODEL", None),
             ("CURSOR_VERSION", None),
+            ("CODEX_THREAD_ID", None),
+            ("CODEX_SANDBOX", None),
+            ("CODEX_CI", None),
+            ("PI_MODEL", None),
+            ("PI_SESSION_ID", None),
+            ("OPENCODE", None),
+            ("OPENCODE_PID", None),
         ]
     }
 
@@ -85,6 +103,7 @@ mod tests {
                     commands: vec!["x".into()],
                 }),
                 false,
+                None,
                 true,
                 true,
                 true,
@@ -104,6 +123,7 @@ mod tests {
                     commands: vec!["x".into()],
                 }),
                 false,
+                None,
                 true,
                 true,
                 true,
@@ -116,7 +136,8 @@ mod tests {
     #[test]
     fn inject_without_tty_is_quiet() {
         temp_env::with_vars(cleared(), || {
-            let ctx = InvocationContext::with_tty(&inject(), false, false, false, false).unwrap();
+            let ctx =
+                InvocationContext::with_tty(&inject(), false, None, false, false, false).unwrap();
             assert_eq!(ctx.mode, UiMode::Quiet);
         });
     }
@@ -124,7 +145,8 @@ mod tests {
     #[test]
     fn inject_with_tty_is_interactive() {
         temp_env::with_vars(cleared(), || {
-            let ctx = InvocationContext::with_tty(&inject(), false, true, true, true).unwrap();
+            let ctx =
+                InvocationContext::with_tty(&inject(), false, None, true, true, true).unwrap();
             assert_eq!(ctx.mode, UiMode::Interactive);
             assert_eq!(ctx.audience, Audience::Human);
         });
@@ -139,6 +161,7 @@ mod tests {
                     json: false,
                 }),
                 false,
+                None,
                 true,
                 true,
                 true,
@@ -154,6 +177,7 @@ mod tests {
             let ctx = InvocationContext::with_tty(
                 &Command::Approve { code: None },
                 false,
+                None,
                 false,
                 false,
                 false,
