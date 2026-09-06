@@ -1,18 +1,19 @@
 #![cfg(unix)]
 
 use crate::redact::Redactor;
+use crate::shell::Shell;
 use anyhow::Result;
 use std::{
     fs::File,
     os::fd::{AsRawFd, OwnedFd},
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Arc,
 };
 
 #[cfg(unix)]
 pub fn run(
-    shell: &str,
+    shell: &Shell,
     command: &str,
     env: std::collections::HashMap<String, String>,
     cwd: &Path,
@@ -33,11 +34,12 @@ pub fn run(
     // manage their own termios for reading a line.
     let _raw_guard = RawStdinGuard::enter();
 
-    let mut child = Command::new(shell)
-        .args(["-c", command])
+    let mut child = shell
+        .prepare_command(command)
         .current_dir(cwd)
         .envs(std::env::vars())
         .env_remove(crate::shell::LADE_VIA)
+        .env_remove("BASH_ENV")
         .envs(env)
         .stdin(Stdio::inherit())
         .stdout(Stdio::from(slave_out))

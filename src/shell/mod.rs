@@ -95,6 +95,40 @@ impl Shell {
         }
     }
 
+    /// Argv after the binary for a non-interactive `-c` that must not source
+    /// user startup files. `fish -c` reads `config.fish` and `zsh -c` reads
+    /// `.zshenv`; either can overwrite resolved secrets after process env is
+    /// applied. `bash -c` does not read `.bashrc` / `.bash_profile`; its
+    /// overwrite vector is `$BASH_ENV`, cleared on the child `Command`.
+    /// `--norc --noprofile` are omitted: they do not skip `BASH_ENV`, and
+    /// `bash -c` does not read `.bashrc` or login profiles anyway. Preexec
+    /// does not use this: it evals `set()` in the already-running
+    /// interactive shell.
+    pub fn noninteractive_args<'a>(&self, command: &'a str) -> Vec<&'a str> {
+        match self {
+            Shell::Fish => vec!["--no-config", "-c", command],
+            Shell::Zsh => vec!["-f", "-c", command],
+            Shell::Bash | Shell::Sh => vec!["-c", command],
+        }
+    }
+
+    pub fn prepare_command(&self, command: &str) -> std::process::Command {
+        let mut cmd = std::process::Command::new(self.bin());
+        cmd.args(self.noninteractive_args(command));
+        cmd
+    }
+
+    /// Startup file `inject` skips when present. `None` for bash/sh: those
+    /// `-c` invocations do not read a user file unless `$BASH_ENV` is set.
+    pub fn wrap_startup_file(&self) -> Option<PathBuf> {
+        let home = directories::UserDirs::new()?.home_dir().to_path_buf();
+        match self {
+            Shell::Fish => Some(home.join(".config/fish/config.fish")),
+            Shell::Zsh => Some(home.join(".zshenv")),
+            Shell::Bash | Shell::Sh => None,
+        }
+    }
+
     pub fn detect() -> Result<Shell> {
         if let Ok(shell_env) = std::env::var("LADE_SHELL") {
             let path = std::path::Path::new(&shell_env);
@@ -299,6 +333,39 @@ mod tests {
         let env = HashMap::from([("KEY".to_string(), "val'ue".to_string())]);
         let result = Shell::Bash.set(env);
         assert_eq!(result, "export KEY='val'\\''ue'");
+    }
+
+    #[test]
+    fn wrap_startup_file_is_shell_specific() {
+        assert!(
+            Shell::Fish
+                .wrap_startup_file()
+                .unwrap()
+                .ends_with(".config/fish/config.fish")
+        );
+        assert!(Shell::Zsh.wrap_startup_file().unwrap().ends_with(".zshenv"));
+        assert!(Shell::Bash.wrap_startup_file().is_none());
+        assert!(Shell::Sh.wrap_startup_file().is_none());
+    }
+
+    #[test]
+    fn noninteractive_args_skip_startup_files() {
+        assert_eq!(
+            Shell::Fish.noninteractive_args("echo hi"),
+            vec!["--no-config", "-c", "echo hi"]
+        );
+        assert_eq!(
+            Shell::Bash.noninteractive_args("echo hi"),
+            vec!["-c", "echo hi"]
+        );
+        assert_eq!(
+            Shell::Zsh.noninteractive_args("echo hi"),
+            vec!["-f", "-c", "echo hi"]
+        );
+        assert_eq!(
+            Shell::Sh.noninteractive_args("echo hi"),
+            vec!["-c", "echo hi"]
+        );
     }
 
     #[test]

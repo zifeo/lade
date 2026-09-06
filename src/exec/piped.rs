@@ -1,14 +1,10 @@
 use crate::redact::Redactor;
+use crate::shell::Shell;
 use anyhow::Result;
-use std::{
-    collections::HashMap,
-    path::Path,
-    process::{Command, Stdio},
-    sync::Arc,
-};
+use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc};
 
 pub fn run(
-    shell: &str,
+    shell: &Shell,
     command: &str,
     env: HashMap<String, String>,
     cwd: &Path,
@@ -18,11 +14,12 @@ pub fn run(
     // stdin forwarded by a helper thread risks SIGPIPE (SIG_DFL at startup
     // kills the process) when the child exits before consuming forwarded
     // bytes, which is observable on Linux CI.
-    let mut child = Command::new(shell)
-        .args(["-c", command])
+    let mut child = shell
+        .prepare_command(command)
         .current_dir(cwd)
         .envs(std::env::vars())
         .env_remove(crate::shell::LADE_VIA)
+        .env_remove("BASH_ENV")
         .envs(env)
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())

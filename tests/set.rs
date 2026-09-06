@@ -319,3 +319,32 @@ fn test_set_skips_agent_when_rules() {
         .success()
         .stdout(predicates::str::contains("export SECRET").not());
 }
+
+#[test]
+fn test_set_fish_still_evals_in_the_interactive_shell() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_SHELL", "fish")
+        .args(["set", "mycmd"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(
+        stdout.contains("set --global --export SECRET 'mysecret'"),
+        "preexec must keep fish set() syntax: {stdout}"
+    );
+    assert!(
+        !stdout.contains("--no-config"),
+        "preexec must not switch the interactive shell to --no-config: {stdout}"
+    );
+}
