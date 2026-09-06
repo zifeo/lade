@@ -1,0 +1,13 @@
+#!/bin/sh
+# Cargo invokes: rustc-wrapper rustc ....
+# Seatbelt blocks AF_UNIX connect (and 127.0.0.1), so sccache cannot
+# reach its server in the Cursor sandbox. Skip it there. This also
+# overrides ~/.cargo/config.toml rustc-wrapper = "sccache".
+# Fall back to rustc when sccache is absent (CI, fresh clones).
+if [ -n "${CURSOR_SANDBOX:-}" ]; then
+  exec "$@"
+fi
+if command -v sccache >/dev/null 2>&1; then
+  exec sccache "$@"
+fi
+exec "$@"

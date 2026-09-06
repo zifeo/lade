@@ -2,10 +2,16 @@ use anyhow::{Result, bail};
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 
+mod cli;
+mod command;
+mod kubeconfig;
 mod kubectl;
 mod kubefwd;
 mod ssh;
 mod tsh;
+
+pub use cli::{NETWORK_CLI_SPECS, NetworkCliSpec, is_network_scheme};
+pub use command::{build_command, ensure_provider_preflight};
 
 #[derive(Debug, Clone)]
 pub enum ProviderSpec {

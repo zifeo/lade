@@ -1,0 +1,17 @@
+# rustc-wrapper, not rustc-workspace-wrapper: Cargo's rustc -vV probe
+# goes through both, so the workspace-only wrapper does not skip it.
+# The project wrapper overrides ~/.cargo/config.toml rustc-wrapper.
+# In the Cursor sandbox it execs rustc (Seatbelt denies sccache's
+# AF_UNIX connect). Outside the sandbox it uses sccache.
+# Do not pin target-dir / build-dir here. enableSharedBuildCache
+# remaps CARGO_TARGET_DIR; pinning fights that cache.
+# [env] UDS is for unsandboxed cargo in this repo. Seatbelt blocks
+# 127.0.0.1, which is sccache's default server.
+# The UDS parent must already exist: sccache binds before it creates
+# SCCACHE_DIR, so a path under target/sccache fails on a cold cargo.
+[build]
+rustc-wrapper = ".cargo/sccache-wrapper"
+
+[env]
+SCCACHE_DIR = { value = "target/sccache", relative = true }
+SCCACHE_SERVER_UDS = { value = ".cargo/sccache.sock", relative = true }

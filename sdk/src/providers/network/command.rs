@@ -1,14 +1,10 @@
 use anyhow::{Result, bail};
 use std::process::Command;
 
-use crate::network::kubeconfig::resolve_kube_context;
-use crate::network::types::ProviderSpec;
+use super::ProviderSpec;
+use super::kubeconfig::resolve_kube_context;
 
-pub(crate) fn build_command(
-    spec: &ProviderSpec,
-    local_host: &str,
-    local_port: u16,
-) -> Result<Command> {
+pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> Result<Command> {
     match spec {
         ProviderSpec::Kubectl {
             cluster_endpoint,
@@ -128,7 +124,7 @@ pub(crate) fn build_command(
     }
 }
 
-pub(crate) fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
+pub fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
     if let ProviderSpec::TshKubeCluster {
         teleport_proxy,
         kube_cluster,
@@ -144,9 +140,6 @@ pub(crate) fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
         if !status.success() {
             bail!("tsh kube login failed for cluster '{}'", kube_cluster);
         }
-    }
-    if let ProviderSpec::Ssh { .. } = spec {
-        // No preflight for SSH
     }
     Ok(())
 }

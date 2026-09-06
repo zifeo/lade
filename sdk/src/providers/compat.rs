@@ -4,6 +4,7 @@ use log::debug;
 use regex::Regex;
 use semver::Version;
 
+use super::network::NETWORK_CLI_SPECS;
 use super::{Providers, run_cli};
 
 pub struct CliSpec {
@@ -48,6 +49,17 @@ pub static CLI_SPECS: &[CliSpec] = &[
 
 pub fn spec_for(scheme: &str) -> Option<&'static CliSpec> {
     CLI_SPECS.iter().find(|s| s.scheme == scheme)
+}
+
+pub fn all_supported_schemes() -> Vec<String> {
+    let mut out = Vec::new();
+    for spec in CLI_SPECS {
+        out.push(spec.scheme.to_string());
+    }
+    for spec in NETWORK_CLI_SPECS {
+        out.push(spec.scheme.to_string());
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,11 +115,57 @@ pub async fn check(schemes: &[String], extra_env: &HashMap<String, String>) -> V
                 install_url: install_url.to_string(),
             })
         });
-    futures::future::join_all(checks)
+    let mut warnings = futures::future::join_all(checks)
         .await
         .into_iter()
         .flatten()
-        .collect()
+        .collect::<Vec<_>>();
+    warnings.extend(check_network(schemes, extra_env));
+    warnings
+}
+
+fn parse_network_version(output: &str) -> Option<Version> {
+    let re = Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").expect("valid version regex");
+    let captures = re.captures(output)?;
+    let major = &captures[1];
+    let minor = &captures[2];
+    let patch = captures.get(3).map(|m| m.as_str()).unwrap_or("0");
+    Version::parse(&format!("{major}.{minor}.{patch}")).ok()
+}
+
+fn check_network(schemes: &[String], extra_env: &HashMap<String, String>) -> Vec<CompatWarning> {
+    let mut warnings = Vec::new();
+    for spec in NETWORK_CLI_SPECS {
+        if !schemes.iter().any(|scheme| scheme == spec.scheme) {
+            continue;
+        }
+        let mut command = std::process::Command::new(spec.bin);
+        command.args(spec.version_args);
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+        let output = command.output();
+        let Ok(output) = output else {
+            continue;
+        };
+        let found = parse_network_version(&String::from_utf8_lossy(&output.stdout))
+            .or_else(|| parse_network_version(&String::from_utf8_lossy(&output.stderr)));
+        let Some(found) = found else {
+            continue;
+        };
+        let Ok(min) = Version::parse(spec.min_version) else {
+            continue;
+        };
+        if found < min {
+            warnings.push(CompatWarning {
+                name: spec.name.to_string(),
+                found: found.to_string(),
+                min: spec.min_version.to_string(),
+                install_url: spec.install_url.to_string(),
+            });
+        }
+    }
+    warnings
 }
 
 #[cfg(test)]
@@ -158,6 +216,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_all_supported_schemes_includes_secret_and_network() {
+        let schemes = all_supported_schemes();
+        assert!(schemes.contains(&"op".to_string()));
+        assert!(schemes.contains(&"kubectl".to_string()));
+        assert!(schemes.contains(&"tsh".to_string()));
+    }
+
+    #[test]
+    fn test_parse_network_version_two_part() {
+        assert_eq!(
+            parse_network_version("OpenSSH_7.6p1"),
+            Some(Version::new(7, 6, 0))
+        );
+    }
+
     #[tokio::test]
     #[cfg(unix)]
     async fn test_check_warns_on_old_version() {
@@ -191,5 +265,16 @@ mod tests {
     async fn test_check_ignores_unknown_scheme() {
         let warnings = check(&["unknown".to_string()], &HashMap::new()).await;
         assert!(warnings.is_empty());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_check_warns_on_old_network_cli() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "ssh", "echo 'OpenSSH_7.0p1' >&2");
+        let warnings = check(&["ssh".to_string()], &path_env(&fake_bin)).await;
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].name, "OpenSSH");
+        assert_eq!(warnings[0].found, "7.0.0");
     }
 }

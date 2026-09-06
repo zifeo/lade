@@ -21,7 +21,6 @@ mod network;
 mod pretool;
 mod prompt;
 mod provider_progress;
-mod provider_registry;
 mod redact;
 mod shell;
 mod status;

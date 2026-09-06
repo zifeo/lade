@@ -6,6 +6,12 @@ the codebase itself.
 
 ## Build & test
 
+Stay in the Cursor sandbox for `cargo` / `clippy` / tests. Do not
+request `all` because of sccache. `enableSharedBuildCache` remaps
+Cargo dirs. It does not cover the sccache daemon. Seatbelt denies
+AF_UNIX / 127.0.0.1, so `.cargo/sccache-wrapper` skips sccache when
+`CURSOR_SANDBOX` is set. `all` is not a compile workaround.
+
 Run these before proposing changes; they must all pass:
 
 ```bash
@@ -39,9 +45,10 @@ bash tests/installer_test.sh
 - `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse handler
   plus install into Cursor/Claude/Codex/Pi/OpenCode configs), `audience.rs` (`detect()` for Via,
   Audience, UI), `prompt.rs` (disclaimer flow), `inject.rs`/`exec/` (PTY
-  execution + masking), `status.rs`, `shell/` (preexec integration), `config/`,
-  `message_box/`.
-- `sdk/` — the secret-loader crate (vault providers).
+  execution + masking), `network/` (acquire and process groups), `status.rs`,
+  `shell/` (preexec integration), `config/`, `message_box/`.
+- `sdk/` — providers: vault hydrate, network URI parse, tunnel command
+  builders, CLI version tables. MCP HTTP byte bridge.
 - `tests/` — Rust integration tests + `installer_test.sh`.
 - `scripts/`, `examples/tape/` — shell-hook fixtures and README demo tapes.
 - `installer.sh`, `action.yml`, `Dockerfile`, `.github/workflows/` —
