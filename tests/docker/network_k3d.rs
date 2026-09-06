@@ -1,9 +1,11 @@
 use crate::common;
+use crate::k3d::{
+    ensure_cluster_context, extract_lade_t, is_pid_running, is_ready_for_k3d_test,
+    normalize_authority, run_capture, run_ok, ticket_network_pid, write_cluster_config,
+};
 use predicates::prelude::PredicateBooleanExt;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
 #[test]
@@ -25,7 +27,14 @@ fn network_k3d_kubectl_provider_lifecycle() {
     run_ok(
         "kubectl",
         &kubeconfig,
-        &["--context", &context, "apply", "-f", "k3d-manifests.yaml"],
+        &[
+            "--context",
+            &context,
+            "--request-timeout=15s",
+            "apply",
+            "-f",
+            "k3d-manifests.yaml",
+        ],
     );
     run_ok(
         "kubectl",
@@ -87,9 +96,11 @@ fn network_k3d_kubectl_provider_lifecycle() {
                 .and(predicates::str::contains("\"ping\": \"pong\"")),
         );
 
+    let tickets = tempdir().expect("ticket dir");
     let set_output = common::lade(home.path())
         .current_dir(dir.path())
         .env("KUBECONFIG", &kubeconfig)
+        .env("LADE_TICKET_DIR", tickets.path())
         .args(["set", &format!("curl http://127.0.0.1:{port_local}/")])
         .assert()
         .success()
@@ -97,7 +108,8 @@ fn network_k3d_kubectl_provider_lifecycle() {
         .stdout
         .clone();
     let set_stdout = String::from_utf8_lossy(&set_output);
-    let pid = extract_pid(&set_stdout).expect("LADE_NETWORK_PIDS in set output");
+    let id = extract_lade_t(&set_stdout).expect("LADE_T in set output");
+    let pid = ticket_network_pid(tickets.path(), &id).expect("network_pids on ticket");
     assert!(
         is_pid_running(&pid),
         "detached provider pid not running: {pid}"
@@ -106,7 +118,8 @@ fn network_k3d_kubectl_provider_lifecycle() {
     common::lade(home.path())
         .current_dir(dir.path())
         .env("KUBECONFIG", &kubeconfig)
-        .env("LADE_NETWORK_PIDS", &pid)
+        .env("LADE_TICKET_DIR", tickets.path())
+        .env("LADE_T", &id)
         .args(["unset", &format!("curl http://127.0.0.1:{port_local}/")])
         .assert()
         .success();
@@ -116,197 +129,4 @@ fn network_k3d_kubectl_provider_lifecycle() {
         !is_pid_running(&pid),
         "detached provider pid still running after unset: {pid}"
     );
-}
-
-fn is_ready_for_k3d_test() -> bool {
-    has_cmd("k3d")
-        && has_cmd("kubectl")
-        && has_cmd("docker")
-        && has_cmd("curl")
-        && Command::new("docker")
-            .arg("info")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-}
-
-fn has_cmd(cmd: &str) -> bool {
-    Command::new("sh")
-        .args(["-c", &format!("command -v {cmd} >/dev/null 2>&1")])
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-fn ensure_cluster_context(cluster: &str, context: &str, kubeconfig: &str, config: &Path) {
-    if cluster_exists(cluster) {
-        start_cluster(cluster);
-        write_cluster_kubeconfig(cluster, kubeconfig);
-        assert!(
-            has_kube_context(context, kubeconfig),
-            "exported kubeconfig for cluster {cluster}, but context {context} is missing"
-        );
-        return;
-    }
-    let status = Command::new("k3d")
-        .env("KUBECONFIG", kubeconfig)
-        .arg("cluster")
-        .arg("create")
-        .arg("--config")
-        .arg(config)
-        .arg("--wait")
-        .output()
-        .expect("spawn k3d cluster create");
-    assert!(
-        status.status.success(),
-        "k3d cluster create failed: {}",
-        String::from_utf8_lossy(&status.stderr)
-    );
-    assert!(
-        has_kube_context(context, kubeconfig),
-        "created cluster {cluster}, but context {context} is missing from isolated kubeconfig"
-    );
-}
-
-fn start_cluster(cluster: &str) {
-    let output = Command::new("k3d")
-        .args(["cluster", "start", cluster, "--wait"])
-        .output()
-        .expect("spawn k3d cluster start");
-    assert!(
-        output.status.success(),
-        "k3d cluster start failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn write_cluster_config(dir: &Path) -> PathBuf {
-    let manifest = std::env::current_dir()
-        .expect("current dir")
-        .join("k3d-manifests.yaml");
-    let config = fs::read_to_string("k3d.yaml")
-        .expect("read k3d.yaml")
-        .replace("./k3d-manifests.yaml", &manifest.display().to_string());
-    let path = dir.join("k3d.yaml");
-    fs::write(&path, config).expect("write generated k3d config");
-    path
-}
-
-fn cluster_exists(cluster: &str) -> bool {
-    let output = Command::new("k3d")
-        .args(["cluster", "list", "-o", "json"])
-        .output()
-        .expect("spawn k3d cluster list");
-    assert!(
-        output.status.success(),
-        "k3d cluster list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let clusters: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("parse k3d cluster list JSON");
-    clusters
-        .as_array()
-        .expect("k3d cluster list JSON array")
-        .iter()
-        .any(|c| c.get("name").and_then(serde_json::Value::as_str) == Some(cluster))
-}
-
-fn write_cluster_kubeconfig(cluster: &str, kubeconfig: &str) {
-    let output = Command::new("k3d")
-        .args(["kubeconfig", "get", cluster])
-        .output()
-        .expect("spawn k3d kubeconfig get");
-    assert!(
-        output.status.success(),
-        "k3d kubeconfig get failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    fs::write(kubeconfig, output.stdout).expect("write isolated kubeconfig");
-}
-
-fn has_kube_context(context: &str, kubeconfig: &str) -> bool {
-    let output = Command::new("kubectl")
-        .env("KUBECONFIG", kubeconfig)
-        .args(["config", "get-contexts", "-o", "name"])
-        .output();
-    let Ok(output) = output else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|line| line.trim() == context)
-}
-
-fn run_ok(cmd: &str, kubeconfig: &str, args: &[&str]) {
-    let output = Command::new(cmd)
-        .env("KUBECONFIG", kubeconfig)
-        .args(args)
-        .output()
-        .expect("spawn command");
-    if output.status.success() {
-        return;
-    }
-    panic!(
-        "{cmd} {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn run_capture(cmd: &str, kubeconfig: &str, args: &[&str]) -> String {
-    let output = Command::new(cmd)
-        .env("KUBECONFIG", kubeconfig)
-        .args(args)
-        .output()
-        .expect("spawn command");
-    if !output.status.success() {
-        panic!(
-            "{cmd} {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-fn normalize_authority(server_url: &str) -> String {
-    server_url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .expect("server authority")
-        .to_string()
-}
-
-fn extract_pid(set_stdout: &str) -> Option<String> {
-    for prefix in ["LADE_NETWORK_PIDS='", "LADE_NETWORK_PIDS="] {
-        let Some(start) = set_stdout.find(prefix) else {
-            continue;
-        };
-        let rest = &set_stdout[start + prefix.len()..];
-        let raw = rest
-            .split(';')
-            .next()
-            .unwrap_or(rest)
-            .trim()
-            .trim_matches('\'')
-            .trim_matches('"');
-        if !raw.is_empty() {
-            return Some(raw.to_string());
-        }
-    }
-    None
-}
-
-fn is_pid_running(pid: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", pid])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
 }

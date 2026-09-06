@@ -4,11 +4,33 @@ use serde_json::Value;
 const CMD: &str = "/usr/local/bin/lade hook";
 
 #[test]
+fn hook_command_never_writes_a_test_binary() {
+    let command = super::hook_command(Agent::Codex);
+    assert_eq!(command, "lade hook --harness codex");
+}
+
+#[test]
+fn refresh_installed_is_inert_in_the_test_binary() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join(".codex").join("hooks.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let stale = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#;
+    std::fs::write(&path, stale).unwrap();
+    let home_str = home.path().to_str().unwrap();
+    temp_env::with_var("HOME", Some(home_str), || {
+        super::refresh_installed();
+    });
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), stale);
+}
+
+#[test]
 fn is_lade_hook_matches_bare_and_absolute() {
     assert!(is_lade_hook("lade hook"));
     assert!(is_lade_hook("/usr/local/bin/lade hook"));
     assert!(is_lade_hook("target/debug/lade hook"));
     assert!(is_lade_hook("lade.exe hook"));
+    assert!(is_lade_hook("lade hook --harness cursor"));
+    assert!(is_lade_hook("/usr/local/bin/lade hook --harness claude"));
     assert!(!is_lade_hook("lade inject"));
     assert!(!is_lade_hook("blade hook"));
     assert!(!is_lade_hook("ladehook"));
@@ -146,8 +168,10 @@ fn pi_merge_uses_bash_or_bash_matcher() {
 fn opencode_merge_writes_native_plugin() {
     let out = Agent::OpenCode.merge("", CMD).unwrap();
     assert!(out.contains("export const LadePretool"));
-    assert!(out.contains("[\"hook\"]"));
-    assert!(out.contains("updatedInput"));
+    assert!(out.contains("[\"hook\", \"--harness\", \"opencode\"]"));
+    assert!(out.contains("session_id"));
+    assert!(!out.contains("updatedInput"));
+    assert!(!out.contains("OPENCODE:"));
     assert!(out.contains(CMD.split_whitespace().next().unwrap()));
     assert!(Agent::OpenCode.has_hook(&out).unwrap());
 }
@@ -222,40 +246,12 @@ fn merge_preserves_user_key_order() {
 }
 
 #[test]
-fn find_project_does_not_treat_home_global_as_project() {
-    let home = tempfile::tempdir().unwrap();
-    let repo = home.path().join("proj");
-    std::fs::create_dir_all(&repo).unwrap();
-    std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
-    std::fs::write(
-        home.path().join(".cursor").join("hooks.json"),
-        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
-    )
-    .unwrap();
-    let (path, installed) = super::find_project(Agent::Cursor, home.path(), &repo).unwrap();
-    assert!(!installed);
-    assert_eq!(path, repo.join(".cursor").join("hooks.json"));
-}
-
-#[test]
-fn find_project_finds_repo_hooks_before_home() {
-    let home = tempfile::tempdir().unwrap();
-    let repo = home.path().join("proj");
-    std::fs::create_dir_all(repo.join(".cursor")).unwrap();
-    std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
-    std::fs::write(
-        home.path().join(".cursor").join("hooks.json"),
-        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        repo.join(".cursor").join("hooks.json"),
-        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
-    )
-    .unwrap();
-    let (path, installed) = super::find_project(Agent::Cursor, home.path(), &repo).unwrap();
-    assert!(installed);
-    assert_eq!(path, repo.join(".cursor").join("hooks.json"));
+fn cursor_project_files_are_hooks_json() {
+    let dir = std::path::Path::new("/tmp/proj");
+    assert_eq!(
+        super::project_files(Agent::Cursor, dir),
+        vec![dir.join(".cursor").join("hooks.json")]
+    );
 }
 
 #[test]
@@ -272,6 +268,23 @@ fn find_project_does_not_treat_home_codex_as_project() {
     let (path, installed) = super::find_project(Agent::Codex, home.path(), &repo).unwrap();
     assert!(!installed);
     assert_eq!(path, repo.join(".codex").join("hooks.json"));
+}
+
+#[test]
+fn find_project_does_not_walk_to_root_when_cwd_is_outside_home() {
+    let home = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(elsewhere.path().join(".codex")).unwrap();
+    std::fs::write(
+        elsewhere.path().join(".codex").join("hooks.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
+    )
+    .unwrap();
+    let nested = elsewhere.path().join("proj");
+    std::fs::create_dir_all(&nested).unwrap();
+    let (path, installed) = super::find_project(Agent::Codex, home.path(), &nested).unwrap();
+    assert!(!installed);
+    assert_eq!(path, nested.join(".codex").join("hooks.json"));
 }
 
 #[test]
@@ -293,4 +306,20 @@ fn find_project_finds_repo_codex_hooks_before_home() {
     let (path, installed) = super::find_project(Agent::Codex, home.path(), &repo).unwrap();
     assert!(installed);
     assert_eq!(path, repo.join(".codex").join("hooks.json"));
+}
+
+#[test]
+fn refresh_updates_stale_hook_and_skips_missing() {
+    let home = tempfile::tempdir().unwrap();
+    let global = home.path().join(".codex").join("hooks.json");
+    let other = home.path().join(".claude").join("settings.json");
+    std::fs::create_dir_all(global.parent().unwrap()).unwrap();
+    let stale = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#;
+    std::fs::write(&global, stale).unwrap();
+    let command = "/usr/local/bin/lade hook --harness codex";
+    super::refresh_path(Agent::Codex, &global, command);
+    super::refresh_path(Agent::Claude, &other, command);
+    let updated = std::fs::read_to_string(&global).unwrap();
+    assert!(Agent::Codex.hook_uses_command(&updated, command).unwrap());
+    assert!(!other.exists());
 }

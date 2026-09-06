@@ -33,13 +33,8 @@ pub fn run(
     cwd: &Path,
     redactor: Option<Redactor>,
 ) -> Result<i32> {
-    match ctx.via.child_stamp() {
-        Some(value) => {
-            env.insert(crate::shell::LADE_VIA.to_string(), value.to_string());
-        }
-        None => {
-            env.remove(crate::shell::LADE_VIA);
-        }
+    for key in crate::shell::CHILD_UNSET {
+        env.remove(key);
     }
     let mode = select_mode(
         redactor.is_some(),
@@ -63,6 +58,21 @@ pub fn run(
     }
 }
 
+fn prepare_child(
+    shell: &Shell,
+    command: &str,
+    env: HashMap<String, String>,
+    cwd: &Path,
+) -> std::process::Command {
+    let mut cmd = shell.prepare_command(command);
+    cmd.current_dir(cwd);
+    cmd.envs(std::env::vars());
+    crate::shell::strip_child_protocol(&mut cmd);
+    cmd.env_remove("BASH_ENV");
+    cmd.envs(env);
+    cmd
+}
+
 fn run_plain(
     shell: &Shell,
     command: &str,
@@ -72,14 +82,7 @@ fn run_plain(
     let watch = crate::child_signals::ChildWatch::new();
     // Stay in lade's session. A new session here would let the child take
     // the inherited TTY and hang it up on exit.
-    let mut child = shell
-        .prepare_command(command)
-        .current_dir(cwd)
-        .envs(std::env::vars())
-        .env_remove(crate::shell::LADE_VIA)
-        .env_remove("BASH_ENV")
-        .envs(env)
-        .spawn()?;
+    let mut child = prepare_child(shell, command, env, cwd).spawn()?;
     watch.set_pid(child.id(), false);
     let status = child.wait()?;
     watch.clear_pid();

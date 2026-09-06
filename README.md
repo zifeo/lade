@@ -60,8 +60,10 @@ lade upgrade
 
 ## How it works
 
-Create a `lade.yml` at your project root. Each top-level key is a regular
-expression matched against the command being run.
+Create a `lade.yml` at your project root. Lade walks from the current
+directory up to `$HOME` and merges every `lade.yml` it finds. Each
+top-level key is a regular expression matched against the command
+being run.
 
 ```yaml
 "psql .*":
@@ -88,6 +90,63 @@ injection. The explicit form is `lade inject <command>`.
 lade terraform apply
 lade inject -- terraform apply
 ```
+
+The wrap skips the user profile. Same argv as `sh://`.
+
+## Local command diary
+
+Recording is off until a matching `lade.yml` rule sets `log: true`. Absent
+`log` is not a vote. Last explicit `log` on matching rules wins
+(parent then child). `log: false` punches a hole for that command
+only. A no-match `seen` uses the last explicit `log` on the loaded
+walk. A rule may be log-only, with no secrets. Details:
+[docs/log.md](docs/log.md).
+
+```yaml
+.:
+  .:
+    log: true
+"^git status":
+  .:
+    log: false
+"^npm run deploy":
+  API_TOKEN: op://prod/api/credential
+```
+
+Lade writes one row per opted-in command to a local SQLite file next to the
+rest of its user data: `ProjectDirs::from("com", "zifeo", "lade")`,
+`data_local_dir()/events.db`. `config.json` uses the same library and
+qualifier, on `config_local_dir()`. Vault addresses (`op://…`) are stored.
+Secret values are never stored.
+
+```bash
+lade log
+lade log --json --since 7d --until 1d --limit 20
+lade log --group command
+lade log --kind access --audience human
+lade usage
+lade usage --since 7d
+lade usage --all
+lade usage --path ~/other/repo
+lade log --all
+lade log prune --keep 30d
+```
+
+The default window is the last 90 days. `--since` and `--until` are
+durations back from now (`Ns | Nm | Nh | Nd | Nw | Nmonth`, `m` is
+minutes). `--limit` is an extra row cap. A bare `--limit 20` drops the
+90-day default and returns the newest 20 rows. `--group command`
+aggregates the diary by command text, most frequent first. Nothing
+prunes by itself. `lade log --help` prints the database path.
+`lade status` reports the path, event count, and a human size.
+
+`lade log` and `lade usage` both stay in the current git root when there
+is one, including git worktrees (`.git` file). `--all` reads the whole
+diary. `--path` scopes to the git root of that directory. `lade log` is
+the diary of typed commands. `lade usage` is Lade usage in this tree:
+matched `lade.yml` rules only, most frequent first, with the file path
+and `env` / `file` / `tunnel` tags. Catch-all `.` rules and unused
+rules are omitted. `lade.yml` walk stops at `$HOME`.
 
 ## Common patterns
 
@@ -234,7 +293,14 @@ configs are:
 ```json
 {
   "version": 1,
-  "hooks": { "preToolUse": [{ "command": "lade hook", "matcher": "Shell" }] }
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "lade hook --harness cursor",
+        "matcher": "Shell"
+      }
+    ]
+  }
 }
 ```
 
@@ -249,7 +315,12 @@ configs are:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness claude"
+          }
+        ]
       }
     ]
   }
@@ -271,7 +342,12 @@ untrusted hook or `[features].hooks = false` is a silent no-op. Global file:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness codex"
+          }
+        ]
       }
     ]
   }
@@ -292,7 +368,12 @@ Pi matches on `tool_name`, often lowercase `bash`. Global file:
     "PreToolUse": [
       {
         "matcher": "Bash|bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness pi"
+          }
+        ]
       }
     ]
   }
@@ -319,30 +400,19 @@ export const LadePretool = async () => ({
     if (input.tool !== "bash" || typeof command !== "string") {
       return;
     }
-    const payload = JSON.stringify({
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command },
-      hook_source: "opencode-plugin",
-    });
-    const result = spawnSync(lade, ["hook"], {
-      input: payload,
+    const result = spawnSync(lade, ["hook", "--harness", "opencode"], {
+      input: JSON.stringify({ command, session_id: input.sessionID }),
       encoding: "utf8",
-      env: { ...process.env, OPENCODE: "1" },
     });
     if (result.status !== 0 || !result.stdout?.trim()) {
       return;
     }
-    let parsed;
     try {
-      parsed = JSON.parse(result.stdout);
-    } catch {
-      return;
-    }
-    const updated = parsed?.hookSpecificOutput?.updatedInput?.command;
-    if (typeof updated === "string") {
-      output.args.command = updated;
-    }
+      const updated = JSON.parse(result.stdout)?.command;
+      if (typeof updated === "string") {
+        output.args.command = updated;
+      }
+    } catch {}
   },
 });
 ```
@@ -462,16 +532,52 @@ Supported secret providers:
 
 | Provider      | URI                                                  | Notes                                               |
 | ------------- | ---------------------------------------------------- | --------------------------------------------------- |
-| 1Password     | `op://DOMAIN/VAULT/ITEM/FIELD`                       | Uses the 1Password CLI.                             |
-| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | The `/api` suffix is added automatically.           |
+| 1Password     | `op://DOMAIN/VAULT/ITEM/FIELD`                       | Optional section: `op://DOMAIN/VAULT/ITEM/SECTION/FIELD`. Uses the 1Password CLI. |
+| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested secret names are allowed in the last path segment. The `/api` suffix is added automatically. |
 | Doppler       | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI.                               |
-| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Uses the Vault CLI.                                 |
+| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Path segments are URL-decoded. Uses the Vault CLI.  |
 | Passbolt      | `passbolt://DOMAIN/RESOURCE_ID/FIELD`                | Uses the Passbolt CLI.                              |
-| File          | `file://PATH?query=.fields[0].field`                 | Supports INI, JSON, YAML, and TOML files.           |
-| Shell command | `sh://gcloud auth print-access-token`                | Also supports `bash://`, `zsh://`, and `fish://`.   |
-| Inline value  | `"visible-in-lade-yml"`                              | Use `!` to force raw values and `!!` to escape `!`. |
+| File          | `file://PATH?query=.fields[0].field`                 | `?query=` is required. INI, JSON, YAML, and TOML.   |
+| Shell command | `sh://gcloud auth print-access-token`                | Also `bash://`, `zsh://`, and `fish://`. Wrap: `fish --no-config`, `zsh -f`, `$BASH_ENV` cleared. |
+| Inline value  | `"visible-in-lade-yml"`                              | Use `!` to force a raw value and `!!` to keep a leading `!`. |
 
 Use `lade eval <uri>` to resolve one URI when debugging a provider.
+
+`file://` details:
+
+- `?query=` is a JSON path after the file is parsed (`access_json`). Examples:
+  `.token`, `.db.password`, `.fields[0].field`, `.section.password` for INI.
+- Path is relative to the `lade.yml` directory, or absolute. `~/` and `$HOME/`
+  expand to the user home. Spaces in the path must be percent-encoded (`%20`).
+- Extension selects the parser: `.json`, `.yaml` / `.yml`, `.toml`, `.ini`.
+- A `file://` URI without `?query=` is rejected.
+
+`sh://` / `bash://` / `zsh://` / `fish://` details:
+
+- Everything after `scheme://` is the script. It cannot be empty.
+- Wrap argv, also used by `lade inject` and `lade hook`. Always on. There is no
+  `lade.yml` or CLI flag to turn it off.
+
+| Shell | Wrap argv |
+| ----- | --------- |
+| Fish | `fish --no-config -c …` |
+| Zsh | `zsh -f -c …` |
+| Bash / sh | `bash -c …` with `$BASH_ENV` unset |
+
+`--norc --noprofile` are not used: they do not skip `$BASH_ENV`, and `bash -c`
+does not read `.bashrc` or login profiles anyway. Preexec (`lade set`) still
+evals in the live interactive shell, so the profile stays in play there.
+`lade status` prints `inject wrap: skips startup files` and names the file or
+`BASH_ENV` when it is present.
+
+- Lade recognizes `$NAME` and `${NAME}` to build the dependency graph, then
+  passes those resolved values as environment variables. The script text is
+  not rewritten. Quote expansions (`"$user"`) so values stay one argument.
+- Output is treated as a secret and masked like other provider-resolved values.
+
+Bindings can compose URIs. `${NAME}`, `$NAME`, and `${.NAME}` pull another
+binding in the same rule. YAML `null` or `~` on a key cancels a value inherited
+from a parent `lade.yml`. A later matching rule overlays the same key.
 
 ### Intermediate bindings
 
@@ -518,17 +624,18 @@ Options under `.` configure the matched command itself.
   .:
     file: secrets.yml
     disclaimer: "This command will use production credentials."
+    log: true
   API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
 `when` is `always` (default), `human`, or `agent`. Audience comes from
 `detect()`: `--pretool` or `lade hook` is `agent`; `lade set`/`unset` is
-`human`. `--pretool` wins over `LADE_VIA`. `LADE_VIA` is the courier in the
-child command env (`preexec` from shell hooks, `pretool` from `--pretool`).
-Otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`, `CLAUDECODE`, not
-`CURSOR_VERSION`) select `agent`, else `human`. The same pattern can be a
-YAML list of these blocks when `when` differs. `silence` is optional and
-skips that rule's secret progress lines at hydration.
+`human`. Leftover `LADE_VIA` is ignored. Via lives on the T ticket, not
+the child env. Otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`,
+`CLAUDECODE`, not `CURSOR_VERSION`) select `agent`, else `human`. The
+same pattern can be a YAML list of these blocks when `when` differs.
+`silence` is optional and skips that rule's secret progress lines at
+hydration.
 
 ```yaml
 "^git ":
@@ -572,6 +679,12 @@ for a fixed local port.
   1223: ssh://jump.example.com:22/db.internal/5432
 ```
 
+A numeric key is the local listen port. An env-var key gets an ephemeral local
+port unless `local=` sets one. Without `local=`, Lade binds `127.0.0.1`.
+Userinfo (`user:pass@`) is rejected. Unknown query keys fail instead of being
+ignored. A malformed network URI fails closed. It is not treated as a raw
+string.
+
 Supported network providers:
 
 | Provider  | URI                                                                                                   | Query options                                               |
@@ -581,10 +694,25 @@ Supported network providers:
 | `tsh`     | `tsh://<proxy-host>:<proxy-port>/<kind>/<resource-path>`                                              | `local=HOST:PORT`                                           |
 | `ssh`     | `ssh://<jump-host>:<jump-port>/<remote-host>/<remote-port>`                                           | `local=HOST:PORT`                                           |
 
+Query options:
+
+- `local=HOST:PORT`: bind that local endpoint. Both parts are required. On a
+  numeric key, `PORT` must match the key. On an env-var key, that port is
+  written into the variable. `tsh` app proxy accepts only `127.0.0.1` or
+  `localhost`.
+- `pod-running-timeout` (`kubectl` only): passed through to
+  `kubectl port-forward --pod-running-timeout`.
+- `domain` / `selector` (`kubefwd` only): forwarded to `kubefwd`.
+
 For `tsh`, `<kind>` uses Teleport resource nomenclature:
 
-- `app/<app-name>[/<target-port>]`
-- `kube_cluster/<kube-cluster>/<namespace>/<resource-kind>/<name>/<remote-port>`
+- `app/<app-name>`: Teleport app proxy (for example Grafana).
+- `app/<app-name>/<target-port>`: same, with an explicit target port.
+- `kube_cluster/<kube-cluster>/<namespace>/<resource-kind>/<name>/<remote-port>`:
+  forward a Kubernetes resource through Teleport.
+
+`ssh` jump port defaults to `22` when the authority has no port
+(`ssh://jump.example.com/db.internal/5432`).
 
 See [examples/tape/lade.yml](examples/tape/lade.yml) and
 [examples/tape/network.txt](examples/tape/network.txt) for more examples.
@@ -645,6 +773,8 @@ COPY --from=ghcr.io/zifeo/lade:0.15.3 /usr/local/bin/lade /usr/local/bin/lade
 The `ghcr.io/zifeo/lade` image is published for `linux/amd64` and `linux/arm64`
 with tags `X.Y.Z`, `X.Y`, and `latest`. Pin an exact `X.Y.Z` for reproducible
 builds.
+
+See [docs/](docs/) for internals.
 
 ## Development
 

@@ -9,29 +9,18 @@ export const LadePretool = async () => ({
     if (input.tool !== "bash" || typeof command !== "string") {
       return;
     }
-    const payload = JSON.stringify({
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command },
-      hook_source: "opencode-plugin",
-    });
-    const result = spawnSync(lade, ["hook"], {
-      input: payload,
+    const result = spawnSync(lade, ["hook", "--harness", "opencode"], {
+      input: JSON.stringify({ command, session_id: input.sessionID }),
       encoding: "utf8",
-      env: { ...process.env, OPENCODE: "1" },
     });
     if (result.status !== 0 || !result.stdout?.trim()) {
       return;
     }
-    let parsed;
     try {
-      parsed = JSON.parse(result.stdout);
-    } catch {
-      return;
-    }
-    const updated = parsed?.hookSpecificOutput?.updatedInput?.command;
-    if (typeof updated === "string") {
-      output.args.command = updated;
-    }
+      const updated = JSON.parse(result.stdout)?.command;
+      if (typeof updated === "string") {
+        output.args.command = updated;
+      }
+    } catch {}
   },
 });

@@ -53,6 +53,7 @@ pub struct RuleConfig {
     pub when: RuleWhen,
     #[serde(default)]
     pub silence: bool,
+    pub log: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -211,6 +212,23 @@ mod tests {
             .as_ref()
             .unwrap();
         assert!(config.silence);
+    }
+
+    #[test]
+    fn test_rule_config_log() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lade.yml");
+        std::fs::write(
+            &file_path,
+            "\"cmd\":\n  \".\":\n    log: true\n  KEY: val\n",
+        )
+        .unwrap();
+        let lade_file = LadeFile::from_path(&file_path).unwrap();
+        let config = lade_file.commands.get("cmd").unwrap()[0]
+            .config
+            .as_ref()
+            .unwrap();
+        assert_eq!(config.log, Some(true));
     }
 
     #[test]

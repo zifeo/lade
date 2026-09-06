@@ -1,0 +1,326 @@
+use anyhow::{Result, bail};
+use lade_sdk::network::is_network_scheme;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::PathBuf;
+
+use super::secret::resolve_lade_secret;
+use super::{Config, LadeRule, LadeSecret, NetworkBinding, Output, SecretSources};
+use crate::ticket::TicketSecret;
+
+/// A single rule entry, resolved for a user and classified as either a plain
+/// secret/file value or a network provider binding (kubectl://, kubefwd://,
+/// tsh://). Centralizing this classification keeps the scheme/numeric-key
+/// rules consistent across hydration, `unset`, and network binding
+/// collection, instead of each call site re-deriving them slightly
+/// differently.
+pub(super) enum ResolvedEntry {
+    Secret {
+        key: String,
+        value: String,
+    },
+    Network {
+        key: String,
+        uri: String,
+    },
+    /// A numeric key (port number) resolved to a non-network value. Only
+    /// `rule_sources`/`network_bindings_from_rules` treat this as an error;
+    /// `keys_from_rules` (used for `unset`) just skips it, since by the time
+    /// `unset` runs, `set`/`inject` would already have failed on it.
+    InvalidNumericSecret {
+        key: String,
+    },
+    Unset {
+        key: String,
+    },
+}
+
+pub(super) fn resolve_entry(
+    key: &str,
+    secret: &LadeSecret,
+    saved_user: &Option<String>,
+) -> Option<ResolvedEntry> {
+    if matches!(secret, LadeSecret::Unset) {
+        return Some(ResolvedEntry::Unset {
+            key: key.to_string(),
+        });
+    }
+    let value = resolve_lade_secret(secret, saved_user)?;
+    if split_scheme(&value).is_some_and(is_network_scheme) {
+        return Some(ResolvedEntry::Network {
+            key: key.to_string(),
+            uri: value,
+        });
+    }
+    if key.parse::<u16>().is_ok() {
+        return Some(ResolvedEntry::InvalidNumericSecret {
+            key: key.to_string(),
+        });
+    }
+    Some(ResolvedEntry::Secret {
+        key: key.to_string(),
+        value,
+    })
+}
+
+pub(super) fn split_scheme(value: &str) -> Option<&str> {
+    value.split_once("://").map(|(scheme, _)| scheme)
+}
+
+pub(super) fn binding_name(key: &str) -> Result<(String, bool)> {
+    if key == "." {
+        bail!("'.' is reserved for rule configuration");
+    }
+    if let Some(name) = key.strip_prefix('.') {
+        if name.is_empty() || !super::is_valid_env_key(name) {
+            bail!("private binding '{key}' must be .NAME");
+        }
+        return Ok((name.to_string(), true));
+    }
+    Ok((key.to_string(), false))
+}
+
+/// Secret values only (no network bindings) for a single rule, keyed by
+/// name. Used for hydration, so it applies to both env and file-routed
+/// outputs alike — unlike [`Config::keys_from_rules`], it does not require
+/// keys to look like valid env var names (a file-routed secret can use any
+/// key as its JSON/YAML field name).
+fn rule_sources(rule: &LadeRule, saved_user: &Option<String>) -> Result<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    for (key, secret) in &rule.secrets {
+        match resolve_entry(key, secret, saved_user) {
+            Some(ResolvedEntry::Secret { key, value }) => {
+                out.insert(key, value);
+            }
+            Some(ResolvedEntry::Network { .. }) | Some(ResolvedEntry::Unset { .. }) | None => {}
+            Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                key
+            ),
+        }
+    }
+    Ok(out)
+}
+
+pub(super) fn secrets_from_rules(
+    rules: &[(PathBuf, LadeRule)],
+    saved_user: &Option<String>,
+) -> Result<Vec<TicketSecret>> {
+    let mut bindings = HashMap::<String, TicketSecret>::new();
+    for (cwd, rule) in rules {
+        let output = rule.config.as_ref().and_then(|config| config.file.clone());
+        for (key, secret) in &rule.secrets {
+            match resolve_entry(key, secret, saved_user) {
+                Some(ResolvedEntry::Unset { key }) | Some(ResolvedEntry::Network { key, .. }) => {
+                    let (name, _) = binding_name(&key)?;
+                    bindings.remove(&name);
+                }
+                Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                    "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                    key
+                ),
+                None => {}
+                Some(ResolvedEntry::Secret { key, value }) => {
+                    let (name, private) = binding_name(&key)?;
+                    let ticket = TicketSecret {
+                        key: name.clone(),
+                        source: value,
+                        private,
+                        output: output.as_ref().map(|path| cwd.join(path)),
+                        cwd: cwd.clone(),
+                    };
+                    if let Some(existing) = bindings.get(&name)
+                        && existing.private != ticket.private
+                    {
+                        bail!("binding '{name}' is declared both public and private");
+                    }
+                    bindings.insert(name, ticket);
+                }
+            }
+        }
+    }
+    let mut secrets = bindings.into_values().collect::<Vec<_>>();
+    secrets.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(secrets)
+}
+
+pub(super) fn op_sa_from_rules(
+    rules: &[(PathBuf, LadeRule)],
+    saved_user: &Option<String>,
+) -> Option<String> {
+    let mut op_sa = None;
+    for (_, rule) in rules {
+        if let Some(secret) = rule
+            .config
+            .as_ref()
+            .and_then(|config| config.onepassword_service_account.as_ref())
+        {
+            op_sa = resolve_lade_secret(secret, saved_user);
+        }
+    }
+    op_sa
+}
+
+fn mark_silent(silent: &mut HashSet<String>, key: &str, is_silent: bool) {
+    if is_silent {
+        silent.insert(key.to_string());
+    } else {
+        silent.remove(key);
+    }
+}
+
+impl Config {
+    /// Secret sources only (no hydration) for already-collected `rules`.
+    /// Used to display provider progress groups before hydration runs.
+    pub fn secret_sources_from_rules(
+        rules: &[(PathBuf, LadeRule)],
+        saved_user: &Option<String>,
+    ) -> Result<SecretSources> {
+        let mut plan = SecretSources::default();
+        for (_, rule) in rules {
+            let silent = rule.config.as_ref().is_some_and(|config| config.silence);
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Secret { key, value }) => {
+                        if plan.sources.contains_key(&key) || plan.cancelled.contains_key(&key) {
+                            plan.overridden.insert(key.clone());
+                        }
+                        plan.cancelled.remove(&key);
+                        mark_silent(&mut plan.silent, &key, silent);
+                        plan.sources.insert(key, value);
+                    }
+                    Some(ResolvedEntry::Unset { key }) => {
+                        plan.overridden.remove(&key);
+                        let previous = plan.sources.remove(&key).unwrap_or_default();
+                        mark_silent(&mut plan.silent, &key, silent);
+                        plan.cancelled.insert(key, previous);
+                    }
+                    Some(ResolvedEntry::Network { key, .. }) => {
+                        plan.overridden.remove(&key);
+                        plan.cancelled.remove(&key);
+                        plan.silent.remove(&key);
+                        plan.sources.remove(&key);
+                    }
+                    Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                        "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                        key
+                    ),
+                    None => {}
+                }
+            }
+        }
+        Ok(plan)
+    }
+
+    /// Env var names per [`Output`] for already-collected `rules`, used to
+    /// remove temporary files on `unset`. Numeric keys are skipped: `set` /
+    /// `inject` would already have failed on a numeric non-network value.
+    pub fn keys_from_rules(
+        rules: &[(PathBuf, LadeRule)],
+        saved_user: &Option<String>,
+    ) -> HashMap<Output, Vec<String>> {
+        let mut by_output: HashMap<Output, BTreeSet<String>> = HashMap::new();
+        for (_, rule) in rules {
+            let output = rule.config.as_ref().and_then(|c| c.file.clone());
+            let keys = by_output.entry(output).or_default();
+            for (key, secret) in &rule.secrets {
+                if key.starts_with('.') || !super::is_valid_env_key(key) {
+                    continue;
+                }
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Secret { key, .. }) => {
+                        keys.insert(key);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Network { key, .. }) => {
+                        keys.remove(&key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        by_output
+            .into_iter()
+            .filter(|(_, keys)| !keys.is_empty())
+            .map(|(output, keys)| (output, keys.into_iter().collect()))
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn collect_secret_sources(&self, command: &str) -> Result<SecretSources> {
+        Self::secret_sources_from_rules(&self.collect(command), &None)
+    }
+
+    #[cfg(test)]
+    pub fn collect_keys(&self, command: &str) -> HashMap<Output, Vec<String>> {
+        Self::keys_from_rules(&self.collect(command), &None)
+    }
+
+    #[cfg(test)]
+    pub async fn collect_keys_for_command(
+        &self,
+        command: &str,
+    ) -> Result<HashMap<Output, Vec<String>>> {
+        let saved_user = super::saved_user().await?;
+        Ok(Self::keys_from_rules(&self.collect(command), &saved_user))
+    }
+
+    pub fn all_secret_sources(&self, saved_user: &Option<String>) -> Vec<String> {
+        self.rules
+            .iter()
+            .filter_map(|(_, rule)| rule_sources(rule, saved_user).ok())
+            .flat_map(|sources| sources.into_values())
+            .collect()
+    }
+
+    pub fn all_network_sources(&self, saved_user: &Option<String>) -> Vec<String> {
+        self.rules
+            .iter()
+            .flat_map(|(_, rule)| {
+                rule.secrets.iter().filter_map(|(key, secret)| {
+                    match resolve_entry(key, secret, saved_user) {
+                        Some(ResolvedEntry::Network { uri, .. }) => Some(uri),
+                        _ => None,
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// Network bindings for already-collected `rules`. Later matching rules
+    /// overlay the same key; YAML null cancels it.
+    pub fn network_bindings_from_rules(
+        rules: &[(PathBuf, LadeRule)],
+        saved_user: &Option<String>,
+    ) -> Vec<NetworkBinding> {
+        let mut by_key = HashMap::<String, String>::new();
+        for (_, rule) in rules {
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Secret { key, .. })
+                        if !key.starts_with('.') =>
+                    {
+                        by_key.remove(&key);
+                    }
+                    Some(ResolvedEntry::Network { key, uri }) if !key.starts_with('.') => {
+                        by_key.insert(key, uri);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        by_key
+            .into_iter()
+            .map(|(key, uri)| NetworkBinding { key, uri })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn collect_network_bindings(
+        &self,
+        command: &str,
+        saved_user: &Option<String>,
+    ) -> Vec<NetworkBinding> {
+        Self::network_bindings_from_rules(&self.collect(command), saved_user)
+    }
+}

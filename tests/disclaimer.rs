@@ -24,10 +24,12 @@ fn test_disclaimer_hook_flow() {
     )
     .unwrap();
 
+    let tickets = tempdir().unwrap();
     // 1. set blocked: a single disclaimer box (not a second loader-shaped error),
     //    carrying the per-command approval code.
     let out = common::lade(home.path())
         .current_dir(dir.path())
+        .env("LADE_TICKET_DIR", tickets.path())
         .args(["set", "deploy"])
         .output()
         .unwrap();
@@ -35,7 +37,8 @@ fn test_disclaimer_hook_flow() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stdout.contains("unset -v LADE_PENDING"));
-    assert!(stdout.contains("export LADE_PENDING='v1:"));
+    assert!(stdout.contains("export LADE_T='"));
+    assert!(!stdout.contains("export LADE_PENDING='"));
     assert!(stderr.contains("Disclaimer required to uncover the secrets"));
     assert!(stderr.contains("> Danger!"));
     assert!(!stderr.contains("could not get secrets"));
@@ -44,6 +47,7 @@ fn test_disclaimer_hook_flow() {
     // 2. set approved with the exact code
     common::lade(home.path())
         .current_dir(dir.path())
+        .env("LADE_TICKET_DIR", tickets.path())
         .env("LADE_APPROVE", &code)
         .args(["set", "deploy"])
         .assert()
@@ -66,6 +70,39 @@ fn test_disclaimer_hook_flow() {
         .failure()
         .stderr(predicates::str::contains("no disclaimer is pending"))
         .stderr(predicates::str::contains("Caused by").not());
+}
+
+#[test]
+fn test_disclaimer_approve_reads_ticket() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let tickets = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^echo\":\n  \".\":\n    disclaimer: \"Danger!\"\n  SECRET: val\n",
+    )
+    .unwrap();
+
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_TICKET_DIR", tickets.path())
+        .args(["set", "echo hi"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let id = common::extract_lade_t(&stdout).expect("LADE_T after withhold");
+    let code = extract_code(&stderr);
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_TICKET_DIR", tickets.path())
+        .env("LADE_T", &id)
+        .args(["approve", &code])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("hi"));
 }
 
 // The agent hook rewrites a matching command to `lade inject '<cmd>'`. With an

@@ -3,7 +3,12 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "lade hook" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness codex"
+          }
+        ]
       }
     ]
   }

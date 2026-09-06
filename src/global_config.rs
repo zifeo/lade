@@ -18,6 +18,10 @@ pub struct GlobalConfig {
     /// `update_check`, which is stamped even when the request fails.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_version: Option<String>,
+    /// Binary version that last ran the daily check. Missing or different
+    /// from the running binary makes the check due again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_version: Option<String>,
     pub user: Option<String>,
     #[serde(default)]
     pub cli_check: BTreeMap<String, DateTime<Utc>>,
@@ -36,6 +40,13 @@ impl GlobalConfig {
         debug!("config_path: {:?}", config_path);
         config_path
     }
+    pub fn user_from_disk() -> Option<String> {
+        let text = std::fs::read_to_string(Self::path()).ok()?;
+        serde_json::from_str::<GlobalConfig>(&text)
+            .ok()
+            .and_then(|c| c.user)
+    }
+
     pub async fn load() -> Result<Self> {
         let path = Self::path();
         if path.exists() {
@@ -46,6 +57,7 @@ impl GlobalConfig {
             Ok(GlobalConfig {
                 update_check: None,
                 latest_version: None,
+                self_version: None,
                 user: None,
                 cli_check: BTreeMap::new(),
             })

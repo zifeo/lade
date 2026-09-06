@@ -21,7 +21,9 @@ fn test_status_reports_version_and_project() {
         .stdout(predicates::str::contains("project config: ok"))
         .stdout(predicates::str::contains(
             "inject wrap: skips startup files",
-        ));
+        ))
+        .stdout(predicates::str::contains("log:"))
+        .stdout(predicates::str::contains("0 events, 0 B"));
 }
 
 #[test]
@@ -58,6 +60,11 @@ fn test_status_json_is_valid_with_expected_keys() {
         value["hooks"]["preexec"]["inject_skips_startup_files"],
         true
     );
+    assert!(value.get("log").is_some());
+    assert!(value["log"].get("path").is_some());
+    assert_eq!(value["log"]["events"], 0);
+    assert_eq!(value["log"]["bytes"], 0);
+    assert!(!home.path().join("events.db").is_file());
     assert!(value["project_config"]["error"].is_null());
     assert!(value["version"]["latest"].is_null());
     assert_eq!(value["version"]["update_available"], false);
@@ -78,10 +85,10 @@ fn test_status_reports_project_pretool_hook() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
-    fs::create_dir_all(dir.path().join(".cursor")).unwrap();
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
     fs::write(
-        dir.path().join(".cursor").join("hooks.json"),
-        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook","matcher":"Shell"}]}}"#,
+        dir.path().join(".claude").join("settings.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
     )
     .unwrap();
     common::lade(home.path())
@@ -100,14 +107,18 @@ fn test_status_reports_project_pretool_hook() {
     let value: serde_json::Value =
         serde_json::from_slice(&output).expect("status --json must emit valid JSON");
     assert_eq!(
-        value["hooks"]["pretool"]["cursor"]["project"]["installed"],
+        value["hooks"]["pretool"]["claude"]["project"]["installed"],
         true
     );
+    assert_eq!(
+        value["hooks"]["pretool"]["claude"]["project"]["current"],
+        false
+    );
     assert!(
-        value["hooks"]["pretool"]["cursor"]["project"]["path"]
+        value["hooks"]["pretool"]["claude"]["project"]["path"]
             .as_str()
             .unwrap()
-            .ends_with(".cursor/hooks.json")
+            .ends_with(".claude/settings.json")
     );
 }
 
@@ -138,6 +149,10 @@ fn test_status_reports_project_codex_pretool_hook() {
     assert_eq!(
         value["hooks"]["pretool"]["codex"]["project"]["installed"],
         true
+    );
+    assert_eq!(
+        value["hooks"]["pretool"]["codex"]["project"]["current"],
+        false
     );
     assert!(
         value["hooks"]["pretool"]["codex"]["project"]["path"]

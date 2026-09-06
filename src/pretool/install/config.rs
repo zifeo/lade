@@ -32,6 +32,16 @@ impl Agent {
         }
     }
 
+    pub(super) fn slug(self) -> &'static str {
+        match self {
+            Agent::Cursor => "cursor",
+            Agent::Claude => "claude",
+            Agent::Codex => "codex",
+            Agent::Pi => "pi",
+            Agent::OpenCode => "opencode",
+        }
+    }
+
     pub(super) fn config_path(self, home: &Path) -> PathBuf {
         match self {
             Agent::Cursor => home.join(".cursor").join("hooks.json"),
@@ -255,11 +265,14 @@ fn command_is_lade_hook(entry: &Value) -> bool {
 }
 
 pub(super) fn is_lade_plugin(content: &str) -> bool {
-    content.contains("lade hook") || content.contains("[\"hook\"]")
+    content.contains("LadePretool")
+        || content.contains("lade hook")
+        || content.contains("[\"hook\"]")
+        || content.contains("[\"hook\",")
 }
 
-/// Recognize both `lade hook` and an absolute path like `/usr/local/bin/lade
-/// hook`, so re-running `install` after an upgrade does not duplicate entries.
+/// Recognize `lade hook` and `lade hook --harness cursor`, including an
+/// absolute path, so re-running `install` after an upgrade does not duplicate.
 pub(super) fn is_lade_hook(command: &str) -> bool {
     let mut parts = command.split_whitespace();
     let prog_is_lade = parts
@@ -267,7 +280,7 @@ pub(super) fn is_lade_hook(command: &str) -> bool {
         .and_then(|p| Path::new(p).file_name().and_then(|n| n.to_str()))
         .map(|n| matches!(n, "lade" | "lade.exe"))
         .unwrap_or(false);
-    prog_is_lade && command.split_whitespace().next_back() == Some("hook")
+    prog_is_lade && parts.next() == Some("hook")
 }
 
 fn parse_root(existing: &str, agent: Agent) -> Result<Value> {
@@ -303,30 +316,19 @@ export const LadePretool = async () => ({{
     if (input.tool !== "bash" || typeof command !== "string") {{
       return;
     }}
-    const payload = JSON.stringify({{
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: {{ command }},
-      hook_source: "opencode-plugin",
-    }});
-    const result = spawnSync(lade, ["hook"], {{
-      input: payload,
+    const result = spawnSync(lade, ["hook", "--harness", "opencode"], {{
+      input: JSON.stringify({{ command, session_id: input.sessionID }}),
       encoding: "utf8",
-      env: {{ ...process.env, OPENCODE: "1" }},
     }});
     if (result.status !== 0 || !result.stdout?.trim()) {{
       return;
     }}
-    let parsed;
     try {{
-      parsed = JSON.parse(result.stdout);
-    }} catch {{
-      return;
-    }}
-    const updated = parsed?.hookSpecificOutput?.updatedInput?.command;
-    if (typeof updated === "string") {{
-      output.args.command = updated;
-    }}
+      const updated = JSON.parse(result.stdout)?.command;
+      if (typeof updated === "string") {{
+        output.args.command = updated;
+      }}
+    }} catch {{}}
   }},
 }});
 "#

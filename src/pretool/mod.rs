@@ -2,8 +2,8 @@
 preToolUse handler for Cursor, Claude Code, and Codex (`lade hook`).
 
 `detect()` classifies this process as Via::Pretool / Audience::Agent. Matching
-commands are rewritten into `<lade> --pretool '…'` (the inject alias) so the
-child keeps that classification and gets `LADE_VIA=pretool` in its env.
+commands are rewritten into `<lade> --pretool=<id> '…'` (the inject alias) so the
+child keeps that classification via `--pretool=<id>`. Via lives on the ticket.
 Disclaimer enforcement lives in inject.
 
 # Cursor preToolUse — https://cursor.com/docs/agent/hooks (verified June 2026)
@@ -11,18 +11,21 @@ Disclaimer enforcement lives in inject.
 - Input: `{"tool_name": "Shell", "tool_input": {"command": "..."}, "hook_event_name": "preToolUse", ...}`
 - Output: `{"permission": "allow", "updated_input": {...}}`
 
-# Claude-compatible PreToolUse (Claude Code, Codex, Pi, OpenCode)
+# Claude-compatible PreToolUse (Claude Code, Codex, Pi)
 - Claude: `CLAUDE_PROJECT_DIR` — https://code.claude.com/docs/en/hooks
 - Codex: `CODEX_THREAD_ID` / `CODEX_SANDBOX` / `CODEX_HOME`, plus `turn_id`/`model`
   — https://developers.openai.com/codex/hooks
 - Pi: `PI_HOME` / `PI_CODING_AGENT`, payload `tool_name` is often `bash`
-- OpenCode: `OPENCODE` / `OPENCODE_DIR`, or `hook_source=opencode-plugin`
-- Input: `{"tool_name": "Bash"|"bash", "tool_input": {"command": "..."},
-  "hook_event_name": "PreToolUse", ...}`
-- Output: `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+- OpenCode: `--harness opencode`, or `OPENCODE` / `OPENCODE_DIR` /
+  `hook_source=opencode-plugin`
+- Input (Claude-compat): `{"tool_name": "Bash"|"bash",
+  "tool_input": {"command": "..."}, "hook_event_name": "PreToolUse", ...}`
+- Output (Claude-compat): `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
   "permissionDecision": "allow", "updatedInput": {...}}}`. Exit 0 with no
   stdout allows the original command. Shell tools match as `Bash` (or `bash`
   on Pi).
+- OpenCode plugin input: `{"command": "...", "session_id": "..."}`.
+  Output: `{"command": "..."}`.
 */
 
 pub mod install;
@@ -31,7 +34,11 @@ mod response;
 #[cfg(test)]
 mod tests;
 
+use crate::audience::Via;
 use crate::config::{Audience, Config};
+use crate::event::{self, Emit, Kind};
+use crate::global_config::GlobalConfig;
+use crate::ticket::{PreEvent, TicketNetwork, write as write_ticket};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::env;
@@ -39,8 +46,11 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use platform::{
-    detect_platform, extract_command, has_pretool_stamp, is_already_injected, split_env_prefix,
+    collect_agent, extract_command, has_pretool_stamp, is_already_injected, resolve_platform,
+    split_env_prefix,
 };
+
+pub(crate) use platform::split_env_prefix as split_command_env_prefix;
 use response::{format_allow, format_modify};
 
 fn pretool_flag() -> &'static str {
@@ -69,13 +79,19 @@ pub(crate) fn invoked_lade_bin_from(
         .unwrap_or_else(|| "lade".to_string())
 }
 
-pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String> {
+pub fn handle(
+    config: &Config,
+    input: &str,
+    audience: Audience,
+    harness: Option<&str>,
+) -> Result<String> {
     let parsed: Value = serde_json::from_str(input).unwrap_or(json!({}));
-    let platform = detect_platform(&parsed)?;
+    let platform = resolve_platform(harness, &parsed);
+    let agent = collect_agent(platform, &parsed);
 
     let raw = match extract_command(&parsed) {
         Some(cmd) => cmd,
-        None => return Ok(format_allow(&platform)),
+        None => return Ok(allow(platform)),
     };
 
     // Keep any leading `LADE_APPROVE=...` (or other env assignments) so the
@@ -85,7 +101,7 @@ pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String
 
     if is_already_injected(&command) {
         if has_pretool_stamp(&env_prefix, &command) {
-            return Ok(format_allow(&platform));
+            return Ok(allow(platform));
         }
         let stamped = insert_pretool_flag(&command);
         let rewritten = if env_prefix.is_empty() {
@@ -93,23 +109,93 @@ pub fn handle(config: &Config, input: &str, audience: Audience) -> Result<String
         } else {
             format!("{} {}", env_prefix, stamped)
         };
-        return Ok(format_modify(&platform, &tool_input, &rewritten));
+        return Ok(modify(platform, &tool_input, &rewritten));
     }
 
-    let matches = config.collect_for(&command, audience);
-    if matches.is_empty() {
-        return Ok(format_allow(&platform));
+    let patterned = config.collect_for_with_pattern(&command, audience);
+    if patterned.is_empty() {
+        if config.log_on_walk() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let saved_user = GlobalConfig::user_from_disk();
+            event::emit_if(
+                true,
+                Emit {
+                    kind: Kind::Seen,
+                    via: Via::Pretool,
+                    audience,
+                    actor: event::actor(&saved_user),
+                    cwd,
+                    command: command.clone(),
+                    hydrated: None,
+                    matches: json!([]),
+                    hydrate_ms: None,
+                    agent: crate::agent_meta::merge(agent.clone()),
+                },
+            );
+        }
+        return Ok(allow(platform));
     }
 
+    let saved_user = GlobalConfig::user_from_disk();
+    let work = match Config::pre_event_work(&patterned, &saved_user) {
+        Ok(work) => work,
+        Err(_) => return Ok(allow(platform)),
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let pre = PreEvent {
+        command: command.clone(),
+        cwd: cwd.clone(),
+        via: "pretool".to_string(),
+        audience: match audience {
+            Audience::Agent => "agent",
+            Audience::Human => "human",
+        }
+        .to_string(),
+        actor: event::actor(&saved_user),
+        log: work.log,
+        disclaimers: work.disclaimers,
+        secrets: work.secrets,
+        network: work
+            .network
+            .into_iter()
+            .map(|binding| TicketNetwork {
+                key: binding.key,
+                uri: binding.uri,
+            })
+            .collect(),
+        matches: work.matches,
+        op_sa: work.op_sa,
+        agent,
+        network_pids: Vec::new(),
+        pending: false,
+    };
+    let id = match write_ticket(&pre) {
+        Ok(id) => id,
+        Err(_) => return Ok(allow(platform)),
+    };
     let lade_bin = invoked_lade_bin();
     let escaped = command.replace('\'', "'\\''");
-    let wrapped = format!("{} {} '{}'", lade_bin, pretool_flag(), escaped);
+    let wrapped = format!("{} --pretool={} '{}'", lade_bin, id, escaped);
     let new_command = if env_prefix.is_empty() {
         wrapped
     } else {
         format!("{} {}", env_prefix, wrapped)
     };
-    Ok(format_modify(&platform, &tool_input, &new_command))
+    Ok(modify(platform, &tool_input, &new_command))
+}
+
+fn allow(platform: Option<platform::Platform>) -> String {
+    match platform {
+        Some(platform) => format_allow(&platform),
+        None => String::new(),
+    }
+}
+
+fn modify(platform: Option<platform::Platform>, tool_input: &Value, new_command: &str) -> String {
+    match platform {
+        Some(platform) => format_modify(&platform, tool_input, new_command),
+        None => format_modify(&platform::Platform::ClaudeCode, tool_input, new_command),
+    }
 }
 
 fn insert_pretool_flag(command: &str) -> String {
