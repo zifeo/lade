@@ -7,7 +7,6 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
-use sysinfo::{ProcessesToUpdate, System, get_current_pid};
 
 pub const LADE_PENDING: &str = "LADE_PENDING";
 pub const LADE_DISCLAIMER_APPROVED: &str = "LADE_DISCLAIMER_APPROVED";
@@ -139,20 +138,8 @@ impl Shell {
             return Shell::from_str(name);
         }
 
-        let mut sys = System::new();
-        let pid = get_current_pid().map_err(|e| anyhow::anyhow!("{e}"))?;
-        // Only this process and its parent. `System::new_all()` also walks disks,
-        // networks, and every pid, which can stall on a dead volume.
-        sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
-        let process = sys.process(pid).context("pid does not exist")?;
-        let parent_pid = process.parent().context("no parent pid")?;
-        sys.refresh_processes(ProcessesToUpdate::Some(&[parent_pid]), false);
-        let parent = sys
-            .process(parent_pid)
-            .context("parent pid does not exist")?;
-        let shell = parent.name().to_string_lossy().trim().to_lowercase();
-        let shell = shell.strip_suffix(".exe").unwrap_or(&shell);
-        Shell::from_str(shell)
+        let name = parent_process_name()?;
+        shell_from_comm(&name)
     }
 
     fn export_lade_shell(&self) -> String {
@@ -212,6 +199,57 @@ impl Shell {
         }
         parts.join(";")
     }
+}
+
+fn shell_from_comm(name: &str) -> Result<Shell> {
+    let shell = name.trim().to_lowercase();
+    let shell = shell.strip_suffix(".exe").unwrap_or(shell.as_str());
+    let shell = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(shell);
+    Shell::from_str(shell)
+}
+
+fn parent_process_name() -> Result<String> {
+    #[cfg(not(unix))]
+    {
+        bail!("set LADE_SHELL; parent detection is Unix-only");
+    }
+    #[cfg(unix)]
+    {
+        parent_comm(nix::unistd::getppid())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parent_comm(ppid: nix::unistd::Pid) -> Result<String> {
+    let path = format!("/proc/{}/comm", ppid.as_raw());
+    let name = std::fs::read_to_string(&path).with_context(|| format!("cannot read {path}"))?;
+    Ok(name.trim().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn parent_comm(ppid: nix::unistd::Pid) -> Result<String> {
+    let mut buf = [0u8; 256];
+    let n = unsafe {
+        libc::proc_name(
+            ppid.as_raw(),
+            buf.as_mut_ptr() as *mut libc::c_void,
+            buf.len() as u32,
+        )
+    };
+    if n <= 0 {
+        bail!("cannot read parent process name");
+    }
+    let nbytes = (n as usize).min(buf.len());
+    let end = buf[..nbytes].iter().position(|&b| b == 0).unwrap_or(nbytes);
+    String::from_utf8(buf[..end].to_vec()).context("parent process name is not utf-8")
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn parent_comm(_ppid: nix::unistd::Pid) -> Result<String> {
+    bail!("set LADE_SHELL; parent detection is Linux/macOS-only");
 }
 
 #[cfg(test)]

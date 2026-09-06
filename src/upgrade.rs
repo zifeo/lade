@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result};
 use chrono::{DateTime, TimeDelta, Utc};
-use self_update::{backends::github::Update, cargo_crate_version, update::UpdateStatus};
+use self_update::{backends::github::Update, cargo_crate_version, update::ReleaseStatus};
 use semver::Version;
 use serde::Deserialize;
 use std::time::Duration;
@@ -119,25 +119,31 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
             .no_confirm(opts.yes);
 
         if let Some(version) = opts.version {
-            update.target_version_tag(&format!("v{version}"));
+            update.release_tag(format!("v{version}"));
         }
 
         match update.build()?.update_extended()? {
-            UpdateStatus::UpToDate => {
+            ReleaseStatus::UpToDate => {
                 MessageBox::new()
                     .info()
                     .line("Already up to date.")
                     .print_plain_stderr();
             }
-            UpdateStatus::Updated(release) => {
+            ReleaseStatus::Updated(release) => {
                 MessageBox::new()
                     .info()
-                    .line(format!("Updated successfully to {}.", release.version))
+                    .line(format!("Updated successfully to {}.", release.version()))
                     .line("")
                     .line(format!(
                         "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
-                        release.name
+                        release.name()
                     ))
+                    .print_plain_stderr();
+            }
+            _ => {
+                MessageBox::new()
+                    .info()
+                    .line("Already up to date.")
                     .print_plain_stderr();
             }
         };

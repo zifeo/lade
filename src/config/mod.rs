@@ -8,9 +8,9 @@ use secret::resolve_lade_secret;
 pub use secret::*;
 
 use crate::global_config::GlobalConfig;
-use crate::provider_registry::is_network_scheme;
 use anyhow::{Result, bail};
 use futures::stream::{FuturesUnordered, StreamExt};
+use lade_sdk::network::is_network_scheme;
 use lade_sdk::{Dag, Template, hydrate_one, hydrate_with_maskable};
 use regex::RegexSet;
 use rustc_hash::FxHashMap;

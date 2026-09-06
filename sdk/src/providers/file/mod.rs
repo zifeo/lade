@@ -69,12 +69,13 @@ impl Provider for File {
             .urls
             .iter()
             .into_group_map_by(|(raw_url, value)| {
+                let query = raw_url.query().expect("file:// url accepted without query");
                 let url = urlencoding::decode(
                     &value
                         .replace("file://", "")
-                        .replace(&format!("?{}", raw_url.query().unwrap()), ""),
+                        .replace(&format!("?{query}"), ""),
                 )
-                .expect("invalid percent-encoding in file:// URL")
+                .unwrap_or_else(|_| panic!("invalid percent-encoding in file:// URL"))
                 .into_owned();
                 let user = directories::UserDirs::new().expect("cannot get HOME location");
 
@@ -95,12 +96,13 @@ impl Provider for File {
                 }
                 let format = path
                     .extension()
-                    .expect("no file format found")
-                    .to_str()
-                    .expect("cannot get file format");
-                let str = fs::read_to_string(&path)
-                    .await
-                    .unwrap_or_else(|_| panic!("cannot read file {}", path.display()));
+                    .and_then(|ext| ext.to_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no file format found for {}", path.display())
+                    })?;
+                let str = fs::read_to_string(&path).await.map_err(|error| {
+                    anyhow::anyhow!("cannot read file {}: {error}", path.display())
+                })?;
                 let json = match format {
                     "yaml" | "yml" => serde_yaml::from_str::<Value>(&str)?,
                     "json" => serde_json::from_str::<Value>(&str)?,
@@ -109,28 +111,26 @@ impl Provider for File {
                     _ => bail!("unsupported file format: {}", format),
                 };
 
-                let hydration = group
-                    .into_iter()
-                    .map(|(url, value)| {
-                        let query = url
-                            .query_pairs()
-                            .into_iter()
-                            .find(|(k, _v)| k == "query")
-                            .unwrap()
-                            .1;
-                        let compiled = JSONQuery::parse(&query)
-                            .unwrap_or_else(|_| panic!("cannot compile query {}", query));
-                        let res = compiled
-                            .execute(&json)
-                            .unwrap()
-                            .unwrap_or_else(|| panic!("no query result for {}", query));
-                        let output = match res {
-                            Value::String(s) => s,
-                            x => x.to_string(),
-                        };
-                        (value.clone(), output)
-                    })
-                    .collect::<Hydration>();
+                let mut hydration = Hydration::default();
+                for (url, value) in group {
+                    let query = url
+                        .query_pairs()
+                        .find(|(k, _v)| k == "query")
+                        .ok_or_else(|| anyhow::anyhow!("file:// url missing query"))?
+                        .1;
+                    let compiled = JSONQuery::parse(&query).map_err(|error| {
+                        anyhow::anyhow!("cannot compile query {query}: {error}")
+                    })?;
+                    let res = compiled
+                        .execute(&json)
+                        .map_err(|error| anyhow::anyhow!("query {query} failed: {error}"))?
+                        .ok_or_else(|| anyhow::anyhow!("no query result for {query}"))?;
+                    let output = match res {
+                        Value::String(s) => s,
+                        x => x.to_string(),
+                    };
+                    hydration.insert(value.clone(), output);
+                }
 
                 Ok(hydration)
             })
@@ -173,6 +173,20 @@ mod tests {
             .unwrap()
             .remove(&url)
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_missing_file_is_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing.json");
+        let url = format!("file://{}?query=.key", path.display());
+        let mut p = File::new();
+        p.add(url).unwrap();
+        let error = p
+            .resolve(dir.path(), &HashMap::new(), &Warnings::default())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("cannot read file"), "{error}");
     }
 
     #[tokio::test]

@@ -28,6 +28,10 @@ fn path_env() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+fn lade_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_lade")
+}
+
 fn run_cmd(cmd: &str, args: &[&str]) {
     let output = Command::new(cmd)
         .args(args)
@@ -50,11 +54,13 @@ fn shell_scripts_run_from_cargo_test_workspace() {
     require_cmds(&["bash", "zsh", "fish"]);
 
     let path = path_env();
+    let lade = lade_bin();
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "bash",
             "scripts/test.bash",
@@ -65,6 +71,7 @@ fn shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "zsh",
             "scripts/test.zsh",
@@ -75,6 +82,7 @@ fn shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "fish",
             "scripts/test.fish",

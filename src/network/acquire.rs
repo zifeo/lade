@@ -5,7 +5,6 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::config::NetworkBinding;
-use crate::network::command::{build_command, ensure_provider_preflight};
 use crate::network::parse::{parse_binding, reconcile_local_port};
 use crate::network::process::{
     ChildOutputFiles, RunningForward, configure_child_process, stop_network_pids_list,
@@ -16,6 +15,7 @@ use crate::network::types::{
     AcquiredNetwork, DetachedNetworkSession, LocalTarget, ParsedBinding, ProviderSpec,
 };
 use crate::provider_progress::ProviderProgressSink;
+use lade_sdk::network::{build_command, ensure_provider_preflight};
 
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(20);
 

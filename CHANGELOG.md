@@ -50,6 +50,17 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
   stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
   Re-running `lade install` updates an existing hook that still has a path.
+- **Single rustls stack**: CLI `reqwest` and `self_update` use rustls
+  like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and
+  unused zip/bzip2 codecs on `self_update`. Parent shell detect reads
+  the parent comm on Linux/macOS when `LADE_SHELL` is unset.
+- **Tunnel providers in `lade-sdk`**: network CLI specs, kube context
+  resolve, and command builders live with URI parse. The CLI still
+  owns acquire, PTY, and process groups.
+- **`self_update` 1.3**: first stable crate line. GitHub tags `v9.x` are
+  example fixtures, not crate versions. `compression-flate2` is now
+  `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to
+  rustls). `lade upgrade` uses `release_tag` and `ReleaseStatus`.
 
 ### Fixed
 

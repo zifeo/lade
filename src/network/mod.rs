@@ -1,6 +1,4 @@
 mod acquire;
-mod command;
-mod kubeconfig;
 mod parse;
 mod process;
 mod progress;

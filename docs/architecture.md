@@ -61,6 +61,10 @@ Lade keeps two provider families under one registry:
 - **Secret providers** resolve values (env/file hydration).
 - **Network providers** acquire temporary local port bindings for the command.
 
+URI parse, CLI version tables, and tunnel command builders live in
+`lade-sdk`. The CLI owns process lifecycle (spawn, ready wait,
+restart, kill).
+
 For shell hooks, `lade set` must finish both secret hydration and network
 acquisition before it can print the shell exports. When a matching rule contains
 network providers, the visible pre-command latency is therefore the slower of
@@ -100,6 +104,7 @@ sequenceDiagram
 Network provider notes:
 
 - URI parsing is strict for known network schemes; malformed URIs fail rather than falling back to raw values.
+- Command argv and kube context resolve come from `lade-sdk`. The CLI only spawns, waits for the port, and tears down.
 
 ## 4. Via, Audience, UI
 

@@ -1,0 +1,22 @@
+---
+description: Stay in the Cursor sandbox for cargo. Do not request all when sccache fails.
+alwaysApply: true
+---
+
+# Cargo stays in the sandbox
+
+`enableSharedBuildCache` remaps Cargo dirs. It does not cover sccache.
+`~/.cargo/config.toml` sets `rustc-wrapper = "sccache"`. sccache is a
+daemon (AF_UNIX / 127.0.0.1). Seatbelt denies both. That is
+`sccache: error: Operation not permitted`.
+
+`.cargo/sccache-wrapper` skips sccache when `CURSOR_SANDBOX` is set.
+`.cargo/config.toml` overrides the home wrapper. Do not pin
+`target-dir` / `build-dir`. That fights the shared Cargo cache.
+
+Do **not** request `all` or disable the sandbox because `cargo` /
+`clippy` / `rustc` failed. Do not retry as `RUSTC_WRAPPER=`. Restore
+the wrapper if it is missing.
+
+`all` is only for work that truly needs unrestricted filesystem or
+network. A compile or unit test is not that.

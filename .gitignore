@@ -1,5 +1,6 @@
 
 .DS_Store
+.cargo/*.sock
 examples/tape/.render-logs/
 examples/tape/.asciinema-home/
 examples/tape/*.cast

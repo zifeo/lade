@@ -1,11 +1,3 @@
-use lade_sdk::compat::CLI_SPECS as SECRET_CLI_SPECS;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderKind {
-    Secret,
-    Network,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NetworkCliSpec {
     pub scheme: &'static str,
@@ -51,27 +43,39 @@ pub const NETWORK_CLI_SPECS: &[NetworkCliSpec] = &[
     },
 ];
 
-pub fn provider_kind_for_scheme(scheme: &str) -> Option<ProviderKind> {
-    if SECRET_CLI_SPECS.iter().any(|spec| spec.scheme == scheme) {
-        return Some(ProviderKind::Secret);
-    }
-    if NETWORK_CLI_SPECS.iter().any(|spec| spec.scheme == scheme) {
-        return Some(ProviderKind::Network);
-    }
-    None
-}
-
 pub fn is_network_scheme(scheme: &str) -> bool {
-    provider_kind_for_scheme(scheme) == Some(ProviderKind::Network)
+    NETWORK_CLI_SPECS.iter().any(|spec| spec.scheme == scheme)
 }
 
-pub fn all_supported_schemes() -> Vec<String> {
-    let mut out = Vec::new();
-    for spec in SECRET_CLI_SPECS {
-        out.push(spec.scheme.to_string());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::network::NetworkProviders;
+    use semver::Version;
+
+    #[test]
+    fn specs_cover_registered_providers() {
+        let providers = NetworkProviders::new();
+        for spec in NETWORK_CLI_SPECS {
+            assert!(
+                Version::parse(spec.min_version).is_ok(),
+                "{} has invalid min_version {}",
+                spec.scheme,
+                spec.min_version
+            );
+            assert!(
+                providers.provider(spec.scheme).is_some(),
+                "NETWORK_CLI_SPECS has '{}', but NetworkProviders does not",
+                spec.scheme
+            );
+        }
+        for scheme in ["kubectl", "kubefwd", "tsh", "ssh"] {
+            assert!(
+                is_network_scheme(scheme),
+                "{scheme} must be a network scheme"
+            );
+        }
+        assert!(!is_network_scheme("op"));
+        assert!(!is_network_scheme("file"));
     }
-    for spec in NETWORK_CLI_SPECS {
-        out.push(spec.scheme.to_string());
-    }
-    out
 }
