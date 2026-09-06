@@ -73,8 +73,8 @@ impl Config {
     }
 
     pub(crate) fn collect(&self, command: &str) -> Vec<(PathBuf, LadeRule)> {
-        self.regex_set
-            .matches(command)
+        self.compiled
+            .matching_indices(command)
             .into_iter()
             .map(|i| self.rules[i].clone())
             .collect()
@@ -96,8 +96,8 @@ impl Config {
         command: &str,
         audience: Audience,
     ) -> Vec<(PathBuf, String, LadeRule)> {
-        self.regex_set
-            .matches(command)
+        self.compiled
+            .matching_indices(command)
             .into_iter()
             .filter(|&i| rule_applies_to(&self.rules[i].1, audience))
             .map(|i| {

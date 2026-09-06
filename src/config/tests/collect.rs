@@ -226,6 +226,38 @@ fn test_collect_disclaimers() {
 }
 
 #[test]
+fn lookahead_excludes_help_flag() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "\"^terraform apply(?!.*--help)\":\n  TOKEN: val\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    assert_eq!(config.collect("terraform apply").len(), 1);
+    assert_eq!(config.collect("terraform apply -auto-approve").len(), 1);
+    assert!(config.collect("terraform apply --help").is_empty());
+}
+
+#[test]
+fn lookahead_keeps_easy_overlay_order() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "\"^terraform\":\n  BASE: val\n\"^terraform apply(?!.*--help)\":\n  EXTRA: val\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let apply = config.collect("terraform apply");
+    assert_eq!(apply.len(), 2);
+    assert!(apply[0].1.secrets.contains_key("BASE"));
+    assert!(apply[1].1.secrets.contains_key("EXTRA"));
+    let help = config.collect("terraform apply --help");
+    assert_eq!(help.len(), 1);
+    assert!(help[0].1.secrets.contains_key("BASE"));
+}
+
+#[test]
 fn test_log_on_walk_last_explicit_wins_across_non_matching_rules() {
     let dir = tempdir().unwrap();
     std::fs::write(

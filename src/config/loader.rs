@@ -1,13 +1,12 @@
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
-use regex::RegexSet;
 use serde::Deserialize;
 use std::{
     fs::File,
     path::{Path, PathBuf},
 };
 
-use super::{Config, secret::LadeRule};
+use super::{Config, patterns::CompiledPatterns, secret::LadeRule};
 
 /// One mapping, or a list of mappings when `.when` differs.
 #[derive(Deserialize, Debug)]
@@ -97,8 +96,8 @@ impl LadeFile {
             }
         }
 
-        let regex_set = RegexSet::new(&regex_strs)?;
-        Ok(Config::new(rules, regex_strs, regex_set))
+        let compiled = CompiledPatterns::compile(&regex_strs)?;
+        Ok(Config::new(rules, regex_strs, compiled))
     }
 }
 

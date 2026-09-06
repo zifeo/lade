@@ -1,6 +1,7 @@
 mod collect;
 mod hydrate;
 mod loader;
+mod patterns;
 mod plan;
 mod secret;
 #[cfg(test)]
@@ -12,7 +13,7 @@ pub use secret::*;
 use crate::global_config::GlobalConfig;
 use crate::ticket::TicketSecret;
 use anyhow::Result;
-use regex::RegexSet;
+use patterns::CompiledPatterns;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -59,19 +60,19 @@ pub(crate) struct PreEventWork {
 pub struct Config {
     rules: Vec<(PathBuf, LadeRule)>,
     patterns: Vec<String>,
-    regex_set: RegexSet,
+    compiled: CompiledPatterns,
 }
 
 impl Config {
     pub(crate) fn new(
         rules: Vec<(PathBuf, LadeRule)>,
         patterns: Vec<String>,
-        regex_set: RegexSet,
+        compiled: CompiledPatterns,
     ) -> Self {
         Config {
             rules,
             patterns,
-            regex_set,
+            compiled,
         }
     }
 
