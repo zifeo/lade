@@ -5,6 +5,7 @@ mod access;
 mod args;
 mod audience;
 mod bench;
+mod child_signals;
 mod compat;
 mod config;
 mod context;
