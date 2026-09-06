@@ -1,7 +1,16 @@
 # env -i PATH="$PATH" zsh scripts/test.zsh
+# cargo test sets LADE_BIN so this does not rebuild target/debug/lade.
+
+lade_cli() {
+  if [ -n "${LADE_BIN:-}" ]; then
+    "$LADE_BIN" "$@"
+  else
+    cargo run -- "$@"
+  fi
+}
 
 echo "test=$TEST"
-eval "$(cargo run -- on)"
+eval "$(lade_cli on)"
 # hooks seem to work in zsh scripts
 preexec_functions=()
 precmd_functions=()
@@ -12,7 +21,7 @@ echo "test=$TEST"
 precmd_lade
 
 echo "test=$TEST"
-eval "$(cargo run -- off)"
+eval "$(lade_cli off)"
 echo "test=$TEST"
 
 if type preexec_lade >/dev/null 2>&1; then

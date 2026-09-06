@@ -1,7 +1,16 @@
 # env -i PATH="$PATH" fish scripts/test.fish
+# cargo test sets LADE_BIN so this does not rebuild target/debug/lade.
+
+function lade_cli
+  if set -q LADE_BIN
+    $LADE_BIN $argv
+  else
+    cargo run -- $argv
+  end
+end
 
 echo "test=$TEST"
-eval "$(cargo run -- on)"
+eval "$(lade_cli on)"
 echo "test=$TEST"
 
 preexec_lade 'echo "test=$TEST"'
@@ -9,7 +18,7 @@ echo "test=$TEST"
 precmd_lade
 
 echo "test=$TEST"
-eval "$(cargo run -- off)"
+eval "$(lade_cli off)"
 echo "test=$TEST"
 
 type -q preexec_lade
