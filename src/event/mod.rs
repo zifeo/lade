@@ -22,7 +22,9 @@ pub use write::emit_verb;
 
 pub(crate) use db::event_from_row;
 
-const BUSY_MS: u64 = 250;
+// First create + migrate holds the write lock. 250ms dropped a
+// concurrent inject on CI (two_writers_do_not_corrupt).
+const BUSY_MS: u64 = 5_000;
 
 pub(crate) const EVENTS_DDL: &str = "CREATE TABLE events (
           id TEXT PRIMARY KEY,

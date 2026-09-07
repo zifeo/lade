@@ -22,6 +22,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
   from `build.rs`.
 
+### Fixed
+
+- **Diary writers**: two concurrent first opens retried after a
+  migrate collision. Busy wait is 5s. 250ms plus a swallowed
+  `to_latest` error dropped a row on CI.
+
 ### Added
 
 - **APM package**: `apm.yml` plus `.apm/skills/lade` (link to

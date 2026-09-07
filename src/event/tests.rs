@@ -149,6 +149,34 @@ fn pretool_then_before_mcp_patches_launch() {
 }
 
 #[test]
+fn two_threads_on_fresh_db_keep_both_rows() {
+    for _ in 0..20 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.db");
+        temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+            let a = std::thread::spawn(|| {
+                emit(verb_emit(
+                    "one",
+                    None,
+                    json!({"tool_use_id": "a", "hook": "preToolUse"}),
+                ));
+            });
+            let b = std::thread::spawn(|| {
+                emit(verb_emit(
+                    "two",
+                    None,
+                    json!({"tool_use_id": "b", "hook": "preToolUse"}),
+                ));
+            });
+            a.join().unwrap();
+            b.join().unwrap();
+            let rows = query(None, None, None, None, None, None).unwrap();
+            assert_eq!(rows.len(), 2);
+        });
+    }
+}
+
+#[test]
 fn launch_only_before_mcp_writes_a_row() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.db");
