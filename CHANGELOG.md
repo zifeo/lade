@@ -9,37 +9,27 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
-### Changed
-
-- **User-facing copy**: crates.io / README / `lade --help` lead with
-  temporary access for one command, then gone, same wrap for humans and
-  agents, plus which access was used. Spoken terms are pre-exec /
-  pre-tool. Empty parse Hints dropped. README keeps one install tell;
-  last-wins / `seen` stay in `docs/observability.md`.
-- **Observability**: `docs/log.md` is `docs/observability.md`. README
-  section matches. `lade log` / `lade usage` verbs stay.
-- **Version bump**: `scripts/set-version.sh` runs `cargo set-version`
-  and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
-  from `build.rs`.
-
-### Fixed
-
-- **Diary writers**: if `to_latest` fails but `pending_migrations`
-  is 0, the peer finished the schema and the loser still inserts.
-  Busy wait stays 250ms.
+## [0.18.0] - 2026-09-07
 
 ### Added
 
-- **APM package**: `apm.yml` plus `.apm/skills/lade` (link to
+- **Lookaround in command regexes** ([#198](https://github.com/zifeo/lade/pull/198)):
+  `lade.yml` keys use `fancy-regex` so `(?=…)`, `(?!…)`, and other
+  lookaround forms match. Closes #87.
+- **MCP verbs and diary argv** ([#199](https://github.com/zifeo/lade/pull/199)):
+  `tools/call` leaves a `seen` row without wrapping the verb. Storage
+  peels argv0 from the rest so `lade log` can group by command and
+  still print the full line. `argv` is JSONB.
+- **APM package** ([#200](https://github.com/zifeo/lade/pull/200)): `apm.yml` plus `.apm/skills/lade` (link to
   `.agents/skills/lade/SKILL.md`). Consumers pin the GitHub tag
   `zifeo/lade#vX.Y.Z`. `apm.yml` `version` tracks the crate (release bump
   rewrites it). Hooks stay native.
-- **`lade hook install` / `uninstall`**: `--scope user|project` and
+- **`lade hook install` / `uninstall`** ([#200](https://github.com/zifeo/lade/pull/200)): `--scope user|project` and
   `--harness claude|cursor|codex|opencode`. The binary serves the repo
   snapshots. Merge keeps `permissions` / `model`. Codex user scope honors
   `CODEX_HOME`. `lade status` labels user and project (JSON `global` is
   the user plane) and prints `run \`lade install\`` on drift.
-- **`lade install --cursor|--claude|--codex|--opencode`**: select
+- **`lade install --cursor|--claude|--codex|--opencode`** ([#201](https://github.com/zifeo/lade/pull/201)): select
   harnesses. A git cwd defaults to this repo (hooks and skills). No
   git defaults to this machine. Confirm detected agents (default all).
   A complete default plane skips prompts. Installing the repo plane
@@ -49,7 +39,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   with no command still allows the tool call (empty Claude/Codex stdout).
   stderr now says so, so a later vault or lock error is not the first
   clue. No-match remains silent.
-- **Local command diary**: `lade log` and `lade usage` read a local SQLite
+- **Local command diary** ([#197](https://github.com/zifeo/lade/pull/197)): `lade log` and `lade usage` read a local SQLite
   WAL at `ProjectDirs` `data_local_dir()/events.db` (same library and
   qualifier as `config.json` on `config_local_dir()`). Recording is opt-in
   with `log: true` on matching `lade.yml` rules. Secret values are never
@@ -89,7 +79,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   stdio child exits before the client `initialize` line is forwarded, Lade
   respawns it with the already hydrated env instead of calling vaults again.
   After `initialize`, a child exit does not restart.
-- **T protocol**: first match writes `{temp}/lade-t/{id}.json`. The wrap
+- **T protocol** ([#197](https://github.com/zifeo/lade/pull/197)): first match writes `{temp}/lade-t/{id}.json`. The wrap
   and `lade set` hydrate from that file. No rematch. `set` writes T on
   every match and exports `LADE_T`. The ticket holds `via`,
   `network_pids`, and `pending`. Env keeps `LADE_T`, `LADE_RESTORE`,
@@ -113,23 +103,33 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
-- **`lade install` terms**: pre-exec is this shell only (other shells
+- **User-facing copy** ([#201](https://github.com/zifeo/lade/pull/201)): crates.io / README / `lade --help` lead with
+  temporary access for one command, then gone, same wrap for humans and
+  agents, plus which access was used. Spoken terms are pre-exec /
+  pre-tool. Empty parse Hints dropped. README keeps one install tell;
+  last-wins / `seen` stay in `docs/observability.md`.
+- **Observability** ([#201](https://github.com/zifeo/lade/pull/201)): `docs/log.md` is `docs/observability.md`. README
+  section matches. `lade log` / `lade usage` verbs stay.
+- **Version bump** ([#201](https://github.com/zifeo/lade/pull/201)): `scripts/set-version.sh` runs `cargo set-version`
+  and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
+  from `build.rs`.
+- **Tunnel providers in `lade-sdk`** ([#196](https://github.com/zifeo/lade/pull/196)): network CLI specs, kube context
+  resolve, and command builders live with URI parse. The CLI still
+  owns acquire, PTY, and process groups.
+- **`lade install` terms** ([#201](https://github.com/zifeo/lade/pull/201)): pre-exec is this shell only (other shells
   are listed, not installed). pre-tool is agents, hook and skill
   together. One box for both jobs. `lade uninstall` uses the same
   default plane as install, then the other plane if that one is empty.
   Drift verbs are `current`, `updated`, `installed`. Paths are
   repo-relative or `~/…`.
-- **Lade skill**: pointer only. Run the command normally. Never `lade
+- **Lade skill** ([#201](https://github.com/zifeo/lade/pull/201)): pointer only. Run the command normally. Never `lade
   eval`, `--no-mask`, or `lade approve`. On missing or drifted hooks,
   run `lade install`. On withheld access, stop. Previous official
   skills stay Lade-managed and refresh to this text.
-- **Single rustls stack**: CLI `reqwest` and `self_update` use rustls
+- **Single rustls stack** ([#196](https://github.com/zifeo/lade/pull/196)): CLI `reqwest` and `self_update` use rustls
   like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and
   unused zip/bzip2 codecs on `self_update`. Parent shell detect reads
   the parent comm on Linux/macOS when `LADE_SHELL` is unset.
-- **Tunnel providers in `lade-sdk`**: network CLI specs, kube context
-  resolve, and command builders live with URI parse. The CLI still
-  owns acquire, PTY, and process groups.
 - **`self_update` 1.3**: first stable crate line. GitHub tags `v9.x` are
   example fixtures, not crate versions. `compression-flate2` is now
   `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to
@@ -186,6 +186,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   signals (`INT`/`TERM`/`QUIT`) end the wrapper. `USR1`/`USR2`/`WINCH` are
   forwarded. MCP children get their own session and process group. Inject
   stays on the TTY session.
+- **Diary writers** ([#201](https://github.com/zifeo/lade/pull/201)): if
+  `to_latest` fails but `pending_migrations` is 0, the peer finished
+  the schema and the loser still inserts. Busy wait stays 250ms.
+
+[0.18.0]: https://github.com/zifeo/lade/compare/v0.17.2...v0.18.0
 
 ## [0.17.2] - 2026-08-13
 
