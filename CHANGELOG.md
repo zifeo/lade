@@ -9,12 +9,6 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
-### Removed
-
-- **Pi harness leftover**: drop `.pi/settings.json` and `PI_*` detect /
-  diary env. Install already only covers Cursor, Claude, Codex, and
-  OpenCode.
-
 ## [0.18.0] - 2026-09-07
 
 ### Added
@@ -74,9 +68,9 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire
   is not run.
 - **Claude-compatible preTool hosts** ([#191](https://github.com/zifeo/lade/pull/191)): `lade hook` keeps an explicit detect
-  path for Codex, Pi, and OpenCode, then rewrites with the same `updatedInput`
+  path for Codex and OpenCode, then rewrites with the same `updatedInput`
   envelope as Claude Code. `lade install` / `status` cover
-  `~/.codex/hooks.json`, `~/.pi/agent/settings.json`, and
+  `~/.codex/hooks.json` and
   `~/.config/opencode/plugins/lade-pretool.js`.
 - **Organic versus unknown via** ([#192](https://github.com/zifeo/lade/pull/192)): `detect()` treats a TTY inject with no
   `--pretool` and no agent signal as organic human, and a non-TTY empty via
@@ -98,7 +92,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `model`, `session`, plus later keys). Hook payload wins over env.
   Missing or unknown fields stay absent. Empty objects are omitted.
 - **`lade hook --harness`**: each installed hook names its host
-  (`cursor`, `claude`, `codex`, `pi`, `opencode`). Unknown values are
+  (`cursor`, `claude`, `codex`, `opencode`). Unknown values are
   ignored. Detect and ticket writes fail open so a harness change does
   not block the tool call.
 - **Daily hook refresh**: the same 24h window as the GitHub version
@@ -141,7 +135,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to
   rustls). `lade upgrade` uses `release_tag` and `ReleaseStatus`.
 - **`lade status --json` hooks object** (breaking): `hooks` is now
-  `{ "preexec": { shell, profile, installed, inject_skips_startup_files, inject_startup_skipped }, "pretool": { cursor, claude, codex, pi, opencode } }`
+  `{ "preexec": { shell, profile, installed, inject_skips_startup_files, inject_startup_skipped }, "pretool": { cursor, claude, codex, opencode } }`
   with global and project paths. `ok` still depends only on preexec install,
   version, project config, and vault CLIs.
 - **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
@@ -168,7 +162,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **`.when` ignores `CURSOR_VERSION`**: Cursor sets it in human terminals, so it
   must not select agent rules on `inject` / `mcp`.
 - **preTool envelope**: `CURSOR_VERSION` no longer wins over a `PreToolUse`
-  payload or an explicit Codex, Pi, or OpenCode detect path. Those hosts ignore
+  payload or an explicit Codex or OpenCode detect path. Those hosts ignore
   Cursor's `updated_input`.
 - **Already-injected hook rewrite**: stamp `--pretool` when the command is
   already `lade inject` or `lade --pretool` without that flag, so `.when: agent`
