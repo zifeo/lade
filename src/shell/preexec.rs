@@ -75,6 +75,57 @@ impl Shell {
     }
 }
 
+const DETECTABLE: [Shell; 3] = [Shell::Bash, Shell::Zsh, Shell::Fish];
+
+pub fn present_shells() -> Vec<Shell> {
+    DETECTABLE
+        .into_iter()
+        .filter(|shell| profile_config_file(shell).is_file())
+        .collect()
+}
+
+pub fn found_shells_line(found: &[Shell], current: Shell) -> String {
+    let mut names: Vec<&str> = found.iter().map(|shell| shell.display_name()).collect();
+    if !found.contains(&current) && !matches!(current, Shell::Sh) {
+        names.push(current.display_name());
+    }
+    if names.is_empty() {
+        names.push(current.display_name());
+    }
+    format!(
+        "Found {}. This shell: {}.",
+        names.join(", "),
+        current.display_name()
+    )
+}
+
+pub struct PreexecReport {
+    pub found: String,
+    pub verb: &'static str,
+    pub path: String,
+}
+
+pub fn install_current_preexec() -> Result<PreexecReport> {
+    let current = Shell::detect()?;
+    let already = preexec_installed(&current).1;
+    let path = current.install()?;
+    Ok(PreexecReport {
+        found: found_shells_line(&present_shells(), current),
+        verb: if already { "current" } else { "installed" },
+        path,
+    })
+}
+
+pub fn uninstall_current_preexec() -> Result<PreexecReport> {
+    let current = Shell::detect()?;
+    let path = current.uninstall()?;
+    Ok(PreexecReport {
+        found: found_shells_line(&present_shells(), current),
+        verb: "removed",
+        path,
+    })
+}
+
 fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
     let bin = crate::pretool::invoked_lade_bin();
 
@@ -169,6 +220,22 @@ mod tests {
             let cfg = home.join(".zshrc");
             assert_eq!(path_for_display(&cfg), "~/.zshrc");
         }
+    }
+
+    #[test]
+    fn found_shells_line_lists_detected_and_keeps_current_only() {
+        assert_eq!(
+            found_shells_line(&[Shell::Bash, Shell::Fish], Shell::Fish),
+            "Found Bash, Fish. This shell: Fish."
+        );
+        assert_eq!(
+            found_shells_line(&[Shell::Zsh], Shell::Fish),
+            "Found Zsh, Fish. This shell: Fish."
+        );
+        assert_eq!(
+            found_shells_line(&[], Shell::Zsh),
+            "Found Zsh. This shell: Zsh."
+        );
     }
 
     #[test]

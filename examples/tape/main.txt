@@ -2,7 +2,10 @@
 hello
 
 > lade install
-Auto launcher installed in ~/.zshrc
+pre-exec  this shell
+Wraps commands you type.
+Found Zsh. This shell: Zsh.
+  installed  ~/.zshrc
 
 > source ~/.zshrc
 

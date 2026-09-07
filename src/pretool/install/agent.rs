@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Agent {
     Cursor,
     Claude,

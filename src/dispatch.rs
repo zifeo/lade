@@ -29,26 +29,17 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Install(opts) => {
-            let shell = Shell::detect()?;
-            MessageBox::new()
-                .info()
-                .line(format!("Auto launcher installed in {}", shell.install()?))
-                .print_plain_stderr();
+            let pre = crate::shell::install_current_preexec()?;
             // Install is Quiet, so `is_interactive()` is false even on a TTY.
             let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
-            pretool::install::install(may_prompt, &opts.slugs())?;
+            let tool = pretool::install::install(may_prompt, &opts.slugs())?;
+            pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
             Ok(None)
         }
         Command::Uninstall => {
-            let shell = Shell::detect()?;
-            MessageBox::new()
-                .info()
-                .line(format!(
-                    "Auto launcher uninstalled in {}",
-                    shell.uninstall()?
-                ))
-                .print_plain_stderr();
-            pretool::install::uninstall()?;
+            let pre = crate::shell::uninstall_current_preexec()?;
+            let tool = pretool::install::uninstall()?;
+            pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
             Ok(None)
         }
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),

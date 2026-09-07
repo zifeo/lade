@@ -1,6 +1,6 @@
 mod preexec;
 
-pub use preexec::preexec_installed;
+pub use preexec::{install_current_preexec, preexec_installed, uninstall_current_preexec};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -58,6 +58,7 @@ fn decode_v1<T: DeserializeOwned>(label: &str, value: &str) -> Result<T> {
     serde_json::from_slice(&json).with_context(|| format!("failed to parse {label} JSON"))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -85,6 +86,15 @@ impl Shell {
             Shell::Bash => "bash",
             Shell::Zsh => "zsh",
             Shell::Fish => "fish",
+            Shell::Sh => "sh",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Shell::Bash => "Bash",
+            Shell::Zsh => "Zsh",
+            Shell::Fish => "Fish",
             Shell::Sh => "sh",
         }
     }

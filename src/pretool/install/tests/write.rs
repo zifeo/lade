@@ -1,8 +1,11 @@
 use serde_json::Value;
 
 use super::super::agent::Agent;
-use super::super::paths::hook_command;
-use super::super::write::{Scope, refresh_installed, refresh_path, write_scoped};
+use super::super::offer::{Plan, apply_plan};
+use super::super::paths::{ItemVerb, hook_command};
+use super::super::write::{
+    Scope, refresh_installed, refresh_path, uninstall_plane, uninstall_preferred, write_scoped,
+};
 
 #[test]
 fn hook_command_never_writes_a_test_binary() {
@@ -80,6 +83,75 @@ fn write_scoped_user_merges_claude_without_touching_other_keys() {
     assert!(
         Agent::Claude
             .has_hook(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+    );
+}
+
+#[test]
+fn uninstall_plane_removes_project_hook_and_skill() {
+    let home = tempfile::tempdir().unwrap();
+    let dest = tempfile::tempdir().unwrap();
+    apply_plan(
+        &Plan {
+            scope: Scope::Project,
+            hooks: true,
+            skills: true,
+            agents: vec![Agent::Cursor],
+        },
+        home.path(),
+        dest.path(),
+    )
+    .unwrap();
+    let report = uninstall_plane(Scope::Project, home.path(), dest.path()).unwrap();
+    assert!(report.where_line.starts_with("this repo"));
+    assert!(
+        report
+            .rows
+            .iter()
+            .any(|row| row.verb == ItemVerb::Removed && row.path == ".cursor/hooks.json")
+    );
+    assert!(report.rows.iter().any(|row| {
+        row.verb == ItemVerb::Removed && row.path == ".cursor/skills/lade/SKILL.md"
+    }));
+    assert!(
+        !Agent::Cursor
+            .has_hook(
+                &std::fs::read_to_string(dest.path().join(".cursor").join("hooks.json")).unwrap()
+            )
+            .unwrap()
+    );
+    assert!(
+        !dest
+            .path()
+            .join(".cursor")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md")
+            .exists()
+    );
+}
+
+#[test]
+fn uninstall_preferred_falls_back_to_the_other_plane() {
+    let home = tempfile::tempdir().unwrap();
+    let dest = tempfile::tempdir().unwrap();
+    apply_plan(
+        &Plan {
+            scope: Scope::User,
+            hooks: true,
+            skills: true,
+            agents: vec![Agent::Codex],
+        },
+        home.path(),
+        dest.path(),
+    )
+    .unwrap();
+    let report = uninstall_preferred(Scope::Project, home.path(), dest.path()).unwrap();
+    assert_eq!(report.where_line, "this machine");
+    assert!(report.rows.iter().any(|row| row.verb == ItemVerb::Removed));
+    assert!(
+        !Agent::Codex
+            .has_hook(&std::fs::read_to_string(Agent::Codex.config_path(home.path())).unwrap())
             .unwrap()
     );
 }

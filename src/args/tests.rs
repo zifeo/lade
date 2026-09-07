@@ -193,6 +193,17 @@ fn hook_install_defaults_scope_to_project() {
 }
 
 #[test]
+fn install_help_names_preexec_and_pretool() {
+    let mut cmd = Args::command();
+    let install = cmd.find_subcommand_mut("install").expect("install");
+    let mut buf = Vec::new();
+    install.write_long_help(&mut buf).unwrap();
+    let help = String::from_utf8(buf).unwrap();
+    assert!(help.contains("pre-exec"), "{help}");
+    assert!(help.contains("pre-tool"), "{help}");
+}
+
+#[test]
 fn install_agent_flags_select_slugs() {
     let bare = Args::try_parse_from(["lade", "install"]).unwrap();
     match bare.command {

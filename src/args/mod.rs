@@ -23,9 +23,9 @@ pub enum Command {
     On,
     /// Disable preexec shell hooks.
     Off,
-    /// Install auto launcher in shell profile, and offer agent hooks.
+    /// Install pre-exec (this shell) and pre-tool (agents).
     Install(InstallCommand),
-    /// Uninstall auto launcher in shell profile.
+    /// Remove pre-exec (this shell) and pre-tool (same plane as install).
     Uninstall,
     /// Inject environment into nested command.
     Inject(InjectCommand),
@@ -126,6 +126,18 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
         Some(Command::Unset(_)) => return print_hidden_command(&mut cmd, "unset"),
         Some(Command::Hook { .. }) => {
             if let Some(sub) = cmd.find_subcommand_mut("hook") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Install(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("install") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Uninstall) => {
+            if let Some(sub) = cmd.find_subcommand_mut("uninstall") {
                 sub.print_help()?;
             }
             return Ok(());

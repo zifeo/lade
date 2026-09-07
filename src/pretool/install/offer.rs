@@ -1,233 +1,232 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::paths::{home_dir, hook_command, tilde};
-use super::skill::{SKILL_MD, is_lade_skill, skill_is_current};
-use super::ui::{confirm, report};
+use super::paths::{ItemVerb, home_dir, hook_command, short_path};
+use super::skill::{is_lade_skill, skill_is_current, write_skill};
+use super::ui::{
+    PretoolReport, PretoolRow, ask_agents, ask_repo_or_machine, default_scope, warn_double_hooks,
+    where_line,
+};
+use super::write::{Scope, hook_path, skill_path, write_hook};
 
-/// Offer hooks and skills. Empty `only`: detected homes, ask harness then
-/// hook then skill. Non-empty `only`: those agents, ask hook and skill.
-/// `may_prompt` is true only when stdin and stderr are TTYs.
-pub fn install(may_prompt: bool, only: &[&str]) -> Result<()> {
+/// Offer hooks and skills on one plane. Git cwd defaults to the repo
+/// (hooks and skills together). No git defaults to this machine.
+/// A complete default plane skips prompts. Clap has no multi-select.
+pub fn install(may_prompt: bool, only: &[&str]) -> Result<PretoolReport> {
     let home = home_dir()?;
-    let mut hook_results = Vec::new();
-    let mut skill_results = Vec::new();
+    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    let git_root = crate::catalog::git_root(&cwd);
+    let dest = git_root.as_deref().unwrap_or(cwd.as_path());
+    let in_git = git_root.is_some();
     let flagged = !only.is_empty();
-    let agents: Vec<Agent> = if flagged {
-        only.iter()
-            .filter_map(|slug| Agent::from_slug(slug))
-            .collect()
+    let candidates = candidates(&home, only);
+    if may_prompt {
+        interactive(&candidates, flagged, in_git, &home, dest)
     } else {
-        AGENTS
+        announce_noninteractive(&candidates, default_scope(in_git), &home, dest)
+    }
+}
+
+pub(super) struct Plan {
+    pub scope: Scope,
+    pub hooks: bool,
+    pub skills: bool,
+    pub agents: Vec<Agent>,
+}
+
+fn candidates(home: &Path, only: &[&str]) -> Vec<Agent> {
+    if only.is_empty() {
+        return AGENTS
             .into_iter()
-            .filter(|agent| agent.home_dir(&home).is_dir())
-            .collect()
+            .filter(|agent| agent.home_dir(home).is_dir())
+            .collect();
+    }
+    only.iter()
+        .filter_map(|slug| Agent::from_slug(slug))
+        .collect()
+}
+
+fn interactive(
+    candidates: &[Agent],
+    flagged: bool,
+    in_git: bool,
+    home: &Path,
+    dest: &Path,
+) -> Result<PretoolReport> {
+    let default = default_scope(in_git);
+    if !candidates.is_empty() && pending(candidates, default, true, true, home, dest).is_empty() {
+        return apply_plan(
+            &Plan {
+                scope: default,
+                hooks: true,
+                skills: true,
+                agents: candidates.to_vec(),
+            },
+            home,
+            dest,
+        );
+    }
+    let scope = choose_scope(in_git, candidates, home, dest)?;
+    let agents = if flagged {
+        candidates.to_vec()
+    } else {
+        let pending = pending(candidates, scope, true, true, home, dest);
+        if pending.is_empty() && !candidates.is_empty() {
+            candidates.to_vec()
+        } else {
+            ask_agents(&pending)?
+        }
     };
+    if scope == Scope::Project {
+        let stacked = agents
+            .iter()
+            .copied()
+            .filter(|agent| has_hook(*agent, Scope::User, home, dest))
+            .map(Agent::name)
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        warn_double_hooks(&stacked);
+    }
+    apply_plan(
+        &Plan {
+            scope,
+            hooks: true,
+            skills: true,
+            agents,
+        },
+        home,
+        dest,
+    )
+}
 
-    for agent in agents {
-        if !flagged && !offer_harness(agent, &home, may_prompt, &mut hook_results)? {
-            continue;
+fn choose_scope(in_git: bool, candidates: &[Agent], home: &Path, dest: &Path) -> Result<Scope> {
+    if !in_git {
+        return Ok(Scope::User);
+    }
+    if candidates
+        .iter()
+        .any(|agent| has_hook(*agent, Scope::Project, home, dest))
+    {
+        return Ok(Scope::Project);
+    }
+    ask_repo_or_machine()
+}
+
+fn announce_noninteractive(
+    candidates: &[Agent],
+    scope: Scope,
+    home: &Path,
+    dest: &Path,
+) -> Result<PretoolReport> {
+    let mut rows = Vec::new();
+    for agent in candidates {
+        rows.extend(peek_agent(*agent, scope, home, dest)?);
+    }
+    Ok(PretoolReport {
+        where_line: where_line(scope, home, dest),
+        rows,
+    })
+}
+
+pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<PretoolReport> {
+    let mut rows = Vec::new();
+    for agent in &plan.agents {
+        if plan.hooks {
+            let out = write_hook(
+                *agent,
+                &hook_path(*agent, plan.scope, home, dest),
+                &hook_command(*agent),
+            )?;
+            rows.push(PretoolRow {
+                agent: agent.name(),
+                verb: out.verb,
+                path: short_path(&out.path, home, dest),
+            });
         }
-        install_hook(agent, &home, may_prompt, &mut hook_results)?;
-        install_skill(agent, &home, may_prompt, &mut skill_results)?;
+        if plan.skills {
+            let out = write_skill(*agent, &skill_path(*agent, plan.scope, home, dest))?;
+            rows.push(PretoolRow {
+                agent: agent.name(),
+                verb: out.verb,
+                path: short_path(&out.path, home, dest),
+            });
+        }
     }
-
-    report("preTool hooks:", hook_results);
-    report("skills:", skill_results);
-    Ok(())
+    Ok(PretoolReport {
+        where_line: where_line(plan.scope, home, dest),
+        rows,
+    })
 }
 
-fn hook_is_current(agent: Agent, home: &Path) -> Result<bool> {
-    let existing = fs::read_to_string(agent.config_path(home)).unwrap_or_default();
-    agent.hook_uses_command(&existing, &hook_command(agent))
-}
-
-fn skill_is_current_at(agent: Agent, home: &Path) -> bool {
-    fs::read_to_string(agent.skill_path(home))
-        .ok()
-        .is_some_and(|content| skill_is_current(&content))
-}
-
-fn offer_harness(
-    agent: Agent,
+fn pending(
+    agents: &[Agent],
+    scope: Scope,
+    hooks: bool,
+    skills: bool,
     home: &Path,
-    may_prompt: bool,
-    results: &mut Vec<String>,
-) -> Result<bool> {
-    if hook_is_current(agent, home)? && skill_is_current_at(agent, home) {
-        return Ok(true);
-    }
-    if !may_prompt {
-        results.push(format!(
-            "{}: detected. Re-run `lade install` in a terminal",
-            agent.name()
-        ));
-        return Ok(false);
-    }
-    let path = tilde(&agent.home_dir(home), home);
-    if confirm(&format!("Install Lade for {} in {path}?", agent.name()))? {
-        Ok(true)
-    } else {
-        results.push(format!("{}: skipped", agent.name()));
-        Ok(false)
+    dest: &Path,
+) -> Vec<Agent> {
+    agents
+        .iter()
+        .copied()
+        .filter(|agent| {
+            (hooks && hook_needs_write(*agent, scope, home, dest))
+                || (skills && skill_needs_write(*agent, scope, home, dest))
+        })
+        .collect()
+}
+
+fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
+    let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
+    agent.has_hook(&existing).unwrap_or(false)
+}
+
+fn hook_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
+    let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
+    !agent
+        .hook_uses_command(&existing, &hook_command(agent))
+        .unwrap_or(false)
+}
+
+fn skill_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
+    match fs::read_to_string(skill_path(agent, scope, home, dest)) {
+        Ok(content) if is_lade_skill(&content) => !skill_is_current(&content),
+        Ok(_) => false,
+        Err(_) => true,
     }
 }
 
-fn install_hook(
-    agent: Agent,
-    home: &Path,
-    may_prompt: bool,
-    results: &mut Vec<String>,
-) -> Result<()> {
+fn peek_agent(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<Vec<PretoolRow>> {
+    let hook_file = hook_path(agent, scope, home, dest);
+    let existing = fs::read_to_string(&hook_file).unwrap_or_default();
     let command = hook_command(agent);
-    let path = agent.config_path(home);
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    if agent.has_hook(&existing)? {
-        return update_hook(agent, home, may_prompt, results, &path, &existing, &command);
-    }
-    if !may_prompt {
-        results.push(format!(
-            "{}: detected. Re-run `lade install` in a terminal to add its hook",
-            agent.name()
-        ));
-        return Ok(());
-    }
-    if confirm(&format!(
-        "Install Lade hook for {} in {}?",
-        agent.name(),
-        tilde(&path, home)
-    ))? {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, agent.merge(&existing, &command)?)?;
-        results.push(format!(
-            "{}: hook installed in {}",
-            agent.name(),
-            tilde(&path, home)
-        ));
+    let hook_verb = if agent.hook_uses_command(&existing, &command)? {
+        ItemVerb::Current
+    } else if agent.has_hook(&existing)? {
+        ItemVerb::Stale
     } else {
-        results.push(format!("{}: hook skipped", agent.name()));
-    }
-    Ok(())
-}
-
-fn update_hook(
-    agent: Agent,
-    home: &Path,
-    may_prompt: bool,
-    results: &mut Vec<String>,
-    path: &Path,
-    existing: &str,
-    command: &str,
-) -> Result<()> {
-    if agent.hook_uses_command(existing, command)? {
-        results.push(format!("{}: hook already present", agent.name()));
-        return Ok(());
-    }
-    if !may_prompt {
-        results.push(format!(
-            "{}: detected. Re-run `lade install` in a terminal to update its hook",
-            agent.name()
-        ));
-        return Ok(());
-    }
-    if confirm(&format!(
-        "Update Lade hook for {} in {}?",
-        agent.name(),
-        tilde(path, home)
-    ))? {
-        fs::write(path, agent.merge(existing, command)?)?;
-        results.push(format!(
-            "{}: hook updated in {}",
-            agent.name(),
-            tilde(path, home)
-        ));
-    } else {
-        results.push(format!("{}: hook update skipped", agent.name()));
-    }
-    Ok(())
-}
-
-fn install_skill(
-    agent: Agent,
-    home: &Path,
-    may_prompt: bool,
-    results: &mut Vec<String>,
-) -> Result<()> {
-    let path = agent.skill_path(home);
-    if path.is_file() {
-        return update_skill(agent, home, may_prompt, results, &path);
-    }
-    if !may_prompt {
-        results.push(format!(
-            "{}: detected. Re-run `lade install` in a terminal to add its skill",
-            agent.name()
-        ));
-        return Ok(());
-    }
-    if confirm(&format!(
-        "Install Lade skill for {} in {}?",
-        agent.name(),
-        tilde(&path, home)
-    ))? {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, SKILL_MD)?;
-        results.push(format!(
-            "{}: skill installed in {}",
-            agent.name(),
-            tilde(&path, home)
-        ));
-    } else {
-        results.push(format!("{}: skill skipped", agent.name()));
-    }
-    Ok(())
-}
-
-fn update_skill(
-    agent: Agent,
-    home: &Path,
-    may_prompt: bool,
-    results: &mut Vec<String>,
-    path: &Path,
-) -> Result<()> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
-    if !is_lade_skill(&existing) {
-        results.push(format!(
-            "{}: skill present but not Lade-managed",
-            agent.name()
-        ));
-        return Ok(());
-    }
-    if skill_is_current(&existing) {
-        results.push(format!("{}: skill already present", agent.name()));
-        return Ok(());
-    }
-    if !may_prompt {
-        results.push(format!(
-            "{}: detected. Re-run `lade install` in a terminal to update its skill",
-            agent.name()
-        ));
-        return Ok(());
-    }
-    if confirm(&format!(
-        "Update Lade skill for {} in {}?",
-        agent.name(),
-        tilde(path, home)
-    ))? {
-        fs::write(path, SKILL_MD)?;
-        results.push(format!(
-            "{}: skill updated in {}",
-            agent.name(),
-            tilde(path, home)
-        ));
-    } else {
-        results.push(format!("{}: skill update skipped", agent.name()));
-    }
-    Ok(())
+        ItemVerb::Missing
+    };
+    let skill_file = skill_path(agent, scope, home, dest);
+    let skill_verb = match fs::read_to_string(&skill_file) {
+        Ok(content) if !is_lade_skill(&content) => ItemVerb::Unmanaged,
+        Ok(content) if skill_is_current(&content) => ItemVerb::Current,
+        Ok(_) => ItemVerb::Stale,
+        Err(_) => ItemVerb::Missing,
+    };
+    Ok(vec![
+        PretoolRow {
+            agent: agent.name(),
+            verb: hook_verb,
+            path: short_path(&hook_file, home, dest),
+        },
+        PretoolRow {
+            agent: agent.name(),
+            verb: skill_verb,
+            path: short_path(&skill_file, home, dest),
+        },
+    ])
 }

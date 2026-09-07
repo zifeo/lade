@@ -42,8 +42,10 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 lade install
 ```
 
-`lade install` adds preexec shell hooks once. After that, matching commands are wrapped
-automatically. Pause and resume them with `lade off` and `lade on`.
+`lade install` adds pre-exec for this shell (not every shell it finds) and
+pre-tool for detected agents (hook and skill together). After that, matching
+commands are wrapped automatically. Pause and resume pre-exec with `lade off`
+and `lade on`.
 
 Alternative installs:
 
@@ -284,9 +286,16 @@ secret values from stdout and stderr.
 
 The agent keeps using normal commands. Lade handles the sensitive part.
 
-`lade install` writes this machine (user scope). It detects agents already
-present and asks harness, then hook, then skill. `lade status` prints
-`run \`lade install\`` on drift.
+`lade install` does two jobs. **pre-exec** wraps commands you type. It
+detects Fish, Bash, and Zsh, then installs this shell only. **pre-tool**
+wraps commands agents run. The hook and the skill are always written
+together. In a git repo it defaults to this repo. Outside git it
+defaults to this machine. It then confirms the detected agents.
+`--cursor` and friends skip that confirm. If the repo plane is written
+while machine hooks already exist, it warns: both hook processes still
+run. `lade uninstall` removes this shell's pre-exec and the same
+default pre-tool plane. `lade status` prints `run \`lade install\`` on
+drift.
 
 The preferred hook for a repo is project scope, so every clone gets the same
 guard. That is the default:
@@ -296,8 +305,9 @@ lade hook install --harness cursor
 lade hook install --scope user --harness cursor
 ```
 
-`--scope user` is this machine (`CODEX_HOME` for Codex), the same plane
-`lade install` writes. `lade hook uninstall` takes the same flags.
+`--scope user` is this machine (`CODEX_HOME` for Codex). `lade install`
+in a git repo writes the project plane instead. `lade hook uninstall`
+takes the same flags.
 `--harness` is required in the files. Auto-detect is a safety net.
 
 The equivalent project configs are:
