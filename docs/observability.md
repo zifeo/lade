@@ -1,7 +1,9 @@
-# Local command diary
+# Observability
 
-Opt-in record of commands that went through Lade. Secret values are
-never stored. Vault addresses (`op://…`, `kubectl://…`) are.
+Opt-in record of which access ran. Secret values are never stored.
+Vault addresses (`op://…`, `kubectl://…`) are. `matches` is the public
+keys and URIs, not values. `lade usage` lists rules that fired. Unused
+rules are omitted.
 
 See also [architecture.md](architecture.md) and [protocol.md](protocol.md).
 

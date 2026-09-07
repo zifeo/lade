@@ -1,13 +1,11 @@
 # Lade Architecture
 
-This document provides an overview of Lade's internal architecture, explaining how commands are intercepted, how configurations are resolved, and how secrets are securely injected and masked.
-
 Match tickets (T) are specified in [protocol.md](protocol.md).
-The local diary is specified in [log.md](log.md).
+Observability is specified in [observability.md](observability.md).
 
 ## 1. High-Level Flow (Shell Hooks)
 
-When a user runs `lade on`, Lade registers a pre-execution hook in their shell (Bash, Zsh, or Fish). This hook intercepts commands before they are run to check if they require secrets.
+When a user runs `lade on`, Lade registers a pre-exec hook in their shell (Bash, Zsh, or Fish). This hook intercepts commands before they are run to check if they require secrets.
 
 ```mermaid
 sequenceDiagram
@@ -193,7 +191,7 @@ hooks, `lade inject`, file output, and MCP.
 
 `lade mcp` hydrates a server process. Every MCP `tools/call` that
 reaches `lade hook` is a verb row. Diary shapes are in
-[log.md](log.md).
+[observability.md](observability.md).
 
 `lade mcp` uses the same rule matcher and binding resolver as command
 injection, but the output sink depends on the transport. A stdio target is
@@ -238,12 +236,14 @@ Alternatively, the user can approve up front by prefixing the command with the p
 
 Note: Fish `preexec` cannot cancel the main command. Lade's security model relies on withholding the secrets rather than preventing execution.
 
-### Preexec short-circuit
+### Pre-exec short-circuit
 
-To avoid recursion and unnecessary overhead, preexec shell hooks skip any command starting with `lade ` or exactly `lade`. This ensures `lade approve`, `lade status`, and `lade upgrade` never trigger their own preexec. The implementation uses ultra-fast string slicing (`${1:0:5}` in Bash/Zsh, `string sub` in Fish) to match the prefix exactly without using regex or glob wildcards.
+Pre-exec hooks skip any command that starts with `lade ` or is exactly `lade`,
+so `lade approve`, `lade status`, and `lade upgrade` do not wrap themselves.
+The match is a prefix slice (`${1:0:5}` in Bash/Zsh, `string sub` in Fish).
 
-Use `lade status` for an active report (version, config, preexec and
-preTool hooks, `lade.yml`, vault CLI versions, diary path and size).
+Use `lade status` for an active report (version, config, pre-exec and
+pre-tool, `lade.yml`, vault CLI versions, diary path and size).
 `--json` keeps `version`, `global_config`, `hooks`, `project_config`,
 and `ok`. `hooks` is `preexec` plus `pretool`. `log` is extra (`path`,
 `events`, raw `bytes`). A successful daily GitHub check persists the
@@ -261,7 +261,7 @@ and per-rule hydrate. It does not acquire network.
 | CI / Quiet human | no agent signal, not both TTYs | fail-closed, exit `3` |
 | Agent | Via=pretool, `Command::Hook` with no subcommand, or env signal when Via is unknown | fail-closed with `LADE_APPROVE=<code>` |
 
-### preTool path
+### pre-tool path
 
 The **pretool handler** (`src/pretool/`, invoked as `lade hook`) reads
 preToolUse JSON. Envelope comes from the payload first: `PreToolUse`
@@ -280,9 +280,9 @@ The wrap runs providers from that file and unlinks it after the child.
 The approve code is a 5-hex `sha256` of the command and a 5-minute
 window, not the T id. See [protocol.md](protocol.md).
 
-### Installing preTool hooks (`src/pretool/install/`)
+### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo snapshots and `.agents/skills/lade/SKILL.md`. `lade install` is user-scope and interactive (harness, then hook, then skill). `lade hook install --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. APM ships the skill via a link at `.apm/skills/lade/SKILL.md` and pins the GitHub tag. `lade status` reports user (JSON `global`) and project. The daily check refreshes Lade-managed files. MCP verbs are allow-only.
+The binary embeds the repo snapshots and `.agents/skills/lade/SKILL.md` (a pointer skill: run commands normally, never eval / `--no-mask` / approve, `lade install` on drift). `lade install` writes pre-exec for this shell only and pre-tool (hook and skill together) on one plane: a git cwd defaults to the repo, otherwise this machine. `lade uninstall` uses that same default, then the other plane if the default is empty. `lade hook install --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. APM ships the skill via a link at `.apm/skills/lade/SKILL.md` and pins the GitHub tag. `lade status` reports user (JSON `global`) and project. The daily check refreshes Lade-managed files. MCP verbs are allow-only.
 
 ### Direct path
 
@@ -304,10 +304,10 @@ When Via is not preexec, pretool, or mcp (`lade inject`, `lade git …`), `detec
 
 An MCP server is a deliberate non-goal. Lade is an interceptor, not a data source, so the agent already knows how to drive it via the CLI; an MCP surface would add context cost for no benefit.
 
-## 8. Local command diary
+## 8. Observability
 
 Recording is opt-in. Last explicit `log` on **matching** rules wins.
 No-match `seen` uses last explicit `log` on the loaded walk. Secret
-values are never stored. Vault addresses are.
+values are never stored. Vault addresses and public keys are.
 
-Commands, schema, scrub, and share live in [log.md](log.md).
+Commands, schema, scrub, and share live in [observability.md](observability.md).

@@ -2,38 +2,21 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
-Give shell commands and AI agents temporary access to secrets, files, and
-private networks, then clean everything up automatically.
+Temporary access to secrets, files, and private networks for one command,
+then gone. Same wrap for humans and agents. See which access was used.
 
 <p align="center">
   <img src="./examples/tape/main.gif" alt="Demo" />
 </p>
 
-Lade (/leɪd/) matches the command you run, loads only what it needs, masks
-provider-resolved secrets from command output, and removes command-scoped files
-and network forwards when the process exits.
-
-## Why Lade?
-
-Modern commands need short-lived access: a deploy needs tokens, a migration needs
-a private database, an AI agent needs to run a tool without seeing the secrets
-behind it. Lade keeps that access scoped to the command instead of your whole
-shell session, CI job, or model context.
-
-- Load secrets from [1Password CLI](https://1password.com/downloads/command-line/),
-  [Infisical](https://infisical.com), [Doppler](https://www.doppler.com),
-  [Vault](https://github.com/hashicorp/vault),
-  [Passbolt](https://www.passbolt.com), local files, shell commands, or inline
-  values.
-- Write temporary JSON/YAML files for tools that expect credentials on disk.
-- Open private network access through `kubectl`, `kubefwd`, Teleport `tsh`, or
-  SSH only while the command runs.
-- Redact provider-resolved secrets from stdout and stderr.
-- Work from shells, CI, Cursor, Claude Code, Codex, and OpenCode.
-
-Compatible shells: [Fish](https://fishshell.com),
-[Bash](https://www.gnu.org/software/bash/), [Zsh](https://zsh.sourceforge.io).
-Lade targets Unix systems: macOS and Linux.
+Lade (/leɪd/) on [Fish](https://fishshell.com),
+[Bash](https://www.gnu.org/software/bash/), or [Zsh](https://zsh.sourceforge.io).
+macOS and Linux. Secrets from [1Password CLI](https://1password.com/downloads/command-line/),
+[Infisical](https://infisical.com), [Doppler](https://www.doppler.com),
+[Vault](https://github.com/hashicorp/vault),
+[Passbolt](https://www.passbolt.com), files, shell commands, or inline values.
+Forwards through `kubectl`, `kubefwd`, Teleport `tsh`, or SSH, only while the
+command runs. Also CI, Cursor, Claude Code, Codex, and OpenCode.
 
 ## Getting started
 
@@ -42,8 +25,9 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 lade install
 ```
 
-`lade install` adds preexec shell hooks once. After that, matching commands are wrapped
-automatically. Pause and resume them with `lade off` and `lade on`.
+`lade install` writes pre-exec for this shell and pre-tool for detected
+agents (hook and skill together). Then write a `lade.yml` (next section).
+Pause and resume pre-exec with `lade off` and `lade on`.
 
 Alternative installs:
 
@@ -82,9 +66,8 @@ Lade resolves `DB_USER`, opens a local forward for `DB_PORT`, interpolates both
 into `DATABASE_URL`, runs the command, masks resolved secret values from output,
 and cleans up when `psql` exits.
 
-Preexec shell hooks are the recommended path because you keep typing normal commands.
-When they are unavailable, prefix the command with `lade` for one-shot
-injection. The explicit form is `lade inject <command>`.
+Pre-exec is the recommended path: you keep typing the command. Without it,
+prefix with `lade`. The explicit form is `lade inject <command>`.
 
 ```bash
 lade terraform apply
@@ -93,14 +76,12 @@ lade inject -- terraform apply
 
 The wrap skips the user profile. Same argv as `sh://`.
 
-## Local command diary
+## Observability
 
-Recording is off until a matching `lade.yml` rule sets `log: true`. Absent
-`log` is not a vote. Last explicit `log` on matching rules wins
-(parent then child). `log: false` punches a hole for that command
-only. A no-match `seen` uses the last explicit `log` on the loaded
-walk. A rule may be log-only, with no secrets. Details:
-[docs/log.md](docs/log.md).
+Opt-in. A matching rule with `log: true` records that the command ran and
+which public keys and vault URIs it used. Values are never stored. `lade
+usage` lists the rules that actually fired. Unused rules are omitted.
+Details: [docs/observability.md](docs/observability.md).
 
 ```yaml
 .:
@@ -112,12 +93,6 @@ walk. A rule may be log-only, with no secrets. Details:
 "^npm run deploy":
   API_TOKEN: op://prod/api/credential
 ```
-
-Lade writes one row per opted-in command to a local SQLite file next to the
-rest of its user data: `ProjectDirs::from("com", "zifeo", "lade")`,
-`data_local_dir()/events.db`. `config.json` uses the same library and
-qualifier, on `config_local_dir()`. Vault addresses (`op://…`) are stored.
-Secret values are never stored.
 
 ```bash
 lade log
@@ -132,21 +107,16 @@ lade log --all
 lade log prune --keep 30d
 ```
 
-The default window is the last 90 days. `--since` and `--until` are
-durations back from now (`Ns | Nm | Nh | Nd | Nw | Nmonth`, `m` is
-minutes). `--limit` is an extra row cap. A bare `--limit 20` drops the
-90-day default and returns the newest 20 rows. `--group command`
-aggregates the diary by command text, most frequent first. Nothing
-prunes by itself. `lade log --help` prints the database path.
-`lade status` reports the path, event count, and a human size.
+Default window: last 90 days. `--since` / `--until` are durations back from
+now (`Ns | Nm | Nh | Nd | Nw | Nmonth`, `m` is minutes). `--limit` is an
+extra cap. Bare `--limit 20` drops the 90-day default. `--group command`
+counts by command text. Nothing prunes by itself. `lade log --help` prints
+the database path. `lade status` prints path, count, and size.
 
-`lade log` and `lade usage` both stay in the current git root when there
-is one, including git worktrees (`.git` file). `--all` reads the whole
-diary. `--path` scopes to the git root of that directory. `lade log` is
-the diary of typed commands. `lade usage` is Lade usage in this tree:
-matched `lade.yml` rules only, most frequent first, with the file path
-and `env` / `file` / `tunnel` tags. Catch-all `.` rules and unused
-rules are omitted. `lade.yml` walk stops at `$HOME`.
+Queries stay on the current git root (worktrees count). `--all` reads every
+repo. `--path` scopes to another tree. `lade log` is typed commands. `lade
+usage` is matched rules in this tree, most frequent first, with the file
+path and `env` / `file` / `tunnel`.
 
 ## Common patterns
 
@@ -154,21 +124,21 @@ rules are omitted. `lade.yml` walk stops at `$HOME`.
 <tr>
 <td width="50%">
 
-**preexec shell hooks** - Run commands normally. Lade injects access only when the
-command matches `lade.yml`.
+**pre-exec** - You type the command in this shell. A `lade.yml` match gets
+secrets and tunnels for that process only.
 
 </td>
 <td width="50%">
 
-![preexec shell hooks](./examples/tape/hooks.gif)
+![pre-exec](./examples/tape/hooks.gif)
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Provider resolution** - Match commands and load values from vaults, files, or
-inline config only when needed.
+**Provider resolution** - Only the matching rule's URIs load. Other vaults
+stay closed.
 
 </td>
 <td width="50%">
@@ -180,8 +150,8 @@ inline config only when needed.
 <tr>
 <td width="50%">
 
-**Manual injection** - Use `lade <command>` in scripts, CI, or shells without
-hooks. The explicit form is `lade inject <command>`.
+**Manual injection** - No pre-exec? Prefix with `lade`. Same wrap as
+`lade inject --`.
 
 </td>
 <td width="50%">
@@ -193,8 +163,8 @@ hooks. The explicit form is `lade inject <command>`.
 <tr>
 <td width="50%">
 
-**Private networks** - Open a local forward only while the command runs, then
-close it automatically.
+**Private networks** - Local forward lives for the process. A numeric key is
+a fixed port.
 
 </td>
 <td width="50%">
@@ -206,8 +176,7 @@ close it automatically.
 <tr>
 <td width="50%">
 
-**Secrets as files** - Write temporary config files for commands that expect
-credentials on disk.
+**Secrets as files** - `.file` writes a temp JSON/YAML, then deletes it.
 
 </td>
 <td width="50%">
@@ -219,8 +188,7 @@ credentials on disk.
 <tr>
 <td width="50%">
 
-**Per-user values** - Keep one shared `lade.yml` while developers, CI, and
-environments resolve different values.
+**Per-user values** - One `lade.yml`. `lade user alice` picks the map key.
 
 </td>
 <td width="50%">
@@ -232,8 +200,7 @@ environments resolve different values.
 <tr>
 <td width="50%">
 
-**Human approval** - Add a disclaimer before sensitive commands. Hooks withhold
-access until the approval code is used.
+**Human approval** - `disclaimer` withholds access until `lade approve <code>`.
 
 </td>
 <td width="50%">
@@ -245,7 +212,7 @@ access until the approval code is used.
 <tr>
 <td width="50%">
 
-**Shell command provider** - Use stdout from a local command as a secret value.
+**Shell command provider** - `sh://` stdout is a secret.
 
 </td>
 <td width="50%">
@@ -257,8 +224,8 @@ access until the approval code is used.
 <tr>
 <td width="50%">
 
-**Intermediate bindings** - Compose a public value from a private binding
-without injecting the private value itself.
+**Intermediate bindings** - `.TOKEN` builds another value. The child never
+sees `.TOKEN`.
 
 </td>
 <td width="50%">
@@ -271,34 +238,17 @@ without injecting the private value itself.
 
 ## AI agents
 
-AI coding agents often need to run commands that require secrets, private
-network access, or both. Lade lets the command access what it needs without
-putting secret values in the model context or chat transcript.
-
-### Recommended usage: preTool hooks
-
-Cursor, Claude Code, Codex, and OpenCode can call `lade hook` before shell
-commands. When an agent runs a matching command, Lade rewrites it through
-`lade inject`, resolves the configured access, and redacts provider-resolved
-secret values from stdout and stderr.
-
-The agent keeps using normal commands. Lade handles the sensitive part.
-
-`lade install` writes this machine (user scope). It detects agents already
-present and asks harness, then hook, then skill. `lade status` prints
-`run \`lade install\`` on drift.
-
-The preferred hook for a repo is project scope, so every clone gets the same
-guard. That is the default:
+The agent types the command and never sees provider-resolved secrets.
+Prefer this repo so clones share the guard. To wire a hook by hand:
 
 ```bash
 lade hook install --harness cursor
 lade hook install --scope user --harness cursor
 ```
 
-`--scope user` is this machine (`CODEX_HOME` for Codex), the same plane
-`lade install` writes. `lade hook uninstall` takes the same flags.
-`--harness` is required in the files. Auto-detect is a safety net.
+`--scope user` is this machine (`CODEX_HOME` for Codex). `--harness` is
+required in the files. Auto-detect is a safety net. `lade status` prints
+`run \`lade install\`` on drift.
 
 The equivalent project configs are:
 
@@ -418,26 +368,22 @@ That pin is a GitHub tag. It installs the skill
 ([`.agents/skills/lade/SKILL.md`](.agents/skills/lade/SKILL.md)).
 Hooks stay in the files above or `lade hook install`.
 
-### Agents without preTool hooks
+### Agents without pre-tool
 
-For agents without shell hooks, add a short instruction to `AGENTS.md`:
+Add a short instruction to `AGENTS.md`:
 
 ```text
 When a command needs access defined in lade.yml, prefix it with lade.
 Example: lade terraform apply
 ```
 
-Transparent hooks are preferred because the agent does not need to guess which
-commands match `lade.yml`.
+Pre-tool is preferred: the agent does not guess which commands match.
 
 ## MCP
 
-Desktop MCP clients normally launch a server without the shell environment
-where a secret manager is available. Putting long-lived credentials directly in
-the client configuration is inconvenient and exposes them to every process
-launched from that app. `lade mcp` makes the client launch Lade instead: it
-resolves the matching access only for that MCP connection, then exits and
-cleans up when the connection closes.
+A desktop MCP client launches a server without your shell's secret manager.
+`lade mcp` is the command the client runs. It hydrates only for that
+connection, then exits and cleans up when the connection closes.
 
 Add a server entry in your MCP client's configuration. Use the absolute path to
 the installed `lade` binary when a GUI application does not inherit your shell
@@ -477,26 +423,8 @@ names. The URL itself is the matcher:
 }
 ```
 
-Keys prefixed with `.` are intermediate variables. They can be referenced with
-`$NAME`, `${NAME}`, or `${.NAME}`, participate in secret masking, and are never emitted to the child
-environment, temporary file, or HTTP headers. `.` on its own remains the rule
-configuration block. A public key and `.KEY` cannot be declared together.
-
-Intermediate variables belong to binding resolution, not MCP: they work with
-shell hooks, `lade inject`, file output, and MCP. For example, only the
-composed value is injected:
-
-```yaml
-"deploy .*":
-  .TOKEN: op://company/production/deploy/token
-  DEPLOY_AUTHORIZATION: "Bearer ${TOKEN}"
-```
-
-```bash
-lade inject -- deploy production
-```
-
-The child receives `DEPLOY_AUTHORIZATION`, never `TOKEN`.
+`.NAME` is an intermediate binding (see below). Here `.API_KEY` never
+becomes a header.
 
 To troubleshoot an MCP connection, add `-v` before `mcp` in the client
 configuration arguments. Lade writes action-only traces to stderr, such as
@@ -509,8 +437,7 @@ logs; `LADE_LOG` overrides the command-line verbosity.
 Lade has two provider families used from the same `lade.yml` rule:
 
 - Secret providers resolve values into environment variables or temporary files.
-- Network providers create command-scoped connectivity and clean up
-  automatically.
+- Network providers open a local forward for the process, then close it.
 
 ### Secrets
 
@@ -519,10 +446,9 @@ Lade has two provider families used from the same `lade.yml` rule:
   TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-Most secret providers use their native CLI. Ensure the required binaries are
-installed and authenticated before running commands. Provider-resolved values
-are masked from command output unless `--no-mask` is set. Inline values are not
-masked because they are already visible in `lade.yml`.
+Most secret providers call their CLI. Authenticate it first. Provider-resolved
+values are masked unless `--no-mask` is set. Inline values are not masked:
+they are already visible in `lade.yml`.
 
 Supported secret providers:
 
@@ -561,7 +487,7 @@ Use `lade eval <uri>` to resolve one URI when debugging a provider.
 | Bash / sh | `bash -c …` with `$BASH_ENV` unset |
 
 `--norc --noprofile` are not used: they do not skip `$BASH_ENV`, and `bash -c`
-does not read `.bashrc` or login profiles anyway. Preexec (`lade set`) still
+does not read `.bashrc` or login profiles anyway. Pre-exec (`lade set`) still
 evals in the live interactive shell, so the profile stays in play there.
 `lade status` prints `inject wrap: skips startup files` and names the file or
 `BASH_ENV` when it is present.
@@ -594,11 +520,8 @@ a public value. The end-to-end terminal demo is
 
 ### Shell transforms
 
-`sh://`, `bash://`, `zsh://`, and `fish://` sources can derive a value with the
-shell. Lade recognizes simple `$NAME` and `${NAME}` references to build the
-dependency graph, then passes their resolved values as environment variables to
-the shell without rewriting the script. The shell remains responsible for all
-other expansion syntax.
+Same wrap and `$NAME` graph as the `sh://` table. The script is not rewritten.
+Example: compose Basic auth without injecting the password.
 
 ```yaml
 "curl .*api\\.example\\.com.*":
@@ -606,10 +529,6 @@ other expansion syntax.
   .password: op://company/api/password
   Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "$password" | base64 | tr -d "\n")"'
 ```
-
-Quote shell variable expansions (`"$user"`, `"$password"`) so their values are
-passed as single arguments. The shell provider output is treated as secret and
-is masked like other provider-resolved values.
 
 ### Files and disclaimers
 
@@ -624,14 +543,11 @@ Options under `.` configure the matched command itself.
   API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-`when` is `always` (default), `human`, or `agent`. Audience comes from
-`detect()`: `--pretool` or `lade hook` is `agent`; `lade set`/`unset` is
-`human`. Leftover `LADE_VIA` is ignored. Via lives on the T ticket, not
-the child env. Otherwise env signals (`AI_AGENT`, `CURSOR_AGENT`,
-`CLAUDECODE`, not `CURSOR_VERSION`) select `agent`, else `human`. The
-same pattern can be a YAML list of these blocks when `when` differs.
-`silence` is optional and skips that rule's secret progress lines at
-hydration.
+`when` is `always` (default), `human`, or `agent`. `lade hook` and
+`--pretool` are `agent`. `lade set` / `unset` are `human`. Otherwise env
+signals (`AI_AGENT`, `CURSOR_AGENT`, `CLAUDECODE`, not `CURSOR_VERSION`)
+select `agent`. The same pattern can be a YAML list of these blocks when
+`when` differs. `silence` skips that rule's secret progress lines.
 
 ```yaml
 "^git ":
@@ -665,9 +581,8 @@ lade user --reset
 
 ### Networks
 
-Network providers acquire temporary local forwards for the command lifecycle.
-Assign a URI to an environment variable for a dynamic local port, or to a number
-for a fixed local port.
+Assign a URI to an environment variable for a dynamic local port, or to a
+number for a fixed local port.
 
 ```yaml
 "psql .*":

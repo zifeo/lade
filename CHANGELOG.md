@@ -9,6 +9,25 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Changed
+
+- **User-facing copy**: crates.io / README / `lade --help` lead with
+  temporary access for one command, then gone, same wrap for humans and
+  agents, plus which access was used. Spoken terms are pre-exec /
+  pre-tool. Empty parse Hints dropped. README keeps one install tell;
+  last-wins / `seen` stay in `docs/observability.md`.
+- **Observability**: `docs/log.md` is `docs/observability.md`. README
+  section matches. `lade log` / `lade usage` verbs stay.
+- **Version bump**: `scripts/set-version.sh` runs `cargo set-version`
+  and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
+  from `build.rs`.
+
+### Fixed
+
+- **Diary writers**: if `to_latest` fails but `pending_migrations`
+  is 0, the peer finished the schema and the loser still inserts.
+  Busy wait stays 250ms.
+
 ### Added
 
 - **APM package**: `apm.yml` plus `.apm/skills/lade` (link to
@@ -21,8 +40,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `CODEX_HOME`. `lade status` labels user and project (JSON `global` is
   the user plane) and prints `run \`lade install\`` on drift.
 - **`lade install --cursor|--claude|--codex|--opencode`**: select
-  harnesses. No flags: ask harness, then hook, then skill. A stale file
-  asks before rewrite.
+  harnesses. A git cwd defaults to this repo (hooks and skills). No
+  git defaults to this machine. Confirm detected agents (default all).
+  A complete default plane skips prompts. Installing the repo plane
+  warns when machine hooks already exist (both processes still run).
+  A stale Lade-managed file is rewritten. Unmanaged skills stay.
 - **Unreadable `lade hook` payload**: invalid JSON or a preTool event
   with no command still allows the tool call (empty Claude/Codex stdout).
   stderr now says so, so a later vault or lock error is not the first
@@ -75,7 +97,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   reads pids from T, unlinks, and clears `LADE_T`. Diary `log` is last
   explicit `log` on matching rules. No-match `seen` uses the last
   explicit `log` on the loaded walk. See `docs/protocol.md` and
-  `docs/log.md`.
+  `docs/observability.md`.
 - **Diary `agent` object**: free-form JSON on each event (`harness`,
   `model`, `session`, plus later keys). Hook payload wins over env.
   Missing or unknown fields stay absent. Empty objects are omitted.
@@ -91,6 +113,16 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
+- **`lade install` terms**: pre-exec is this shell only (other shells
+  are listed, not installed). pre-tool is agents, hook and skill
+  together. One box for both jobs. `lade uninstall` uses the same
+  default plane as install, then the other plane if that one is empty.
+  Drift verbs are `current`, `updated`, `installed`. Paths are
+  repo-relative or `~/…`.
+- **Lade skill**: pointer only. Run the command normally. Never `lade
+  eval`, `--no-mask`, or `lade approve`. On missing or drifted hooks,
+  run `lade install`. On withheld access, stop. Previous official
+  skills stay Lade-managed and refresh to this text.
 - **Single rustls stack**: CLI `reqwest` and `self_update` use rustls
   like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and
   unused zip/bzip2 codecs on `self_update`. Parent shell detect reads

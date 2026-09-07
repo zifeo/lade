@@ -39,7 +39,7 @@ fn test_disclaimer_hook_flow() {
     assert!(stdout.contains("unset -v LADE_RESTORE"));
     assert!(stdout.contains("export LADE_T='"));
     assert!(!stdout.contains("export LADE_PENDING='"));
-    assert!(stderr.contains("Disclaimer required to uncover the secrets"));
+    assert!(stderr.contains("Disclaimer required. Access is withheld"));
     assert!(stderr.contains("> Danger!"));
     assert!(!stderr.contains("could not get secrets"));
     let code = extract_code(&stderr);

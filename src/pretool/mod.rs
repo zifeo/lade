@@ -255,7 +255,7 @@ fn expects_shell_command(input: &Value) -> bool {
 fn warn_unread(reason: &str) {
     MessageBox::new()
         .warning()
-        .line(format!("Lade could not read this hook payload ({reason})."))
+        .line(format!("Could not read this hook payload ({reason})."))
         .line("The command will run without injection.")
         .print_stderr();
 }

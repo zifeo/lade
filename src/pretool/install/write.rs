@@ -5,11 +5,12 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::locate::{
-    canonical_project_path, find_agents_skill, find_project, find_project_skill, leftover_json_hook,
+    canonical_project_path, find_agents_skill, find_project, find_project_skill,
+    leftover_json_hook, project_skill_file,
 };
-use super::paths::{home_dir, hook_command, tilde};
+use super::paths::{ItemVerb, WriteOutcome, home_dir, hook_command, short_path, tilde};
 use super::skill::{SKILL_MD, is_lade_skill, skill_is_current};
-use super::ui::report;
+use super::ui::{PretoolReport, PretoolRow, default_scope, report, where_line};
 
 /// User home config versus the files in the current directory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,7 +24,7 @@ pub fn install_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, true)?;
-    report("preTool hooks:", vec![line]);
+    report("pre-tool:", vec![line]);
     Ok(())
 }
 
@@ -32,7 +33,7 @@ pub fn uninstall_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, false)?;
-    report("preTool hooks:", vec![line]);
+    report("pre-tool:", vec![line]);
     Ok(())
 }
 
@@ -51,20 +52,25 @@ pub(crate) fn write_scoped(
     };
     let command = hook_command(agent);
     if install {
-        write_hook(agent, &path, &command, home)
+        let out = write_hook(agent, &path, &command)?;
+        Ok(format!(
+            "{}: hook {} in {}",
+            agent.name(),
+            out.verb.label(),
+            tilde(&out.path, home)
+        ))
     } else {
         remove_hook(agent, &path, home, scope)
     }
 }
 
-fn write_hook(agent: Agent, path: &Path, command: &str, home: &Path) -> Result<String> {
+pub(super) fn write_hook(agent: Agent, path: &Path, command: &str) -> Result<WriteOutcome> {
     let existing = fs::read_to_string(path).unwrap_or_default();
     if agent.hook_uses_command(&existing, command)? {
-        return Ok(format!(
-            "{}: hook already present in {}",
-            agent.name(),
-            tilde(path, home)
-        ));
+        return Ok(WriteOutcome {
+            verb: ItemVerb::Current,
+            path: path.to_path_buf(),
+        });
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -72,15 +78,14 @@ fn write_hook(agent: Agent, path: &Path, command: &str, home: &Path) -> Result<S
     let updated = agent.merge(&existing, command)?;
     fs::write(path, updated)?;
     let verb = if agent.has_hook(&existing)? {
-        "updated"
+        ItemVerb::Updated
     } else {
-        "installed"
+        ItemVerb::Installed
     };
-    Ok(format!(
-        "{}: hook {verb} in {}",
-        agent.name(),
-        tilde(path, home)
-    ))
+    Ok(WriteOutcome {
+        verb,
+        path: path.to_path_buf(),
+    })
 }
 
 fn remove_hook(agent: Agent, path: &Path, home: &Path, scope: Scope) -> Result<String> {
@@ -121,46 +126,85 @@ fn strip_hook_files(
     Ok(())
 }
 
-/// Remove the `lade hook` interceptor from every agent config that contains it.
-pub fn uninstall() -> Result<()> {
-    let home = home_dir()?;
-    let mut hook_results = Vec::new();
-    let mut skill_results = Vec::new();
-
-    for agent in AGENTS {
-        let path = agent.config_path(&home);
-        let existing = fs::read_to_string(&path).unwrap_or_default();
-        let legacy = leftover_json_hook(agent, &home)?;
-        if agent.has_hook(&existing)? || legacy.is_some() {
-            strip_hook_files(agent, &path, &existing, legacy)?;
-            hook_results.push(format!(
-                "{}: hook removed from {}",
-                agent.name(),
-                tilde(&path, &home)
-            ));
-        }
-        uninstall_skill(agent, &home, &mut skill_results);
+pub(super) fn hook_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> PathBuf {
+    match scope {
+        Scope::User => agent.config_path(home),
+        Scope::Project => canonical_project_path(agent, dest),
     }
-
-    report("preTool hooks:", hook_results);
-    report("skills:", skill_results);
-    Ok(())
 }
 
-fn uninstall_skill(agent: Agent, home: &Path, results: &mut Vec<String>) {
-    let path = agent.skill_path(home);
-    let Ok(content) = fs::read_to_string(&path) else {
-        return;
-    };
-    if !is_lade_skill(&content) {
-        return;
+pub(super) fn skill_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> PathBuf {
+    match scope {
+        Scope::User => agent.skill_path(home),
+        Scope::Project => project_skill_file(agent, dest),
     }
-    let _ = fs::remove_file(&path);
-    results.push(format!(
-        "{}: skill removed from {}",
-        agent.name(),
-        tilde(&path, home)
-    ));
+}
+
+/// Remove pre-tool on the same default plane as `lade install`.
+/// If that plane is empty, remove the other plane when it has Lade files.
+pub fn uninstall() -> Result<PretoolReport> {
+    let home = home_dir()?;
+    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    let git_root = crate::catalog::git_root(&cwd);
+    let dest = git_root.as_deref().unwrap_or(cwd.as_path());
+    uninstall_preferred(default_scope(git_root.is_some()), &home, dest)
+}
+
+pub(super) fn uninstall_preferred(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {
+    let report = uninstall_plane(scope, home, dest)?;
+    if !report.rows.is_empty() {
+        return Ok(report);
+    }
+    let other = match scope {
+        Scope::Project => Scope::User,
+        Scope::User => Scope::Project,
+    };
+    let fallback = uninstall_plane(other, home, dest)?;
+    if fallback.rows.is_empty() {
+        Ok(report)
+    } else {
+        Ok(fallback)
+    }
+}
+
+pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {
+    let mut rows = Vec::new();
+    for agent in AGENTS {
+        let path = hook_path(agent, scope, home, dest);
+        let existing = fs::read_to_string(&path).unwrap_or_default();
+        let legacy = match scope {
+            Scope::User => leftover_json_hook(agent, home)?,
+            Scope::Project => None,
+        };
+        if agent.has_hook(&existing)? || legacy.is_some() {
+            strip_hook_files(agent, &path, &existing, legacy)?;
+            rows.push(PretoolRow {
+                agent: agent.name(),
+                verb: ItemVerb::Removed,
+                path: short_path(&path, home, dest),
+            });
+        }
+        if let Some(path) = uninstall_skill_at(&skill_path(agent, scope, home, dest)) {
+            rows.push(PretoolRow {
+                agent: agent.name(),
+                verb: ItemVerb::Removed,
+                path: short_path(&path, home, dest),
+            });
+        }
+    }
+    Ok(PretoolReport {
+        where_line: where_line(scope, home, dest),
+        rows,
+    })
+}
+
+fn uninstall_skill_at(path: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(path).ok()?;
+    if !is_lade_skill(&content) {
+        return None;
+    }
+    let _ = fs::remove_file(path);
+    Some(path.to_path_buf())
 }
 
 /// Rewrite already-installed hook files to today's command. Never creates

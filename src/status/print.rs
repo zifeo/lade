@@ -34,7 +34,7 @@ pub(super) fn print_human(report: &StatusReport) {
         None => println!("  user: (OS default)"),
     }
 
-    println!("preexec shell hooks ({})", report.hooks.preexec.shell);
+    println!("pre-exec (this shell) ({})", report.hooks.preexec.shell);
     println!("  profile: {}", display_path(&report.hooks.preexec.profile));
     if report.hooks.preexec.installed {
         println!("  installed: yes");
@@ -43,28 +43,37 @@ pub(super) fn print_human(report: &StatusReport) {
     }
     match &report.hooks.preexec.inject_startup_skipped {
         Some(name) => println!("  inject wrap: skips startup files ({name} present)"),
-        None => println!("  inject wrap: skips startup files"),
+        None => println!("  inject wrap: skips startup files (bashrc, zshenv, fish config)"),
     }
 
-    println!("preTool hooks");
-    print_pretool_line("Cursor user", &report.hooks.pretool.cursor.global);
-    print_pretool_line("Cursor project", &report.hooks.pretool.cursor.project);
-    print_pretool_line("Claude Code user", &report.hooks.pretool.claude.global);
-    print_pretool_line("Claude Code project", &report.hooks.pretool.claude.project);
-    print_pretool_line("Codex user", &report.hooks.pretool.codex.global);
-    print_pretool_line("Codex project", &report.hooks.pretool.codex.project);
-    print_pretool_line("OpenCode user", &report.hooks.pretool.opencode.global);
-    print_pretool_line("OpenCode project", &report.hooks.pretool.opencode.project);
+    println!("pre-tool (agents)");
+    print_pretool_line("Cursor this machine", &report.hooks.pretool.cursor.global);
+    print_pretool_line("Cursor this repo", &report.hooks.pretool.cursor.project);
+    print_pretool_line(
+        "Claude Code this machine",
+        &report.hooks.pretool.claude.global,
+    );
+    print_pretool_line(
+        "Claude Code this repo",
+        &report.hooks.pretool.claude.project,
+    );
+    print_pretool_line("Codex this machine", &report.hooks.pretool.codex.global);
+    print_pretool_line("Codex this repo", &report.hooks.pretool.codex.project);
+    print_pretool_line(
+        "OpenCode this machine",
+        &report.hooks.pretool.opencode.global,
+    );
+    print_pretool_line("OpenCode this repo", &report.hooks.pretool.opencode.project);
 
     println!("skills");
-    print_pretool_line("Cursor user", &report.skills.cursor.global);
-    print_pretool_line("Cursor project", &report.skills.cursor.project);
-    print_pretool_line("Claude Code user", &report.skills.claude.global);
-    print_pretool_line("Claude Code project", &report.skills.claude.project);
-    print_pretool_line("Codex user", &report.skills.codex.global);
-    print_pretool_line("Codex project", &report.skills.codex.project);
-    print_pretool_line("OpenCode user", &report.skills.opencode.global);
-    print_pretool_line("OpenCode project", &report.skills.opencode.project);
+    print_pretool_line("Cursor this machine", &report.skills.cursor.global);
+    print_pretool_line("Cursor this repo", &report.skills.cursor.project);
+    print_pretool_line("Claude Code this machine", &report.skills.claude.global);
+    print_pretool_line("Claude Code this repo", &report.skills.claude.project);
+    print_pretool_line("Codex this machine", &report.skills.codex.global);
+    print_pretool_line("Codex this repo", &report.skills.codex.project);
+    print_pretool_line("OpenCode this machine", &report.skills.opencode.global);
+    print_pretool_line("OpenCode this repo", &report.skills.opencode.project);
     if has_stale_pretool(report) {
         println!("  drift: run `lade install` to refresh stale hooks and skills");
     }

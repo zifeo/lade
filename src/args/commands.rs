@@ -4,6 +4,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Pre-exec wraps commands you type (this shell only). Pre-tool wraps
+/// commands agents run (hook and skill together). A git repo defaults
+/// to this repo. Outside git, this machine.
 #[derive(Parser, Debug)]
 pub struct InstallCommand {
     /// Install or refresh the Cursor hook and skill.
@@ -41,11 +44,11 @@ impl InstallCommand {
 
 #[derive(Parser, Debug)]
 pub struct UpgradeCommand {
-    /// Upgrade to specific version (e.g. 1.0.0)
+    /// Install this version (e.g. 1.0.0)
     #[clap(long)]
     pub version: Option<String>,
 
-    /// Do not ask for version confirmation
+    /// Skip the version confirm
     #[clap(short, long, default_value_t = false)]
     pub yes: bool,
 }

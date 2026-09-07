@@ -16,6 +16,10 @@ fn migrations() -> Migrations<'static> {
     ])
 }
 
+fn map_migrate_err(err: rusqlite_migration::Error) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(err.to_string())))
+}
+
 pub fn open() -> rusqlite::Result<Connection> {
     let path = db_path();
     if let Some(parent) = path.parent() {
@@ -25,9 +29,14 @@ pub fn open() -> rusqlite::Result<Connection> {
     conn.busy_timeout(Duration::from_millis(BUSY_MS))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
-    migrations().to_latest(&mut conn).map_err(|e| {
-        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(e.to_string())))
-    })?;
+    let migrations = migrations();
+    if let Err(err) = migrations.to_latest(&mut conn) {
+        // Peer already committed the schema. We read user_version=0
+        // before their lock, then CREATE TABLE hit "already exists".
+        if migrations.pending_migrations(&conn).ok() != Some(0) {
+            return Err(map_migrate_err(err));
+        }
+    }
     Ok(conn)
 }
 

@@ -198,7 +198,7 @@ where
         MessageBox::new()
             .error()
             .line("MCP server exited after initialize.")
-            .line("This lade process will exit. Starting lade mcp again will resolve secrets.")
+            .line("This process will exit. Re-run `lade mcp` to hydrate again.")
             .print_stderr();
         return Ok(Some(exit_code(status)));
     }

@@ -6,5 +6,6 @@ fn stale_official_skill() -> &'static str {
 
 mod locate;
 mod merge;
+mod offer;
 mod skill;
 mod write;

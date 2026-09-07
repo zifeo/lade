@@ -9,7 +9,7 @@ pub async fn run(username: Option<String>, reset: bool) -> Result<()> {
         GlobalConfig::update(|c| c.user = None).await?;
         message_box::MessageBox::new()
             .info()
-            .line("Successfully reset lade user")
+            .line("User reset. Per-user keys will use the OS user.")
             .print_plain_stderr();
         return Ok(());
     }
@@ -24,7 +24,7 @@ pub async fn run(username: Option<String>, reset: bool) -> Result<()> {
         GlobalConfig::update(|c| c.user = Some(user.clone())).await?;
         message_box::MessageBox::new()
             .info()
-            .line(format!("Successfully set user to {user}"))
+            .line(format!("User set to {user}"))
             .print_plain_stderr();
         return Ok(());
     }

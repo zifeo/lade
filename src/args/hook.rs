@@ -28,7 +28,7 @@ impl HookHarness {
 
 #[derive(Parser, Debug)]
 pub struct HookScopeCommand {
-    /// `project` is the repo (default). `user` is this machine.
+    /// `project` is this repo (default). `user` is this machine.
     #[clap(long, default_value = "project")]
     pub scope: HookScope,
     /// `claude`, `cursor`, `codex`, or `opencode`.
@@ -38,8 +38,8 @@ pub struct HookScopeCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum HookAction {
-    /// Write the native preTool hook for one harness.
+    /// Write the native pre-tool hook for one harness.
     Install(HookScopeCommand),
-    /// Remove a Lade-managed preTool hook.
+    /// Remove a Lade-managed pre-tool hook.
     Uninstall(HookScopeCommand),
 }

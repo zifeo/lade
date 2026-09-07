@@ -9,7 +9,7 @@ Regenerate the id if `create_new` fails or if the id is `eval`, `help`,
 token after `--pretool` is an id only when that file already exists.
 `--pretool=x7Km` always peels.
 
-See also [architecture.md](architecture.md) and [log.md](log.md).
+See also [architecture.md](architecture.md) and [observability.md](observability.md).
 
 ## Pass
 
