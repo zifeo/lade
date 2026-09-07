@@ -9,6 +9,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installer during a release**: GitHub `latest` stays on the previous
+  tag until the binary assets are uploaded, so `curl|bash` and
+  installer-e2e do not hit an empty vX.Y.Z.
+
 ## [0.18.0] - 2026-09-07
 
 ### Added

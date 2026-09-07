@@ -28,7 +28,7 @@ jobs:
       - uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_name }}
-          makeLatest: true
+          makeLatest: false
           generateReleaseNotes: true
 
   crates:
@@ -109,6 +109,23 @@ jobs:
           file: "lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz*"
           file_glob: true
           overwrite: false
+
+  mark-latest:
+    needs:
+      - binaries
+    runs-on: ubuntu-24.04
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          allowUpdates: true
+          makeLatest: true
+          omitBodyDuringUpdate: true
+          omitNameDuringUpdate: true
+          omitDraftDuringUpdate: true
 
   bump:
     needs:
