@@ -1,4 +1,7 @@
 use super::*;
+use clap::CommandFactory;
+use std::ffi::OsString;
+use std::time::Duration;
 
 #[test]
 fn bench_timeout_defaults_to_five_seconds() {
@@ -128,7 +131,7 @@ fn default_help_hides_internal_commands() {
     assert!(help.contains("Internal commands: lade --help -v"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));
-    assert!(!help.contains("\n  hook "));
+    assert!(help.contains("\n  hook "));
     assert!(!help.contains("--pretool"));
 }
 
@@ -142,6 +145,67 @@ fn verbose_help_lists_internal_commands() {
     assert!(help.contains("  hook "));
     assert!(help.contains("--pretool"));
     assert!(!help.contains("Internal commands: lade --help -v"));
+}
+
+#[test]
+fn hook_stdin_still_parses_harness() {
+    let args = Args::try_parse_from(["lade", "hook", "--harness", "cursor"]).unwrap();
+    match args.command {
+        Some(Command::Hook {
+            harness: Some(name),
+            action: None,
+        }) => assert_eq!(name, "cursor"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn hook_install_defaults_scope_to_project() {
+    assert!(Args::try_parse_from(["lade", "hook", "install"]).is_err());
+    let args = Args::try_parse_from(["lade", "hook", "install", "--harness", "cursor"]).unwrap();
+    match args.command {
+        Some(Command::Hook {
+            action: Some(HookAction::Install(opts)),
+            harness: None,
+        }) => {
+            assert_eq!(opts.scope, HookScope::Project);
+            assert_eq!(opts.harness, HookHarness::Cursor);
+        }
+        other => panic!("{other:?}"),
+    }
+    let user = Args::try_parse_from([
+        "lade",
+        "hook",
+        "install",
+        "--scope",
+        "user",
+        "--harness",
+        "cursor",
+    ])
+    .unwrap();
+    match user.command {
+        Some(Command::Hook {
+            action: Some(HookAction::Install(opts)),
+            ..
+        }) => assert_eq!(opts.scope, HookScope::User),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn install_agent_flags_select_slugs() {
+    let bare = Args::try_parse_from(["lade", "install"]).unwrap();
+    match bare.command {
+        Some(Command::Install(opts)) => assert!(opts.slugs().is_empty()),
+        other => panic!("{other:?}"),
+    }
+    let args = Args::try_parse_from(["lade", "install", "--cursor", "--opencode"]).unwrap();
+    match args.command {
+        Some(Command::Install(opts)) => {
+            assert_eq!(opts.slugs(), vec!["cursor", "opencode"]);
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

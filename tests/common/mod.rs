@@ -193,6 +193,7 @@ pub fn lade_std(home: &Path) -> StdCommand {
         .env_remove("CLAUDE_CODE")
         .env_remove("CURSOR_EXTENSION_HOST_ROLE")
         .env_remove("CURSOR_SANDBOX")
+        .env_remove("CODEX_HOME")
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CODEX_SANDBOX")
         .env_remove("CODEX_CI")

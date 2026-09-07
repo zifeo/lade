@@ -47,24 +47,27 @@ pub(super) fn print_human(report: &StatusReport) {
     }
 
     println!("preTool hooks");
-    print_pretool_line("Cursor global", &report.hooks.pretool.cursor.global);
+    print_pretool_line("Cursor user", &report.hooks.pretool.cursor.global);
     print_pretool_line("Cursor project", &report.hooks.pretool.cursor.project);
-    print_pretool_line("Claude Code global", &report.hooks.pretool.claude.global);
+    print_pretool_line("Claude Code user", &report.hooks.pretool.claude.global);
     print_pretool_line("Claude Code project", &report.hooks.pretool.claude.project);
-    print_pretool_line("Codex global", &report.hooks.pretool.codex.global);
+    print_pretool_line("Codex user", &report.hooks.pretool.codex.global);
     print_pretool_line("Codex project", &report.hooks.pretool.codex.project);
-    print_pretool_line("OpenCode global", &report.hooks.pretool.opencode.global);
+    print_pretool_line("OpenCode user", &report.hooks.pretool.opencode.global);
     print_pretool_line("OpenCode project", &report.hooks.pretool.opencode.project);
 
     println!("skills");
-    print_pretool_line("Cursor global", &report.skills.cursor.global);
+    print_pretool_line("Cursor user", &report.skills.cursor.global);
     print_pretool_line("Cursor project", &report.skills.cursor.project);
-    print_pretool_line("Claude Code global", &report.skills.claude.global);
+    print_pretool_line("Claude Code user", &report.skills.claude.global);
     print_pretool_line("Claude Code project", &report.skills.claude.project);
-    print_pretool_line("Codex global", &report.skills.codex.global);
+    print_pretool_line("Codex user", &report.skills.codex.global);
     print_pretool_line("Codex project", &report.skills.codex.project);
-    print_pretool_line("OpenCode global", &report.skills.opencode.global);
+    print_pretool_line("OpenCode user", &report.skills.opencode.global);
     print_pretool_line("OpenCode project", &report.skills.opencode.project);
+    if has_stale_pretool(report) {
+        println!("  drift: run `lade install` to refresh stale hooks and skills");
+    }
 
     let pc = &report.project_config;
     println!(
@@ -90,6 +93,25 @@ pub(super) fn print_human(report: &StatusReport) {
             println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
         }
     }
+}
+
+fn has_stale_pretool(report: &StatusReport) -> bool {
+    fn stale(location: &pretool::install::HookLocation) -> bool {
+        location.installed && !location.current
+    }
+    fn agent(status: &pretool::install::PretoolAgentStatus) -> bool {
+        stale(&status.global) || stale(&status.project)
+    }
+    let hooks = &report.hooks.pretool;
+    let skills = &report.skills;
+    agent(&hooks.cursor)
+        || agent(&hooks.claude)
+        || agent(&hooks.codex)
+        || agent(&hooks.opencode)
+        || agent(&skills.cursor)
+        || agent(&skills.claude)
+        || agent(&skills.codex)
+        || agent(&skills.opencode)
 }
 
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {

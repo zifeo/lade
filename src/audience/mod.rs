@@ -95,7 +95,7 @@ fn via(command: &Command, pretool: bool) -> Via {
     }
     match command {
         Command::Set(_) | Command::Unset(_) => Via::Preexec,
-        Command::Hook { .. } => Via::Pretool,
+        Command::Hook { action: None, .. } => Via::Pretool,
         Command::Mcp(_) => Via::Mcp,
         _ => Via::Unknown,
     }

@@ -284,8 +284,23 @@ secret values from stdout and stderr.
 
 The agent keeps using normal commands. Lade handles the sensitive part.
 
-`lade install` can add the hook for detected agents. The equivalent project
-configs are:
+`lade install` writes this machine (user scope). It detects agents already
+present and asks harness, then hook, then skill. `lade status` prints
+`run \`lade install\`` on drift.
+
+The preferred hook for a repo is project scope, so every clone gets the same
+guard. That is the default:
+
+```bash
+lade hook install --harness cursor
+lade hook install --scope user --harness cursor
+```
+
+`--scope user` is this machine (`CODEX_HOME` for Codex), the same plane
+`lade install` writes. `lade hook uninstall` takes the same flags.
+`--harness` is required in the files. Auto-detect is a safety net.
+
+The equivalent project configs are:
 
 <details>
 <summary>Cursor (<code>.cursor/hooks.json</code>)</summary>
@@ -332,8 +347,8 @@ configs are:
 <details>
 <summary>Codex (<code>.codex/hooks.json</code>)</summary>
 
-After `lade install`, open `/hooks` in Codex and trust the Lade command. An
-untrusted hook or `[features].hooks = false` is a silent no-op. Global file:
+Trust the Lade command in `/hooks`. An untrusted hook or
+`[features].hooks = false` is a silent no-op. User file:
 `~/.codex/hooks.json`.
 
 ```json
@@ -359,7 +374,7 @@ untrusted hook or `[features].hooks = false` is a silent no-op. Global file:
 <details>
 <summary>OpenCode (<code>.opencode/plugins/lade-pretool.js</code>)</summary>
 
-Native OpenCode loads plugins, not Claude-style `hooks.json`. Global:
+Native OpenCode loads plugins, not Claude-style `hooks.json`. User:
 `~/.config/opencode/plugins/`. The plugin runs `lade hook` on
 `tool.execute.before` and applies the rewritten command.
 
@@ -393,8 +408,15 @@ export const LadePretool = async () => ({
 
 </details>
 
-Cursor agents can also load the project skill in
-[.agents/skills/lade/SKILL.md](.agents/skills/lade/SKILL.md).
+### APM
+
+```bash
+apm install zifeo/lade#v0.17.2
+```
+
+That pin is a GitHub tag. It installs the skill
+([`.agents/skills/lade/SKILL.md`](.agents/skills/lade/SKILL.md)).
+Hooks stay in the files above or `lade hook install`.
 
 ### Agents without preTool hooks
 
