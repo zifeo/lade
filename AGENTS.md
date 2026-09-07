@@ -34,8 +34,7 @@ bash tests/installer_test.sh
   versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
   `skills` is additive (same agent shape as `hooks.pretool`). A skill is
-  Lade-managed when its sha256 matches the bundled `SKILL.md` or a previous
-  official hash kept in the binary.
+  Lade-managed when its frontmatter is the official `name: lade` skill.
 - **`lade status` latest**: a successful daily GitHub check must persist
   the tag (`latest_version` in the global config) so status can show it after
   shell use. If the fetch failed, print when we last tried (`tried today at
@@ -46,7 +45,8 @@ bash tests/installer_test.sh
 ## Project layout
 
 - `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse / MCP verb
-  handler plus install into Cursor/Claude/Codex/OpenCode configs), `audience.rs`
+  handler plus `lade hook install --scope user|project` into
+  Cursor/Claude/Codex/OpenCode configs), `audience.rs`
   (`detect()` for Via, Audience, UI), `prompt.rs` (disclaimer flow),
   `inject.rs`/`exec/` (PTY execution + masking), `network/` (acquire and
   process groups), `status.rs`, `shell/` (preexec integration), `config/`,

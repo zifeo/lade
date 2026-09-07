@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::{env, io::Read, time::Duration};
+use std::{env, time::Duration};
 
 mod access;
 mod agent_meta;
@@ -11,6 +11,7 @@ mod child_signals;
 mod compat;
 mod config;
 mod context;
+mod dispatch;
 mod event;
 mod exec;
 mod exit_codes;
@@ -35,13 +36,12 @@ mod upgrade;
 mod user;
 mod window;
 
-use args::{Args, Command, DEFAULT_MASK_FORMAT, EvalCommand, InjectCommand};
+use args::{Args, Command, DEFAULT_MASK_FORMAT, InjectCommand};
 use clap::Parser;
-use config::{Config, LadeFile};
+use config::LadeFile;
 use context::InvocationContext;
-use inject::{handle_approve, handle_set, handle_unset, run_inject};
+use dispatch::{run_config_verbs, run_standalone};
 use lade_sdk::hydrate_one;
-use shell::Shell;
 
 fn main() -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -181,160 +181,6 @@ async fn run() -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn run_standalone(command: Command, ctx: &InvocationContext) -> Result<Option<Command>> {
-    match command {
-        Command::On => {
-            let shell = Shell::detect()?;
-            println!("{}\n{}", shell.off()?, shell.on()?);
-            Ok(None)
-        }
-        Command::Off => {
-            let shell = Shell::detect()?;
-            println!("{}", shell.off()?);
-            Ok(None)
-        }
-        Command::Install => {
-            let shell = Shell::detect()?;
-            message_box::MessageBox::new()
-                .info()
-                .line(format!("Auto launcher installed in {}", shell.install()?))
-                .print_plain_stderr();
-            // Install is Quiet, so `is_interactive()` is false even on a TTY.
-            let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
-            pretool::install::install(may_prompt)?;
-            Ok(None)
-        }
-        Command::Uninstall => {
-            let shell = Shell::detect()?;
-            message_box::MessageBox::new()
-                .info()
-                .line(format!(
-                    "Auto launcher uninstalled in {}",
-                    shell.uninstall()?
-                ))
-                .print_plain_stderr();
-            pretool::install::uninstall()?;
-            Ok(None)
-        }
-        Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
-        Command::Status(opts) => status::run(opts).await.map(|()| None),
-        Command::Log(opts) => {
-            log_cmd::run_log(opts, ctx.audience == config::Audience::Agent).map(|()| None)
-        }
-        Command::Usage(opts) => log_cmd::run_usage(opts).map(|()| None),
-        Command::Bench(opts) => bench::run(opts).await.map(|()| None),
-        Command::User { username, reset } => user::run(username, reset).await.map(|()| None),
-        other => Ok(Some(other)),
-    }
-}
-
-async fn run_config_verbs(
-    command: Command,
-    ctx: &InvocationContext,
-    config: &Config,
-    current_dir: std::path::PathBuf,
-) -> Result<Option<i32>> {
-    match command {
-        Command::Hook { harness } => {
-            if ctx.stdin_is_terminal {
-                message_box::MessageBox::new()
-                    .error()
-                    .line("`lade hook` is meant to be invoked automatically by AI agents.")
-                    .line("")
-                    .line(
-                        "It reads a JSON payload from stdin. To use it manually, pipe JSON into it.",
-                    )
-                    .print_stderr();
-                std::process::exit(exit_codes::FAILURE);
-            }
-            let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input)?;
-            let output = pretool::handle(config, &input, ctx.audience, harness.as_deref())?;
-            print!("{}", output);
-            Ok(None)
-        }
-        Command::Inject(opts) => {
-            if opts.commands.is_empty() {
-                message_box::MessageBox::new()
-                    .error()
-                    .line("A command is required for `lade inject`.")
-                    .print_stderr();
-                std::process::exit(exit_codes::FAILURE);
-            }
-            let shell = Shell::detect()?;
-            let command = opts.commands.join(" ");
-            match map_disclaimer_exit(
-                run_inject(command, opts, ctx, config, &shell, &current_dir).await,
-            ) {
-                Ok(code) => Ok(code),
-                Err(e) => {
-                    report_inject_error(&e);
-                    std::process::exit(exit_codes::FAILURE);
-                }
-            }
-        }
-        Command::Mcp(opts) => {
-            match map_disclaimer_exit(mcp::run(opts, ctx, config, &current_dir).await) {
-                Ok(code) => Ok(code),
-                Err(e) => {
-                    report_inject_error(&e);
-                    std::process::exit(exit_codes::FAILURE);
-                }
-            }
-        }
-        Command::Approve { code } => {
-            let shell = Shell::detect()?;
-            match map_disclaimer_exit(handle_approve(ctx, config, &shell, current_dir, code).await)
-            {
-                Ok(code) => Ok(code),
-                Err(e) => {
-                    report_inject_error(&e);
-                    std::process::exit(exit_codes::FAILURE);
-                }
-            }
-        }
-        Command::Set(EvalCommand { commands }) => {
-            let shell = Shell::detect()?;
-            // Shell hooks are automatic but still part of an interactive
-            // session. Check at most daily and deliberately discard the
-            // result: stdout is the shell protocol and hook stderr must stay
-            // quiet unless the hook itself has an access error.
-            let _ = tokio::time::timeout(Duration::from_secs(2), upgrade::check_message()).await;
-            handle_set(ctx, config, &shell, commands, current_dir).await?;
-            Ok(None)
-        }
-        Command::Unset(EvalCommand { commands }) => {
-            let shell = Shell::detect()?;
-            handle_unset(ctx, &shell, config, commands).await?;
-            Ok(None)
-        }
-        _ => unreachable!(),
-    }
-}
-
-/// Translate a withheld-disclaimer error (already reported to the user) into
-/// the dedicated [`exit_codes::DISCLAIMER_WITHHELD`] code, leaving every other
-/// result untouched so genuine errors still bubble up to `main`.
-fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
-    match result {
-        Err(e) if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() => {
-            Ok(Some(exit_codes::DISCLAIMER_WITHHELD))
-        }
-        other => other,
-    }
-}
-
-fn report_inject_error(e: &anyhow::Error) {
-    message_box::MessageBox::new()
-        .error()
-        .line("Lade could not prepare command execution:")
-        .line("")
-        .paragraph(e.to_string())
-        .line("")
-        .line("Hint: verify provider URI format and local CLI access.")
-        .print_stderr();
 }
 
 #[cfg(test)]

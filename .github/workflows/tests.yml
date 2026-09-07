@@ -55,12 +55,20 @@ jobs:
       - name: Install 1Password CLI
         uses: 1password/install-cli-action@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install APM
+        run: pip install apm-cli
+
       - name: Tool versions
         run: |
           bash --version
           fish --version
           zsh --version
           op --version
+          apm --version
 
       - name: Run native tests
         run: |

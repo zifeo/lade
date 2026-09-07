@@ -5,114 +5,46 @@ description: Use Lade safely with coding agents. Use when a project has lade.yml
 
 # Lade
 
-## What It Is
+Lade intercepts commands that match `lade.yml`. It loads secrets and temporary network from the project's providers (1Password, Vault, Doppler, files, shell, kubectl, ssh, …) and masks those values in output. It replaces `.env`, dotenv, `op run`, `vault kv get`, and pasting provider output into the chat.
 
-Lade is a command interceptor for secrets and temporary network access. `AD`, `AID`, and `LAID` may be phonetic mentions of `L-A-D-E`; treat them as triggers for this skill. Lade matches commands against `lade.yml`, loads what the command needs, runs the command, then cleans up and masks provider-resolved secrets.
+`AD` / `AID` / `LAID` mean Lade. Never ask Lade for secret values.
 
-Do not ask Lade for secret values. Use it to run commands without putting secrets in the model context.
+The live surface is the binary, not this file. Start there.
 
-## Recommended Path
+## 1. Is it installed?
 
-Prefer project-local preTool hooks and normal commands. Do not recommend `lade <command>` when preTool hooks are available: the integration is meant to be transparent.
-
-First check whether the project has the preTool hooks below. If not, propose adding them to the user. If the user refuses, use the fallback.
-
-For Cursor, ensure `.cursor/hooks.json` contains:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {
-        "command": "lade hook --harness cursor",
-        "matcher": "Shell"
-      }
-    ]
-  }
-}
+```bash
+lade status --json
 ```
 
-For Claude Code, ensure `.claude/settings.json` contains:
+Read `ok`, `hooks.pretool`, `skills`, and `project_config.vault_clis`. A missing or stale hook means interception will not happen. A provider warning (1Password missing, old CLI) is a blocker: fix that, do not invent a side channel.
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "lade hook --harness claude"
-          }
-        ]
-      }
-    ]
-  }
-}
+This machine (detects agents, asks): `lade install`.
+
+Project hook, preferred for the team (default scope is project):
+
+```bash
+lade hook install --harness <cursor|claude|codex|opencode>
 ```
 
-For Codex, open `/hooks` and trust the Lade command. An untrusted or
-`[features].hooks = false` hook is a silent no-op. Then ensure
-`.codex/hooks.json` contains:
+This machine, one harness: `--scope user`. Codex: trust the command in `/hooks`.
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "lade hook --harness codex"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+`apm install zifeo/lade#<tag>` is this skill only. It does not install hooks.
 
-For OpenCode, ensure `.opencode/plugins/lade-pretool.js` is present. Native OpenCode loads that file and does not run Claude-style `hooks.json`. The plugin must export a function that returns a `tool.execute.before` hook.
+## 2. Run
 
-With preTool hooks, run the user's command normally. Lade decides whether it matches `lade.yml`, rewrites matches to `lade inject`, and masks provider-resolved secrets from stdout/stderr. This avoids making the agent infer command regexes itself. `lade hook` is for Cursor, Claude Code, Codex, and OpenCode.
+Hook current: type the command normally. Do not prefix `lade`.
 
-## Fallback
+Hook missing, refused, or CI: `lade <command>` or `lade inject -- <command>`. Read `lade.yml` first. Prefix matches only.
 
-Use `lade <command>` only when hooks are unavailable, disabled, refused by the user, or the command is in a script/CI. In fallback mode, read `lade.yml` first and prefix only commands that need Lade.
+No `lade eval` / `--no-mask` unless the human asks.
 
-Do not guess secret values. Do not print vault output. Do not use `lade eval` or `--no-mask` unless the human explicitly asks. For troubleshooting, prefer `lade status --json`.
+## 3. Ask
 
-## Local diary
+- Which rules does this tree actually use? Set `log: true` on those rules, then `lade usage --json`.
+- What did we type? `lade log --json`.
+- Why did a secret not load? `lade status --json` (`vault_clis.warnings`, hook `current`).
 
-Recording is opt-in. Last explicit `log` on matching rules wins.
-No-match `seen` uses the last explicit `log` on the loaded walk.
-`lade log` is the typed-command diary. `lade log --group command`
-counts commands. `lade usage` is Lade usage in this tree: matched
-rules only, most frequent first, with the file path. Unused rules
-and catch-all `.` are omitted. There is no npm / make / `scripts/`
-catalog. `lade.yml` walk stops at `$HOME`. Queries stay on the
-current git root. `--all` reads every repo. `--path` scopes to
-another tree. Prefer `--json`. `lade log share` writes a gzipped SQLite
-snapshot. `lade log --source` / `lade usage --source` read packs
-without writing the live db. Do not invent merge or import.
+## Disclaimer
 
-`lade log` and `lade usage` do not write rows. Inject and set write
-when `log: true` matches. See `docs/log.md`.
-
-## `lade.yml` Changes
-
-Read existing `lade.yml` rules before changing them. Lade walks from
-the current directory up to `$HOME` and merges every file it finds.
-It is OK to add or adjust a rule for debugging, such as adding a
-`curl` command matcher, when that is the task.
-
-Keep debug-only rules narrow. Before finishing, remove them or turn them into the standard project rule the human wants to keep.
-
-## Disclaimer Approval
-
-If Lade withholds secrets with a disclaimer code or exit code 3, stop. Ask the human to approve, then re-run the same command with `LADE_APPROVE=<code>`.
-
-Never bypass, recompute, or auto-approve Lade disclaimers.
+Exit 3 or `LADE_APPROVE=<code>`: stop. The human approves. Never invent or auto-approve.

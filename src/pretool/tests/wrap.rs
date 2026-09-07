@@ -219,6 +219,26 @@ fn test_rewrite_has_ticket_id_between_flag_and_command() {
 }
 
 #[test]
+fn unread_json_allows_and_stays_open() {
+    let (config, _dir) = test_config("^echo");
+    let result = handle(&config, "not json at all", Audience::Agent, Some("claude")).unwrap();
+    assert_eq!(result, "");
+}
+
+#[test]
+fn unread_pretool_without_command_allows_and_stays_open() {
+    let (config, _dir) = test_config("^echo");
+    let result = handle(
+        &config,
+        r#"{"tool_name":"Bash","hook_event_name":"PreToolUse"}"#,
+        Audience::Agent,
+        Some("claude"),
+    )
+    .unwrap();
+    assert_eq!(result, "");
+}
+
+#[test]
 fn invoked_lade_bin_from_path_stays_bare() {
     let exe = PathBuf::from("/opt/lade");
     assert_eq!(

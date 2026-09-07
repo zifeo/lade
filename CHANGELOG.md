@@ -11,6 +11,22 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Added
 
+- **APM package**: `apm.yml` plus `.apm/skills/lade` (link to
+  `.agents/skills/lade/SKILL.md`). Consumers pin the GitHub tag
+  `zifeo/lade#vX.Y.Z`. `apm.yml` `version` tracks the crate (release bump
+  rewrites it). Hooks stay native.
+- **`lade hook install` / `uninstall`**: `--scope user|project` and
+  `--harness claude|cursor|codex|opencode`. The binary serves the repo
+  snapshots. Merge keeps `permissions` / `model`. Codex user scope honors
+  `CODEX_HOME`. `lade status` labels user and project (JSON `global` is
+  the user plane) and prints `run \`lade install\`` on drift.
+- **`lade install --cursor|--claude|--codex|--opencode`**: select
+  harnesses. No flags: ask harness, then hook, then skill. A stale file
+  asks before rewrite.
+- **Unreadable `lade hook` payload**: invalid JSON or a preTool event
+  with no command still allows the tool call (empty Claude/Codex stdout).
+  stderr now says so, so a later vault or lock error is not the first
+  clue. No-match remains silent.
 - **Local command diary**: `lade log` and `lade usage` read a local SQLite
   WAL at `ProjectDirs` `data_local_dir()/events.db` (same library and
   qualifier as `config.json` on `config_local_dir()`). Recording is opt-in

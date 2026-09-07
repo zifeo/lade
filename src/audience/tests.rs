@@ -1,5 +1,8 @@
 use super::*;
-use crate::args::{DEFAULT_MASK_FORMAT, EvalCommand, InjectCommand};
+use crate::args::{
+    DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookHarness, HookScope, HookScopeCommand,
+    InjectCommand,
+};
 use crate::shell::LADE_VIA;
 
 const SIGNALS: [&str; 16] = [
@@ -144,9 +147,40 @@ fn set_is_preexec_human_quiet() {
 #[test]
 fn hook_is_pretool_agent_quiet() {
     temp_env::with_vars(cleared_signals(), || {
-        let d = detect(&Command::Hook { harness: None }, false, false, false).unwrap();
+        let d = detect(
+            &Command::Hook {
+                harness: None,
+                action: None,
+            },
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(d.via, Via::Pretool);
         assert_eq!(d.audience, Audience::Agent);
+        assert_eq!(d.ui, UiMode::Quiet);
+    });
+}
+
+#[test]
+fn hook_install_is_not_pretool() {
+    temp_env::with_vars(cleared_signals(), || {
+        let d = detect(
+            &Command::Hook {
+                harness: None,
+                action: Some(HookAction::Install(HookScopeCommand {
+                    scope: HookScope::User,
+                    harness: HookHarness::Cursor,
+                })),
+            },
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(d.via, Via::Organic);
+        assert_eq!(d.audience, Audience::Human);
         assert_eq!(d.ui, UiMode::Quiet);
     });
 }

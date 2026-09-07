@@ -259,7 +259,7 @@ and per-rule hydrate. It does not acquire network.
 |---------|----------------|----------------------|
 | Interactive human | Via organic (both TTYs, no agent signal), inject/approve | prompt, type `yes` |
 | CI / Quiet human | no agent signal, not both TTYs | fail-closed, exit `3` |
-| Agent | Via=pretool, `Command::Hook`, or env signal when Via is unknown | fail-closed with `LADE_APPROVE=<code>` |
+| Agent | Via=pretool, `Command::Hook` with no subcommand, or env signal when Via is unknown | fail-closed with `LADE_APPROVE=<code>` |
 
 ### preTool path
 
@@ -282,7 +282,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing preTool hooks (`src/pretool/install/`)
 
-`lade install` offers to wire `lade hook --harness <slug>` into agents present on the machine (`~/.cursor`, `~/.claude`, `~/.codex`, `~/.config/opencode`). The bin name follows argv[0]. OpenCode gets a native plugin at `~/.config/opencode/plugins/lade-pretool.js`. Project-local configs remain a copy-paste (README). `lade status` reports both global and project paths, plus whether the installed command is current. The daily version check also refreshes already-installed hook files and Lade-managed skills (content hash of the bundled `SKILL.md`). `lade upgrade` voids that stamp so the first run of the new binary refreshes them. `lade hook` rewrites shell matches with the same bin name and stores a free-form `agent` object on the diary row. MCP verbs are allow-only.
+The binary embeds the repo snapshots and `.agents/skills/lade/SKILL.md`. `lade install` is user-scope and interactive (harness, then hook, then skill). `lade hook install --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. APM ships the skill via a link at `.apm/skills/lade/SKILL.md` and pins the GitHub tag. `lade status` reports user (JSON `global`) and project. The daily check refreshes Lade-managed files. MCP verbs are allow-only.
 
 ### Direct path
 

@@ -126,7 +126,9 @@ jobs:
         run: |
           cargo install cargo-edit
           cargo set-version --bump beta
-          echo "version=$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)" >> "$GITHUB_OUTPUT"
+          VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="lade") | .version')
+          python3 -c "from pathlib import Path; import re, sys; p=Path('apm.yml'); p.write_text(re.sub(r'^version: .*', f'version: {sys.argv[1]}', p.read_text(), count=1, flags=re.M))" "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8
         with:
           branch: bump-${{ steps.bump.outputs.version }}

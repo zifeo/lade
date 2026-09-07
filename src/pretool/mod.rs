@@ -37,6 +37,7 @@ use crate::audience::Via;
 use crate::config::{Audience, Config};
 use crate::event::{self, Emit, Kind};
 use crate::global_config::GlobalConfig;
+use crate::message_box::MessageBox;
 use crate::ticket::{PreEvent, TicketNetwork, write as write_ticket};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -85,7 +86,13 @@ pub fn handle(
     audience: Audience,
     harness: Option<&str>,
 ) -> Result<String> {
-    let parsed: Value = serde_json::from_str(input).unwrap_or(json!({}));
+    let parsed: Value = match serde_json::from_str(input) {
+        Ok(value) => value,
+        Err(_) => {
+            warn_unread("hook stdin is not JSON");
+            return Ok(allow(resolve_platform(harness, &json!({}))));
+        }
+    };
     let platform = resolve_platform(harness, &parsed);
     if is_post_event(&parsed) {
         return Ok(allow_verb(platform));
@@ -97,7 +104,12 @@ pub fn handle(
 
     let raw = match extract_command(&parsed) {
         Some(cmd) => cmd,
-        None => return Ok(allow(platform)),
+        None => {
+            if expects_shell_command(&parsed) {
+                warn_unread("hook payload has no command to wrap");
+            }
+            return Ok(allow(platform));
+        }
     };
 
     // Keep any leading `LADE_APPROVE=...` (or other env assignments) so the
@@ -230,6 +242,22 @@ fn handle_verb(
         },
     );
     Ok(allow_verb(platform))
+}
+
+fn expects_shell_command(input: &Value) -> bool {
+    matches!(
+        input.get("hook_event_name").and_then(Value::as_str),
+        Some("PreToolUse" | "preToolUse")
+    ) || input.get("tool_input").is_some()
+        || input.get("hook_source").and_then(Value::as_str) == Some("opencode-plugin")
+}
+
+fn warn_unread(reason: &str) {
+    MessageBox::new()
+        .warning()
+        .line(format!("Lade could not read this hook payload ({reason})."))
+        .line("The command will run without injection.")
+        .print_stderr();
 }
 
 fn allow(platform: Option<platform::Platform>) -> String {
