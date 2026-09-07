@@ -105,7 +105,7 @@ fn via(command: &Command, pretool: bool) -> Via {
 /// a fallback for diary `agent` metadata. Home-dir vars are ignored.
 ///
 /// Precedence (first match wins): `AI_AGENT`, `AGENT`, then Claude /
-/// Cursor / Codex / Pi / OpenCode / Copilot signals.
+/// Cursor / Codex / OpenCode / Copilot signals.
 /// `CURSOR_VERSION` is ignored: Cursor sets it in human terminals too.
 pub(crate) fn agent_signal() -> Option<String> {
     if let Some(name) = nonempty("AI_AGENT") {
@@ -129,9 +129,6 @@ pub(crate) fn agent_signal() -> Option<String> {
         || nonempty("CODEX_CI").is_some()
     {
         return Some("codex".to_string());
-    }
-    if nonempty("PI_MODEL").is_some() || nonempty("PI_SESSION_ID").is_some() {
-        return Some("pi".to_string());
     }
     if nonempty("OPENCODE").is_some() || nonempty("OPENCODE_PID").is_some() {
         return Some("opencode".to_string());

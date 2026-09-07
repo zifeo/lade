@@ -35,8 +35,6 @@ fn lade_process(home: &Path) -> std::process::Command {
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CODEX_SANDBOX")
         .env_remove("CODEX_CI")
-        .env_remove("PI_MODEL")
-        .env_remove("PI_SESSION_ID")
         .env_remove("OPENCODE")
         .env_remove("OPENCODE_PID");
     cmd

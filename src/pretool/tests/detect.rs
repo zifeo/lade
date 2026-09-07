@@ -20,8 +20,6 @@ fn test_detect_claude() {
             ("CODEX_THREAD_ID", None),
             ("CODEX_SANDBOX", None),
             ("CODEX_HOME", None),
-            ("PI_HOME", None),
-            ("PI_CODING_AGENT", None),
             ("OPENCODE", None),
             ("OPENCODE_DIR", None),
         ],
@@ -40,7 +38,6 @@ fn test_detect_codex_env() {
             ("CODEX_THREAD_ID", Some("thr_1")),
             ("CODEX_SANDBOX", None),
             ("CODEX_HOME", None),
-            ("PI_HOME", None),
             ("OPENCODE", None),
         ],
         || {

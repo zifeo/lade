@@ -5,7 +5,7 @@ use crate::args::{
 };
 use crate::shell::LADE_VIA;
 
-const SIGNALS: [&str; 16] = [
+const SIGNALS: [&str; 14] = [
     "AI_AGENT",
     "AGENT",
     "CLAUDECODE",
@@ -18,8 +18,6 @@ const SIGNALS: [&str; 16] = [
     "CODEX_THREAD_ID",
     "CODEX_SANDBOX",
     "CODEX_CI",
-    "PI_MODEL",
-    "PI_SESSION_ID",
     "OPENCODE",
     "OPENCODE_PID",
 ];

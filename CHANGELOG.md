@@ -9,6 +9,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Removed
+
+- **Pi harness leftover**: drop `.pi/settings.json` and `PI_*` detect /
+  diary env. Install already only covers Cursor, Claude, Codex, and
+  OpenCode.
+
 ## [0.18.0] - 2026-09-07
 
 ### Added

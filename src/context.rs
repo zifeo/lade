@@ -88,8 +88,6 @@ mod tests {
             ("CODEX_THREAD_ID", None),
             ("CODEX_SANDBOX", None),
             ("CODEX_CI", None),
-            ("PI_MODEL", None),
-            ("PI_SESSION_ID", None),
             ("OPENCODE", None),
             ("OPENCODE_PID", None),
         ]

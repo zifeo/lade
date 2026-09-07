@@ -29,7 +29,6 @@ fn test_match_wraps_claude() {
             ("CURSOR_VERSION", None),
             ("CLAUDE_PROJECT_DIR", Some("/tmp")),
             ("CODEX_THREAD_ID", None),
-            ("PI_HOME", None),
             ("OPENCODE", None),
         ],
         || {
@@ -53,7 +52,6 @@ fn test_match_wraps_codex() {
             ("CURSOR_VERSION", None),
             ("CLAUDE_PROJECT_DIR", None),
             ("CODEX_THREAD_ID", Some("thr_1")),
-            ("PI_HOME", None),
             ("OPENCODE", None),
         ],
         || {
@@ -76,7 +74,6 @@ fn test_claude_no_match_allows_silently() {
             ("CURSOR_VERSION", None),
             ("CLAUDE_PROJECT_DIR", Some("/tmp")),
             ("CODEX_THREAD_ID", None),
-            ("PI_HOME", None),
             ("OPENCODE", None),
         ],
         || {
@@ -100,7 +97,6 @@ fn test_disclaimer_command_is_rewritten() {
             ("CODEX_THREAD_ID", None),
             ("CODEX_SANDBOX", None),
             ("CODEX_HOME", None),
-            ("PI_HOME", None),
             ("OPENCODE", None),
             ("LADE_APPROVE", None),
         ],
@@ -166,7 +162,6 @@ fn test_cursor_version_does_not_override_codex_envelope() {
             ("CURSOR_VERSION", Some("1.0")),
             ("CLAUDE_PROJECT_DIR", None),
             ("CODEX_THREAD_ID", Some("thr_1")),
-            ("PI_HOME", None),
             ("OPENCODE", None),
         ],
         || {

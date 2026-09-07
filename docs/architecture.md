@@ -131,7 +131,7 @@ Interactive is an output. Callers use `ctx.audience` for `.when` and
 - **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
   unset falls back to env signals (`AI_AGENT`, `AGENT`, `CLAUDECODE`,
   `CLAUDE_CODE`, `CURSOR_AGENT`, `CURSOR_EXTENSION_HOST_ROLE`,
-  `CURSOR_SANDBOX`, `CODEX_*`, `PI_*`, `OPENCODE*`, `COPILOT_MODEL`).
+  `CURSOR_SANDBOX`, `CODEX_*`, `OPENCODE*`, `COPILOT_MODEL`).
   `CURSOR_VERSION` is ignored: Cursor also sets it in human terminals.
   Optional diary metadata (`harness`, `model`, `session`) is collected from
   the hook payload and env (`src/agent_meta.rs`), stored on the T pre-event

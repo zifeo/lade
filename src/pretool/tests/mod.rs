@@ -6,14 +6,12 @@ mod detect;
 mod when;
 mod wrap;
 
-const AGENT_ENV: [(&str, Option<&str>); 9] = [
+const AGENT_ENV: [(&str, Option<&str>); 7] = [
     ("CURSOR_VERSION", None),
     ("CLAUDE_PROJECT_DIR", None),
     ("CODEX_THREAD_ID", None),
     ("CODEX_SANDBOX", None),
     ("CODEX_HOME", None),
-    ("PI_HOME", None),
-    ("PI_CODING_AGENT", None),
     ("OPENCODE", None),
     ("OPENCODE_DIR", None),
 ];
@@ -75,8 +73,6 @@ fn with_cursor_env<F: FnOnce()>(f: F) {
             ("CODEX_THREAD_ID", None),
             ("CODEX_SANDBOX", None),
             ("CODEX_HOME", None),
-            ("PI_HOME", None),
-            ("PI_CODING_AGENT", None),
             ("OPENCODE", None),
             ("OPENCODE_DIR", None),
         ],

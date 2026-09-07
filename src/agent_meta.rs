@@ -28,10 +28,7 @@ pub fn from_env() -> Value {
     if let Some(name) = audience::agent_signal() {
         obj.insert("harness".to_string(), json!(name));
     }
-    if let Some(model) = pinned(std::env::var("PI_MODEL").ok().as_deref()) {
-        obj.insert("model".to_string(), json!(model));
-    }
-    if let Some(session) = nonempty("PI_SESSION_ID").or_else(|| nonempty("CODEX_THREAD_ID")) {
+    if let Some(session) = nonempty("CODEX_THREAD_ID") {
         obj.insert("session".to_string(), json!(session));
     }
     if obj.is_empty() {
@@ -64,9 +61,8 @@ mod tests {
     fn merge_keeps_hook_keys() {
         temp_env::with_vars(
             [
-                ("AI_AGENT", Some("pi")),
-                ("PI_MODEL", Some("opus")),
-                ("PI_SESSION_ID", Some("sess")),
+                ("AI_AGENT", Some("codex")),
+                ("CODEX_THREAD_ID", Some("sess")),
                 ("AGENT", None),
                 ("CLAUDECODE", None),
                 ("CURSOR_AGENT", None),
@@ -90,8 +86,6 @@ mod tests {
                 ("CLAUDECODE", None),
                 ("CURSOR_AGENT", None),
                 ("COPILOT_MODEL", None),
-                ("PI_MODEL", None),
-                ("PI_SESSION_ID", None),
                 ("CLAUDE_CODE", None),
                 ("CURSOR_EXTENSION_HOST_ROLE", None),
                 ("CURSOR_SANDBOX", None),
@@ -122,8 +116,6 @@ mod tests {
                 ("CLAUDECODE", None),
                 ("CURSOR_AGENT", None),
                 ("COPILOT_MODEL", None),
-                ("PI_MODEL", None),
-                ("PI_SESSION_ID", None),
                 ("CLAUDE_CODE", None),
                 ("CURSOR_EXTENSION_HOST_ROLE", None),
                 ("CURSOR_SANDBOX", None),
