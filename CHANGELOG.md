@@ -24,9 +24,9 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
-- **Diary writers**: two concurrent first opens retried after a
-  migrate collision. Busy wait is 5s. 250ms plus a swallowed
-  `to_latest` error dropped a row on CI.
+- **Diary writers**: if `to_latest` fails but `pending_migrations`
+  is 0, the peer finished the schema and the loser still inserts.
+  Busy wait stays 250ms.
 
 ### Added
 

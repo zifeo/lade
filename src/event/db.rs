@@ -1,14 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use rusqlite_migration::{M, Migrations};
 use serde_json::{Value, json};
 
 use super::{BUSY_MS, EVENTS_AGENT_DDL, EVENTS_ARGV_DDL, EVENTS_DDL, Event, LogInfo, db_path};
-
-const OPEN_ATTEMPTS: u32 = 12;
 
 fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -18,25 +16,8 @@ fn migrations() -> Migrations<'static> {
     ])
 }
 
-fn retryable(err: &rusqlite::Error) -> bool {
-    match err {
-        rusqlite::Error::SqliteFailure(e, _) => {
-            matches!(e.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
-        }
-        rusqlite::Error::ToSqlConversionFailure(_) => true,
-        _ => false,
-    }
-}
-
-fn open_once(path: &Path) -> rusqlite::Result<Connection> {
-    let mut conn = Connection::open(path)?;
-    conn.busy_timeout(Duration::from_millis(BUSY_MS))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
-    migrations().to_latest(&mut conn).map_err(|e| {
-        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(e.to_string())))
-    })?;
-    Ok(conn)
+fn map_migrate_err(err: rusqlite_migration::Error) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(err.to_string())))
 }
 
 pub fn open() -> rusqlite::Result<Connection> {
@@ -44,18 +25,19 @@ pub fn open() -> rusqlite::Result<Connection> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let mut last = None;
-    for attempt in 0..OPEN_ATTEMPTS {
-        match open_once(&path) {
-            Ok(conn) => return Ok(conn),
-            Err(err) if retryable(&err) && attempt + 1 < OPEN_ATTEMPTS => {
-                last = Some(err);
-                std::thread::sleep(Duration::from_millis(20 * u64::from(attempt + 1)));
-            }
-            Err(err) => return Err(err),
+    let mut conn = Connection::open(&path)?;
+    conn.busy_timeout(Duration::from_millis(BUSY_MS))?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    let migrations = migrations();
+    if let Err(err) = migrations.to_latest(&mut conn) {
+        // Peer already committed the schema. We read user_version=0
+        // before their lock, then CREATE TABLE hit "already exists".
+        if migrations.pending_migrations(&conn).ok() != Some(0) {
+            return Err(map_migrate_err(err));
         }
     }
-    Err(last.expect("open retry left an error"))
+    Ok(conn)
 }
 
 pub fn query(
