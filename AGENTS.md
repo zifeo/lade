@@ -35,6 +35,8 @@ bash tests/installer_test.sh
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
   `skills` is additive (same agent shape as `hooks.pretool`). A skill is
   Lade-managed when its frontmatter is the official `name: lade` skill.
+  Spoken stderr, README, and clap say pre-exec / pre-tool. JSON stays
+  `preexec` / `pretool`. `--scope user` and JSON `global` stay.
 - **`lade status` latest**: a successful daily GitHub check must persist
   the tag (`latest_version` in the global config) so status can show it after
   shell use. If the fetch failed, print when we last tried (`tried today at
@@ -57,9 +59,3 @@ bash tests/installer_test.sh
 - `scripts/`, `examples/tape/` — shell-hook fixtures and README demo tapes.
 - `installer.sh`, `action.yml`, `Dockerfile`, `.github/workflows/` —
   install & CI surface.
-
-## Maintainer note
-
-The GitHub Action (`action.yml`) is **not** auto-published to the Marketplace:
-on each release, tick "Publish this Action to the GitHub Marketplace" in the
-release UI once.

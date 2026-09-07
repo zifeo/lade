@@ -97,8 +97,8 @@ fn test_status_reports_project_pretool_hook() {
         .current_dir(dir.path())
         .arg("status")
         .assert()
-        .stdout(predicates::str::contains("preexec shell hooks"))
-        .stdout(predicates::str::contains("preTool hooks"))
+        .stdout(predicates::str::contains("pre-exec (this shell)"))
+        .stdout(predicates::str::contains("pre-tool (agents)"))
         .stdout(predicates::str::contains(
             "drift: run `lade install` to refresh stale hooks and skills",
         ));

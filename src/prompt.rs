@@ -83,7 +83,7 @@ pub async fn resolve_disclaimers(
         let code = approval_code(command);
         let mut mb = MessageBox::new()
             .warning()
-            .line("Disclaimer required to uncover the secrets for this command:")
+            .line("Disclaimer required. Access is withheld:")
             .paragraphs(disclaimers.iter().map(|d| format!("> {d}")))
             .line("");
         // Agents have no shell-held ticket, so `lade approve` is useless to

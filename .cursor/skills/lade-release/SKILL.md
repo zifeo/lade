@@ -14,7 +14,7 @@ Release prep touches:
 
 - `CHANGELOG.md` (Keep a Changelog format)
 - Crate versions via `cargo set-version --workspace` (`lade` + `lade-sdk`, including the path dependency)
-- `apm.yml` `version` (same number as the crate). Consumers pin the **GitHub tag** `zifeo/lade#vX.Y.Z`, not this field. Keep the field in sync so `apm view` matches the crate.
+- `apm.yml` `version` via `scripts/set-version.sh` (same number as the crate). Consumers pin the **GitHub tag** `zifeo/lade#vX.Y.Z`, not this field. The field exists so `apm view` matches the crate.
 
 Never commit, tag, or push — the user handles git.
 
@@ -46,18 +46,16 @@ Never commit, tag, or push — the user handles git.
 
 ## Version bump
 
-Use `cargo set-version` from `cargo-edit` (not manual `Cargo.toml` edits):
+Use `scripts/set-version.sh`, not a bare `cargo set-version` and not a hand edit of `Cargo.toml`:
 
 ```bash
-cargo set-version --workspace X.Y.Z
-VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="lade") | .version')
-python3 -c "from pathlib import Path; import re, sys; p=Path('apm.yml'); p.write_text(re.sub(r'^version: .*', f'version: {sys.argv[1]}', p.read_text(), count=1, flags=re.M))" "$VERSION"
+bash scripts/set-version.sh X.Y.Z
 cargo test --workspace --locked
 ```
 
-`--workspace` updates `lade`, `lade-sdk`, and the `lade-sdk` path dependency. The python line writes the same number into `apm.yml`. APM install pins the GitHub tag (`zifeo/lade#vX.Y.Z`). Run tests (same as CI) to refresh `Cargo.lock` and verify the bump.
+The script runs `cargo set-version --workspace` (`lade`, `lade-sdk`, path dep) then rewrites `apm.yml`. APM install pins the GitHub tag (`zifeo/lade#vX.Y.Z`). Run tests (same as CI) to refresh `Cargo.lock` and verify the bump.
 
-If `cargo set-version` is missing: `cargo install cargo-edit`.
+If `cargo set-version` is missing: `cargo install cargo-edit`. CI beta bumps use `bash scripts/set-version.sh --bump beta`.
 
 ## GitHub release notes
 
@@ -69,8 +67,7 @@ Copy the new `CHANGELOG.md` section body (without the heading date) into the rel
 - [ ] `[Unreleased]` promoted to `[X.Y.Z]` with correct date
 - [ ] Compare link added (`v<prev>...vX.Y.Z`)
 - [ ] All commits since last tag accounted for
-- [ ] `cargo set-version --workspace X.Y.Z` applied (no `-beta` left unless intentional)
-- [ ] `apm.yml` `version` rewritten to the crate version
+- [ ] `bash scripts/set-version.sh X.Y.Z` applied (no `-beta` left unless intentional)
 - [ ] GitHub release tag `vX.Y.Z` is the APM pin (`zifeo/lade#vX.Y.Z`)
 - [ ] `cargo test --workspace --locked` passes
 ```

@@ -8,7 +8,7 @@ resolver = "2"
 name = "lade"
 version = "0.17.3-beta.1"
 edition = "2024"
-description = "Give shell commands and AI agents temporary access to secrets, files, and private networks, then clean everything up automatically."
+description = "Temporary access to secrets, files, and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
 license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
 

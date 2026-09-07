@@ -44,11 +44,11 @@ impl InstallCommand {
 
 #[derive(Parser, Debug)]
 pub struct UpgradeCommand {
-    /// Upgrade to specific version (e.g. 1.0.0)
+    /// Install this version (e.g. 1.0.0)
     #[clap(long)]
     pub version: Option<String>,
 
-    /// Do not ask for version confirmation
+    /// Skip the version confirm
     #[clap(short, long, default_value_t = false)]
     pub yes: bool,
 }

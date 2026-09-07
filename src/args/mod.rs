@@ -13,28 +13,28 @@ pub use hook::*;
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Upgrade lade.
+    /// Download and install the latest release.
     Upgrade(UpgradeCommand),
-    /// Report lade version, config, hooks, and CLI compatibility.
+    /// Report version, config, pre-exec, pre-tool, skills, and provider CLIs.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     Bench(BenchCommand),
-    /// Enable preexec shell hooks.
+    /// Enable pre-exec for this shell.
     On,
-    /// Disable preexec shell hooks.
+    /// Disable pre-exec for this shell.
     Off,
     /// Install pre-exec (this shell) and pre-tool (agents).
     Install(InstallCommand),
     /// Remove pre-exec (this shell) and pre-tool (same plane as install).
     Uninstall,
-    /// Inject environment into nested command.
+    /// Run a command with matching lade.yml access. One-shot, no pre-exec.
     Inject(InjectCommand),
     /// Resolve secrets for a local or remote MCP server.
     Mcp(McpCommand),
-    /// Set environment for the interactive shell. Called by the preexec hook.
+    /// Set environment for the interactive shell. Called by pre-exec.
     #[command(hide = true)]
     Set(EvalCommand),
-    /// Restore the shell environment. Called by the preexec hook.
+    /// Restore the shell environment. Called by pre-exec.
     #[command(hide = true)]
     Unset(EvalCommand),
     /// Evaluate a secret URI and print its resolved value.
@@ -42,7 +42,7 @@ pub enum Command {
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
-    /// Install or remove agent preTool hooks, or handle hook JSON on stdin.
+    /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     Hook {
         /// Host that installed this hook. Unknown values are ignored.
         #[clap(long)]
@@ -56,11 +56,11 @@ pub enum Command {
         /// The approval code printed in the disclaimer (e.g. `ab12c`).
         code: Option<String>,
     },
-    /// Manage user
+    /// Set the lade.yml per-user key, or reset to the OS user.
     User {
         /// The username to set
         username: Option<String>,
-        /// Reset/remove the current user. lade will fallback to the OS user for secrets
+        /// Drop the saved user. Per-user keys fall back to the OS user.
         #[arg(long)]
         reset: bool,
     },
@@ -82,7 +82,7 @@ pub struct Args {
     #[clap(short, long, value_parser, global = true)]
     pub help: bool,
 
-    /// Stamp this invocation as preTool. Via is stored on the ticket, not the child env.
+    /// Mark this invocation as pre-tool.
     #[clap(long, global = true, default_value_t = false, hide = true)]
     pub pretool: bool,
 

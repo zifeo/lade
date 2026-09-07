@@ -29,7 +29,7 @@ use crate::ticket::{self, PreEvent, TicketSecret};
 fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
     message_box::MessageBox::new()
         .error()
-        .line("Lade could not get secrets from one loader:")
+        .line("Could not load secrets from one provider:")
         .line("")
         .paragraph(e.to_string())
 }
@@ -246,7 +246,7 @@ pub(super) async fn handle_provider_failure(ctx: &InvocationContext, e: &anyhow:
     if e.to_string().contains("network provider") {
         let mut mb = message_box::MessageBox::new()
             .error()
-            .line("Lade could not start network providers:")
+            .line("Could not start network providers:")
             .line("")
             .paragraph(e.to_string());
         if ctx.stderr_is_terminal {

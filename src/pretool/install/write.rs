@@ -24,7 +24,7 @@ pub fn install_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, true)?;
-    report("preTool hooks:", vec![line]);
+    report("pre-tool:", vec![line]);
     Ok(())
 }
 
@@ -33,7 +33,7 @@ pub fn uninstall_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, false)?;
-    report("preTool hooks:", vec![line]);
+    report("pre-tool:", vec![line]);
     Ok(())
 }
 

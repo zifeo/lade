@@ -162,7 +162,7 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
             ReleaseStatus::Updated(release) => {
                 MessageBox::new()
                     .info()
-                    .line(format!("Updated successfully to {}.", release.version()))
+                    .line(format!("Updated to {}.", release.version()))
                     .line("")
                     .line(format!(
                         "Release notes: https://github.com/zifeo/lade/releases/tag/{}",

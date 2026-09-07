@@ -148,11 +148,11 @@ async fn run() -> Result<()> {
         Err(e) => {
             message_box::MessageBox::new()
                 .error()
-                .line("Lade could not parse a config file:")
+                .line("Could not parse a lade.yml.")
                 .line("")
                 .paragraph(e.to_string())
                 .line("")
-                .line("Hint: check the file format.")
+                .line("Walk starts at this directory and stops at $HOME.")
                 .print_stderr();
             std::process::exit(exit_codes::FAILURE);
         }

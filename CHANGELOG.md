@@ -9,6 +9,19 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Changed
+
+- **User-facing copy**: crates.io / README / `lade --help` lead with
+  temporary access for one command, then gone, same wrap for humans and
+  agents, plus which access was used. Spoken terms are pre-exec /
+  pre-tool. Empty parse Hints dropped. README keeps one install tell;
+  last-wins / `seen` stay in `docs/observability.md`.
+- **Observability**: `docs/log.md` is `docs/observability.md`. README
+  section matches. `lade log` / `lade usage` verbs stay.
+- **Version bump**: `scripts/set-version.sh` runs `cargo set-version`
+  and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
+  from `build.rs`.
+
 ### Added
 
 - **APM package**: `apm.yml` plus `.apm/skills/lade` (link to
@@ -78,7 +91,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   reads pids from T, unlinks, and clears `LADE_T`. Diary `log` is last
   explicit `log` on matching rules. No-match `seen` uses the last
   explicit `log` on the loaded walk. See `docs/protocol.md` and
-  `docs/log.md`.
+  `docs/observability.md`.
 - **Diary `agent` object**: free-form JSON on each event (`harness`,
   `model`, `session`, plus later keys). Hook payload wins over env.
   Missing or unknown fields stay absent. Empty objects are omitted.

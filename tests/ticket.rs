@@ -261,7 +261,7 @@ fn hydrate_failure_unlinks_ticket_and_leaves_no_output_file() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("could not get secrets"), "{stderr}");
+    assert!(stderr.contains("Could not load secrets"), "{stderr}");
     assert!(!ticket_path(tmp.path(), &id).exists());
     assert!(!output.exists());
     assert!(ticket_ids(tmp.path()).is_empty());

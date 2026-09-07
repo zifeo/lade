@@ -96,11 +96,8 @@ pub(crate) async fn run_config_verbs(
             if ctx.stdin_is_terminal {
                 MessageBox::new()
                     .error()
-                    .line("`lade hook` is meant to be invoked automatically by AI agents.")
-                    .line("")
-                    .line(
-                        "It reads a JSON payload from stdin. To use it manually, pipe JSON into it.",
-                    )
+                    .line("`lade hook` reads pre-tool JSON on stdin.")
+                    .line("Pipe a payload, or let an agent invoke it.")
                     .print_stderr();
                 std::process::exit(exit_codes::FAILURE);
             }
@@ -191,10 +188,10 @@ fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
 fn report_inject_error(e: &anyhow::Error) {
     MessageBox::new()
         .error()
-        .line("Lade could not prepare command execution:")
+        .line("Could not prepare the command.")
         .line("")
         .paragraph(e.to_string())
         .line("")
-        .line("Hint: verify provider URI format and local CLI access.")
+        .line("Check the provider URI and that the vault CLI is installed.")
         .print_stderr();
 }

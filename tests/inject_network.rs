@@ -17,7 +17,7 @@ fn test_inject_network_provider_error_is_boxed() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "Lade could not start network providers:",
+            "Could not start network providers:",
         ))
         .stderr(predicates::str::contains("network provider error:"));
 }
@@ -37,7 +37,7 @@ fn test_inject_network_parse_error_is_boxed() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "Lade could not start network providers:",
+            "Could not start network providers:",
         ))
         .stderr(predicates::str::contains("missing"));
 }

@@ -6,7 +6,7 @@
     .: "hello guest"
 
 > lade user alice
-Successfully set user to alice
+User set to alice
 
 > lade inject printenv GREETING
 ⠋ Raw: GREETING
@@ -16,7 +16,7 @@ Successfully set user to alice
 hello alice
 
 > lade user bob
-Successfully set user to bob
+User set to bob
 
 > lade inject printenv GREETING
 ⠋ Raw: GREETING
