@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::{env, time::Duration};
 
 mod access;
+mod age_plugin;
 mod agent_meta;
 mod args;
 mod audience;
@@ -12,6 +13,7 @@ mod compat;
 mod config;
 mod context;
 mod dispatch;
+mod eval;
 mod event;
 mod exec;
 mod exit_codes;
@@ -41,16 +43,7 @@ use clap::Parser;
 use config::LadeFile;
 use context::InvocationContext;
 use dispatch::{run_config_verbs, run_standalone};
-use lade_sdk::hydrate_one;
-
 fn main() -> Result<()> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(run())
-}
-
-async fn run() -> Result<()> {
     #[cfg(target_family = "unix")]
     {
         // fix the pipe: https://github.com/rust-lang/rust/issues/46016
@@ -60,6 +53,18 @@ async fn run() -> Result<()> {
         }
     }
 
+    let argv: Vec<_> = std::env::args_os().collect();
+    if let Some(invoke) = age_plugin::invoke_from_argv(&argv) {
+        return age_plugin::run(invoke);
+    }
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     let (peeled_ticket_id, argv) = ticket::peel_pretool(std::env::args_os().collect());
     let args = Args::try_parse_from(&argv)?;
 
@@ -132,16 +137,6 @@ async fn run() -> Result<()> {
     };
 
     let current_dir = env::current_dir()?;
-
-    if let Command::Eval { uri } = command {
-        let value =
-            hydrate_one(uri.clone(), &current_dir, &std::collections::HashMap::new()).await?;
-        if ctx.is_interactive() {
-            compat::warn_outdated(&ctx, compat::known_schemes(std::iter::once(uri.as_str()))).await;
-        }
-        println!("{}", value);
-        return Ok(());
-    }
 
     let config = match LadeFile::build(current_dir.clone()) {
         Ok(c) => c,

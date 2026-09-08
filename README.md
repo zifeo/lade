@@ -464,6 +464,23 @@ Supported secret providers:
 | Inline value  | `"visible-in-lade-yml"`                              | Use `!` to force a raw value and `!!` to keep a leading `!`. |
 
 Use `lade eval <uri>` to resolve one URI when debugging a provider.
+Eval writes an `access` diary row (the URI, not the value). No
+`lade.yml` `log` flag.
+
+The release, installer, and `cargo install` put `age-plugin-lade` on
+the PATH next to `lade`. Both names are real binaries from the same
+crate. age and rage load the plugin when they see an `age1lade1…`
+recipient or an `AGE-PLUGIN-LADE-1…` identity. The payload is a Lade
+URI. The plugin hydrates it the same way eval does, then lets the age
+crate wrap or unwrap with the returned key (X25519, SSH, tagged, and
+post-quantum `age1tagpq1` recipients). `age-plugin-lade` plus a URI
+prints the identity file.
+
+```bash
+age-plugin-lade 'file://./age.json?query=.key' > identity.txt
+age -r "$(grep Recipient: identity.txt | awk '{print $3}')" -o secret.age secret.txt
+age -d -i identity.txt -o secret.txt secret.age
+```
 
 `file://` details:
 

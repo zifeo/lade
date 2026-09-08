@@ -70,6 +70,14 @@ URI parse, CLI version tables, and tunnel command builders live in
 `lade-sdk`. The CLI owns process lifecycle (spawn, ready wait,
 restart, kill).
 
+`age-plugin-lade` is a second Cargo binary from the same `src/main.rs`.
+`argv0` or `--age-plugin=` selects the
+[C2SP age-plugin](https://c2sp.org/age-plugin) state machines. The
+payload is a Lade URI. Hydrate is `eval` (`hydrate_one`, no
+`lade.yml`). The age crate then wraps or unwraps with whatever that
+URI returned (X25519, SSH, tagged, post-quantum `age1tagpq1`). No
+network providers. No disclaimer.
+
 For shell hooks, `lade set` must finish both secret hydration and network
 acquisition before it can print the shell exports. When a matching rule contains
 network providers, the visible pre-command latency is therefore the slower of
@@ -306,8 +314,10 @@ An MCP server is a deliberate non-goal. Lade is an interceptor, not a data sourc
 
 ## 8. Observability
 
-Recording is opt-in. Last explicit `log` on **matching** rules wins.
-No-match `seen` uses last explicit `log` on the loaded walk. Secret
-values are never stored. Vault addresses and public keys are.
+Recording is opt-in on wrap paths. Last explicit `log` on **matching**
+rules wins. No-match `seen` uses last explicit `log` on the loaded
+walk. `lade eval` and `age-plugin-lade` are an access: they always
+write an `access` row. No `lade.yml` `log` flag. Secret values are
+never stored. Vault addresses and public keys are.
 
 Commands, schema, scrub, and share live in [observability.md](observability.md).

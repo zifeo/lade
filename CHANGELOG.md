@@ -9,6 +9,17 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Added
+
+- **age plugin**: Cargo builds `lade` and `age-plugin-lade` from the
+  same `main`. The release tarball, installer, image, and
+  `cargo install` ship both files. `lade upgrade` copies the new
+  `lade` over the plugin name because self_update extracts one
+  binary. age and rage resolve a Lade URI the same way `lade eval`
+  does, then wrap or unwrap with the age crate (X25519, SSH, tagged,
+  and post-quantum `age1tagpq1` recipients). `lade eval` and the
+  plugin write an `access` diary row (URI only, never the value).
+
 ### Fixed
 
 - **Installer during a release**: GitHub `latest` stays on the previous

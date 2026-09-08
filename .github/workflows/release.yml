@@ -95,8 +95,9 @@ jobs:
         shell: bash
         run: |
           mv "target/${{ matrix.target }}/release/lade${{ matrix.suffix }}" .
+          mv "target/${{ matrix.target }}/release/age-plugin-lade${{ matrix.suffix }}" .
           asset="lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
-          tar czvf "$asset" "lade${{ matrix.suffix }}"
+          tar czvf "$asset" "lade${{ matrix.suffix }}" "age-plugin-lade${{ matrix.suffix }}"
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$asset" > "$asset.sha256"
           else

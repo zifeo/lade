@@ -43,6 +43,13 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
+        Command::Eval { uri } => {
+            let current_dir = std::env::current_dir()?;
+            let value =
+                crate::eval::resolve_uri(uri, &current_dir, "eval", ctx.via, ctx.audience).await?;
+            println!("{value}");
+            Ok(None)
+        }
         Command::Hook {
             action: Some(action),
             ..
