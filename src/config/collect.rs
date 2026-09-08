@@ -1,9 +1,8 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use super::plan::{
-    ResolvedEntry, binding_name, op_sa_from_rules, resolve_entry, secrets_from_rules,
-};
+use super::plan::{op_sa_from_rules, secrets_from_rules};
+use super::resolve::{ResolvedEntry, binding_name, resolve_entry};
 use super::{Audience, Config, LadeRule, PreEventWork, RuleWhen};
 use crate::event::match_tree_from;
 
@@ -124,6 +123,7 @@ impl Config {
             }
             match resolve_entry(&name, secret, saved_user) {
                 Some(ResolvedEntry::Secret { key, value })
+                | Some(ResolvedEntry::Pin { key, value })
                 | Some(ResolvedEntry::Network { key, uri: value }) => {
                     out.push((key, value));
                 }

@@ -13,7 +13,8 @@ use crate::provider_progress::{
 };
 use crate::ticket::{self, TicketSecret};
 
-use super::{Acquisition, SecretBundle, SecretHydrate, handle_provider_failure};
+use super::work::SecretHydrate;
+use super::{Acquisition, SecretBundle, handle_provider_failure};
 
 /// Shared orchestration for `run_inject`/`handle_set`: starts the provider
 /// progress renderer, hydrates secrets and acquires the network session

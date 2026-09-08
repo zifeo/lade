@@ -51,8 +51,9 @@ bash tests/installer_test.sh
   Cursor/Claude/Codex/OpenCode configs), `audience.rs`
   (`detect()` for Via, Audience, UI), `prompt.rs` (disclaimer flow),
   `inject.rs`/`exec/` (PTY execution + masking), `network/` (acquire and
-  process groups), `status.rs`, `shell/` (preexec integration), `config/`,
-  `message_box/`.
+  process groups), `mise/` (command-scoped pins via mise.lock and
+  `$MISE_INSTALLS_DIR`), `status.rs`, `shell/` (preexec integration),
+  `config/`, `message_box/`.
 - `sdk/` — providers: vault hydrate, network URI parse, tunnel command
   builders, CLI version tables. MCP HTTP byte bridge.
 - `tests/` — Rust integration tests + `installer_test.sh`.

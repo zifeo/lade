@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use super::agent::Agent;
 use super::locate::{find_project, find_project_skill, hook_state, skill_state};
-use super::paths::{home_dir, hook_command};
+use super::paths::{home_dir, hook_command, project_hook_command};
 
 #[derive(Debug, Serialize)]
 pub struct HookLocation {
@@ -76,7 +76,9 @@ fn inspect_agent(agent: Agent, home: &Path, cwd: &Path) -> Result<PretoolAgentSt
     let global_path = agent.config_path(home);
     let (global_installed, global_current) = hook_state(&global_path, agent, Some(&expected));
     let (project_path, project_installed) = find_project(agent, home, cwd)?;
-    let project_current = project_installed && hook_state(&project_path, agent, Some(&expected)).1;
+    let project_expected = project_hook_command(agent);
+    let project_current =
+        project_installed && hook_state(&project_path, agent, Some(&project_expected)).1;
     Ok(PretoolAgentStatus {
         global: HookLocation {
             path: global_path,

@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 
-use super::plan::{ResolvedEntry, binding_name, resolve_entry, split_scheme};
+use super::resolve::{ResolvedEntry, binding_name, resolve_entry, split_scheme};
 use super::secret::resolve_lade_secret;
 use super::{Config, LadeRule, Output};
 use crate::ticket::TicketSecret;
@@ -47,7 +47,9 @@ async fn bindings_from_rules(
         };
         for (key, secret) in &rule.secrets {
             match resolve_entry(key, secret, saved_user) {
-                Some(ResolvedEntry::Unset { key }) | Some(ResolvedEntry::Network { key, .. }) => {
+                Some(ResolvedEntry::Unset { key })
+                | Some(ResolvedEntry::Network { key, .. })
+                | Some(ResolvedEntry::Pin { key, .. }) => {
                     let (name, _) = binding_name(&key)?;
                     bindings.remove(&name);
                 }

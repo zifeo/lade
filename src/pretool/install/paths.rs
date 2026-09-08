@@ -17,15 +17,40 @@ pub(super) fn home_dir() -> Result<PathBuf> {
 }
 
 pub(super) fn install_bin() -> String {
-    let bin = crate::pretool::invoked_lade_bin();
-    match Path::new(&bin).file_name().and_then(|name| name.to_str()) {
-        Some("lade" | "lade.exe") => bin,
+    install_bin_from(&crate::pretool::invoked_lade_bin())
+}
+
+pub(super) fn install_bin_from(bin: &str) -> String {
+    let path = Path::new(bin);
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some("lade" | "lade.exe") if !is_cargo_build_bin(path) => bin.to_string(),
         _ => "lade".to_string(),
     }
 }
 
+fn is_cargo_build_bin(path: &Path) -> bool {
+    let mut saw_target = false;
+    for component in path.components() {
+        let name = component.as_os_str();
+        if name == "target" {
+            saw_target = true;
+            continue;
+        }
+        if saw_target && matches!(name.to_str(), Some("debug" | "release" | "deps")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// User-scope hook line. May pin an installed binary. Never a cargo target.
 pub(super) fn hook_command(agent: Agent) -> String {
     format!("{} hook --harness {}", install_bin(), agent.slug())
+}
+
+/// Project files are the shared snapshot. Always the portable `lade` name.
+pub(super) fn project_hook_command(agent: Agent) -> String {
+    format!("lade hook --harness {}", agent.slug())
 }
 
 pub(super) fn tilde(path: &Path, home: &Path) -> String {

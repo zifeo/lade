@@ -45,9 +45,12 @@ impl ChildOutputFiles {
 }
 
 fn create_log_file(stream: &str) -> Result<(PathBuf, File)> {
+    // macOS TMPDIR is under /var/folders and is not created until first use.
+    let dir = std::env::temp_dir();
+    fs::create_dir_all(&dir)?;
     for _ in 0..16 {
         let idx = LOG_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
+        let path = dir.join(format!(
             "lade-network-{}-{idx}-{stream}.log",
             std::process::id()
         ));

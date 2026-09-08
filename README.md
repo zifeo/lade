@@ -440,10 +440,12 @@ logs; `LADE_LOG` overrides the command-line verbosity.
 
 ## Configuration reference
 
-Lade has two provider families used from the same `lade.yml` rule:
+Lade has two provider families used from the same `lade.yml` rule, plus
+optional mise pins on the command name:
 
 - Secret providers resolve values into environment variables or temporary files.
 - Network providers open a local forward for the process, then close it.
+- A mise backend spec pins the locked CLI for that command only.
 
 ### Secrets
 
@@ -480,6 +482,59 @@ Supported secret providers:
 Use `lade eval <uri>` to resolve one URI when debugging a provider.
 Eval writes an `access` diary row (the URI, not the value). No
 `lade.yml` `log` flag.
+
+### Pinned CLIs
+
+A value that starts with `mise://` is a pin, not a secret. The rest
+is the mise backend, package, and version, the same family as
+`op://` and `sh://`. Mise owns the install. Lade puts that
+install's bin directory first on PATH for the matched command, then
+unsets it.
+
+```yaml
+^tofu:
+  tofu: mise://aqua/opentofu/opentofu@1.8.2
+  TF_VAR_FOO: op://DOMAIN/VAULT/ITEM/FIELD
+.:
+  cargo: mise://core/rust@1.96.0
+```
+
+The key is the command you type (`tofu`, not `tofu1.8`). The version
+is the path: `$MISE_INSTALLS_DIR/<tool>/<version>/bin/<argv0>` or the
+flat layout mise uses for tools such as jq. If that file is executable,
+Lade does not start mise. If it is missing, Lade runs `mise install`
+from the spec, or `mise install --locked` when `mise.lock` already
+matches, in a temp dir whose only config is this pin. The user
+mise config tree is ignored. Then stats again. Still missing is
+a refusal.
+A Homebrew or other PATH binary is not used.
+
+Mise's own env cache is encrypted and session-scoped. Lade does
+not read it. After a store hit, if Lade's dump is missing, Lade
+runs `mise env --json-extended` once in a temp dir whose only
+config is this pin. The user mise config tree is ignored
+(`~/.config/mise`, `$XDG_CONFIG_HOME/mise`, `conf.d`, env
+overlays). Keys mise attributes to another tool, or to a
+config `[env]`, are dropped. Flat strings without a tool are
+dropped. The dump is a versioned file for this pin only
+(`ProjectDirs` `cache_dir()/mise-env/<backend-slug>/<version>.json`,
+macOS `~/Library/Caches/com.zifeo.lade/mise-env/core-rust/1.96.0.json`).
+A pre-isolation sidecar is treated as a miss and refreshed.
+One file per pin identity (backend + version), not per regex.
+PATH from mise is dropped. The next command is lock + stat +
+that file. Inject then selects: mise tool env for the pin, Lade
+hydrate for secrets. Same key, different value is a refusal.
+There is no rust-only table. `rust-toolchain.toml` is not read.
+
+`lade.yml` is the config. Lade does not write `mise.toml` or
+`mise.lock` in the repo. A committed `mise.toml` is left untouched. If
+it pins the same tool to a different version, Lade refuses. `jq:
+"1.7.1"` is not a pin. Use `mise://aqua/…@1.7.1`. The mise CLI
+form `aqua:…@1.7.1` is rejected with the URI to write instead.
+
+If you type `mise` and any pin is in the walk, Lade hands mise a
+composed view so `mise ls` shows the project's tools plus Lade
+pins. The user mise config tree and `MISE_ENV` are ignored.
 
 The release, installer, and `cargo install` put `age-plugin-lade` on
 the PATH next to `lade`. Both names are real binaries from the same

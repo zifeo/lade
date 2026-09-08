@@ -1,5 +1,31 @@
 use super::acquire::race_provider_tasks;
+use super::pins::select_tool_env;
 use super::*;
+use std::collections::HashMap;
+
+#[test]
+fn select_tool_env_rejects_pin_secret_collision() {
+    let mut env = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "stable".to_string())]);
+    let tool = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "1.96.0".to_string())]);
+    let err = select_tool_env(&mut env, tool).unwrap_err();
+    assert!(err.to_string().contains("conflicting env"), "{err}");
+}
+
+#[test]
+fn select_tool_env_keeps_matching_secret() {
+    let mut env = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "1.96.0".to_string())]);
+    let tool = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "1.96.0".to_string())]);
+    select_tool_env(&mut env, tool).unwrap();
+    assert_eq!(env.get("RUSTUP_TOOLCHAIN").unwrap(), "1.96.0");
+}
+
+#[test]
+fn select_tool_env_path_always_wins() {
+    let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
+    let tool = HashMap::from([("PATH".to_string(), "/pin/bin:/usr/bin".to_string())]);
+    select_tool_env(&mut env, tool).unwrap();
+    assert_eq!(env.get("PATH").unwrap(), "/pin/bin:/usr/bin");
+}
 use crate::provider_progress::{start_provider_progress, stop_provider_progress};
 use std::time::{Duration, Instant};
 

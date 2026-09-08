@@ -1,4 +1,5 @@
-use super::{RuleReport, elapsed_ms, format_rule_line, short_error, truncate_chars};
+use super::RuleReport;
+use super::format::{elapsed_ms, format_rule_line, short_error, truncate_chars};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 

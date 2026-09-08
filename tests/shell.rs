@@ -32,9 +32,11 @@ fn lade_bin() -> &'static str {
     env!("CARGO_BIN_EXE_lade")
 }
 
-fn run_cmd(cmd: &str, args: &[&str]) {
+fn run_cmd(cmd: &str, args: &[&str], home: &std::path::Path) {
     let output = Command::new(cmd)
         .args(args)
+        .env("HOME", home)
+        .env("LADE_CONFIG_PATH", home.join("lade-config.json"))
         .current_dir(repo_root())
         .output()
         .expect("spawn command");
@@ -55,38 +57,53 @@ fn shell_scripts_run_from_cargo_test_workspace() {
 
     let path = path_env();
     let lade = lade_bin();
+    // `env -i` drops HOME. Without a replacement, UserDirs falls back to
+    // the real home and `lade set` refreshes hooks under this crate.
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let config = home.path().join("lade-config.json");
+    let config_str = config.to_str().unwrap();
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("HOME={home_str}"),
+            &format!("LADE_CONFIG_PATH={config_str}"),
             &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "bash",
             "scripts/test.bash",
         ],
+        home.path(),
     );
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("HOME={home_str}"),
+            &format!("LADE_CONFIG_PATH={config_str}"),
             &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "zsh",
             "scripts/test.zsh",
         ],
+        home.path(),
     );
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &format!("HOME={home_str}"),
+            &format!("LADE_CONFIG_PATH={config_str}"),
             &format!("LADE_BIN={lade}"),
             "TEST=ok",
             "fish",
             "scripts/test.fish",
         ],
+        home.path(),
     );
 }
 
