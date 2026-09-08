@@ -3,6 +3,7 @@ mod hydrate;
 mod loader;
 mod patterns;
 mod plan;
+mod resolve;
 mod secret;
 #[cfg(test)]
 mod tests;

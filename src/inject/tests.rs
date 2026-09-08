@@ -1,4 +1,5 @@
 use super::acquire::race_provider_tasks;
+use super::pins::select_tool_env;
 use super::*;
 use std::collections::HashMap;
 

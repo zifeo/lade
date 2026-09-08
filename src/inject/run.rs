@@ -17,10 +17,10 @@ use crate::redact::Redactor;
 use crate::shell::Shell;
 
 use super::acquire::acquire_secrets_and_network;
+use super::pins::{PinCleanup, apply_pins, select_tool_env};
+use super::work::{SecretHydrate, TicketCleanup, resolve_provider_work, ticket_ready};
 use super::{
-    PinCleanup, SecretHydrate, TicketCleanup, apply_pins, emit_seen_if_walk_log,
-    merge_env_with_conflicts, public_hydrate, resolve_provider_work, select_tool_env,
-    show_loader_warnings, ticket_ready,
+    emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
 };
 
 pub async fn run_inject(

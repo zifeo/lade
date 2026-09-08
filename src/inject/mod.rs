@@ -1,8 +1,10 @@
 mod acquire;
 mod approve;
+mod pins;
 mod run;
 mod set;
 mod unset;
+mod work;
 
 #[cfg(test)]
 mod tests;
@@ -18,14 +20,11 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::audience::Via;
-use crate::config::{Audience, Config, NetworkBinding, PreEventWork, SecretSources};
+use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
 use crate::files::sleep_or_cancel;
 use crate::message_box;
-use crate::mise::{self, Outcome as PinOutcome};
-use crate::ticket::{self, PreEvent, TicketSecret};
 
 fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
     message_box::MessageBox::new()
@@ -48,194 +47,6 @@ pub(super) enum Acquisition<N> {
     Failed(anyhow::Error),
     FailedWithFiles(anyhow::Error, HashMap<PathBuf, HashMap<String, String>>),
     FailedWithNetwork(anyhow::Error, N),
-}
-
-pub(super) struct ProviderWork {
-    disclaimers: Vec<String>,
-    secrets: Vec<TicketSecret>,
-    op_sa: Option<String>,
-    network_bindings: Vec<NetworkBinding>,
-    matches: Value,
-    log: bool,
-    agent: Value,
-    progress: SecretSources,
-}
-
-pub(super) struct SecretHydrate<'a> {
-    secrets: &'a [TicketSecret],
-    op_sa: Option<&'a str>,
-    progress: &'a SecretSources,
-    ticket_unlink: Option<&'a str>,
-}
-
-pub(super) struct TicketCleanup(Option<String>);
-
-impl TicketCleanup {
-    pub(super) fn new(id: String) -> Self {
-        Self(Some(id))
-    }
-}
-
-impl Drop for TicketCleanup {
-    fn drop(&mut self) {
-        if let Some(id) = &self.0 {
-            let _ = ticket::unlink(id);
-        }
-    }
-}
-
-pub(super) struct PinCleanup(Vec<std::path::PathBuf>);
-
-impl Drop for PinCleanup {
-    fn drop(&mut self) {
-        for path in &self.0 {
-            mise::unlink_config(path);
-        }
-    }
-}
-
-pub(super) async fn apply_pins(
-    config: &Config,
-    command: &str,
-    cwd: &std::path::Path,
-    saved_user: &Option<String>,
-) -> Result<PinOutcome> {
-    match mise::prepare(config, command, cwd, saved_user).await {
-        Ok(out) => Ok(out),
-        Err(error) => {
-            error.emit();
-            std::process::exit(crate::exit_codes::FAILURE);
-        }
-    }
-}
-
-pub(super) fn select_tool_env(
-    env: &mut HashMap<String, String>,
-    tool: HashMap<String, String>,
-) -> Result<()> {
-    for (key, value) in tool {
-        if key == "PATH" {
-            env.insert(key, value);
-            continue;
-        }
-        match env.get(&key) {
-            Some(existing) if existing != &value => {
-                anyhow::bail!(
-                    "conflicting env '{key}' between lade.yml and the mise pin: '{existing}' vs '{value}'"
-                );
-            }
-            Some(_) => {}
-            None => {
-                env.insert(key, value);
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn ticket_ready(id: Option<&str>) -> bool {
-    id.is_some_and(ticket::exists)
-}
-
-pub(super) fn pre_event_from_work(
-    command: &str,
-    cwd: PathBuf,
-    via: Via,
-    audience: Audience,
-    actor: Option<String>,
-    work: &ProviderWork,
-) -> PreEvent {
-    PreEvent {
-        command: command.to_string(),
-        cwd,
-        via: via.child_stamp().unwrap_or("unknown").to_string(),
-        audience: match audience {
-            Audience::Agent => "agent",
-            Audience::Human => "human",
-        }
-        .to_string(),
-        actor,
-        log: work.log,
-        disclaimers: work.disclaimers.clone(),
-        secrets: work.secrets.clone(),
-        network: work
-            .network_bindings
-            .iter()
-            .map(|binding| ticket::TicketNetwork {
-                key: binding.key.clone(),
-                uri: binding.uri.clone(),
-            })
-            .collect(),
-        matches: work.matches.clone(),
-        op_sa: work.op_sa.clone(),
-        agent: work.agent.clone(),
-        network_pids: Vec::new(),
-        pending: false,
-    }
-}
-
-fn try_ticket_work(pre: &PreEvent) -> ProviderWork {
-    ProviderWork {
-        disclaimers: pre.disclaimers.clone(),
-        secrets: pre.secrets.clone(),
-        op_sa: pre.op_sa.clone(),
-        network_bindings: pre
-            .network
-            .iter()
-            .map(|binding| NetworkBinding {
-                key: binding.key.clone(),
-                uri: binding.uri.clone(),
-            })
-            .collect(),
-        matches: pre.matches.clone(),
-        log: pre.log,
-        agent: pre.agent.clone(),
-        progress: SecretSources {
-            sources: pre
-                .secrets
-                .iter()
-                .map(|secret| (secret.key.clone(), secret.source.clone()))
-                .collect(),
-            ..SecretSources::default()
-        },
-    }
-}
-
-fn walk_work(work: PreEventWork) -> ProviderWork {
-    ProviderWork {
-        disclaimers: work.disclaimers,
-        secrets: work.secrets,
-        op_sa: work.op_sa,
-        network_bindings: work.network,
-        matches: work.matches,
-        log: work.log,
-        agent: Value::Null,
-        progress: work.progress,
-    }
-}
-
-pub(super) async fn resolve_provider_work(
-    config: &Config,
-    command: &str,
-    audience: Audience,
-    ticket_id: Option<&str>,
-    use_ticket: bool,
-    saved_user: &Option<String>,
-) -> Result<Option<ProviderWork>> {
-    if use_ticket
-        && let Some(id) = ticket_id
-        && let Ok(pre) = ticket::read(id)
-    {
-        return Ok(Some(try_ticket_work(&pre)));
-    }
-
-    let patterned = config.collect_for_with_pattern(command, audience);
-    if patterned.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(walk_work(Config::pre_event_work(
-        &patterned, saved_user,
-    )?)))
 }
 
 pub(crate) fn emit_seen_if_walk_log(

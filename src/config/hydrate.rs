@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 
-use super::plan::{ResolvedEntry, binding_name, resolve_entry, split_scheme};
+use super::resolve::{ResolvedEntry, binding_name, resolve_entry, split_scheme};
 use super::secret::resolve_lade_secret;
 use super::{Config, LadeRule, Output};
 use crate::ticket::TicketSecret;

@@ -1,4 +1,5 @@
 mod acquire;
+mod labels;
 mod parse;
 mod process;
 mod progress;
