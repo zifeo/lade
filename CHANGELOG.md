@@ -27,6 +27,9 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - Azure Key Vault URIs use `azurekv://`.
 - Infisical hydrates through the Infisical CLI again, so a desktop
   `infisical login` is enough. A token still works when the CLI sees it.
+- Vault hydrate is HTTP KV v2. Resolve does not run the Vault CLI.
+  `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from
+  `vault login`. Docker tests seed with `curl`, not a host `vault`.
 
 ### Fixed
 
