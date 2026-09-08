@@ -15,6 +15,7 @@ macOS and Linux. Secrets from [1Password CLI](https://1password.com/downloads/co
 [Infisical](https://infisical.com), [Doppler](https://www.doppler.com),
 [Vault](https://github.com/hashicorp/vault),
 [Passbolt](https://www.passbolt.com),
+[Bitwarden](https://bitwarden.com/help/cli/),
 [AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/),
 [Azure Key Vault](https://learn.microsoft.com/azure/key-vault/),
 [GCP Secret Manager](https://cloud.google.com/secret-manager),
@@ -462,12 +463,13 @@ Supported secret providers:
 | Provider      | URI                                                  | Notes                                               |
 | ------------- | ---------------------------------------------------- | --------------------------------------------------- |
 | 1Password     | `op://DOMAIN/VAULT/ITEM/FIELD`                       | Optional section: `op://DOMAIN/VAULT/ITEM/SECTION/FIELD`. Uses the 1Password CLI. |
-| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested folders before the name. HTTP, `INFISICAL_TOKEN` / `INFISICAL_API_TOKEN` / `LADE_INFISICAL_TOKEN`. `LADE_INFISICAL_HTTP` for http. |
+| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested folders before the name. Uses the Infisical CLI (`infisical login` or `INFISICAL_TOKEN`). |
 | Doppler       | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI.                               |
-| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Path segments are URL-decoded. HTTP KV v2 only. `VAULT_TOKEN` or `LADE_VAULT_TOKEN`. `VAULT_NAMESPACE` / `LADE_VAULT_NAMESPACE`. `LADE_VAULT_HTTP` for http. |
+| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Path segments are URL-decoded. HTTP KV v2 only. `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from `vault login`. `VAULT_NAMESPACE` / `LADE_VAULT_NAMESPACE`. `LADE_VAULT_HTTP` for http. |
 | Passbolt      | `passbolt://DOMAIN/RESOURCE_ID/FIELD`                | Uses the Passbolt CLI.                              |
+| Bitwarden     | `bw://ITEM/FIELD`                                    | Uses the Bitwarden CLI. `BW_SESSION` after `bw unlock`. Field is `password` (default), `username`, `notes`, `totp`, or a custom field. Item is a name or UUID. One `bw list items` per resolve. |
 | AWS Secrets Manager | `awssm://REGION/NAME`                          | Optional `?query=`, `?version=`, `?version_stage=`. String secrets only. `AWS_PROFILE` / default SDK chain. |
-| Azure Key Vault | `azuresm://VAULT/NAME`                             | Optional `?query=`. Vault name or `vault.vault.azure.net` (also `.usgovcloudapi.net`, `.azure.cn`). One resolve cannot mix sovereign clouds without `AZURE_ACCESS_TOKEN`. `AZURE_ACCESS_TOKEN` / `LADE_AZURE_TOKEN` or Azure ADC. |
+| Azure Key Vault | `azurekv://VAULT/NAME`                             | Optional `?query=`. Vault name or `vault.vault.azure.net` (also `.usgovcloudapi.net`, `.azure.cn`). One resolve cannot mix sovereign clouds without `AZURE_ACCESS_TOKEN`. `AZURE_ACCESS_TOKEN` / `LADE_AZURE_TOKEN` or Azure ADC. |
 | GCP Secret Manager | `gcpsm://PROJECT/NAME`                          | Optional `?query=` and `?location=` for regional secrets. UTF-8 payloads. `GOOGLE_OAUTH_ACCESS_TOKEN` / `CLOUDSDK_AUTH_ACCESS_TOKEN` / `LADE_GCP_TOKEN` or ADC. |
 | age           | `age://CIPHERTEXT` · `?plugin=` · `?identity=`       | Path is the ciphertext. Query last. Same keys as SOPS: `plugin`, `identity`, `identity_file`. |
 | SOPS          | `sops://PATH` · `?query=.field` · `?plugin=`         | One decrypt per path + plugin + identity. No plugin: process env. `plugin` remaps named env vars into the SOPS child. |

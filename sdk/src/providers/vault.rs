@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
@@ -66,6 +69,30 @@ fn vault_scheme(extra_env: &HashMap<String, String>) -> &'static str {
     }
 }
 
+fn token_from_home(home: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(PathBuf::from(home).join(".vault-token")).ok()?;
+    let token = raw.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn vault_token(extra_env: &HashMap<String, String>) -> Option<String> {
+    for key in ["VAULT_TOKEN", "LADE_VAULT_TOKEN"] {
+        if let Some(value) = extra_env.get(key)
+            && !value.is_empty()
+        {
+            return Some(value.clone());
+        }
+    }
+    if let Some(home) = extra_env.get("HOME") {
+        return token_from_home(home);
+    }
+    env_lookup(extra_env, &["VAULT_TOKEN", "LADE_VAULT_TOKEN"]).or_else(|| {
+        std::env::var("HOME")
+            .ok()
+            .and_then(|home| token_from_home(&home))
+    })
+}
+
 async fn fetch_secret(
     client: &reqwest::Client,
     address: &str,
@@ -126,10 +153,11 @@ impl Provider for Vault {
         _: &Warnings,
     ) -> Result<Hydration> {
         let extra_env = extra_env.clone();
-        let token =
-            env_lookup(&extra_env, &["VAULT_TOKEN", "LADE_VAULT_TOKEN"]).ok_or_else(|| {
-                anyhow!("Vault token not set. Set VAULT_TOKEN or LADE_VAULT_TOKEN. See {DOCS}.")
-            })?;
+        let token = vault_token(&extra_env).ok_or_else(|| {
+            anyhow!(
+                "Vault token not set. Set VAULT_TOKEN or LADE_VAULT_TOKEN, or run vault login. See {DOCS}."
+            )
+        })?;
         let namespace = env_lookup(&extra_env, &["VAULT_NAMESPACE", "LADE_VAULT_NAMESPACE"]);
         let scheme = vault_scheme(&extra_env);
         let client = reqwest::Client::new();

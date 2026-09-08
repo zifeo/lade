@@ -23,17 +23,17 @@ const CLOUDS: &[(&str, &str)] = &[
 ];
 
 #[async_trait]
-pub(crate) trait AzureSmApi: Send + Sync {
+pub(crate) trait AzureKvApi: Send + Sync {
     async fn get(&self, vault_host: &str, name: &str) -> Result<String>;
 }
 
-struct RestAzureSm {
+struct RestAzureKv {
     token: String,
     client: reqwest::Client,
 }
 
 #[async_trait]
-impl AzureSmApi for RestAzureSm {
+impl AzureKvApi for RestAzureKv {
     async fn get(&self, vault_host: &str, name: &str) -> Result<String> {
         let url = format!("https://{vault_host}/secrets/{name}?api-version=7.4");
         let response = self
@@ -63,18 +63,18 @@ impl AzureSmApi for RestAzureSm {
 }
 
 #[derive(Default)]
-pub struct AzureSm {
+pub struct AzureKv {
     urls: FxHashMap<Url, String>,
-    api: Option<Arc<dyn AzureSmApi>>,
+    api: Option<Arc<dyn AzureKvApi>>,
 }
 
-impl AzureSm {
+impl AzureKv {
     pub fn new() -> Self {
         Default::default()
     }
 
     #[cfg(test)]
-    pub(crate) fn with_api(api: Arc<dyn AzureSmApi>) -> Self {
+    pub(crate) fn with_api(api: Arc<dyn AzureKvApi>) -> Self {
         Self {
             urls: FxHashMap::default(),
             api: Some(api),
@@ -89,7 +89,7 @@ fn vault_endpoint(host: &str) -> Result<(String, &'static str)> {
     for (suffix, scope) in CLOUDS {
         if let Some(name) = host.strip_suffix(suffix) {
             if name.is_empty() || name.contains('.') {
-                bail!("Azure Key Vault URI must be azuresm://<vault>/<name>");
+                bail!("Azure Key Vault URI must be azurekv://<vault>/<name>");
             }
             return Ok((format!("{name}{suffix}"), *scope));
         }
@@ -112,7 +112,7 @@ fn vault_and_name(url: &Url) -> Result<(String, String, &'static str)> {
         .map_err(|e| anyhow!("Azure Key Vault error: {e}"))?
         .into_owned();
     if name.is_empty() || name.contains('/') {
-        bail!("Azure Key Vault URI must be azuresm://<vault>/<name>");
+        bail!("Azure Key Vault URI must be azurekv://<vault>/<name>");
     }
     Ok((vault_host, name, scope))
 }
@@ -140,9 +140,9 @@ async fn token(extra_env: &HashMap<String, String>, scope: &str) -> Result<Strin
 }
 
 #[async_trait]
-impl Provider for AzureSm {
+impl Provider for AzureKv {
     fn add(&mut self, value: String) -> Result<()> {
-        add_url(&mut self.urls, value.clone(), "azuresm")?;
+        add_url(&mut self.urls, value.clone(), "azurekv")?;
         let url = Url::parse(&value)?;
         vault_and_name(&url)?;
         Ok(())
@@ -185,7 +185,7 @@ impl Provider for AzureSm {
                 .or_default()
                 .push((raw.clone(), query(url)));
         }
-        let api: Arc<dyn AzureSmApi> = if let Some(api) = &self.api {
+        let api: Arc<dyn AzureKvApi> = if let Some(api) = &self.api {
             Arc::clone(api)
         } else {
             let scope = scope_for_host
@@ -200,7 +200,7 @@ impl Provider for AzureSm {
                     "Azure Key Vault cannot mix sovereign clouds in one resolve without AZURE_ACCESS_TOKEN. See {DOCS}."
                 );
             }
-            Arc::new(RestAzureSm {
+            Arc::new(RestAzureKv {
                 token: token(extra_env, scope).await?,
                 client: reqwest::Client::new(),
             })

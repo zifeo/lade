@@ -90,14 +90,54 @@ async fn test_resolve_multiple_fields_same_key_one_call() {
 
 #[tokio::test]
 async fn test_resolve_missing_token() {
+    let home = tempfile::tempdir().unwrap();
     let mut p = Vault::new();
     p.add("vault://localhost/secret/myapp/password".to_string())
         .unwrap();
+    let extra = HashMap::from([("HOME".to_string(), home.path().display().to_string())]);
     let err = p
-        .resolve(Path::new("."), &HashMap::new(), &Warnings::default())
+        .resolve(Path::new("."), &extra, &Warnings::default())
         .await
         .unwrap_err();
     assert!(err.to_string().contains("VAULT_TOKEN"), "{err}");
+}
+
+#[tokio::test]
+async fn test_resolve_token_file() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join(".vault-token"), "file-token\n").unwrap();
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/secret/data/myapp")
+            .header("X-Vault-Token", "file-token");
+        then.status(200)
+            .json_body(serde_json::json!({"data":{"data":{"password":"from-file"}}}));
+    });
+    let mut p = Vault::new();
+    p.add(format!(
+        "vault://{}/secret/myapp/password",
+        server.address()
+    ))
+    .unwrap();
+    let extra = HashMap::from([
+        ("HOME".to_string(), home.path().display().to_string()),
+        ("LADE_VAULT_HTTP".to_string(), "1".to_string()),
+    ]);
+    let result = p
+        .resolve(Path::new("."), &extra, &Warnings::default())
+        .await
+        .unwrap();
+    mock.assert();
+    assert_eq!(
+        result
+            .get(&format!(
+                "vault://{}/secret/myapp/password",
+                server.address()
+            ))
+            .unwrap(),
+        "from-file"
+    );
 }
 
 #[tokio::test]

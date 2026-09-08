@@ -11,6 +11,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Added
 
+- **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
+  `bw list items` per resolve. `password` is the default field.
 - **age plugin**: Cargo builds `lade` and `age-plugin-lade` from the
   same `main`. The release tarball, installer, image, and
   `cargo install` ship both files. `lade upgrade` copies the new
@@ -20,6 +22,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   and post-quantum `age1tagpq1` recipients). `lade eval` and the
   plugin write an `access` diary row (URI only, never the value).
 
+### Changed
+
+- Azure Key Vault URIs use `azurekv://`.
+- Infisical hydrates through the Infisical CLI again, so a desktop
+  `infisical login` is enough. A token still works when the CLI sees it.
+
 ### Fixed
 
 - **Installer during a release**: GitHub `latest` stays on the previous
@@ -28,6 +36,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **Diary first open**: two processes creating `events.db` no longer
   drop a row when the loser sees a half-finished schema. `open`
   retries while the peer is still migrating. Busy wait stays 250ms.
+- **Vault login file**: HTTP Vault reads `~/.vault-token` when
+  `VAULT_TOKEN` and `LADE_VAULT_TOKEN` are unset.
 
 ## [0.18.0] - 2026-09-07
 

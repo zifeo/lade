@@ -17,7 +17,6 @@ const FORBIDDEN: &[&str] = &[
     "hyper-tls",
     "native-tls",
     "openssl",
-    "openssl-probe",
     "openssl-sys",
     "tokio-native-tls",
 ];
@@ -41,7 +40,7 @@ fn runtime_graph_stays_on_one_rustls_stack() {
         .collect();
     assert!(
         extra.is_empty(),
-        "forbidden runtime TLS/OpenSSL crates: {extra:?}. Azure must keep enable_reqwest_rustls only. AWS must not enable the secretsmanager `rustls` feature (legacy 0.21 stack)."
+        "forbidden runtime TLS/OpenSSL crates: {extra:?}. rustls-native-certs may pull openssl-probe on Linux to find the CA bundle. That is not a second TLS stack. Azure must keep enable_reqwest_rustls only. AWS must not enable the secretsmanager `rustls` feature (legacy 0.21 stack)."
     );
 
     let rustls = pkgs.get("rustls").map(Vec::as_slice).unwrap_or(&[]);

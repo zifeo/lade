@@ -2,16 +2,16 @@ use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
+use log::debug;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
+use tempfile::tempdir;
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, env_lookup, host_with_port};
-
-const DOCS: &str = "https://infisical.com/docs/api-reference/overview/introduction";
+use super::{Provider, Transport, Warnings, add_url, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Infisical {
@@ -25,29 +25,9 @@ impl Infisical {
 }
 
 #[derive(Deserialize)]
-struct InfisicalSecret {
-    #[serde(default)]
-    key: Option<String>,
-    #[serde(default)]
-    value: Option<String>,
-    #[serde(alias = "secretKey", default)]
-    secret_key: Option<String>,
-    #[serde(alias = "secretValue", default)]
-    secret_value: Option<String>,
-}
-
-impl InfisicalSecret {
-    fn pair(self) -> Option<(String, String)> {
-        let key = self.secret_key.or(self.key)?;
-        let value = self.secret_value.or(self.value)?;
-        Some((key, value))
-    }
-}
-
-#[derive(Deserialize)]
-struct InfisicalList {
-    #[serde(default)]
-    secrets: Vec<InfisicalSecret>,
+struct InfisicalExport {
+    key: String,
+    value: String,
 }
 
 fn decode_seg(raw: &str) -> Result<String> {
@@ -72,60 +52,9 @@ fn secret_path_and_var(url: &Url) -> Result<(String, String)> {
             .collect::<Result<Vec<_>>>()?;
         format!("/{}", folders.join("/"))
     } else {
-        "/".to_string()
+        String::new()
     };
     Ok((path, variable))
-}
-
-async fn export_path(
-    client: &reqwest::Client,
-    host: &str,
-    token: &str,
-    project: &str,
-    env: &str,
-    path: &str,
-    extra_env: &HashMap<String, String>,
-) -> Result<HashMap<String, String>> {
-    let domain = if host.starts_with("http://") || host.starts_with("https://") {
-        host.to_string()
-    } else if extra_http(host, extra_env) {
-        format!("http://{host}")
-    } else {
-        format!("https://{host}")
-    };
-    let url = format!("{domain}/api/v3/secrets/raw");
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {token}"))
-        .query(&[
-            ("workspaceId", project),
-            ("environment", env),
-            ("secretPath", path),
-        ])
-        .send()
-        .await
-        .map_err(|e| anyhow!("Infisical error: {e}"))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| anyhow!("Infisical error: {e}"))?;
-    if !status.is_success() {
-        bail!("Infisical error: {status} {body}. See {DOCS}.");
-    }
-    if let Ok(list) = serde_json::from_str::<InfisicalList>(&body) {
-        return Ok(list.secrets.into_iter().filter_map(|s| s.pair()).collect());
-    }
-    let rows: Vec<InfisicalSecret> =
-        serde_json::from_str(&body).map_err(|e| anyhow!("Infisical error: {e} ({body})"))?;
-    Ok(rows.into_iter().filter_map(|s| s.pair()).collect())
-}
-
-fn extra_http(host: &str, extra_env: &HashMap<String, String>) -> bool {
-    extra_env.contains_key("LADE_INFISICAL_HTTP")
-        || std::env::var("LADE_INFISICAL_HTTP").is_ok()
-        || host.starts_with("127.0.0.1")
-        || host.starts_with("localhost")
 }
 
 #[async_trait]
@@ -142,11 +71,11 @@ impl Provider for Infisical {
     }
 
     fn install_url(&self) -> &'static str {
-        DOCS
+        "https://infisical.com/docs/cli/overview"
     }
 
     fn transport(&self) -> Transport {
-        Transport::Sdk
+        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {
@@ -163,16 +92,9 @@ impl Provider for Infisical {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let token = env_lookup(
-            extra_env,
-            &["INFISICAL_TOKEN", "INFISICAL_API_TOKEN", "LADE_INFISICAL_TOKEN"],
-        )
-        .ok_or_else(|| {
-            anyhow!(
-                "Infisical token not set. Set INFISICAL_TOKEN, INFISICAL_API_TOKEN, or LADE_INFISICAL_TOKEN. See {DOCS}."
-            )
-        })?;
-        let client = reqwest::Client::new();
+        let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let fetches = self
             .urls
             .iter()
@@ -201,10 +123,8 @@ impl Provider for Infisical {
                                     })
                                     .collect::<Result<Vec<_>>>();
                                 let host = host.clone();
+                                let extra_env = Arc::clone(&extra_env);
                                 let project = project.clone();
-                                let token = token.clone();
-                                let client = client.clone();
-                                let extra_env = extra_env.clone();
                                 async move {
                                     let prepared = prepared?;
                                     let path_groups = prepared
@@ -220,52 +140,101 @@ impl Provider for Infisical {
                                             )
                                         })
                                         .collect::<HashMap<_, _>>();
-                                    let path_futures = path_groups.into_iter().map(
-                                        |(path, variables)| {
-                                            let host = host.clone();
-                                            let project = project.clone();
-                                            let env = env.clone();
-                                            let token = token.clone();
-                                            let client = client.clone();
-                                            let extra_env = extra_env.clone();
-                                            async move {
-                                                let loaded = export_path(
-                                                    &client,
-                                                    &host,
-                                                    &token,
-                                                    &project,
-                                                    &env,
-                                                    &path,
-                                                    &extra_env,
-                                                )
-                                                .await?;
-                                                let mut missing_vars = Vec::new();
-                                                let mut partial = Hydration::default();
-                                                for (var_name, original_url) in variables {
-                                                    if let Some(value) = loaded.get(&var_name) {
-                                                        partial
-                                                            .insert(original_url, value.clone());
-                                                    } else {
-                                                        missing_vars.push(var_name);
-                                                    }
+
+                                    let temp_dir = tempdir()?;
+                                    let config =
+                                        HashMap::from([("workspaceId", project.as_str()), ("defaultEnvironment", "")]);
+                                    let config_path = temp_dir.path().join(".infisical.json");
+                                    let mut file = File::create(config_path)?;
+                                    write!(file, "{}", serde_json::to_string(&config)?)?;
+                                    drop(file);
+
+                                    let temp_dir_path = Arc::new(temp_dir.path().to_path_buf());
+                                    let path_futures = path_groups.into_iter().map(|(path, variables)| {
+                                        let host = host.clone();
+                                        let extra_env = Arc::clone(&extra_env);
+                                        let temp_dir_path = Arc::clone(&temp_dir_path);
+                                        let project = project.clone();
+                                        let env = env.clone();
+                                        async move {
+                                            let domain = format!("https://{host}/api");
+                                            let path_arg = if path.is_empty() {
+                                                "/".to_string()
+                                            } else {
+                                                path.clone()
+                                            };
+                                            let cmd = [
+                                                "infisical",
+                                                "--domain",
+                                                &domain,
+                                                "export",
+                                                "--path",
+                                                &path_arg,
+                                                "--env",
+                                                &env,
+                                                "--projectId",
+                                                &project,
+                                                "--format",
+                                                "json",
+                                            ];
+                                            let child = run_cli(
+                                                &cmd,
+                                                &extra_env,
+                                                name,
+                                                install_url,
+                                                Some(&temp_dir_path),
+                                            )
+                                            .await?;
+                                            let loaded =
+                                                serde_json::from_slice::<Vec<InfisicalExport>>(&child.stdout)
+                                                    .map_err(|err| {
+                                                        let stderr = String::from_utf8_lossy(&child.stderr);
+                                                        if stderr.contains("login expired") {
+                                                            anyhow!(
+                                                                "Login expired for Infisical instance {host}: {stderr}"
+                                                            )
+                                                        } else if stderr.contains("unable to validate environment") {
+                                                            anyhow!(
+                                                                "Workspace seems not accessible from logged account on {host}: {stderr}"
+                                                            )
+                                                        } else {
+                                                            anyhow!("Infisical error: {err} (stderr: {stderr})")
+                                                        }
+                                                    })?
+                                                    .into_iter()
+                                                    .map(|e| (e.key, e.value))
+                                                    .collect::<Vec<_>>();
+
+                                            let mut missing_vars = Vec::new();
+                                            let mut partial = Hydration::default();
+                                            for (var_name, original_url) in variables {
+                                                if let Some((_, value)) =
+                                                    loaded.iter().find(|(key, _)| key == &var_name)
+                                                {
+                                                    partial.insert(original_url, value.clone());
+                                                } else {
+                                                    missing_vars.push(var_name);
                                                 }
-                                                if !missing_vars.is_empty() {
-                                                    bail!(
-                                                        "Variables {} not found in path {} of Infisical project {}",
-                                                        missing_vars.join(", "),
-                                                        path,
-                                                        project
-                                                    );
-                                                }
-                                                Ok(partial)
                                             }
-                                        },
-                                    );
+                                            if !missing_vars.is_empty() {
+                                                bail!(
+                                                    "Variables {} not found in path {} of Infisical project {}",
+                                                    missing_vars.join(", "),
+                                                    path,
+                                                    project
+                                                );
+                                            }
+                                            Ok(partial)
+                                        }
+                                    });
+
                                     let hydration: Hydration = try_join_all(path_futures)
                                         .await?
                                         .into_iter()
                                         .flatten()
                                         .collect();
+                                    temp_dir.close()?;
+                                    debug!("hydration: {:?}", hydration);
                                     Ok::<_, anyhow::Error>(hydration)
                                 }
                             })

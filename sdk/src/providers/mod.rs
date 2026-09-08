@@ -32,7 +32,8 @@ impl Warnings {
 }
 mod age;
 mod awssm;
-mod azuresm;
+mod azurekv;
+mod bw;
 mod doppler;
 mod file;
 mod gcpsm;
@@ -104,7 +105,8 @@ impl Providers {
         by_scheme.insert("passbolt", Box::new(passbolt::Passbolt::new()));
         by_scheme.insert("file", Box::new(file::File::new()));
         by_scheme.insert("awssm", Box::new(awssm::AwsSm::new()));
-        by_scheme.insert("azuresm", Box::new(azuresm::AzureSm::new()));
+        by_scheme.insert("azurekv", Box::new(azurekv::AzureKv::new()));
+        by_scheme.insert("bw", Box::new(bw::Bitwarden::new()));
         by_scheme.insert("gcpsm", Box::new(gcpsm::GcpSm::new()));
         by_scheme.insert("age", Box::new(age::Age::new()));
         by_scheme.insert("sops", Box::new(sops::Sops::new()));

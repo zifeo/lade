@@ -50,6 +50,8 @@ fn test_all_supported_schemes_includes_secret_and_network() {
     assert!(schemes.contains(&"op".to_string()));
     assert!(schemes.contains(&"vault".to_string()));
     assert!(schemes.contains(&"awssm".to_string()));
+    assert!(schemes.contains(&"azurekv".to_string()));
+    assert!(schemes.contains(&"bw".to_string()));
     assert!(schemes.contains(&"age".to_string()));
     assert!(schemes.contains(&"sops".to_string()));
     assert!(schemes.contains(&"kubectl".to_string()));

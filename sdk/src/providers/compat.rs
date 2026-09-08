@@ -39,6 +39,18 @@ pub static CLI_SPECS: &[CliSpec] = &[
         version_args: &["--version"],
         min_version: "3.8.0",
     },
+    CliSpec {
+        scheme: "infisical",
+        bin: "infisical",
+        version_args: &["--version"],
+        min_version: "0.4.0",
+    },
+    CliSpec {
+        scheme: "bw",
+        bin: "bw",
+        version_args: &["--version"],
+        min_version: "2023.1.0",
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -112,9 +112,15 @@ fn test_dispatch_sops() {
 }
 
 #[test]
-fn test_dispatch_azuresm() {
-    assert!(has_work_for("azuresm", "azuresm://eng/db"));
-    assert!(!fallback_has_work("azuresm://eng/db"));
+fn test_dispatch_azurekv() {
+    assert!(has_work_for("azurekv", "azurekv://eng/db"));
+    assert!(!fallback_has_work("azurekv://eng/db"));
+}
+
+#[test]
+fn test_dispatch_bw() {
+    assert!(has_work_for("bw", "bw://github/password"));
+    assert!(!fallback_has_work("bw://github/password"));
 }
 
 #[test]
