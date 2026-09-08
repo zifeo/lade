@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, deserialize_output, host_with_port, run_cli};
+use super::{Provider, Transport, Warnings, add_url, deserialize_output, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Doppler {
@@ -42,6 +42,14 @@ impl Provider for Doppler {
 
     fn install_url(&self) -> &'static str {
         "https://docs.doppler.com/docs/install-cli"
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Cli
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "(host, project, env)"
     }
 
     fn has_work(&self) -> bool {
@@ -190,10 +198,14 @@ mod tests {
     #[cfg(unix)]
     async fn test_resolve_multiple_vars_same_project() {
         let fake_bin = tempdir().unwrap();
+        let calls = fake_bin.path().join("calls");
         fake_cli(
             &fake_bin,
             "doppler",
-            r#"echo '{"KEY1":{"computed":"val1"},"KEY2":{"computed":"val2"}}'"#,
+            &format!(
+                "echo x >> '{}'; echo '{{\"KEY1\":{{\"computed\":\"val1\"}},\"KEY2\":{{\"computed\":\"val2\"}}}}'",
+                calls.display()
+            ),
         );
         let mut p = Doppler::new();
         p.add("doppler://api.doppler.com/myproject/dev/KEY1".to_string())
@@ -216,6 +228,8 @@ mod tests {
                 .unwrap(),
             "val2"
         );
+        let calls = std::fs::read_to_string(fake_bin.path().join("calls")).unwrap();
+        assert_eq!(calls.matches('x').count(), 1);
     }
 
     #[tokio::test]

@@ -38,8 +38,9 @@
 
 ^echo e:
   # export VAULT_TOKEN=token
-  # vault kv put -address=http://127.0.0.1:8200 -mount=secret password value1=itsasecret value2=itsanotsecret multiline="a\nb"
-  # vault kv put -address=http://127.0.0.1:8200 -mount=secret org/team value=secret
+  # curl -H "X-Vault-Token: token" -H "Content-Type: application/json" -X POST \
+  #   http://127.0.0.1:8200/v1/secret/data/password \
+  #   --data '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\\nb"}}'
   E1: vault://127.0.0.1:8200/secret/password/value1
   E2: vault://127.0.0.1:8200/secret/password/value2
   E3: vault://127.0.0.1:8200/secret/org%2Fteam/value

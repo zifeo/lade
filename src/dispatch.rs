@@ -199,6 +199,6 @@ fn report_inject_error(e: &anyhow::Error) {
         .line("")
         .paragraph(e.to_string())
         .line("")
-        .line("Check the provider URI and that the vault CLI is installed.")
+        .line("Check the provider URI, token, or CLI.")
         .print_stderr();
 }

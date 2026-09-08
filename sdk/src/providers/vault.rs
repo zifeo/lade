@@ -1,16 +1,21 @@
-use anyhow::{Ok, Result};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use log::debug;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path, sync::Arc};
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, deserialize_output, host_with_port, run_cli};
+use super::{Provider, Transport, Warnings, add_url, env_lookup, host_with_port};
+
+const DOCS: &str = "https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2";
 
 #[derive(Default)]
 pub struct Vault {
@@ -33,6 +38,88 @@ struct VaultExport {
     data: VaultGetKVData,
 }
 
+fn path_parts(url: &Url) -> Result<(String, String, String)> {
+    let mount = url
+        .path()
+        .split('/')
+        .nth(1)
+        .ok_or_else(|| anyhow!("Vault URI missing mount"))?;
+    let key = url
+        .path()
+        .split('/')
+        .nth(2)
+        .ok_or_else(|| anyhow!("Vault URI missing key"))?;
+    let field = url
+        .path()
+        .split('/')
+        .nth(3)
+        .ok_or_else(|| anyhow!("Vault URI missing field"))?;
+    Ok((
+        urlencoding::decode(mount)?.into_owned(),
+        urlencoding::decode(key)?.into_owned(),
+        urlencoding::decode(field)?.into_owned(),
+    ))
+}
+
+fn vault_scheme(extra_env: &HashMap<String, String>) -> &'static str {
+    if extra_env.contains_key("LADE_VAULT_HTTP") || std::env::var("LADE_VAULT_HTTP").is_ok() {
+        "http"
+    } else {
+        "https"
+    }
+}
+
+fn token_from_home(home: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(PathBuf::from(home).join(".vault-token")).ok()?;
+    let token = raw.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn vault_token(extra_env: &HashMap<String, String>) -> Option<String> {
+    for key in ["VAULT_TOKEN", "LADE_VAULT_TOKEN"] {
+        if let Some(value) = extra_env.get(key)
+            && !value.is_empty()
+        {
+            return Some(value.clone());
+        }
+    }
+    if let Some(home) = extra_env.get("HOME") {
+        return token_from_home(home);
+    }
+    env_lookup(extra_env, &["VAULT_TOKEN", "LADE_VAULT_TOKEN"]).or_else(|| {
+        std::env::var("HOME")
+            .ok()
+            .and_then(|home| token_from_home(&home))
+    })
+}
+
+async fn fetch_secret(
+    client: &reqwest::Client,
+    address: &str,
+    token: &str,
+    namespace: Option<&str>,
+    mount: &str,
+    key: &str,
+) -> Result<HashMap<String, String>> {
+    let url = format!("{address}/v1/{mount}/data/{key}");
+    let mut req = client.get(&url).header("X-Vault-Token", token);
+    if let Some(namespace) = namespace {
+        req = req.header("X-Vault-Namespace", namespace);
+    }
+    let response = req.send().await.map_err(|e| anyhow!("Vault error: {e}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| anyhow!("Vault error: {e}"))?;
+    if !status.is_success() {
+        bail!("Vault error: {status} {body}");
+    }
+    let loaded: VaultExport =
+        serde_json::from_str(&body).map_err(|e| anyhow!("Vault error: {e}"))?;
+    Ok(loaded.data.data)
+}
+
 #[async_trait]
 impl Provider for Vault {
     fn add(&mut self, value: String) -> Result<()> {
@@ -44,7 +131,15 @@ impl Provider for Vault {
     }
 
     fn install_url(&self) -> &'static str {
-        "https://developer.hashicorp.com/vault/docs/commands"
+        DOCS
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Sdk
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "(host, mount, key)"
     }
 
     fn has_work(&self) -> bool {
@@ -57,9 +152,16 @@ impl Provider for Vault {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
-        let name = self.name();
-        let install_url = self.install_url();
+        let extra_env = extra_env.clone();
+        let token = vault_token(&extra_env).ok_or_else(|| {
+            anyhow!(
+                "Vault token not set. Set VAULT_TOKEN or LADE_VAULT_TOKEN, or run vault login. See {DOCS}."
+            )
+        })?;
+        let namespace = env_lookup(&extra_env, &["VAULT_NAMESPACE", "LADE_VAULT_NAMESPACE"]);
+        let scheme = vault_scheme(&extra_env);
+        let client = reqwest::Client::new();
+
         let fetches = self
             .urls
             .iter()
@@ -69,69 +171,48 @@ impl Provider for Vault {
                 group
                     .into_iter()
                     .into_group_map_by(|(url, _)| {
-                        url.path().split('/').nth(1).expect("Missing project")
+                        url.path().split('/').nth(1).unwrap_or("").to_string()
                     })
                     .into_iter()
                     .flat_map(|(mount, group)| {
                         group
                             .into_iter()
                             .into_group_map_by(|(url, _)| {
-                                url.path().split('/').nth(2).expect("Missing env")
+                                url.path().split('/').nth(2).unwrap_or("").to_string()
                             })
                             .into_iter()
                             .map(|(key, group)| {
                                 let host = host.clone();
-                                let extra_env = Arc::clone(&extra_env);
+                                let mount = mount.clone();
+                                let token = token.clone();
+                                let namespace = namespace.clone();
+                                let client = client.clone();
                                 async move {
-                                    let scheme = if std::env::var("LADE_VAULT_HTTP").is_ok() {
-                                        "http"
-                                    } else {
-                                        "https"
-                                    };
-                                    let address_flag = format!("-address={}://{}", scheme, host);
-                                    let cmd = [
-                                        "vault",
-                                        "kv",
-                                        "get",
-                                        &address_flag,
-                                        &format!("-mount={}", mount),
-                                        "-format=json",
-                                        &urlencoding::decode(key)
-                                            .expect("Invalid URL key decoding"),
-                                    ];
-                                    debug!("Lade run: {}", cmd.join(" "));
-                                    let child =
-                                        run_cli(&cmd, &extra_env, name, install_url, None).await?;
-                                    let loaded: VaultExport = deserialize_output(&child, name)?;
-                                    let loaded = loaded.data.data;
-                                    let hydration = group
-                                        .into_iter()
-                                        .map(|(url, value)| {
-                                            let var = url
-                                                .path()
-                                                .split('/')
-                                                .nth(3)
-                                                .expect("Missing variable");
-                                            (
-                                                value.clone(),
-                                                loaded
-                                                    .get(
-                                                        urlencoding::decode(var)
-                                                            .expect("Invalid URL field decoding")
-                                                            .as_ref(),
-                                                    )
-                                                    .unwrap_or_else(|| {
-                                                        panic!(
-                                                            "Variable not found in Vault: {}",
-                                                            key
-                                                        )
-                                                    })
-                                                    .clone(),
-                                            )
-                                        })
-                                        .collect::<Hydration>();
-                                    debug!("hydration: {:?}", hydration);
-                                    Ok(hydration)
+                                    let address = format!("{scheme}://{host}");
+                                    let mount = urlencoding::decode(&mount)
+                                        .map_err(|e| anyhow!("Vault error: {e}"))?
+                                        .into_owned();
+                                    let key = urlencoding::decode(&key)
+                                        .map_err(|e| anyhow!("Vault error: {e}"))?
+                                        .into_owned();
+                                    let loaded = fetch_secret(
+                                        &client,
+                                        &address,
+                                        &token,
+                                        namespace.as_deref(),
+                                        &mount,
+                                        &key,
+                                    )
+                                    .await?;
+                                    let mut hydration = Hydration::default();
+                                    for (url, value) in group {
+                                        let (_, _, field) = path_parts(url)?;
+                                        let secret = loaded.get(&field).ok_or_else(|| {
+                                            anyhow!("Variable not found in Vault: {field}")
+                                        })?;
+                                        hydration.insert(value.clone(), secret.clone());
+                                    }
+                                    Ok::<_, anyhow::Error>(hydration)
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -145,115 +226,4 @@ impl Provider for Vault {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::providers::fake_cli;
-    use std::path::Path;
-    use tempfile::tempdir;
-
-    fn path_env(dir: &tempfile::TempDir) -> HashMap<String, String> {
-        HashMap::from([(
-            "PATH".to_string(),
-            dir.path().to_string_lossy().into_owned(),
-        )])
-    }
-
-    #[test]
-    fn test_add_routing() {
-        let mut p = Vault::new();
-        assert!(
-            p.add("vault://localhost/secret/myapp/password".to_string())
-                .is_ok()
-        );
-        assert!(p.add("doppler://host/proj/env/VAR".to_string()).is_err());
-        assert!(p.add("plainvalue".to_string()).is_err());
-    }
-
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn test_resolve_single_field() {
-        let fake_bin = tempdir().unwrap();
-        fake_cli(
-            &fake_bin,
-            "vault",
-            r#"echo '{"data":{"data":{"password":"s3cret"}}}'"#,
-        );
-        let mut p = Vault::new();
-        p.add("vault://localhost/secret/myapp/password".to_string())
-            .unwrap();
-        let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
-            .await
-            .unwrap();
-        assert_eq!(
-            result
-                .get("vault://localhost/secret/myapp/password")
-                .unwrap(),
-            "s3cret"
-        );
-    }
-
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn test_resolve_multiple_fields_same_key() {
-        let fake_bin = tempdir().unwrap();
-        fake_cli(
-            &fake_bin,
-            "vault",
-            r#"echo '{"data":{"data":{"password":"s3cret","api_key":"key123"}}}'"#,
-        );
-        let mut p = Vault::new();
-        p.add("vault://localhost/secret/myapp/password".to_string())
-            .unwrap();
-        p.add("vault://localhost/secret/myapp/api_key".to_string())
-            .unwrap();
-        let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
-            .await
-            .unwrap();
-        assert_eq!(
-            result
-                .get("vault://localhost/secret/myapp/password")
-                .unwrap(),
-            "s3cret"
-        );
-        assert_eq!(
-            result
-                .get("vault://localhost/secret/myapp/api_key")
-                .unwrap(),
-            "key123"
-        );
-    }
-
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn test_resolve_cli_not_found() {
-        let empty_bin = tempdir().unwrap();
-        let mut p = Vault::new();
-        p.add("vault://localhost/secret/myapp/password".to_string())
-            .unwrap();
-        let result = p
-            .resolve(Path::new("."), &path_env(&empty_bin), &Warnings::default())
-            .await;
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Vault CLI not found")
-        );
-    }
-
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn test_resolve_malformed_json_error() {
-        let fake_bin = tempdir().unwrap();
-        fake_cli(&fake_bin, "vault", "echo 'not valid json'");
-        let mut p = Vault::new();
-        p.add("vault://localhost/secret/myapp/password".to_string())
-            .unwrap();
-        let result = p
-            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
-            .await;
-        assert!(result.unwrap_err().to_string().contains("Vault error"));
-    }
-}
+mod tests;

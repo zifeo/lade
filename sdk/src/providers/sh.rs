@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 
-use super::{Provider, Warnings, run_cli};
+use super::{Provider, Transport, Warnings, run_cli};
 use crate::Hydration;
 
 pub struct Shell {
@@ -55,6 +55,14 @@ impl Provider for Shell {
 
     fn install_url(&self) -> &'static str {
         self.install_url
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Cli
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "command"
     }
 
     fn has_work(&self) -> bool {

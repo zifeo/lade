@@ -13,7 +13,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url};
+use super::{Provider, Transport, Warnings, add_url};
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
@@ -115,6 +115,14 @@ impl Provider for OnePassword {
 
     fn install_url(&self) -> &'static str {
         "https://1password.com/downloads/command-line/"
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Cli
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "account"
     }
 
     fn has_work(&self) -> bool {

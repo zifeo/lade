@@ -6,7 +6,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use rusqlite_migration::{M, Migrations};
 use serde_json::{Value, json};
 
-use super::{BUSY_MS, EVENTS_AGENT_DDL, EVENTS_ARGV_DDL, EVENTS_DDL, Event, LogInfo, db_path};
+use super::{
+    BUSY_MS, EVENTS_AGENT_DDL, EVENTS_ARGV_DDL, EVENTS_DDL, Event, LogInfo, OPEN_ATTEMPTS,
+    OPEN_RETRY_MS, db_path,
+};
 
 fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -20,12 +23,19 @@ fn map_migrate_err(err: rusqlite_migration::Error) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(err.to_string())))
 }
 
-pub fn open() -> rusqlite::Result<Connection> {
-    let path = db_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+fn is_open_race(err: &rusqlite::Error) -> bool {
+    match err {
+        rusqlite::Error::SqliteFailure(e, _) => matches!(
+            e.code,
+            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+        ),
+        rusqlite::Error::ToSqlConversionFailure(_) => true,
+        _ => false,
     }
-    let mut conn = Connection::open(&path)?;
+}
+
+fn open_once(path: &std::path::Path) -> rusqlite::Result<Connection> {
+    let mut conn = Connection::open(path)?;
     conn.busy_timeout(Duration::from_millis(BUSY_MS))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
@@ -38,6 +48,23 @@ pub fn open() -> rusqlite::Result<Connection> {
         }
     }
     Ok(conn)
+}
+
+pub fn open() -> rusqlite::Result<Connection> {
+    let path = db_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    for attempt in 0..OPEN_ATTEMPTS {
+        match open_once(&path) {
+            Ok(conn) => return Ok(conn),
+            Err(err) if attempt + 1 < OPEN_ATTEMPTS && is_open_race(&err) => {
+                std::thread::sleep(Duration::from_millis(OPEN_RETRY_MS));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("OPEN_ATTEMPTS is not zero")
 }
 
 pub fn query(

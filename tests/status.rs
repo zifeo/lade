@@ -68,6 +68,14 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert_eq!(value["log"]["bytes"], 0);
     assert!(!home.path().join("events.db").is_file());
     assert!(value["project_config"]["error"].is_null());
+    assert!(value["project_config"].get("vault_clis").is_some());
+    assert!(value["project_config"].get("providers").is_some());
+    assert!(
+        value["project_config"]["providers"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert!(value["version"]["latest"].is_null());
     assert_eq!(value["version"]["update_available"], false);
     assert!(
@@ -76,6 +84,31 @@ fn test_status_json_is_valid_with_expected_keys() {
             .unwrap()
             .starts_with("2099-01-01")
     );
+}
+
+#[test]
+fn test_status_json_reports_sdk_provider_batch_unit() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: awssm://us-east-1/app/db\n",
+    )
+    .unwrap();
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["status", "--json"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).expect("status --json must emit valid JSON");
+    let providers = value["project_config"]["providers"].as_array().unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0]["scheme"], "awssm");
+    assert_eq!(providers[0]["transport"], "sdk");
+    assert_eq!(providers[0]["batch_unit"], "(region, name)");
 }
 
 #[test]

@@ -8,10 +8,13 @@ use crate::global_config::GlobalConfig;
 use crate::pretool;
 use crate::shell::{self, preexec_installed};
 use crate::upgrade;
+use lade_sdk::Transport;
+use lade_sdk::compat::spec_for;
+use lade_sdk::network::is_network_scheme;
 
 use super::{
-    CliWarning, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, StatusReport, VaultClis,
-    VersionInfo,
+    CliWarning, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
+    StatusReport, VaultClis, VersionInfo,
 };
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
@@ -100,13 +103,20 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                     install_url: w.install_url,
                 })
                 .collect();
+            let providers = provider_info(&schemes);
+            let cli_checked: Vec<String> = schemes
+                .iter()
+                .filter(|scheme| spec_for(scheme).is_some() || is_network_scheme(scheme))
+                .cloned()
+                .collect();
             ProjectConfig {
                 rule_count: config.rule_count(),
                 error: None,
                 vault_clis: VaultClis {
-                    checked: schemes,
+                    checked: cli_checked,
                     warnings,
                 },
+                providers,
             }
         }
         Err(e) => ProjectConfig {
@@ -116,6 +126,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 checked: vec![],
                 warnings: vec![],
             },
+            providers: vec![],
         },
     };
 
@@ -134,6 +145,29 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         log: event::info(),
         ok,
     })
+}
+
+fn provider_info(schemes: &[String]) -> Vec<ProviderInfo> {
+    let providers = lade_sdk::Providers::new();
+    let mut out: Vec<ProviderInfo> = schemes
+        .iter()
+        .filter_map(|scheme| {
+            let provider = providers.provider(scheme)?;
+            let (transport, version) = match provider.transport() {
+                Transport::Sdk => ("sdk".to_string(), Some(lade_sdk::VERSION.to_string())),
+                Transport::Cli => ("cli".to_string(), None),
+            };
+            Some(ProviderInfo {
+                scheme: scheme.clone(),
+                name: provider.name().to_string(),
+                transport,
+                batch_unit: provider.batch_unit().to_string(),
+                version,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a.scheme.cmp(&b.scheme));
+    out
 }
 
 fn inject_startup_skipped(shell: &shell::Shell) -> Option<String> {

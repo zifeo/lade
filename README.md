@@ -14,7 +14,13 @@ Lade (/leɪd/) on [Fish](https://fishshell.com),
 macOS and Linux. Secrets from [1Password CLI](https://1password.com/downloads/command-line/),
 [Infisical](https://infisical.com), [Doppler](https://www.doppler.com),
 [Vault](https://github.com/hashicorp/vault),
-[Passbolt](https://www.passbolt.com), files, shell commands, or inline values.
+[Passbolt](https://www.passbolt.com),
+[Bitwarden](https://bitwarden.com/help/cli/),
+[AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/),
+[Azure Key Vault](https://learn.microsoft.com/azure/key-vault/),
+[GCP Secret Manager](https://cloud.google.com/secret-manager),
+[age](https://github.com/FiloSottile/age), [SOPS](https://github.com/getsops/sops),
+files, shell commands, or inline values.
 Forwards through `kubectl`, `kubefwd`, Teleport `tsh`, or SSH, only while the
 command runs. Also CI, Cursor, Claude Code, Codex, and OpenCode.
 
@@ -446,19 +452,27 @@ Lade has two provider families used from the same `lade.yml` rule:
   TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-Most secret providers call their CLI. Authenticate it first. Provider-resolved
-values are masked unless `--no-mask` is set. Inline values are not masked:
-they are already visible in `lade.yml`.
+Secret providers use an HTTP or cloud SDK when that keeps the same batch.
+CLI stays when there is no API, or when the CLI is the only one-call export.
+Authenticate the token or CLI first. Provider-resolved values are masked
+unless `--no-mask` is set. Inline values are not masked: they are already
+visible in `lade.yml`.
 
 Supported secret providers:
 
 | Provider      | URI                                                  | Notes                                               |
 | ------------- | ---------------------------------------------------- | --------------------------------------------------- |
 | 1Password     | `op://DOMAIN/VAULT/ITEM/FIELD`                       | Optional section: `op://DOMAIN/VAULT/ITEM/SECTION/FIELD`. Uses the 1Password CLI. |
-| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested secret names are allowed in the last path segment. The `/api` suffix is added automatically. |
+| Infisical     | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested folders before the name. Uses the Infisical CLI (`infisical login` or `INFISICAL_TOKEN`). |
 | Doppler       | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Uses the Doppler CLI.                               |
-| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Path segments are URL-decoded. Uses the Vault CLI.  |
+| Vault         | `vault://DOMAIN/MOUNT/KEY/FIELD`                     | Path segments are URL-decoded. HTTP KV v2 only. `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from `vault login`. `VAULT_NAMESPACE` / `LADE_VAULT_NAMESPACE`. `LADE_VAULT_HTTP` for http. |
 | Passbolt      | `passbolt://DOMAIN/RESOURCE_ID/FIELD`                | Uses the Passbolt CLI.                              |
+| Bitwarden     | `bw://ITEM/FIELD`                                    | Uses the Bitwarden CLI. `BW_SESSION` after `bw unlock`. Field is `password` (default), `username`, `notes`, `totp`, or a custom field. Item is a name or UUID. One `bw list items` per resolve. |
+| AWS Secrets Manager | `awssm://REGION/NAME`                          | Optional `?query=`, `?version=`, `?version_stage=`. String secrets only. `AWS_PROFILE` / default SDK chain. |
+| Azure Key Vault | `azurekv://VAULT/NAME`                             | Optional `?query=`. Vault name or `vault.vault.azure.net` (also `.usgovcloudapi.net`, `.azure.cn`). One resolve cannot mix sovereign clouds without `AZURE_ACCESS_TOKEN`. `AZURE_ACCESS_TOKEN` / `LADE_AZURE_TOKEN` or Azure ADC. |
+| GCP Secret Manager | `gcpsm://PROJECT/NAME`                          | Optional `?query=` and `?location=` for regional secrets. UTF-8 payloads. `GOOGLE_OAUTH_ACCESS_TOKEN` / `CLOUDSDK_AUTH_ACCESS_TOKEN` / `LADE_GCP_TOKEN` or ADC. |
+| age           | `age://CIPHERTEXT` · `?plugin=` · `?identity=`       | Path is the ciphertext. Query last. Same keys as SOPS: `plugin`, `identity`, `identity_file`. |
+| SOPS          | `sops://PATH` · `?query=.field` · `?plugin=`         | One decrypt per path + plugin + identity. No plugin: process env. `plugin` remaps named env vars into the SOPS child. |
 | File          | `file://PATH?query=.fields[0].field`                 | `?query=` is required. INI, JSON, YAML, and TOML.   |
 | Shell command | `sh://gcloud auth print-access-token`                | Also `bash://`, `zsh://`, and `fish://`. Wrap: `fish --no-config`, `zsh -f`, `$BASH_ENV` cleared. |
 | Inline value  | `"visible-in-lade-yml"`                              | Use `!` to force a raw value and `!!` to keep a leading `!`. |
@@ -482,6 +496,22 @@ age -r "$(grep Recipient: identity.txt | awk '{print $3}')" -o secret.age secret
 age -d -i identity.txt -o secret.txt secret.age
 ```
 
+`age://` details:
+
+- Grammar is `scheme://PATH?params`, same as SOPS and file. Path is the ciphertext. Query names how to open it.
+- Armored (`-----BEGIN AGE ENCRYPTED FILE-----`) or binary (`age-encryption.org`). Percent-encode the path when it has spaces or newlines.
+- Native: `LADE_AGE_KEY` or `LADE_AGE_KEY_FILE`, or `?identity=CI_AGE` / `?identity_file=`.
+- Hardware or KMS is a query param, not a path segment: `age://CIPHERTEXT?plugin=yubikey&identity=YUBI_ID`. Requires `age-plugin-yubikey` on PATH at hydrate. `lade lock` does not pin plugins. Values are environment variable names, not secrets.
+- One unwrap per `(plugin, identity, ciphertext)`. Plugin groups run one after another. `sh://` stays the exception: the rest is an opaque script.
+
+`sops://` details:
+
+- Path is relative to the `lade.yml` directory, or absolute. `~/` and `$HOME/` expand. Optional `?query=` is a JSON path after decrypt (`--output-type json`).
+- No `plugin`: SOPS uses the process env (`SOPS_AGE_KEY`, AWS/GCP/Azure/Vault chain).
+- `?plugin=age&identity=CI_AGE` remaps `CI_AGE` to `SOPS_AGE_KEY` for the child. `identity_file` remaps to `SOPS_AGE_KEY_FILE`.
+- Other `plugin` values: `pgp` (`homedir` → `GNUPGHOME`), `aws_kms` (`profile`, `region`), `gcp_kms` (`credentials`), `azure_kv` (`token`), `hc_vault` (`token`). Any other valid name is an age plugin (`age-plugin-NAME` on PATH) and uses the age identity slots.
+- Recipients stay in the file. The URI names the plugin and the env var names.
+
 `file://` details:
 
 - `?query=` is a JSON path after the file is parsed (`access_json`). Examples:
@@ -489,7 +519,9 @@ age -d -i identity.txt -o secret.txt secret.age
 - Path is relative to the `lade.yml` directory, or absolute. `~/` and `$HOME/`
   expand to the user home. Spaces in the path must be percent-encoded (`%20`).
 - Extension selects the parser: `.json`, `.yaml` / `.yml`, `.toml`, `.ini`.
-- A `file://` URI without `?query=` is rejected.
+- A `file://` URI without `?query=` is not loaded as a file. It stays the
+  literal string (same Raw fallback as an unknown scheme). Other registered
+  schemes fail closed on `add`.
 
 `sh://` / `bash://` / `zsh://` / `fish://` details:
 

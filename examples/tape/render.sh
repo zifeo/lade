@@ -24,14 +24,9 @@ cleanup() {
 trap cleanup EXIT
 
 prepare_vault() {
-  if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T vault vault status >/dev/null 2>&1; then
-    # Check if a demo secret already exists to avoid re-initializing
-    if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T \
-      -e VAULT_ADDR=http://127.0.0.1:8200 \
-      -e VAULT_TOKEN=token \
-      vault vault kv get secret/password >/dev/null 2>&1; then
-      return
-    fi
+  if curl -sf -H "X-Vault-Token: token" \
+    http://127.0.0.1:8200/v1/secret/data/password >/dev/null; then
+    return
   fi
 
   echo "Starting Vault..."
@@ -40,22 +35,20 @@ prepare_vault() {
     exit 1
   fi
 
-  # Wait for vault
   for _ in $(seq 1 30); do
-    if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T vault vault status >/dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:8200/v1/sys/health >/dev/null; then
       break
     fi
     sleep 1
   done
 
-  # Initialize demo secrets
-  docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" exec -T \
-    -e VAULT_ADDR=http://127.0.0.1:8200 \
-    -e VAULT_TOKEN=token \
-    vault vault kv put secret/password \
-    value1=itsasecret \
-    value2=itsanotsecret \
-    multiline=$'a\nb' >/dev/null
+  curl -sS -f \
+    -H "X-Vault-Token: token" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    http://127.0.0.1:8200/v1/secret/data/password \
+    --data '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\\nb"}}' \
+    >/dev/null
 }
 
 create_k3d() {

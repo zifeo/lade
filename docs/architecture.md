@@ -251,7 +251,7 @@ so `lade approve`, `lade status`, and `lade upgrade` do not wrap themselves.
 The match is a prefix slice (`${1:0:5}` in Bash/Zsh, `string sub` in Fish).
 
 Use `lade status` for an active report (version, config, pre-exec and
-pre-tool, `lade.yml`, vault CLI versions, diary path and size).
+pre-tool, `lade.yml`, secret providers, diary path and size).
 `--json` keeps `version`, `global_config`, `hooks`, `project_config`,
 and `ok`. `hooks` is `preexec` plus `pretool`. `log` is extra (`path`,
 `events`, raw `bytes`). A successful daily GitHub check persists the

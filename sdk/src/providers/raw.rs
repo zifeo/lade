@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use anyhow::{Ok, Result};
 use async_trait::async_trait;
 
-use super::{Provider, Warnings};
+use super::{Provider, Transport, Warnings};
 use crate::Hydration;
 
 #[derive(Default)]
@@ -34,6 +34,14 @@ impl Provider for Raw {
 
     fn install_url(&self) -> &'static str {
         "https://github.com/zifeo/lade#raw-loader"
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Sdk
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "value"
     }
 
     fn has_work(&self) -> bool {

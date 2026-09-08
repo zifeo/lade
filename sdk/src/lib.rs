@@ -11,9 +11,12 @@ mod providers;
 mod resolve;
 
 pub use providers::Providers;
+pub use providers::Transport;
 pub use providers::Warnings;
 pub use providers::compat;
 pub use providers::network;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use resolve::{Dag, Template, resolve, resolve_one};
 
 type Hydration = FxHashMap<String, String>;
@@ -130,5 +133,44 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, "escaped");
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_file_and_shell_in_one_resolve() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.json");
+        std::fs::write(&path, r#"{"k":"from-file"}"#).unwrap();
+        let file = format!("file://{}?query=.k", path.display());
+        let env = HashMap::from([
+            ("FROM_FILE".to_string(), file),
+            (
+                "FROM_SH".to_string(),
+                "sh://printf '%s' from-shell".to_string(),
+            ),
+        ]);
+        let (values, maskable, _) =
+            hydrate_with_maskable(env, dir.path().to_path_buf(), HashMap::new())
+                .await
+                .unwrap();
+        assert_eq!(values.get("FROM_FILE").unwrap(), "from-file");
+        assert_eq!(values.get("FROM_SH").unwrap(), "from-shell");
+        assert_eq!(maskable.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_fail_closed_across_schemes() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope.json");
+        let env = HashMap::from([
+            (
+                "BAD".to_string(),
+                format!("file://{}?query=.k", missing.display()),
+            ),
+            ("OK".to_string(), "sh://printf '%s' unused".to_string()),
+        ]);
+        let err = hydrate_with_maskable(env, dir.path().to_path_buf(), HashMap::new())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("cannot read file"), "{err}");
     }
 }

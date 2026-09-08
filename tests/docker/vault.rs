@@ -56,7 +56,7 @@ fn run_cmd(cmd: &str, args: &[&str]) {
 
 #[test]
 fn vault_shell_scripts_run_from_cargo_test_workspace() {
-    require_cmds(&["bash", "zsh", "fish", "vault", "docker"]);
+    require_cmds(&["bash", "zsh", "fish", "curl", "docker"]);
     assert!(docker_ready(), "docker daemon is required");
 
     let path = path_env();
