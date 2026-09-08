@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::paths::{ItemVerb, home_dir, hook_command, short_path};
+use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short_path};
 use super::skill::{is_lade_skill, skill_is_current, write_skill};
 use super::ui::{
     PretoolReport, PretoolRow, ask_agents, ask_repo_or_machine, default_scope, warn_double_hooks,
@@ -138,7 +138,7 @@ pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<Pretoo
             let out = write_hook(
                 *agent,
                 &hook_path(*agent, plan.scope, home, dest),
-                &hook_command(*agent),
+                &hook_command_for(plan.scope, *agent),
             )?;
             rows.push(PretoolRow {
                 agent: agent.name(),
@@ -179,6 +179,13 @@ fn pending(
         .collect()
 }
 
+fn hook_command_for(scope: Scope, agent: Agent) -> String {
+    match scope {
+        Scope::User => hook_command(agent),
+        Scope::Project => project_hook_command(agent),
+    }
+}
+
 fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
     let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
     agent.has_hook(&existing).unwrap_or(false)
@@ -187,7 +194,7 @@ fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
 fn hook_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
     let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
     !agent
-        .hook_uses_command(&existing, &hook_command(agent))
+        .hook_uses_command(&existing, &hook_command_for(scope, agent))
         .unwrap_or(false)
 }
 
@@ -202,7 +209,7 @@ fn skill_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bo
 fn peek_agent(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<Vec<PretoolRow>> {
     let hook_file = hook_path(agent, scope, home, dest);
     let existing = fs::read_to_string(&hook_file).unwrap_or_default();
-    let command = hook_command(agent);
+    let command = hook_command_for(scope, agent);
     let hook_verb = if agent.hook_uses_command(&existing, &command)? {
         ItemVerb::Current
     } else if agent.has_hook(&existing)? {

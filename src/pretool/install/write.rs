@@ -8,7 +8,9 @@ use super::locate::{
     canonical_project_path, find_agents_skill, find_project, find_project_skill,
     leftover_json_hook, project_skill_file,
 };
-use super::paths::{ItemVerb, WriteOutcome, home_dir, hook_command, short_path, tilde};
+use super::paths::{
+    ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
+};
 use super::skill::{SKILL_MD, is_lade_skill, skill_is_current};
 use super::ui::{PretoolReport, PretoolRow, default_scope, report, where_line};
 
@@ -50,7 +52,10 @@ pub(crate) fn write_scoped(
         Scope::User => agent.config_path(home),
         Scope::Project => canonical_project_path(agent, cwd),
     };
-    let command = hook_command(agent);
+    let command = match scope {
+        Scope::User => hook_command(agent),
+        Scope::Project => project_hook_command(agent),
+    };
     if install {
         let out = write_hook(agent, &path, &command)?;
         Ok(format!(
@@ -227,10 +232,9 @@ pub fn refresh_installed() {
 
 pub(crate) fn refresh_at(home: &Path, cwd: &Path) {
     for agent in AGENTS {
-        let command = hook_command(agent);
-        refresh_path(agent, &agent.config_path(home), &command);
+        refresh_path(agent, &agent.config_path(home), &hook_command(agent));
         if let Ok((project_path, true)) = find_project(agent, home, cwd) {
-            refresh_path(agent, &project_path, &command);
+            refresh_path(agent, &project_path, &project_hook_command(agent));
         }
         refresh_skill(&agent.skill_path(home));
         if let Ok((path, true)) = find_project_skill(agent, home, cwd) {

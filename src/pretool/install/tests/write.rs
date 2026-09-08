@@ -2,15 +2,61 @@ use serde_json::Value;
 
 use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan};
-use super::super::paths::{ItemVerb, hook_command};
+use super::super::paths::{ItemVerb, hook_command, install_bin_from, project_hook_command};
 use super::super::write::{
-    Scope, refresh_installed, refresh_path, uninstall_plane, uninstall_preferred, write_scoped,
+    Scope, refresh_at, refresh_installed, refresh_path, uninstall_plane, uninstall_preferred,
+    write_scoped,
 };
 
 #[test]
 fn hook_command_never_writes_a_test_binary() {
     let command = hook_command(Agent::Codex);
     assert_eq!(command, "lade hook --harness codex");
+}
+
+#[test]
+fn install_bin_from_drops_a_cargo_target() {
+    assert_eq!(install_bin_from("/Users/me/lade/target/debug/lade"), "lade");
+    assert_eq!(
+        install_bin_from("/Users/me/lade/target/debug/deps/lade-abc"),
+        "lade"
+    );
+    assert_eq!(
+        install_bin_from("/usr/local/bin/lade"),
+        "/usr/local/bin/lade"
+    );
+    assert_eq!(install_bin_from("lade"), "lade");
+}
+
+#[test]
+fn project_hook_command_is_always_portable() {
+    assert_eq!(
+        project_hook_command(Agent::Cursor),
+        "lade hook --harness cursor"
+    );
+}
+
+#[test]
+fn instantiate_does_not_double_an_absolute_bin() {
+    let command = "/abs/target/debug/lade hook --harness claude";
+    let out = Agent::Claude.instantiate(command);
+    assert!(out.contains(command), "{out}");
+    assert!(!out.contains("/abs/target/debug//abs/"), "{out}");
+}
+
+#[test]
+fn refresh_at_repo_cwd_keeps_portable_project_hooks() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = tempfile::tempdir().unwrap();
+    refresh_at(home.path(), &root);
+    let cursor = std::fs::read_to_string(root.join(".cursor/hooks.json")).unwrap();
+    assert!(cursor.contains("lade hook --harness cursor"), "{cursor}");
+    assert!(!cursor.contains("target/debug"), "{cursor}");
+    let plugin = std::fs::read_to_string(root.join(".opencode/plugins/lade-pretool.js")).unwrap();
+    assert!(
+        plugin.contains(r#"process.env.LADE_BIN ?? "lade""#),
+        "{plugin}"
+    );
 }
 
 #[test]
