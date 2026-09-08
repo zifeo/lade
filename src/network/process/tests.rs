@@ -10,6 +10,19 @@ use std::sync::atomic::Ordering;
 
 #[test]
 #[cfg(unix)]
+fn child_output_files_creates_missing_tmpdir() {
+    let root = tempfile::tempdir().unwrap();
+    let gone = root.path().join("gone");
+    temp_env::with_var("TMPDIR", Some(gone.to_str().unwrap()), || {
+        let mut command = Command::new("sh");
+        command.args(["-c", "true"]);
+        let logs = ChildOutputFiles::capture(&mut command).unwrap();
+        logs.cleanup();
+    });
+}
+
+#[test]
+#[cfg(unix)]
 fn child_output_files_capture_stdout_and_stderr() {
     let mut command = Command::new("sh");
     command.args(["-c", "printf 'out\nout'; printf 'err\nerr' >&2"]);
