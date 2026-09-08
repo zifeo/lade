@@ -31,5 +31,5 @@ vault_put() {
     --data "$body" >/dev/null
 }
 
-vault_put password '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\nb"}}'
+vault_put password '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\\nb"}}'
 vault_put org/team '{"data":{"value":"secret"}}'

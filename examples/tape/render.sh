@@ -47,7 +47,7 @@ prepare_vault() {
     -H "Content-Type: application/json" \
     -X POST \
     http://127.0.0.1:8200/v1/secret/data/password \
-    --data '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\nb"}}' \
+    --data '{"data":{"value1":"itsasecret","value2":"itsanotsecret","multiline":"a\\nb"}}' \
     >/dev/null
 }
 
