@@ -174,3 +174,39 @@ fn launch_only_before_mcp_writes_a_row() {
         assert_eq!(rows[0].agent.as_ref().unwrap()["launch"], "engram");
     });
 }
+
+fn seen_emit(command: &str) -> Emit {
+    Emit {
+        kind: Kind::Seen,
+        via: Via::Organic,
+        audience: Audience::Human,
+        actor: None,
+        cwd: PathBuf::from("."),
+        command: command.into(),
+        argv: None,
+        hydrated: None,
+        matches: json!([]),
+        hydrate_ms: None,
+        agent: None,
+    }
+}
+
+#[test]
+fn concurrent_first_open_keeps_every_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        let writers: Vec<_> = (0..8)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    emit(seen_emit(&format!("cmd{i}")));
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let rows = query(None, None, None, None, None, None).unwrap();
+        assert_eq!(rows.len(), 8);
+    });
+}

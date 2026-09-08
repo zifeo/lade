@@ -23,6 +23,8 @@ pub use write::emit_verb;
 pub(crate) use db::event_from_row;
 
 const BUSY_MS: u64 = 250;
+const OPEN_ATTEMPTS: u32 = 20;
+const OPEN_RETRY_MS: u64 = 25;
 
 pub(crate) const EVENTS_DDL: &str = "CREATE TABLE events (
           id TEXT PRIMARY KEY,

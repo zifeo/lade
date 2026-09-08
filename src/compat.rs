@@ -5,7 +5,7 @@ use chrono::{TimeDelta, Utc};
 use log::debug;
 use rustc_hash::FxHashSet;
 
-use lade_sdk::compat::{self, CompatWarning, spec_for};
+use lade_sdk::compat::{self, CompatWarning, is_secret_scheme};
 use lade_sdk::network::is_network_scheme;
 
 use crate::context::InvocationContext;
@@ -14,7 +14,7 @@ use crate::message_box::MessageBox;
 
 pub fn known_schemes<'a>(uris: impl Iterator<Item = &'a str>) -> Vec<String> {
     uris.filter_map(|uri| uri.split_once("://").map(|(scheme, _)| scheme))
-        .filter(|scheme| spec_for(scheme).is_some() || is_network_scheme(scheme))
+        .filter(|scheme| is_secret_scheme(scheme) || is_network_scheme(scheme))
         .map(|scheme| scheme.to_string())
         .collect::<FxHashSet<_>>()
         .into_iter()
@@ -126,6 +126,8 @@ mod tests {
     fn test_all_supported_schemes() {
         let schemes = all_supported_schemes();
         assert!(schemes.contains(&"op".to_string()));
+        assert!(schemes.contains(&"vault".to_string()));
+        assert!(schemes.contains(&"awssm".to_string()));
         assert!(schemes.contains(&"kubectl".to_string()));
     }
 

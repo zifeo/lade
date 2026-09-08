@@ -91,16 +91,41 @@ pub(super) fn print_human(report: &StatusReport) {
         return;
     }
     println!("project config: ok ({} rules)", pc.rule_count);
-    if pc.vault_clis.checked.is_empty() {
-        println!("provider CLIs: (none referenced in lade.yml)");
-    } else if pc.vault_clis.warnings.is_empty() {
-        println!("provider CLIs:");
-        println!("  all checked CLIs meet minimum versions");
-    } else {
-        println!("provider CLIs:");
-        for w in &pc.vault_clis.warnings {
-            println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
+    if pc.providers.is_empty() && pc.vault_clis.checked.is_empty() {
+        println!("providers: (none referenced in lade.yml)");
+        return;
+    }
+    println!("providers:");
+    for provider in &pc.providers {
+        match provider.transport.as_str() {
+            "sdk" => {
+                let version = provider.version.as_deref().unwrap_or(lade_sdk::VERSION);
+                println!(
+                    "  {}: sdk {version}, {}",
+                    provider.scheme, provider.batch_unit
+                );
+            }
+            _ => {
+                match pc
+                    .vault_clis
+                    .warnings
+                    .iter()
+                    .find(|w| w.name == provider.name)
+                {
+                    Some(w) => println!(
+                        "  {}: cli ({} < {}, {})",
+                        provider.scheme, w.found, w.min, w.install_url
+                    ),
+                    None => println!("  {}: cli, {}", provider.scheme, provider.batch_unit),
+                }
+            }
         }
+    }
+    for w in &pc.vault_clis.warnings {
+        if pc.providers.iter().any(|p| p.name == w.name) {
+            continue;
+        }
+        println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
     }
 }
 

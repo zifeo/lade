@@ -58,10 +58,20 @@ struct VaultClis {
 }
 
 #[derive(Serialize)]
+struct ProviderInfo {
+    scheme: String,
+    name: String,
+    transport: String,
+    batch_unit: String,
+    version: Option<String>,
+}
+
+#[derive(Serialize)]
 struct ProjectConfig {
     rule_count: usize,
     error: Option<String>,
     vault_clis: VaultClis,
+    providers: Vec<ProviderInfo>,
 }
 
 #[derive(Serialize)]

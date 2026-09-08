@@ -4,6 +4,10 @@ members = [
 ]
 resolver = "2"
 
+[profile.release]
+strip = true
+lto = "thin"
+
 [package]
 name = "lade"
 version = "0.18.1-beta.1"
@@ -32,12 +36,19 @@ lade-sdk = { path = "./sdk", version = "0.18.1-beta.1" }
 tokio = { version = "1", features = ["rt", "macros", "fs", "time", "signal", "io-std", "io-util", "process"] }
 indexmap = { version = "2.14.2", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
-env_logger = "0.11.11"
+env_logger = { version = "0.11.11", default-features = false, features = [
+  "auto-color",
+  "humantime",
+] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 futures = "0.3.34"
 directories = "6.0.0"
-chrono = { version = "0.4.45", features = ["serde"] }
+chrono = { version = "0.4.45", default-features = false, features = [
+  "clock",
+  "std",
+  "serde",
+] }
 log = "0.4.34"
 semver = "1.0.28"
 textwrap = "0.16.2"

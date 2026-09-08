@@ -30,14 +30,26 @@ impl Warnings {
         std::mem::take(&mut *self.0.lock().unwrap())
     }
 }
+mod age;
+mod awssm;
+mod azuresm;
 mod doppler;
 mod file;
+mod gcpsm;
 mod infisical;
 mod onepassword;
+mod params;
 mod passbolt;
 mod raw;
 mod sh;
+mod sops;
 mod vault;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    Cli,
+    Sdk,
+}
 
 #[async_trait]
 pub trait Provider: Sync {
@@ -46,8 +58,13 @@ pub trait Provider: Sync {
     /// Human-readable provider name, used in user-facing messages.
     fn name(&self) -> &'static str;
 
-    /// Where to install/find the backing tool, used in user-facing messages.
+    /// Where to install/find the backing tool or product docs.
     fn install_url(&self) -> &'static str;
+
+    fn transport(&self) -> Transport;
+
+    /// The key this provider groups on before one I/O call.
+    fn batch_unit(&self) -> &'static str;
 
     fn has_work(&self) -> bool {
         true
@@ -86,6 +103,11 @@ impl Providers {
         by_scheme.insert("vault", Box::new(vault::Vault::new()));
         by_scheme.insert("passbolt", Box::new(passbolt::Passbolt::new()));
         by_scheme.insert("file", Box::new(file::File::new()));
+        by_scheme.insert("awssm", Box::new(awssm::AwsSm::new()));
+        by_scheme.insert("azuresm", Box::new(azuresm::AzureSm::new()));
+        by_scheme.insert("gcpsm", Box::new(gcpsm::GcpSm::new()));
+        by_scheme.insert("age", Box::new(age::Age::new()));
+        by_scheme.insert("sops", Box::new(sops::Sops::new()));
         by_scheme.insert(
             "sh",
             Box::new(sh::Shell::new(
@@ -120,14 +142,19 @@ impl Providers {
         self.by_scheme.get(scheme).map(|p| p.as_ref())
     }
 
+    pub fn registered_schemes(&self) -> Vec<&'static str> {
+        let mut schemes: Vec<&'static str> = self.by_scheme.keys().copied().collect();
+        schemes.sort_unstable();
+        schemes
+    }
+
     pub fn add(&mut self, value: String) -> Result<()> {
         let scheme = value.split_once("://").map(|(s, _)| s).unwrap_or("");
         match self.by_scheme.get_mut(scheme) {
             Some(p) => match p.add(value.clone()) {
                 Ok(()) => Ok(()),
-                // Preserve today's behaviour: a scheme-specific provider that rejects the value
-                // (e.g. file:// without ?query=) falls back to Raw rather than returning an error.
-                Err(_) => self.fallback.add(value),
+                Err(_) if scheme == "file" => self.fallback.add(value),
+                Err(e) => Err(e),
             },
             None => self.fallback.add(value),
         }
@@ -214,6 +241,40 @@ pub fn deserialize_output<T: DeserializeOwned>(
     })
 }
 
+pub fn env_lookup(extra_env: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = extra_env.get(*key)
+            && !value.is_empty()
+        {
+            return Some(value.clone());
+        }
+        if let Ok(value) = std::env::var(key)
+            && !value.is_empty()
+        {
+            return Some(value);
+        }
+    }
+    None
+}
+
+pub fn json_query_string(raw: &str, query: Option<&str>) -> Result<String> {
+    let Some(query) = query.filter(|q| !q.is_empty()) else {
+        return Ok(raw.to_string());
+    };
+    let json: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| anyhow!("JSON query {query} failed: value is not JSON ({e})"))?;
+    let compiled = access_json::JSONQuery::parse(query)
+        .map_err(|e| anyhow!("cannot compile query {query}: {e}"))?;
+    let res = compiled
+        .execute(&json)
+        .map_err(|e| anyhow!("query {query} failed: {e}"))?
+        .ok_or_else(|| anyhow!("no query result for {query}"))?;
+    Ok(match res {
+        serde_json::Value::String(s) => s,
+        other => other.to_string(),
+    })
+}
+
 pub fn host_with_port(url: &Url) -> String {
     match url.port() {
         Some(port) => format!("{}:{}", url.host().expect("Missing host"), port),
@@ -222,95 +283,6 @@ pub fn host_with_port(url: &Url) -> String {
 }
 
 #[cfg(test)]
-pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
-    #[cfg(unix)]
-    {
-        // Avoid inherited writable descriptors causing ETXTBSY: https://github.com/rust-lang/rust/issues/114554
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-
-        let path = dir.path().join(name);
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-            .arg(path)
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        write!(stdin, "#!/bin/sh\n{script_body}\n").unwrap();
-        drop(stdin);
-        assert!(child.wait().unwrap().success());
-    }
-}
-
+mod tests;
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn has_work_for(scheme: &str, uri: &str) -> bool {
-        let mut p = Providers::new();
-        p.add(uri.to_string()).unwrap();
-        p.by_scheme
-            .get(scheme)
-            .map(|prov| prov.has_work())
-            .unwrap_or(false)
-    }
-
-    fn fallback_has_work(uri: &str) -> bool {
-        let mut p = Providers::new();
-        p.add(uri.to_string()).unwrap();
-        p.fallback.has_work()
-    }
-
-    #[test]
-    fn test_dispatch_doppler() {
-        assert!(has_work_for(
-            "doppler",
-            "doppler://api.doppler.com/proj/env/KEY"
-        ));
-        assert!(!fallback_has_work("doppler://api.doppler.com/proj/env/KEY"));
-    }
-
-    #[test]
-    fn test_dispatch_vault() {
-        assert!(has_work_for("vault", "vault://localhost/secret/app/pass"));
-        assert!(!fallback_has_work("vault://localhost/secret/app/pass"));
-    }
-
-    #[test]
-    fn test_dispatch_op() {
-        assert!(has_work_for("op", "op://my.1password.com/vault/item/field"));
-        assert!(!fallback_has_work("op://my.1password.com/vault/item/field"));
-    }
-
-    #[test]
-    fn test_dispatch_plain_value_to_fallback() {
-        assert!(fallback_has_work("plainvalue"));
-    }
-
-    #[test]
-    fn test_dispatch_bang_escaped_to_fallback() {
-        assert!(fallback_has_work("!escaped"));
-    }
-
-    #[test]
-    fn test_dispatch_unknown_scheme_to_fallback() {
-        assert!(fallback_has_work("foo://some/path"));
-    }
-
-    #[test]
-    fn test_dispatch_file_without_query_falls_back_to_raw() {
-        // file:// without ?query= is rejected by File::add and must land on Raw.
-        assert!(fallback_has_work("file:///path/to/config.json"));
-        assert!(!has_work_for("file", "file:///path/to/config.json"));
-    }
-
-    #[test]
-    fn test_dispatch_file_with_query_goes_to_file() {
-        assert!(has_work_for(
-            "file",
-            "file:///path/to/config.json?query=.key"
-        ));
-        assert!(!fallback_has_work("file:///path/to/config.json?query=.key"));
-    }
-}
+pub use tests::fake_cli;

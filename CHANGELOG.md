@@ -25,6 +25,9 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **Installer during a release**: GitHub `latest` stays on the previous
   tag until the binary assets are uploaded, so `curl|bash` and
   installer-e2e do not hit an empty vX.Y.Z.
+- **Diary first open**: two processes creating `events.db` no longer
+  drop a row when the loser sees a half-finished schema. `open`
+  retries while the peer is still migrating. Busy wait stays 250ms.
 
 ## [0.18.0] - 2026-09-07
 

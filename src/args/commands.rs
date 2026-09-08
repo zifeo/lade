@@ -87,7 +87,7 @@ pub struct McpCommand {
 
 #[derive(Parser, Debug)]
 pub struct StatusCommand {
-    /// Check all supported vault CLIs, not only those referenced in lade.yml.
+    /// Check all supported secret providers, not only those referenced in lade.yml.
     #[clap(long, default_value_t = false)]
     pub all: bool,
     /// Emit a machine-readable JSON report to stdout instead of human text.

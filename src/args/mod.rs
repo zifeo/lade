@@ -15,7 +15,7 @@ pub use hook::*;
 pub enum Command {
     /// Download and install the latest release.
     Upgrade(UpgradeCommand),
-    /// Report version, config, pre-exec, pre-tool, skills, and provider CLIs.
+    /// Report version, config, pre-exec, pre-tool, skills, and secret providers.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     Bench(BenchCommand),

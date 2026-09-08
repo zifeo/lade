@@ -17,7 +17,7 @@ use url::Url;
 
 use itertools::Itertools;
 
-use super::{Provider, Warnings};
+use super::{Provider, Transport, Warnings};
 use crate::Hydration;
 use convert::{ini2json, toml2json};
 
@@ -53,6 +53,14 @@ impl Provider for File {
 
     fn install_url(&self) -> &'static str {
         "https://github.com/zifeo/lade#file-loader"
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Sdk
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "path"
     }
 
     fn has_work(&self) -> bool {
@@ -248,6 +256,24 @@ mod tests {
             .remove(&url)
             .unwrap();
         assert_eq!(result, "spaced_value");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_same_path_two_queries_one_read() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, r#"{"user":"a","pass":"b"}"#).unwrap();
+        let user = format!("file://{}?query=.user", path.display());
+        let pass = format!("file://{}?query=.pass", path.display());
+        let mut p = File::new();
+        p.add(user.clone()).unwrap();
+        p.add(pass.clone()).unwrap();
+        let result = p
+            .resolve(dir.path(), &HashMap::new(), &Warnings::default())
+            .await
+            .unwrap();
+        assert_eq!(result.get(&user).unwrap(), "a");
+        assert_eq!(result.get(&pass).unwrap(), "b");
     }
 
     #[tokio::test]

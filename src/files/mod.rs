@@ -90,6 +90,11 @@ fn provider_label(source: &str) -> String {
                 "vault" => format!("Vault {provider}"),
                 "passbolt" => format!("Passbolt {provider}"),
                 "file" => "File".to_string(),
+                "awssm" => format!("AWS Secrets Manager {provider}"),
+                "azuresm" => format!("Azure Key Vault {provider}"),
+                "gcpsm" => format!("GCP Secret Manager {provider}"),
+                "age" => "age".to_string(),
+                "sops" => "SOPS".to_string(),
                 other => format!("{other} {provider}"),
             }
         }

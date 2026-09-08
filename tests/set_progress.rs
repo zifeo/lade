@@ -70,35 +70,39 @@ fn test_set_without_silence_shows_hydration_progress() {
 }
 
 #[test]
-#[cfg(unix)]
-fn test_inject_with_fake_vault_cli() {
+fn test_set_with_vault_http() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+        let body = r#"{"data":{"data":{"password":"vault_injected"}}}"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(resp.as_bytes());
+    });
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
-    let fake_bin = tempdir().unwrap();
-    common::fake_cli(
-        &fake_bin,
-        "vault",
-        r#"echo '{"data":{"data":{"password":"vault_injected"}}}'"#,
-    );
     fs::write(
         dir.path().join("lade.yml"),
-        "\"vault.*\":\n  PASSWORD: \"vault://localhost/secret/myapp/password\"\n",
+        format!("\"vault.*\":\n  PASSWORD: \"vault://{addr}/secret/myapp/password\"\n"),
     )
     .unwrap();
-    let new_path = format!(
-        "{}:{}",
-        fake_bin.path().display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
     common::lade(home.path())
         .current_dir(dir.path())
-        .env("PATH", &new_path)
+        .env("VAULT_TOKEN", "s.token")
+        .env("LADE_VAULT_HTTP", "1")
         .args(["set", "vault cmd"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
             "export PASSWORD='vault_injected'",
         ));
+    server.join().unwrap();
 }
 
 #[test]
