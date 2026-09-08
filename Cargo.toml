@@ -5,8 +5,10 @@ members = [
 resolver = "2"
 
 [profile.release]
-strip = true
+opt-level = "s"
 lto = "thin"
+codegen-units = 1
+strip = true
 
 [package]
 name = "lade"
