@@ -56,27 +56,21 @@ jobs:
         include:
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            suffix: ""
             build_cmd: cargo
           - os: macos-15
             target: aarch64-apple-darwin
-            suffix: ""
             build_cmd: cargo
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            suffix: ""
             build_cmd: cross
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
-            suffix: ""
             build_cmd: cross
           - os: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
-            suffix: ""
             build_cmd: cross
           - os: ubuntu-24.04
             target: aarch64-unknown-linux-musl
-            suffix: ""
             build_cmd: cross
     steps:
       - uses: actions/checkout@v7
@@ -94,9 +88,10 @@ jobs:
       - name: Compress
         shell: bash
         run: |
-          mv "target/${{ matrix.target }}/release/lade${{ matrix.suffix }}" .
+          mv "target/${{ matrix.target }}/release/lade" .
+          mv "target/${{ matrix.target }}/release/age-plugin-lade" .
           asset="lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
-          tar czvf "$asset" "lade${{ matrix.suffix }}"
+          tar czvf "$asset" lade age-plugin-lade
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$asset" > "$asset.sha256"
           else

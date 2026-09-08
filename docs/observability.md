@@ -41,7 +41,8 @@ A write failure never changes the command's exit.
 | Pretool handler, match | no (the wrap writes) |
 | MCP `tools/call` (`lade hook`) | `seen` |
 | `lade mcp` (server start) | same as inject |
-| unset, eval, status, bench, log, usage, on, off | no |
+| `lade eval`, `age-plugin-lade` | `access`. Always on. No `lade.yml` `log` flag. |
+| unset, status, bench, log, usage, on, off | no |
 
 Starting an MCP server is not a hook. A row exists only if the
 process is `lade mcp -- …` (or a URL). Each later `tools/call` is a

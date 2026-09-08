@@ -142,6 +142,7 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
         update
             .repo_owner("zifeo")
             .repo_name("lade")
+            // One name. The tarball also has `age-plugin-lade` (Cargo.toml).
             .bin_name("lade")
             .show_download_progress(true)
             .current_version(cargo_crate_version!())
@@ -184,6 +185,14 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
     .await??;
     if updated {
         let _ = GlobalConfig::update(void_daily_stamps).await;
+        // self_update's default path is extract_file(bin_name). It does not
+        // install the second Cargo binary from the tarball. Copy the new lade
+        // onto age-plugin-lade so the C2SP name stays in sync.
+        if let std::result::Result::Ok(exe) = std::env::current_exe()
+            && let Err(err) = crate::age_plugin::copy_beside(&exe)
+        {
+            log::debug!("age-plugin-lade copy: {err}");
+        }
     }
     Ok(())
 }

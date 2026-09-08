@@ -60,8 +60,9 @@ cat >"$BIN_DIR/lade" <<'EOF'
 #!/bin/sh
 echo "lade 0.0.0-test"
 EOF
-chmod +x "$BIN_DIR/lade"
-tar -C "$BIN_DIR" -czf "$ASSET_DIR/$ASSET.tar.gz" lade
+cp "$BIN_DIR/lade" "$BIN_DIR/age-plugin-lade"
+chmod +x "$BIN_DIR/lade" "$BIN_DIR/age-plugin-lade"
+tar -C "$BIN_DIR" -czf "$ASSET_DIR/$ASSET.tar.gz" lade age-plugin-lade
 sha256_of "$ASSET_DIR/$ASSET.tar.gz" >"$ASSET_DIR/$ASSET.tar.gz.sha256"
 
 # --- start HTTP server -----------------------------------------------------
@@ -92,6 +93,8 @@ for dl in curl wget; do
   OUT1="$WORK/out1-$dl"
   if run_installer "$OUT1" DOWNLOADER="$dl" >"$WORK/log1-$dl" 2>&1; then
     [ -x "$OUT1/lade" ] || fail "binary not installed in positive case ($dl)"
+    [ -x "$OUT1/age-plugin-lade" ] || fail "age-plugin-lade missing ($dl)"
+    [ ! -L "$OUT1/age-plugin-lade" ] || fail "age-plugin-lade should be a real binary, not a symlink ($dl)"
     grep -q "Checksum verified" "$WORK/log1-$dl" || fail "checksum was not verified ($dl)"
     "$OUT1/lade" | grep -q "0.0.0-test" || fail "installed binary does not run ($dl)"
     pass "positive install with checksum verification ($dl)"
@@ -117,6 +120,8 @@ rm -f "$ASSET_DIR/$ASSET.tar.gz.sha256"
 OUT3="$WORK/out3"
 if run_installer "$OUT3" >"$WORK/log3" 2>&1; then
   [ -x "$OUT3/lade" ] || fail "binary not installed when checksum missing"
+  [ -x "$OUT3/age-plugin-lade" ] || fail "age-plugin-lade missing when checksum missing"
+  [ ! -L "$OUT3/age-plugin-lade" ] || fail "age-plugin-lade should be a real binary, not a symlink"
   grep -qi "no checksum published" "$WORK/log3" || fail "missing checksum warning absent"
   pass "missing checksum tolerated with warning"
 else

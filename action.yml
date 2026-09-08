@@ -24,7 +24,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ inputs.out-dir }}
-        key: lade-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        key: lade-bins-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Install lade
       shell: bash
@@ -40,8 +40,8 @@ runs:
           VERSION_ENV="${LADE_VERSION#v}"
         fi
         if [ ! -x "$OUT_DIR/lade" ]; then
-          curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh \
-            | CI=1 OUT_DIR="$OUT_DIR" VERSION="$VERSION_ENV" bash
+          CI=1 OUT_DIR="$OUT_DIR" VERSION="$VERSION_ENV" \
+            bash "$GITHUB_ACTION_PATH/installer.sh"
         fi
         echo "$OUT_DIR" >> "$GITHUB_PATH"
         "$OUT_DIR/lade" --version

@@ -40,7 +40,8 @@ The child never sees the id or `LADE_T`. Direct inject ignores a leftover
 | Approve | then inject | same as inject |
 | MCP spawn | `lade mcp` | `mcp` |
 | MCP verb | `lade hook` (no T) | `mcp` |
-| Eval URI | `lade eval <uri>` | (none) |
+| Eval URI | `lade eval <uri>` | `organic` or `unknown` |
+| age plugin | `age-plugin-lade` | `organic` or `unknown` |
 
 ## Flow
 

@@ -162,8 +162,11 @@ else
   printf "Warning: no checksum published for %s, skipping verification\n" "$ASSET.$EXT" >&2
 fi
 
-tar -C "$TMP_DIR" -xzf "$TMP_DIR/$ASSET.$EXT" "$EXE"
+tar -C "$TMP_DIR" -xzf "$TMP_DIR/$ASSET.$EXT"
 chmod +x "$TMP_DIR/$EXE"
+if [ -f "$TMP_DIR/age-plugin-lade" ]; then
+  chmod +x "$TMP_DIR/age-plugin-lade"
+fi
 
 # need_confirm returns 0 only for interactive human terminals.
 need_confirm() {
@@ -173,8 +176,17 @@ need_confirm() {
   return 0
 }
 
+install_extracted() {
+  dest_dir="$1"
+  run="${2-}"
+  $run mv "$TMP_DIR/$EXE" "$dest_dir"
+  if [ -f "$TMP_DIR/age-plugin-lade" ]; then
+    $run mv "$TMP_DIR/age-plugin-lade" "$dest_dir/age-plugin-lade"
+  fi
+}
+
 if [ "${OUT_DIR}" = "." ]; then
-  mv "$TMP_DIR/$EXE" .
+  install_extracted .
   printf "\n\n%s has been extracted to your current directory\n" "$EXE"
 else
   cat <<EOF
@@ -189,10 +201,10 @@ EOF
       printf "Press enter to continue (or cancel with Ctrl+C):"
       read -r _
     fi
-    mv "$TMP_DIR/$EXE" "$OUT_DIR"
+    install_extracted "$OUT_DIR"
   else
     printf "Sudo is required to run \"sudo mv %s %s\":\n" "$TMP_DIR/$EXE" "$OUT_DIR"
-    sudo mv "$TMP_DIR/$EXE" "$OUT_DIR"
+    install_extracted "$OUT_DIR" sudo
   fi
 fi
 

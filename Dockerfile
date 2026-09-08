@@ -15,10 +15,11 @@ RUN set -eu; \
   curl -fsSL "${base}/${asset}" -o /tmp/lade.tar.gz; \
   curl -fsSL "${base}/${asset}.sha256" -o /tmp/lade.sha256; \
   echo "$(cut -d' ' -f1 /tmp/lade.sha256)  /tmp/lade.tar.gz" | sha256sum -c -; \
-  tar -xzf /tmp/lade.tar.gz -C /usr/local/bin lade; \
-  chmod +x /usr/local/bin/lade
+  tar -xzf /tmp/lade.tar.gz -C /usr/local/bin; \
+  chmod +x /usr/local/bin/lade; \
+  if [ -f /usr/local/bin/age-plugin-lade ]; then chmod +x /usr/local/bin/age-plugin-lade; fi
 
 FROM alpine:3
 RUN apk add --no-cache ca-certificates
-COPY --from=fetch /usr/local/bin/lade /usr/local/bin/lade
+COPY --from=fetch /usr/local/bin/ /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/lade"]

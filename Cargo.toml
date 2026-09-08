@@ -8,6 +8,7 @@ resolver = "2"
 name = "lade"
 version = "0.18.1-beta.1"
 edition = "2024"
+default-run = "lade"
 description = "Temporary access to secrets, files, and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
 license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
@@ -53,6 +54,9 @@ uuid = { version = "1.26.0", features = ["v7"] }
 tar = "0.4.46"
 flate2 = "1.1.10"
 tempfile = "3.27.0"
+age = { version = "0.12.1", default-features = false, features = ["ssh"] }
+age-plugin = "0.7.0"
+age-core = "0.12.0"
 
 [features]
 default = ["docker-tests"]
@@ -69,6 +73,20 @@ temp-env = "0.3"
 serde_json = "1.0.151"
 criterion = { version = "0.8", features = ["html_reports"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+[[bin]]
+name = "lade"
+path = "src/main.rs"
+
+# C2SP-specific: age/rage look up `age-plugin-<name>` on PATH.
+# Same program as `lade`, not a second crate. Cargo compiles it twice.
+# `lade upgrade` still copies the new `lade` onto this name: self_update
+# extracts one `bin_name` (`extract_file`). See src/upgrade/mod.rs.
+[[bin]]
+name = "age-plugin-lade"
+path = "src/main.rs"
+test = false
+bench = false
 
 [[bench]]
 name = "redact"
