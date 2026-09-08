@@ -81,6 +81,29 @@ fn test_collect_keys_for_command_uses_saved_user() {
 }
 
 #[test]
+fn test_mise_pin_is_not_a_secret() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n  SECRET: val\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let sources = config.collect_secret_sources("jq").unwrap();
+    assert_eq!(sources.sources.get("SECRET").unwrap(), "val");
+    assert!(!sources.sources.contains_key("jq"));
+    let keys = config.collect_keys("jq");
+    let env_keys = keys.get(&None).cloned().unwrap_or_default();
+    assert!(env_keys.contains(&"SECRET".to_string()));
+    assert!(!env_keys.contains(&"jq".to_string()));
+    let pins = config.pins(&None);
+    assert_eq!(
+        pins,
+        vec![("jq".to_string(), "mise://aqua/jqlang/jq@1.7.1".to_string())]
+    );
+}
+
+#[test]
 fn test_all_secret_sources_collects_values() {
     let dir = tempdir().unwrap();
     std::fs::write(

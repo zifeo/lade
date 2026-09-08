@@ -69,6 +69,8 @@ fn prepare_child(
     cmd.envs(std::env::vars());
     crate::shell::strip_child_protocol(&mut cmd);
     cmd.env_remove("BASH_ENV");
+    cmd.env_remove("MISE_ENV");
+    cmd.env_remove("MISE_SETTINGS");
     cmd.envs(env);
     cmd
 }

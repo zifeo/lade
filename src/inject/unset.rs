@@ -51,6 +51,9 @@ pub async fn handle_unset(
         let _ = ticket::unlink(id);
     }
     remove_files(&mut files.keys())?;
+    if let Ok(path) = std::env::var(crate::mise::LADE_MISE_CONFIG) {
+        crate::mise::unlink_config(std::path::Path::new(&path));
+    }
     let restore = match std::env::var(crate::shell::LADE_RESTORE) {
         Err(_) => None,
         Ok(raw) => match crate::shell::RestorePayload::decode(&raw) {
@@ -70,6 +73,7 @@ pub async fn handle_unset(
     let unset_keys = vec![
         crate::shell::LADE_RESTORE.to_string(),
         crate::shell::LADE_T.to_string(),
+        crate::mise::LADE_MISE_CONFIG.to_string(),
     ];
     let meta = shell.unset(unset_keys);
     let line = [env_line, meta]

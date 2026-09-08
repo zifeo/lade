@@ -24,6 +24,7 @@ use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
 use crate::files::sleep_or_cancel;
 use crate::message_box;
+use crate::mise::{self, Outcome as PinOutcome};
 use crate::ticket::{self, PreEvent, TicketSecret};
 
 fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
@@ -81,6 +82,55 @@ impl Drop for TicketCleanup {
             let _ = ticket::unlink(id);
         }
     }
+}
+
+pub(super) struct PinCleanup(Vec<std::path::PathBuf>);
+
+impl Drop for PinCleanup {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            mise::unlink_config(path);
+        }
+    }
+}
+
+pub(super) async fn apply_pins(
+    config: &Config,
+    command: &str,
+    cwd: &std::path::Path,
+    saved_user: &Option<String>,
+) -> Result<PinOutcome> {
+    match mise::prepare(config, command, cwd, saved_user).await {
+        Ok(out) => Ok(out),
+        Err(error) => {
+            error.emit();
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+    }
+}
+
+pub(super) fn select_tool_env(
+    env: &mut HashMap<String, String>,
+    tool: HashMap<String, String>,
+) -> Result<()> {
+    for (key, value) in tool {
+        if key == "PATH" {
+            env.insert(key, value);
+            continue;
+        }
+        match env.get(&key) {
+            Some(existing) if existing != &value => {
+                anyhow::bail!(
+                    "conflicting env '{key}' between lade.yml and the mise pin: '{existing}' vs '{value}'"
+                );
+            }
+            Some(_) => {}
+            None => {
+                env.insert(key, value);
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn ticket_ready(id: Option<&str>) -> bool {
@@ -234,6 +284,7 @@ pub(crate) fn public_hydrate(
             || key == crate::shell::LADE_VIA
             || key == crate::shell::LADE_RESTORE
             || key == crate::shell::LADE_T
+            || key == crate::mise::LADE_MISE_CONFIG
         {
             continue;
         }

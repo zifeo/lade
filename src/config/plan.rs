@@ -8,13 +8,17 @@ use super::{Config, LadeRule, LadeSecret, NetworkBinding, Output, SecretSources}
 use crate::ticket::TicketSecret;
 
 /// A single rule entry, resolved for a user and classified as either a plain
-/// secret/file value or a network provider binding (kubectl://, kubefwd://,
-/// tsh://). Centralizing this classification keeps the scheme/numeric-key
-/// rules consistent across hydration, `unset`, and network binding
-/// collection, instead of each call site re-deriving them slightly
-/// differently.
+/// secret/file value, a mise pin, or a network provider binding
+/// (kubectl://, kubefwd://, tsh://). Centralizing this classification keeps
+/// the scheme/numeric-key rules consistent across hydration, `unset`, and
+/// network binding collection, instead of each call site re-deriving them
+/// slightly differently.
 pub(super) enum ResolvedEntry {
     Secret {
+        key: String,
+        value: String,
+    },
+    Pin {
         key: String,
         value: String,
     },
@@ -45,6 +49,12 @@ pub(super) fn resolve_entry(
         });
     }
     let value = resolve_lade_secret(secret, saved_user)?;
+    if crate::mise::looks_like_spec(&value) {
+        return Some(ResolvedEntry::Pin {
+            key: key.to_string(),
+            value,
+        });
+    }
     if split_scheme(&value).is_some_and(is_network_scheme) {
         return Some(ResolvedEntry::Network {
             key: key.to_string(),
@@ -91,7 +101,10 @@ fn rule_sources(rule: &LadeRule, saved_user: &Option<String>) -> Result<HashMap<
             Some(ResolvedEntry::Secret { key, value }) => {
                 out.insert(key, value);
             }
-            Some(ResolvedEntry::Network { .. }) | Some(ResolvedEntry::Unset { .. }) | None => {}
+            Some(ResolvedEntry::Network { .. })
+            | Some(ResolvedEntry::Pin { .. })
+            | Some(ResolvedEntry::Unset { .. })
+            | None => {}
             Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
                 "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
                 key
@@ -110,7 +123,9 @@ pub(super) fn secrets_from_rules(
         let output = rule.config.as_ref().and_then(|config| config.file.clone());
         for (key, secret) in &rule.secrets {
             match resolve_entry(key, secret, saved_user) {
-                Some(ResolvedEntry::Unset { key }) | Some(ResolvedEntry::Network { key, .. }) => {
+                Some(ResolvedEntry::Unset { key })
+                | Some(ResolvedEntry::Network { key, .. })
+                | Some(ResolvedEntry::Pin { key, .. }) => {
                     let (name, _) = binding_name(&key)?;
                     bindings.remove(&name);
                 }
@@ -194,7 +209,8 @@ impl Config {
                         mark_silent(&mut plan.silent, &key, silent);
                         plan.cancelled.insert(key, previous);
                     }
-                    Some(ResolvedEntry::Network { key, .. }) => {
+                    Some(ResolvedEntry::Network { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. }) => {
                         plan.overridden.remove(&key);
                         plan.cancelled.remove(&key);
                         plan.silent.remove(&key);
@@ -231,7 +247,8 @@ impl Config {
                         keys.insert(key);
                     }
                     Some(ResolvedEntry::Unset { key })
-                    | Some(ResolvedEntry::Network { key, .. }) => {
+                    | Some(ResolvedEntry::Network { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. }) => {
                         keys.remove(&key);
                     }
                     _ => {}
@@ -298,6 +315,7 @@ impl Config {
                 match resolve_entry(key, secret, saved_user) {
                     Some(ResolvedEntry::Unset { key })
                     | Some(ResolvedEntry::Secret { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. })
                         if !key.starts_with('.') =>
                     {
                         by_key.remove(&key);
@@ -313,6 +331,46 @@ impl Config {
             .into_iter()
             .map(|(key, uri)| NetworkBinding { key, uri })
             .collect()
+    }
+
+    pub(crate) fn pins(&self, saved_user: &Option<String>) -> Vec<(String, String)> {
+        let mut by_key = indexmap::IndexMap::<String, String>::new();
+        for (_, rule) in &self.rules {
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Pin { key, value }) => {
+                        by_key.insert(key, value);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Secret { key, .. })
+                    | Some(ResolvedEntry::Network { key, .. }) => {
+                        by_key.shift_remove(&key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        by_key.into_iter().collect()
+    }
+
+    pub(crate) fn bare_version_for(
+        &self,
+        command: &str,
+        argv0: &str,
+        saved_user: &Option<String>,
+    ) -> Option<String> {
+        for (_, rule) in self.collect(command) {
+            let Some(secret) = rule.secrets.get(argv0) else {
+                continue;
+            };
+            if let Some(ResolvedEntry::Secret { value, .. }) =
+                resolve_entry(argv0, secret, saved_user)
+                && crate::mise::looks_like_bare_version(&value)
+            {
+                return Some(value);
+            }
+        }
+        None
     }
 
     #[cfg(test)]

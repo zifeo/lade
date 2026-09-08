@@ -18,8 +18,9 @@ use crate::shell::Shell;
 
 use super::acquire::acquire_secrets_and_network;
 use super::{
-    SecretHydrate, TicketCleanup, emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate,
-    resolve_provider_work, show_loader_warnings, ticket_ready,
+    PinCleanup, SecretHydrate, TicketCleanup, apply_pins, emit_seen_if_walk_log,
+    merge_env_with_conflicts, public_hydrate, resolve_provider_work, select_tool_env,
+    show_loader_warnings, ticket_ready,
 };
 
 pub async fn run_inject(
@@ -39,6 +40,8 @@ pub async fn run_inject(
         None
     };
     let saved_user = crate::config::saved_user().await?;
+    let pins = apply_pins(config, &command, current_dir, &saved_user).await?;
+    let _pin_cleanup = PinCleanup(pins.cleanup.clone());
     let work = resolve_provider_work(
         config,
         &command,
@@ -52,7 +55,14 @@ pub async fn run_inject(
         Some(work) => work,
         None => {
             emit_seen_if_walk_log(config, ctx, &command, current_dir, &saved_user, None);
-            return run_command_without_providers(&command, &opts, ctx, shell, current_dir);
+            return run_command_without_providers(
+                &command,
+                &opts,
+                ctx,
+                shell,
+                current_dir,
+                pins.env,
+            );
         }
     };
 
@@ -101,6 +111,7 @@ pub async fn run_inject(
         drop(network);
         return Err(error);
     }
+    select_tool_env(&mut env, pins.env)?;
     compat::warn_outdated(
         ctx,
         compat::known_schemes(
@@ -161,12 +172,13 @@ fn run_command_without_providers(
     ctx: &InvocationContext,
     shell: &Shell,
     current_dir: &Path,
+    env: HashMap<String, String>,
 ) -> Result<Option<i32>> {
     let redactor = if !opts.no_mask {
         Redactor::new(&HashMap::new(), &opts.mask_format)
     } else {
         None
     };
-    let code = exec::run(ctx, shell, command, HashMap::new(), current_dir, redactor)?;
+    let code = exec::run(ctx, shell, command, env, current_dir, redactor)?;
     Ok((code != 0).then_some(code))
 }

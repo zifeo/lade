@@ -13,6 +13,22 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
   `bw list items` per resolve. `password` is the default field.
+- **mise pins**: A `mise://` URI on a matched rule
+  (`tofu: mise://aqua/opentofu/opentofu@1.8.2`) prepends that
+  install's bin directory for the command. A miss runs `mise
+  install` (or `--locked`) in a temp dir whose only config is
+  this pin, then refuses if the binary is still missing.
+  `lade.yml` stays the config. The repo is not written. Typing
+  `mise` hands a composed project-plus-pins view. The user mise
+  config tree (`~/.config/mise`, `$XDG_CONFIG_HOME/mise`,
+  `conf.d`) and `MISE_ENV` are ignored on install, env dump,
+  and intercept. Happy path is lock + stat plus a versioned
+  Lade cache filled once by an isolated
+  `mise env --json-extended` for that pin only. A stale dump
+  is refreshed. Inject selects that tool env against hydrated
+  secrets. A `mise.lock` keyed by backend id
+  (`[[tools."aqua:jqlang/jq"]]`) is found. A miss after install
+  refuses. Homebrew is not used. No rust-only table.
 - **age plugin**: Cargo builds `lade` and `age-plugin-lade` from the
   same `main`. The release tarball, installer, image, and
   `cargo install` ship both files. `lade upgrade` copies the new

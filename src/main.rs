@@ -25,6 +25,7 @@ mod log_pack;
 mod masking;
 mod mcp;
 mod message_box;
+mod mise;
 mod network;
 mod pretool;
 mod prompt;

@@ -124,6 +124,7 @@ impl Config {
             }
             match resolve_entry(&name, secret, saved_user) {
                 Some(ResolvedEntry::Secret { key, value })
+                | Some(ResolvedEntry::Pin { key, value })
                 | Some(ResolvedEntry::Network { key, uri: value }) => {
                     out.push((key, value));
                 }

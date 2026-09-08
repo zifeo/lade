@@ -2,6 +2,8 @@
   .:
     silence: true
   DEFAULT: "default"
+  cargo: mise://core/rust@1.96.0
+  rustc: mise://core/rust@1.96.0
 
 "^git ":
   - .:
