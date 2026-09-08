@@ -8,8 +8,11 @@ use tempfile::tempdir;
 fn inject_mise_intercept_removes_temp_config_after_run() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
+    let bin = dir.path().join("bin");
     let tickets = home.path().join("tickets");
+    fs::create_dir_all(&bin).unwrap();
     fs::create_dir_all(&tickets).unwrap();
+    write_exec(&bin.join("mise"), "exit 0");
     fs::write(
         dir.path().join("lade.yml"),
         "^mise:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
@@ -18,6 +21,7 @@ fn inject_mise_intercept_removes_temp_config_after_run() {
     common::lade(home.path())
         .current_dir(dir.path())
         .env("LADE_TICKET_DIR", &tickets)
+        .env("PATH", prepend_path(&bin))
         .args(["inject", "--", "mise", "ls"])
         .assert()
         .success();
