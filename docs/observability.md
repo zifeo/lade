@@ -38,7 +38,8 @@ A write failure never changes the command's exit.
 |---|---|
 | Shell wrap, inject, set, approve | `access` after hydrate, `denied` if a disclaimer is withheld, `seen` if nothing matched |
 | Pretool handler, no match | `seen` if the walk says `log` |
-| Pretool handler, match | no (the wrap writes) |
+| Pretool handler, match with nothing to inject | `seen` if those rules say `log`. No ticket. |
+| Pretool handler, match that wraps | no (the wrap writes) |
 | MCP `tools/call` (`lade hook`) | `seen` |
 | `lade mcp` (server start) | same as inject |
 | `lade eval`, `age-plugin-lade` | `access`. Always on. No `lade.yml` `log` flag. |

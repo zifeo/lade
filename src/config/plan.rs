@@ -226,6 +226,17 @@ impl Config {
             .collect()
     }
 
+    /// True when this command needs a process wrap: inject payload or a
+    /// mise pin / bare version for argv0.
+    pub(crate) fn needs_wrap<'a>(
+        work: &super::PreEventWork,
+        command: &str,
+        rules: impl IntoIterator<Item = &'a LadeRule>,
+        saved_user: &Option<String>,
+    ) -> bool {
+        work.needs_inject() || Self::pin_wraps(rules, command, saved_user)
+    }
+
     pub(crate) fn pins(&self, saved_user: &Option<String>) -> Vec<(String, String)> {
         let mut by_key = indexmap::IndexMap::<String, String>::new();
         for (_, rule) in &self.rules {
@@ -244,6 +255,34 @@ impl Config {
             }
         }
         by_key.into_iter().collect()
+    }
+
+    fn pin_wraps<'a>(
+        rules: impl IntoIterator<Item = &'a LadeRule>,
+        command: &str,
+        saved_user: &Option<String>,
+    ) -> bool {
+        let argv0 = crate::mise::argv0(command);
+        let mut has_pin = false;
+        for rule in rules {
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Pin { key, .. }) => {
+                        has_pin = true;
+                        if key == argv0 {
+                            return true;
+                        }
+                    }
+                    Some(ResolvedEntry::Secret { key, value })
+                        if key == argv0 && crate::mise::looks_like_bare_version(&value) =>
+                    {
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        has_pin && crate::mise::is_mise_argv0(argv0)
     }
 
     pub(crate) fn bare_version_for(

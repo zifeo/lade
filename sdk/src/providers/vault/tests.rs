@@ -73,7 +73,7 @@ async fn test_resolve_multiple_fields_same_key_one_call() {
         .resolve(Path::new("."), &token_env(), &Warnings::default())
         .await
         .unwrap();
-    mock.assert_hits(1);
+    mock.assert_calls(1);
     assert_eq!(
         result
             .get(&format!("vault://{host}/secret/myapp/password"))

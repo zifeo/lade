@@ -67,7 +67,7 @@ uuid = { version = "1.26.0", features = ["v7"] }
 tar = "0.4.46"
 flate2 = "1.1.10"
 tempfile = "3.27.0"
-toml = "0.8"
+toml = "1.1"
 age = { version = "0.12.1", default-features = false, features = ["ssh"] }
 age-plugin = "0.7.0"
 age-core = "0.12.0"

@@ -55,6 +55,32 @@ pub async fn handle_set(
             return Ok(());
         }
     };
+    if !work.needs_providers() {
+        event::emit_if(
+            work.log,
+            Emit {
+                kind: event::logged_kind(&work.matches),
+                via: ctx.via,
+                audience: ctx.audience,
+                actor: event::actor(&saved_user),
+                cwd: current_dir.clone(),
+                command: command.clone(),
+                argv: None,
+                hydrated: None,
+                matches: work.matches,
+                hydrate_ms: None,
+                agent: crate::agent_meta::merge(work.agent),
+            },
+        );
+        if pins.is_empty() {
+            println!("{}", shell.set(HashMap::new()));
+            return Ok(());
+        }
+        let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
+        let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
+        println!("{}", stamp_preexec(shell, pins.env, &id)?);
+        return Ok(());
+    }
 
     let mut pre = pre_event_from_work(
         &command,

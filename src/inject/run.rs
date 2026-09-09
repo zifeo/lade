@@ -65,6 +65,25 @@ pub async fn run_inject(
             );
         }
     };
+    if !work.needs_providers() {
+        event::emit_if(
+            work.log,
+            Emit {
+                kind: event::logged_kind(&work.matches),
+                via: ctx.via,
+                audience: ctx.audience,
+                actor: event::actor(&saved_user),
+                cwd: current_dir.to_path_buf(),
+                command: command.clone(),
+                argv: None,
+                hydrated: None,
+                matches: work.matches,
+                hydrate_ms: None,
+                agent: crate::agent_meta::merge(work.agent),
+            },
+        );
+        return run_command_without_providers(&command, &opts, ctx, shell, current_dir, pins.env);
+    }
 
     if let Err(e) = prompt::resolve_disclaimers(ctx, &work.disclaimers, &command).await {
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
@@ -162,10 +181,8 @@ pub async fn run_inject(
     }
 }
 
-/// Fast path for a command that matches no rule at all: no disclaimer, no
-/// secret, no network binding can apply, so skip straight to running the
-/// command without spinning up the provider progress thread or any
-/// secret/network machinery.
+/// Fast path when nothing is injected: no disclaimer, no secret, no
+/// network binding. Skip the provider progress thread and hydrate.
 fn run_command_without_providers(
     command: &str,
     opts: &InjectCommand,
