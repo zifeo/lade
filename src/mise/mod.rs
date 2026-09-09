@@ -11,7 +11,7 @@ mod walk;
 mod tests;
 
 pub use error::Error;
-pub use spec::{looks_like_bare_version, looks_like_spec};
+pub use spec::{argv0, is_mise_argv0, looks_like_bare_version, looks_like_spec};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

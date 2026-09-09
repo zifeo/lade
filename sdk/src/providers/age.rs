@@ -72,7 +72,7 @@ fn identity_for(uri: &AgeUri, extra_env: &HashMap<String, String>) -> Result<Str
 fn decrypt_blob(identity: &str, blob: &[u8]) -> Result<String> {
     let mut cursor = std::io::Cursor::new(identity.as_bytes());
     let identities = match ::age::ssh::Identity::from_buffer(&mut cursor, None) {
-        Ok(ssh) => vec![Box::new(ssh) as Box<dyn ::age::Identity>],
+        Ok(ssh) => vec![Box::new(ssh) as Box<dyn ::age::Identity + Send + Sync>],
         Err(_) => {
             cursor.set_position(0);
             ::age::IdentityFile::from_buffer(cursor)

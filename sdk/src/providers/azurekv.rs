@@ -123,20 +123,64 @@ fn query(url: &Url) -> Option<String> {
         .map(|(_, v)| v.into_owned())
 }
 
+async fn token_from(
+    credential: &dyn azure_core::credentials::TokenCredential,
+    scopes: &[&str],
+) -> Result<String, String> {
+    credential
+        .get_token(scopes, None)
+        .await
+        .map(|token| token.token.secret().to_string())
+        .map_err(|error| error.to_string())
+}
+
 async fn token(extra_env: &HashMap<String, String>, scope: &str) -> Result<String> {
     if let Some(token) = env_lookup(extra_env, &["AZURE_ACCESS_TOKEN", "LADE_AZURE_TOKEN"]) {
         return Ok(token);
     }
-    use azure_core::auth::TokenCredential;
-    let credential = azure_identity::DefaultAzureCredential::create(
-        azure_identity::TokenCredentialOptions::default(),
+    use azure_core::credentials::Secret;
+    let scopes = [scope];
+    let mut errors = Vec::new();
+    if let (Some(tenant), Some(client_id), Some(secret)) = (
+        env_lookup(extra_env, &["AZURE_TENANT_ID"]),
+        env_lookup(extra_env, &["AZURE_CLIENT_ID"]),
+        env_lookup(extra_env, &["AZURE_CLIENT_SECRET"]),
+    ) {
+        match azure_identity::ClientSecretCredential::new(
+            &tenant,
+            client_id,
+            Secret::new(secret),
+            None,
+        ) {
+            Ok(credential) => match token_from(credential.as_ref(), &scopes).await {
+                Ok(token) => return Ok(token),
+                Err(error) => errors.push(error),
+            },
+            Err(error) => errors.push(error.to_string()),
+        }
+    }
+    match azure_identity::DeveloperToolsCredential::new(None) {
+        Ok(credential) => match token_from(credential.as_ref(), &scopes).await {
+            Ok(token) => return Ok(token),
+            Err(error) => errors.push(error),
+        },
+        Err(error) => errors.push(error.to_string()),
+    }
+    match azure_identity::ManagedIdentityCredential::new(None) {
+        Ok(credential) => match token_from(credential.as_ref(), &scopes).await {
+            Ok(token) => return Ok(token),
+            Err(error) => errors.push(error),
+        },
+        Err(error) => errors.push(error.to_string()),
+    }
+    bail!(
+        "Azure Key Vault error: {}. See {DOCS}.",
+        if errors.is_empty() {
+            "no credential succeeded".to_string()
+        } else {
+            errors.join("; ")
+        }
     )
-    .map_err(|e| anyhow!("Azure Key Vault error: {e}. See {DOCS}."))?;
-    let token = credential
-        .get_token(&[scope])
-        .await
-        .map_err(|e| anyhow!("Azure Key Vault error: {e}. See {DOCS}."))?;
-    Ok(token.token.secret().to_string())
 }
 
 #[async_trait]

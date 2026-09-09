@@ -8,14 +8,21 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+// Parallel unit tests mutate PATH via temp_env (mise stubs, etc.).
+// Command::new("sh") then misses /bin/sh on macOS.
+fn sh_command(script: &str) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", script]);
+    command
+}
+
 #[test]
 #[cfg(unix)]
 fn child_output_files_creates_missing_tmpdir() {
     let root = tempfile::tempdir().unwrap();
     let gone = root.path().join("gone");
     temp_env::with_var("TMPDIR", Some(gone.to_str().unwrap()), || {
-        let mut command = Command::new("sh");
-        command.args(["-c", "true"]);
+        let mut command = sh_command("true");
         let logs = ChildOutputFiles::capture(&mut command).unwrap();
         logs.cleanup();
     });
@@ -24,8 +31,7 @@ fn child_output_files_creates_missing_tmpdir() {
 #[test]
 #[cfg(unix)]
 fn child_output_files_capture_stdout_and_stderr() {
-    let mut command = Command::new("sh");
-    command.args(["-c", "printf 'out\nout'; printf 'err\nerr' >&2"]);
+    let mut command = sh_command("printf 'out\nout'; printf 'err\nerr' >&2");
     let logs = ChildOutputFiles::capture(&mut command).unwrap();
     let status = command.spawn().unwrap().wait().unwrap();
     assert!(status.success());
@@ -59,11 +65,7 @@ fn dropping_supervisor_terminates_the_provider_process_group() {
         "test forward".to_string(),
         "127.0.0.1".to_string(),
         address.port(),
-        || {
-            let mut command = Command::new("sh");
-            command.args(["-c", "while :; do :; done"]);
-            Ok(command)
-        },
+        || Ok(sh_command("sleep 60")),
     )
     .unwrap();
     drop(forward);
@@ -86,9 +88,7 @@ fn supervisor_retries_a_startup_failure() {
             if attempt == 0 {
                 return Err(anyhow!("simulated startup failure"));
             }
-            let mut command = Command::new("sh");
-            command.args(["-c", "while :; do :; done"]);
-            Ok(command)
+            Ok(sh_command("sleep 60"))
         },
     )
     .unwrap();

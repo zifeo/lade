@@ -8,10 +8,10 @@ repository = "https://github.com/zifeo/lade"
 
 [dependencies]
 access-json = "0.1"
-age = { version = "0.11", features = ["ssh", "plugin", "armor"] }
+age = { version = "0.12", features = ["ssh", "plugin", "armor"] }
 anyhow = "1"
 async-trait = "0.1"
-# secretsmanager's `rustls` feature is hyper 0.14 + rustls 0.21. Keep
+# secretsmanager's `rustls` feature is an older TLS stack. Keep
 # default-https-client (rustls 0.23) only.
 aws-config = { version = "1", default-features = false, features = [
     "behavior-version-latest",
@@ -25,14 +25,14 @@ aws-sdk-secretsmanager = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }
-# Default enable_reqwest is reqwest 0.12 + native-tls. rustls-only shares 0.23.
-azure_core = { version = "0.21", default-features = false, features = [
-    "enable_reqwest_rustls",
+# Default is reqwest + rustls + tokio. rustls-only shares reqwest 0.13.
+azure_core = { version = "1.1", default-features = false, features = [
+    "reqwest",
+    "reqwest_rustls",
+    "tokio",
 ] }
-azure_identity = { version = "0.21", default-features = false, features = [
-    "development",
-    "enable_reqwest_rustls",
-    "old_azure_cli",
+azure_identity = { version = "1.0", default-features = false, features = [
+    "tokio",
 ] }
 base64 = "0.23"
 directories = "6"
@@ -57,5 +57,5 @@ urlencoding = "2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream", "json", "query"] }
 
 [dev-dependencies]
-httpmock = "0.7"
+httpmock = "0.8"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }

@@ -58,6 +58,14 @@ pub(crate) struct PreEventWork {
     pub progress: SecretSources,
 }
 
+impl PreEventWork {
+    /// Secrets, tunnels, or a disclaimer. `log` / `when` / `silence` alone
+    /// do not need a wrap.
+    pub(crate) fn needs_inject(&self) -> bool {
+        !self.secrets.is_empty() || !self.network.is_empty() || !self.disclaimers.is_empty()
+    }
+}
+
 pub struct Config {
     rules: Vec<(PathBuf, LadeRule)>,
     patterns: Vec<String>,

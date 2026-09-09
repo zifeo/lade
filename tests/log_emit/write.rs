@@ -155,6 +155,79 @@ fn hook_no_match_writes_nothing() {
 }
 
 #[test]
+fn hook_log_only_match_writes_seen_without_ticket() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tickets = tempdir().unwrap();
+    write_yml_raw(dir.path(), ".:\n  .:\n    log: true\n");
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("CURSOR_VERSION", "1.0")
+        .env("LADE_TICKET_DIR", tickets.path())
+        .args(["hook"])
+        .write_stdin(
+            r#"{"tool_name":"Shell","tool_input":{"command":"gcloud auth list"},"hook_event_name":"preToolUse","conversation_id":"conv_log"}"#,
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(!stdout.contains("--pretool"), "{stdout}");
+    assert!(
+        tickets.path().read_dir().unwrap().next().is_none(),
+        "hook must not write a ticket when nothing is injected"
+    );
+    let rows = log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["kind"], "seen");
+    assert_eq!(rows[0]["via"], "pretool");
+    assert_eq!(row_line(&rows[0]), "gcloud auth list");
+    assert_eq!(rows[0]["agent"]["harness"], "cursor");
+    assert_eq!(rows[0]["agent"]["session"], "conv_log");
+}
+
+#[test]
+fn hook_log_only_uses_matched_log_not_walk() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml_raw(
+        dir.path(),
+        ".:\n  .:\n    log: true\n\"^git status\":\n  .:\n    log: false\n",
+    );
+    let hook = |command: &str| {
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .env("CURSOR_VERSION", "1.0")
+            .args(["hook"])
+            .write_stdin(format!(
+                r#"{{"tool_name":"Shell","tool_input":{{"command":"{command}"}},"hook_event_name":"preToolUse"}}"#
+            ))
+            .assert()
+            .success();
+    };
+    hook("echo hi");
+    hook("git status");
+    let rows = log_rows(home.path(), dir.path());
+    let cmds: Vec<String> = rows.as_array().unwrap().iter().map(row_line).collect();
+    assert!(cmds.iter().any(|c| c == "echo hi"), "{cmds:?}");
+    assert!(!cmds.iter().any(|c| c.contains("git status")), "{cmds:?}");
+    assert!(
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["kind"] == "seen")
+    );
+    assert!(
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["via"] == "pretool")
+    );
+}
+
+#[test]
 fn hook_no_match_walk_log_writes_seen() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

@@ -1,12 +1,14 @@
 use super::super::handle;
 use super::super::invoked_lade_bin_from;
+use super::super::lade_on_path;
 use super::{
     assert_wraps_with_ticket, test_config, test_config_with_disclaimer, with_cursor_env,
     with_ticket_tmpdir,
 };
-use crate::config::Audience;
+use crate::config::{Audience, LadeFile};
 use std::ffi::OsString;
 use std::path::PathBuf;
+use tempfile::tempdir;
 
 #[test]
 fn test_match_wraps_cursor() {
@@ -65,6 +67,63 @@ fn test_match_wraps_codex() {
             });
         },
     );
+}
+
+#[test]
+fn test_log_only_dot_does_not_wrap() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("lade.yml"), ".:\n  .:\n    log: true\n").unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let input = r#"{"tool_input": {"command": "gcloud auth list"}}"#;
+            let result = handle(&config, input, Audience::Agent, None).unwrap();
+            assert!(result.contains("allow"));
+            assert!(!result.contains("updated_input"));
+            assert!(!result.contains("--pretool"));
+            let tickets = std::env::var("LADE_TICKET_DIR").unwrap();
+            assert!(
+                std::fs::read_dir(&tickets).unwrap().next().is_none(),
+                "log-only match must not write a ticket"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_disclaimer_only_is_rewritten() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("lade.yml"),
+                "\"^echo\":\n  \".\":\n    disclaimer: \"Danger ahead.\"\n",
+            )
+            .unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+            let result = handle(&config, input, Audience::Agent, None).unwrap();
+            assert_wraps_with_ticket(&result, "echo hello");
+        });
+    });
+}
+
+#[test]
+fn test_pin_only_is_rewritten() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("lade.yml"),
+                "\"^jq\":\n  jq: \"core:jq@1.7.1\"\n",
+            )
+            .unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let input = r#"{"tool_input": {"command": "jq --version"}}"#;
+            let result = handle(&config, input, Audience::Agent, None).unwrap();
+            assert_wraps_with_ticket(&result, "jq --version");
+        });
+    });
 }
 
 #[test]
@@ -237,19 +296,56 @@ fn unread_pretool_without_command_allows_and_stays_open() {
 fn invoked_lade_bin_from_path_stays_bare() {
     let exe = PathBuf::from("/opt/lade");
     assert_eq!(
-        invoked_lade_bin_from(Some(OsString::from("lade")), Some(exe.clone())),
+        invoked_lade_bin_from(Some(OsString::from("lade")), Some(exe.clone()), false),
         "lade"
     );
     assert_eq!(
-        invoked_lade_bin_from(Some(OsString::from("lade.exe")), Some(exe.clone())),
+        invoked_lade_bin_from(Some(OsString::from("lade.exe")), Some(exe.clone()), false),
         "lade.exe"
     );
     assert_eq!(
-        invoked_lade_bin_from(Some(OsString::from("/opt/custom/lade")), Some(exe.clone())),
+        invoked_lade_bin_from(
+            Some(OsString::from("/opt/custom/lade")),
+            Some(exe.clone()),
+            false
+        ),
         "/opt/lade"
     );
     assert_eq!(
-        invoked_lade_bin_from(Some(OsString::from("./target/debug/lade")), Some(exe)),
+        invoked_lade_bin_from(
+            Some(OsString::from("./target/debug/lade")),
+            Some(exe),
+            false
+        ),
         "/opt/lade"
     );
+}
+
+#[test]
+fn invoked_lade_bin_from_path_falls_back_when_on_path() {
+    let exe = PathBuf::from("/Users/me/.cargo/bin/lade");
+    assert_eq!(
+        invoked_lade_bin_from(
+            Some(OsString::from("/Users/me/.cargo/bin/lade")),
+            Some(exe.clone()),
+            true
+        ),
+        "lade"
+    );
+    assert_eq!(
+        invoked_lade_bin_from(Some(OsString::from("./target/debug/lade")), Some(exe), true),
+        "lade"
+    );
+}
+
+#[test]
+fn lade_on_path_sees_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lade"), b"").unwrap();
+    temp_env::with_var("PATH", Some(dir.path()), || {
+        assert!(lade_on_path());
+    });
+    temp_env::with_var("PATH", Some("/no/such/lade-path"), || {
+        assert!(!lade_on_path());
+    });
 }

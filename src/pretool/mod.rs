@@ -59,25 +59,57 @@ fn pretool_flag() -> &'static str {
 }
 
 /// Bin name for hook install and match rewrites.
-/// `lade install` / `lade hook` stay `lade`. A path in argv[0] uses current_exe.
+/// Bare `lade` stays `lade`. A path in argv[0] uses current_exe unless `lade`
+/// is already on PATH (Cursor often execs the resolved absolute path).
 pub(crate) fn invoked_lade_bin() -> String {
-    invoked_lade_bin_from(env::args_os().next(), env::current_exe().ok())
+    invoked_lade_bin_from(
+        env::args_os().next(),
+        env::current_exe().ok(),
+        lade_on_path(),
+    )
 }
 
 pub(crate) fn invoked_lade_bin_from(
     argv0: Option<OsString>,
     current_exe: Option<PathBuf>,
+    on_path: bool,
 ) -> String {
     let argv0 = argv0.unwrap_or_default();
     let path = Path::new(&argv0);
     if !argv0.is_empty() && path.file_name() == Some(path.as_os_str()) {
         return path.to_str().unwrap_or("lade").to_string();
     }
+    if on_path {
+        if let Some(name) = lade_basename(path) {
+            return name.to_string();
+        }
+        if let Some(name) = current_exe.as_ref().and_then(|p| lade_basename(p)) {
+            return name.to_string();
+        }
+        return "lade".to_string();
+    }
     current_exe
         .and_then(|p| p.to_str().map(str::to_string))
         .or_else(|| argv0.to_str().map(str::to_string))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "lade".to_string())
+}
+
+fn lade_basename(path: &Path) -> Option<&str> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| matches!(*name, "lade" | "lade.exe"))
+}
+
+pub(crate) fn lade_on_path() -> bool {
+    bin_on_path("lade") || bin_on_path("lade.exe")
+}
+
+fn bin_on_path(name: &str) -> bool {
+    let Some(path) = env::var_os("PATH") else {
+        return false;
+    };
+    env::split_paths(&path).any(|dir| dir.join(name).is_file())
 }
 
 pub fn handle(
@@ -132,26 +164,7 @@ pub fn handle(
 
     let patterned = config.collect_for_with_pattern(&command, audience);
     if patterned.is_empty() {
-        if config.log_on_walk() {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let saved_user = GlobalConfig::user_from_disk();
-            event::emit_if(
-                true,
-                Emit {
-                    kind: Kind::Seen,
-                    via: Via::Pretool,
-                    audience,
-                    actor: event::actor(&saved_user),
-                    cwd,
-                    command: command.clone(),
-                    argv: None,
-                    hydrated: None,
-                    matches: json!([]),
-                    hydrate_ms: None,
-                    agent: crate::agent_meta::merge(agent.clone()),
-                },
-            );
-        }
+        emit_seen_pretool(config.log_on_walk(), audience, &command, json!([]), agent);
         return Ok(allow(platform));
     }
 
@@ -160,6 +173,15 @@ pub fn handle(
         Ok(work) => work,
         Err(_) => return Ok(allow(platform)),
     };
+    if !Config::needs_wrap(
+        &work,
+        &command,
+        patterned.iter().map(|(_, _, rule)| rule),
+        &saved_user,
+    ) {
+        emit_seen_pretool(work.log, audience, &command, work.matches, agent);
+        return Ok(allow(platform));
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let pre = PreEvent {
         command: command.clone(),
@@ -250,6 +272,36 @@ fn expects_shell_command(input: &Value) -> bool {
         Some("PreToolUse" | "preToolUse")
     ) || input.get("tool_input").is_some()
         || input.get("hook_source").and_then(Value::as_str) == Some("opencode-plugin")
+}
+
+fn emit_seen_pretool(
+    log: bool,
+    audience: Audience,
+    command: &str,
+    matches: serde_json::Value,
+    agent: serde_json::Value,
+) {
+    if !log {
+        return;
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let saved_user = GlobalConfig::user_from_disk();
+    event::emit_if(
+        true,
+        Emit {
+            kind: Kind::Seen,
+            via: Via::Pretool,
+            audience,
+            actor: event::actor(&saved_user),
+            cwd,
+            command: command.to_string(),
+            argv: None,
+            hydrated: None,
+            matches,
+            hydrate_ms: None,
+            agent: crate::agent_meta::merge(agent),
+        },
+    );
 }
 
 fn warn_unread(reason: &str) {

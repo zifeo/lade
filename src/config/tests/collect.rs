@@ -277,3 +277,45 @@ fn test_log_on_walk_last_explicit_wins_across_non_matching_rules() {
     let config = LadeFile::build(child).unwrap();
     assert!(!config.log_on_walk());
 }
+
+#[test]
+fn test_log_only_dot_does_not_need_wrap() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("lade.yml"), ".:\n  .:\n    log: true\n").unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let patterned = config.collect_for_with_pattern("gcloud auth list", Audience::Agent);
+    assert_eq!(patterned.len(), 1);
+    let work = Config::pre_event_work(&patterned, &None).unwrap();
+    assert!(work.log);
+    assert!(!work.needs_inject());
+    assert!(!Config::needs_wrap(
+        &work,
+        "gcloud auth list",
+        patterned.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+}
+
+#[test]
+fn test_secret_and_disclaimer_and_pin_need_wrap() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "\"^echo\":\n  KEY: val\n\"^warn\":\n  .:\n    disclaimer: Danger\n\"^jq\":\n  jq: \"core:jq@1.7.1\"\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    for command in ["echo hi", "warn me", "jq --version"] {
+        let patterned = config.collect_for_with_pattern(command, Audience::Agent);
+        let work = Config::pre_event_work(&patterned, &None).unwrap();
+        assert!(
+            Config::needs_wrap(
+                &work,
+                command,
+                patterned.iter().map(|(_, _, rule)| rule),
+                &None,
+            ),
+            "{command}"
+        );
+    }
+}

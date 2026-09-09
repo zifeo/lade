@@ -17,6 +17,20 @@ pub(super) struct ProviderWork {
     pub(super) progress: SecretSources,
 }
 
+impl ProviderWork {
+    pub(super) fn needs_inject(&self) -> bool {
+        !self.secrets.is_empty()
+            || !self.network_bindings.is_empty()
+            || !self.disclaimers.is_empty()
+    }
+
+    /// Cancelled keys still need the progress path even when nothing is
+    /// left to inject.
+    pub(super) fn needs_providers(&self) -> bool {
+        self.needs_inject() || !self.progress.cancelled.is_empty()
+    }
+}
+
 pub(super) struct SecretHydrate<'a> {
     pub(super) secrets: &'a [TicketSecret],
     pub(super) op_sa: Option<&'a str>,
