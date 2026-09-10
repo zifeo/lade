@@ -290,7 +290,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo snapshots and `.agents/skills/lade/SKILL.md` (a pointer skill: run commands normally, never eval / `--no-mask` / approve, `lade install` on drift). `lade install` writes pre-exec for this shell only and pre-tool (hook and skill together) on one plane: a git cwd defaults to the repo, otherwise this machine. `lade uninstall` uses that same default, then the other plane if the default is empty. `lade hook install --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. APM ships the skill via a link at `.apm/skills/lade/SKILL.md` and pins the GitHub tag. `lade status` reports user (JSON `global`) and project. The daily check refreshes Lade-managed files. MCP verbs are allow-only.
+The binary embeds the repo hook snapshots. `lade setup` writes pre-exec for this shell and, inside a git repo, pre-tool hooks for this repo. Outside git it wraps this shell only. `lade teardown` removes this shell and this repo's Lade hooks. Home-directory agent hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. Agents can curl `agent-setup.sh`, which installs the binary if needed and runs `lade setup`.
 
 ### Direct path
 

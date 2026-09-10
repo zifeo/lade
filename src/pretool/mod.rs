@@ -58,7 +58,7 @@ fn pretool_flag() -> &'static str {
     "--pretool"
 }
 
-/// Bin name for hook install and match rewrites.
+/// Bin name for hook enable and match rewrites.
 /// Bare `lade` stays `lade`. A path in argv[0] uses current_exe unless `lade`
 /// is already on PATH (Cursor often execs the resolved absolute path).
 pub(crate) fn invoked_lade_bin() -> String {

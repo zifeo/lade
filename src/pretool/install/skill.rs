@@ -1,12 +1,11 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use super::agent::{AGENTS, Agent};
+use super::paths::{ItemVerb, short_path};
+use super::ui::PretoolRow;
 
-use super::agent::Agent;
-use super::paths::{ItemVerb, WriteOutcome};
-
-pub(super) const SKILL_MD: &str = include_str!("../../../.agents/skills/lade/SKILL.md");
+pub(super) const WHY_NO_SKILL: &str = "hooks wrap the command. there is no skill";
 
 pub(super) fn is_lade_skill(content: &str) -> bool {
     if !content.contains("\nname: lade\n") {
@@ -16,37 +15,78 @@ pub(super) fn is_lade_skill(content: &str) -> bool {
         || content.contains("Lade is also called AD, AID, or LAID.")
 }
 
-pub(super) fn skill_is_current(content: &str) -> bool {
-    content == SKILL_MD
+pub(super) fn skill_path(agent: Agent, home: &Path) -> PathBuf {
+    agent
+        .home_dir(home)
+        .join("skills")
+        .join("lade")
+        .join("SKILL.md")
 }
 
-pub(super) fn write_skill(_agent: Agent, path: &Path) -> Result<WriteOutcome> {
-    if path.is_file() {
-        let existing = fs::read_to_string(path).unwrap_or_default();
-        if !is_lade_skill(&existing) {
-            return Ok(WriteOutcome {
-                verb: ItemVerb::Unmanaged,
-                path: path.to_path_buf(),
-            });
-        }
-        if skill_is_current(&existing) {
-            return Ok(WriteOutcome {
-                verb: ItemVerb::Current,
-                path: path.to_path_buf(),
-            });
-        }
-        fs::write(path, SKILL_MD)?;
-        return Ok(WriteOutcome {
-            verb: ItemVerb::Updated,
-            path: path.to_path_buf(),
-        });
+pub(super) fn project_skill_file(agent: Agent, dest: &Path) -> PathBuf {
+    match agent {
+        Agent::Cursor => dest
+            .join(".cursor")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        Agent::Claude => dest
+            .join(".claude")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        Agent::Codex => dest
+            .join(".codex")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
+        Agent::OpenCode => dest
+            .join(".opencode")
+            .join("skills")
+            .join("lade")
+            .join("SKILL.md"),
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+}
+
+fn agents_skill_file(dir: &Path) -> PathBuf {
+    dir.join(".agents")
+        .join("skills")
+        .join("lade")
+        .join("SKILL.md")
+}
+
+/// Drop Lade-managed skills under home, and under `dest` when it is a git root.
+/// Leaves unmanaged files. A no-git cwd is not `dest`.
+pub(super) fn sweep_lade_skills(home: &Path, dest: Option<&Path>) -> Vec<PretoolRow> {
+    let mut rows = Vec::new();
+    let rel = dest.unwrap_or(home);
+    for agent in AGENTS {
+        push_removed(&mut rows, &skill_path(agent, home), home, rel);
+        if let Some(dest) = dest {
+            push_removed(&mut rows, &project_skill_file(agent, dest), home, dest);
+        }
     }
-    fs::write(path, SKILL_MD)?;
-    Ok(WriteOutcome {
-        verb: ItemVerb::Installed,
-        path: path.to_path_buf(),
-    })
+    push_removed(&mut rows, &agents_skill_file(home), home, rel);
+    if let Some(dest) = dest {
+        push_removed(&mut rows, &agents_skill_file(dest), home, dest);
+    }
+    rows
+}
+
+fn push_removed(rows: &mut Vec<PretoolRow>, path: &Path, home: &Path, dest: &Path) {
+    let Ok(content) = fs::read_to_string(path) else {
+        return;
+    };
+    if !is_lade_skill(&content) {
+        return;
+    }
+    if fs::remove_file(path).is_err() {
+        return;
+    }
+    rows.push(PretoolRow {
+        agent: "skill",
+        verb: ItemVerb::Removed,
+        path: short_path(path, home, dest),
+        note: WHY_NO_SKILL,
+    });
 }

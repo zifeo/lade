@@ -71,14 +71,7 @@ impl Agent {
         }
     }
 
-    pub(super) fn skill_path(self, home: &Path) -> PathBuf {
-        self.home_dir(home)
-            .join("skills")
-            .join("lade")
-            .join("SKILL.md")
-    }
-
-    /// Repo file this binary serves. Same model as the bundled `SKILL.md`.
+    /// Repo file this binary serves.
     pub(super) fn snapshot(self) -> &'static str {
         match self {
             Agent::Cursor => include_str!("../../../.cursor/hooks.json"),

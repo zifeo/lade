@@ -15,7 +15,7 @@ pub use hook::*;
 pub enum Command {
     /// Download and install the latest release.
     Upgrade(UpgradeCommand),
-    /// Report version, config, pre-exec, pre-tool, skills, and secret providers.
+    /// Report version, config, pre-exec, pre-tool, and secret providers.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     Bench(BenchCommand),
@@ -23,10 +23,10 @@ pub enum Command {
     On,
     /// Disable pre-exec for this shell.
     Off,
-    /// Install pre-exec (this shell) and pre-tool (agents).
-    Install(InstallCommand),
-    /// Remove pre-exec (this shell) and pre-tool (same plane as install).
-    Uninstall,
+    /// Wire pre-exec (this shell) and pre-tool (this repo).
+    Setup(SetupCommand),
+    /// Remove pre-exec (this shell) and pre-tool (this repo).
+    Teardown,
     /// Run a command with matching lade.yml access. One-shot, no pre-exec.
     Inject(InjectCommand),
     /// Resolve secrets for a local or remote MCP server.
@@ -130,14 +130,14 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
             }
             return Ok(());
         }
-        Some(Command::Install(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("install") {
+        Some(Command::Setup(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("setup") {
                 sub.print_help()?;
             }
             return Ok(());
         }
-        Some(Command::Uninstall) => {
-            if let Some(sub) = cmd.find_subcommand_mut("uninstall") {
+        Some(Command::Teardown) => {
+            if let Some(sub) = cmd.find_subcommand_mut("teardown") {
                 sub.print_help()?;
             }
             return Ok(());

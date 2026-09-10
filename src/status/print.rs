@@ -39,7 +39,7 @@ pub(super) fn print_human(report: &StatusReport) {
     if report.hooks.preexec.installed {
         println!("  installed: yes");
     } else {
-        println!("  installed: no (run `lade install`)");
+        println!("  installed: no (run `lade setup`)");
     }
     match &report.hooks.preexec.inject_startup_skipped {
         Some(name) => println!("  inject wrap: skips startup files ({name} present)"),
@@ -65,17 +65,8 @@ pub(super) fn print_human(report: &StatusReport) {
     );
     print_pretool_line("OpenCode this repo", &report.hooks.pretool.opencode.project);
 
-    println!("skills");
-    print_pretool_line("Cursor this machine", &report.skills.cursor.global);
-    print_pretool_line("Cursor this repo", &report.skills.cursor.project);
-    print_pretool_line("Claude Code this machine", &report.skills.claude.global);
-    print_pretool_line("Claude Code this repo", &report.skills.claude.project);
-    print_pretool_line("Codex this machine", &report.skills.codex.global);
-    print_pretool_line("Codex this repo", &report.skills.codex.project);
-    print_pretool_line("OpenCode this machine", &report.skills.opencode.global);
-    print_pretool_line("OpenCode this repo", &report.skills.opencode.project);
     if has_stale_pretool(report) {
-        println!("  drift: run `lade install` to refresh stale hooks and skills");
+        println!("  drift: run `lade setup` to refresh stale hooks");
     }
 
     let pc = &report.project_config;
@@ -137,15 +128,7 @@ fn has_stale_pretool(report: &StatusReport) -> bool {
         stale(&status.global) || stale(&status.project)
     }
     let hooks = &report.hooks.pretool;
-    let skills = &report.skills;
-    agent(&hooks.cursor)
-        || agent(&hooks.claude)
-        || agent(&hooks.codex)
-        || agent(&hooks.opencode)
-        || agent(&skills.cursor)
-        || agent(&skills.claude)
-        || agent(&skills.codex)
-        || agent(&skills.opencode)
+    agent(&hooks.cursor) || agent(&hooks.claude) || agent(&hooks.codex) || agent(&hooks.opencode)
 }
 
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {

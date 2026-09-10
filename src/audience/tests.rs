@@ -162,12 +162,12 @@ fn hook_is_pretool_agent_quiet() {
 }
 
 #[test]
-fn hook_install_is_not_pretool() {
+fn hook_enable_is_not_pretool() {
     temp_env::with_vars(cleared_signals(), || {
         let d = detect(
             &Command::Hook {
                 harness: None,
-                action: Some(HookAction::Install(HookScopeCommand {
+                action: Some(HookAction::Enable(HookScopeCommand {
                     scope: HookScope::User,
                     harness: HookHarness::Cursor,
                 })),

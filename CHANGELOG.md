@@ -40,12 +40,24 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
+- **`lade setup` / `lade teardown`**: replace `install` / `uninstall`.
+  Setup always wraps this shell. Agent hooks are written only inside a
+  git repo, into that repo. Home hooks are flagged, never offered.
+  Both planes at once is an error. No skill files. A leftover
+  Lade skill at home or in the repo is removed, with why. Agents
+  curl `agent-setup.sh`. `lade hook enable` / `disable` replace
+  `hook install` / `uninstall`.
 - Azure Key Vault URIs use `azurekv://`.
 - Infisical hydrates through the Infisical CLI again, so a desktop
   `infisical login` is enough. A token still works when the CLI sees it.
 - Vault hydrate is HTTP KV v2. Resolve does not run the Vault CLI.
   `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from
   `vault login`. Docker tests seed with `curl`, not a host `vault`.
+
+### Removed
+
+- APM package (`apm.yml`, `.apm/skills/lade`). Hooks are written by the
+  binary. `agent-setup.sh` is the agent install path.
 
 ### Fixed
 

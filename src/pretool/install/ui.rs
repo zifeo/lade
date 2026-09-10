@@ -9,15 +9,18 @@ use super::agent::Agent;
 use super::paths::{ItemVerb, tilde};
 use super::write::Scope;
 
+#[derive(Debug)]
 pub(crate) struct PretoolReport {
     pub where_line: String,
     pub rows: Vec<PretoolRow>,
 }
 
+#[derive(Debug)]
 pub(crate) struct PretoolRow {
     pub agent: &'static str,
     pub verb: ItemVerb,
     pub path: String,
+    pub note: &'static str,
 }
 
 pub(super) fn read_line(prompt: &str) -> Result<String> {
@@ -47,19 +50,6 @@ pub(super) fn parse_yes_no(answer: &str, default_yes: bool) -> Result<bool> {
     bail!("type Y or n");
 }
 
-pub(super) fn default_scope(in_git: bool) -> Scope {
-    if in_git { Scope::Project } else { Scope::User }
-}
-
-pub(super) fn parse_scope(answer: &str, default: Scope) -> Result<Scope> {
-    match answer.trim().to_ascii_lowercase().as_str() {
-        "" | "y" | "yes" => Ok(default),
-        "m" | "machine" | "u" | "user" => Ok(Scope::User),
-        "p" | "project" | "l" | "local" | "repo" => Ok(Scope::Project),
-        _ => bail!("type Y for this repo or m for this machine"),
-    }
-}
-
 pub(super) fn parse_agents(answer: &str) -> Result<Vec<Agent>> {
     let mut agents = Vec::new();
     for token in answer.split(|c: char| c == ',' || c.is_whitespace()) {
@@ -79,18 +69,9 @@ pub(super) fn parse_agents(answer: &str) -> Result<Vec<Agent>> {
     Ok(agents)
 }
 
-pub(super) fn ask_repo_or_machine() -> Result<Scope> {
-    parse_scope(
-        &read_line("Install Lade in this repo? [Y] this repo / [m] this machine: ")?,
-        Scope::Project,
-    )
-}
-
 pub(super) fn ask_agents(detected: &[Agent]) -> Result<Vec<Agent>> {
     if detected.is_empty() {
-        return parse_agents(&read_line(
-            "No agents detected. Agents (cursor, claude, codex, opencode): ",
-        )?);
+        return Ok(Vec::new());
     }
     let names = detected
         .iter()
@@ -98,24 +79,10 @@ pub(super) fn ask_agents(detected: &[Agent]) -> Result<Vec<Agent>> {
         .map(Agent::name)
         .collect::<Vec<_>>()
         .join(", ");
-    if confirm_default_yes(&format!("Install for {names}?"))? {
+    if confirm_default_yes(&format!("Wrap agents for {names}?"))? {
         return Ok(detected.to_vec());
     }
     parse_agents(&read_line("Agents (cursor, claude, codex, opencode): ")?)
-}
-
-pub(super) fn warn_double_hooks(names: &[String]) {
-    if names.is_empty() {
-        return;
-    }
-    MessageBox::new()
-        .warning()
-        .line("This machine already has Lade hooks for:")
-        .line(format!("- {}", names.join(", ")))
-        .line("This repo's hooks and the machine hooks will both run.")
-        .line("The second hook skips rewrite. You still pay two processes.")
-        .line("Remove the machine hooks with `lade hook uninstall --scope user --harness <slug>`.")
-        .print_stderr();
 }
 
 pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
@@ -135,7 +102,7 @@ pub(crate) fn print_setup(found: &str, verb: &str, path: &str, pretool: &Pretool
         .line(format!("  {verb:<9}  {path}"))
         .line("")
         .line(format!("pre-tool  {}", pretool.where_line))
-        .line("Wraps commands agents run. Hook and skill together.")
+        .line("Wraps commands agents run.")
         .line("");
     if pretool.rows.is_empty() {
         mb = mb.line("nothing here.");
@@ -146,12 +113,17 @@ pub(crate) fn print_setup(found: &str, verb: &str, path: &str, pretool: &Pretool
                 mb = mb.line(row.agent);
                 last = Some(row.agent);
             }
-            let note = if row.verb == ItemVerb::Unmanaged {
-                "  not Lade-managed"
+            let note = if !row.note.is_empty() {
+                row.note
+            } else if row.verb == ItemVerb::Flagged {
+                "home leftover"
             } else {
                 ""
             };
-            mb = mb.line(format!("  {:<9}  {}{note}", row.verb.label(), row.path));
+            mb = mb.line(format!("  {:<9}  {}", row.verb.label(), row.path));
+            if !note.is_empty() {
+                mb = mb.line(format!("            {note}"));
+            }
         }
     }
     mb.print_stderr();

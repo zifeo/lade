@@ -16,6 +16,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALLER="$REPO_ROOT/installer.sh"
+AGENT_SETUP="$REPO_ROOT/agent-setup.sh"
 PLATFORM="${PLATFORM:-x86_64-unknown-linux-musl}"
 VERSION="0.0.0-test"
 ASSET="lade-v$VERSION-$PLATFORM"
@@ -47,7 +48,7 @@ sha256_of() {
 
 # --- 1. shellcheck ---------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck "$INSTALLER"; then pass "shellcheck clean"; else fail "shellcheck reported issues"; fi
+  if shellcheck "$INSTALLER" "$AGENT_SETUP"; then pass "shellcheck clean"; else fail "shellcheck reported issues"; fi
 else
   fail "shellcheck not installed"
 fi
@@ -127,6 +128,56 @@ if run_installer "$OUT3" >"$WORK/log3" 2>&1; then
 else
   cat "$WORK/log3" >&2
   fail "installer failed when checksum missing"
+fi
+
+# --- 5. agent-setup.sh uses an existing lade, then calls setup --------------
+PATH_DIR="$WORK/path"
+mkdir -p "$PATH_DIR"
+cat >"$PATH_DIR/lade" <<'EOF'
+#!/bin/sh
+printf 'setup-called %s\n' "$*" >"${LADE_MARKER}"
+EOF
+chmod +x "$PATH_DIR/lade"
+MARKER="$WORK/setup-marker"
+if env PATH="$PATH_DIR:$PATH" LADE_MARKER="$MARKER" sh "$AGENT_SETUP" >"$WORK/log-agent-existing" 2>&1; then
+  grep -q "setup-called setup" "$MARKER" || fail "agent-setup did not run lade setup"
+  pass "agent-setup runs setup when lade is on PATH"
+else
+  cat "$WORK/log-agent-existing" >&2
+  fail "agent-setup failed when lade was already on PATH"
+fi
+
+# --- 6. agent-setup.sh installs then runs setup ----------------------------
+path_without_lade() {
+  _out=""
+  _old_ifs=$IFS
+  IFS=:
+  for _dir in $PATH; do
+    if [ -n "$_dir" ] && [ ! -x "$_dir/lade" ]; then
+      if [ -z "$_out" ]; then
+        _out="$_dir"
+      else
+        _out="$_out:$_dir"
+      fi
+    fi
+  done
+  IFS=$_old_ifs
+  printf '%s\n' "$_out"
+}
+
+OUT4="$WORK/out4"
+mkdir -p "$OUT4"
+# After installer, PATH must see OUT4/lade. The fake binary from the asset
+# ignores argv, so setup still exits 0.
+if env RELEASE_URL="$BASE" PLATFORM="$PLATFORM" VERSION="$VERSION" \
+  OUT_DIR="$OUT4" CI=1 INSTALLER_FILE="$INSTALLER" \
+  PATH="$OUT4:$(path_without_lade)" \
+  sh "$AGENT_SETUP" </dev/null >"$WORK/log-agent-install" 2>&1; then
+  [ -x "$OUT4/lade" ] || fail "agent-setup did not install lade"
+  pass "agent-setup installs then runs setup"
+else
+  cat "$WORK/log-agent-install" >&2
+  fail "agent-setup failed when lade was missing"
 fi
 
 printf "\nAll installer tests passed.\n"

@@ -28,17 +28,18 @@ pub(crate) async fn run_standalone(
             println!("{}", shell.off()?);
             Ok(None)
         }
-        Command::Install(opts) => {
+        Command::Setup(opts) => {
             let pre = crate::shell::install_current_preexec()?;
-            // Install is Quiet, so `is_interactive()` is false even on a TTY.
-            let may_prompt = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
-            let tool = pretool::install::install(may_prompt, &opts.slugs())?;
+            let may_prompt = ctx.stdin_is_terminal
+                && ctx.stderr_is_terminal
+                && ctx.audience == crate::config::Audience::Human;
+            let tool = pretool::install::setup(may_prompt, &opts.slugs())?;
             pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
             Ok(None)
         }
-        Command::Uninstall => {
+        Command::Teardown => {
             let pre = crate::shell::uninstall_current_preexec()?;
-            let tool = pretool::install::uninstall()?;
+            let tool = pretool::install::teardown()?;
             pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
             Ok(None)
         }
@@ -55,10 +56,10 @@ pub(crate) async fn run_standalone(
             ..
         } => {
             match action {
-                HookAction::Install(opts) => {
+                HookAction::Enable(opts) => {
                     pretool::install::install_scoped(hook_scope(opts.scope), opts.harness.slug())?;
                 }
-                HookAction::Uninstall(opts) => {
+                HookAction::Disable(opts) => {
                     pretool::install::uninstall_scoped(
                         hook_scope(opts.scope),
                         opts.harness.slug(),

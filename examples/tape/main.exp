@@ -1,4 +1,4 @@
 echo hello $GREETING
-lade install
+lade setup
 source ~/.zshrc
 echo hello $GREETING

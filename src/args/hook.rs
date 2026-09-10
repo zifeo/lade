@@ -39,7 +39,7 @@ pub struct HookScopeCommand {
 #[derive(Subcommand, Debug)]
 pub enum HookAction {
     /// Write the native pre-tool hook for one harness.
-    Install(HookScopeCommand),
+    Enable(HookScopeCommand),
     /// Remove a Lade-managed pre-tool hook.
-    Uninstall(HookScopeCommand),
+    Disable(HookScopeCommand),
 }

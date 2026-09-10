@@ -1,9 +1,9 @@
 //! Optional installation of the `lade hook` interceptor into the agents that
 //! support `preToolUse` shell hooks (Cursor, Claude Code, Codex, OpenCode).
 //!
-//! `lade install` writes pre-exec (this shell) and pre-tool (hook and
-//! skill together). A git cwd defaults to the repo. No git defaults to
-//! this machine. `--cursor` and friends skip the agent confirm.
+//! `lade setup` writes pre-exec (this shell) and, inside a git repo, pre-tool
+//! hooks for this repo. No git: this shell only. `--cursor` and friends skip
+//! the agent confirm.
 
 mod agent;
 mod inspect;
@@ -19,12 +19,10 @@ mod write;
 #[cfg(test)]
 mod tests;
 
-pub use inspect::{
-    HookLocation, PretoolAgentStatus, PretoolStatus, SkillsStatus, inspect, inspect_skills,
-};
-pub(crate) use offer::install;
+pub use inspect::{HookLocation, PretoolAgentStatus, PretoolStatus, inspect};
+pub(crate) use offer::setup;
 pub(crate) use ui::print_setup;
-pub(crate) use write::uninstall;
+pub(crate) use write::teardown;
 pub use write::{Scope, install_scoped, refresh_installed, uninstall_scoped};
 
 #[cfg(test)]

@@ -68,7 +68,6 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         },
         pretool: pretool::install::inspect(&cwd)?,
     };
-    let skills = pretool::install::inspect_skills(&cwd)?;
 
     let saved_user = global.user.or_else(|| {
         std::env::var("USER")
@@ -140,7 +139,6 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         version,
         global_config,
         hooks,
-        skills,
         project_config,
         log: event::info(),
         ok,

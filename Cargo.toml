@@ -15,7 +15,7 @@ name = "lade"
 version = "0.18.1-beta.1"
 edition = "2024"
 default-run = "lade"
-description = "Temporary access to secrets, files, and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
+description = "Temporary access to secrets and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
 license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
 

@@ -60,8 +60,7 @@ fn test_status_json_is_valid_with_expected_keys() {
         value["hooks"]["preexec"]["inject_skips_startup_files"],
         true
     );
-    assert!(value.get("skills").is_some());
-    assert!(value["skills"].get("cursor").is_some());
+    assert!(value.get("skills").is_none());
     assert!(value.get("log").is_some());
     assert!(value["log"].get("path").is_some());
     assert_eq!(value["log"]["events"], 0);
@@ -133,7 +132,7 @@ fn test_status_reports_project_pretool_hook() {
         .stdout(predicates::str::contains("pre-exec (this shell)"))
         .stdout(predicates::str::contains("pre-tool (agents)"))
         .stdout(predicates::str::contains(
-            "drift: run `lade install` to refresh stale hooks and skills",
+            "drift: run `lade setup` to refresh stale hooks",
         ));
     let output = common::lade(home.path())
         .current_dir(dir.path())

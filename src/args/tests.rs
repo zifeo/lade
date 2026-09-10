@@ -160,12 +160,12 @@ fn hook_stdin_still_parses_harness() {
 }
 
 #[test]
-fn hook_install_defaults_scope_to_project() {
-    assert!(Args::try_parse_from(["lade", "hook", "install"]).is_err());
-    let args = Args::try_parse_from(["lade", "hook", "install", "--harness", "cursor"]).unwrap();
+fn hook_enable_defaults_scope_to_project() {
+    assert!(Args::try_parse_from(["lade", "hook", "enable"]).is_err());
+    let args = Args::try_parse_from(["lade", "hook", "enable", "--harness", "cursor"]).unwrap();
     match args.command {
         Some(Command::Hook {
-            action: Some(HookAction::Install(opts)),
+            action: Some(HookAction::Enable(opts)),
             harness: None,
         }) => {
             assert_eq!(opts.scope, HookScope::Project);
@@ -176,7 +176,7 @@ fn hook_install_defaults_scope_to_project() {
     let user = Args::try_parse_from([
         "lade",
         "hook",
-        "install",
+        "enable",
         "--scope",
         "user",
         "--harness",
@@ -185,7 +185,7 @@ fn hook_install_defaults_scope_to_project() {
     .unwrap();
     match user.command {
         Some(Command::Hook {
-            action: Some(HookAction::Install(opts)),
+            action: Some(HookAction::Enable(opts)),
             ..
         }) => assert_eq!(opts.scope, HookScope::User),
         other => panic!("{other:?}"),
@@ -193,26 +193,26 @@ fn hook_install_defaults_scope_to_project() {
 }
 
 #[test]
-fn install_help_names_preexec_and_pretool() {
+fn setup_help_names_preexec_and_pretool() {
     let mut cmd = Args::command();
-    let install = cmd.find_subcommand_mut("install").expect("install");
+    let setup = cmd.find_subcommand_mut("setup").expect("setup");
     let mut buf = Vec::new();
-    install.write_long_help(&mut buf).unwrap();
+    setup.write_long_help(&mut buf).unwrap();
     let help = String::from_utf8(buf).unwrap();
     assert!(help.contains("pre-exec"), "{help}");
     assert!(help.contains("pre-tool"), "{help}");
 }
 
 #[test]
-fn install_agent_flags_select_slugs() {
-    let bare = Args::try_parse_from(["lade", "install"]).unwrap();
+fn setup_agent_flags_select_slugs() {
+    let bare = Args::try_parse_from(["lade", "setup"]).unwrap();
     match bare.command {
-        Some(Command::Install(opts)) => assert!(opts.slugs().is_empty()),
+        Some(Command::Setup(opts)) => assert!(opts.slugs().is_empty()),
         other => panic!("{other:?}"),
     }
-    let args = Args::try_parse_from(["lade", "install", "--cursor", "--opencode"]).unwrap();
+    let args = Args::try_parse_from(["lade", "setup", "--cursor", "--opencode"]).unwrap();
     match args.command {
-        Some(Command::Install(opts)) => {
+        Some(Command::Setup(opts)) => {
             assert_eq!(opts.slugs(), vec!["cursor", "opencode"]);
         }
         other => panic!("{other:?}"),

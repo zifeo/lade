@@ -5,25 +5,24 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Pre-exec wraps commands you type (this shell only). Pre-tool wraps
-/// commands agents run (hook and skill together). A git repo defaults
-/// to this repo. Outside git, this machine.
+/// commands agents run, in this git repo only.
 #[derive(Parser, Debug)]
-pub struct InstallCommand {
-    /// Install or refresh the Cursor hook and skill.
+pub struct SetupCommand {
+    /// Write or refresh the Cursor hook.
     #[clap(long, default_value_t = false)]
     pub cursor: bool,
-    /// Install or refresh the Claude Code hook and skill.
+    /// Write or refresh the Claude Code hook.
     #[clap(long, default_value_t = false)]
     pub claude: bool,
-    /// Install or refresh the Codex hook and skill.
+    /// Write or refresh the Codex hook.
     #[clap(long, default_value_t = false)]
     pub codex: bool,
-    /// Install or refresh the OpenCode hook and skill.
+    /// Write or refresh the OpenCode hook.
     #[clap(long, default_value_t = false)]
     pub opencode: bool,
 }
 
-impl InstallCommand {
+impl SetupCommand {
     pub fn slugs(&self) -> Vec<&'static str> {
         let mut slugs = Vec::new();
         if self.cursor {
