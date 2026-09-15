@@ -84,6 +84,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   retries while the peer is still migrating. Busy wait stays 250ms.
 - **Vault login file**: HTTP Vault reads `~/.vault-token` when
   `VAULT_TOKEN` and `LADE_VAULT_TOKEN` are unset.
+- **Inject with a store hit**: a pinned CLI already in
+  `$MISE_INSTALLS_DIR` still dumps `mise env` when mise is there.
+  When it is not, extra env stays empty and the command still
+  starts. Inject does not fetch mise.
 
 ## [0.18.0] - 2026-09-07
 

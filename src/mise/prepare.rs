@@ -120,7 +120,7 @@ async fn pin_command(
     };
     if let Some(bin_dir) = lookup::find_cli_dir(&installs, &names, &lookup_version, key, &spec) {
         rewrite_floating_yaml(cwd, key, &spec, &lookup_version)?;
-        return activate(bin_dir, &spec, &installs, cwd, &lookup_version).await;
+        return activate(bin_dir, &spec, &installs, cwd, &lookup_version, false).await;
     }
     if !allow_install {
         return Err(Error::box_lines([
@@ -155,7 +155,7 @@ async fn pin_command(
     match lookup::find_cli_dir(&installs, &names, &found_version, key, &spec) {
         Some(bin_dir) => {
             rewrite_floating_yaml(cwd, key, &spec, &found_version)?;
-            activate(bin_dir, &spec, &installs, cwd, &found_version).await
+            activate(bin_dir, &spec, &installs, cwd, &found_version, true).await
         }
         None => Err(Error::refuse(key, &spec.cli_spec())),
     }
@@ -213,11 +213,16 @@ async fn activate(
     installs: &Path,
     cwd: &Path,
     resolved: &str,
+    capture_env: bool,
 ) -> Result<Outcome, Error> {
     let env_spec = spec_for_env(spec, resolved);
     let extra = match env::load(&env_spec) {
         Some(map) => map,
-        None => env::refresh(&env_spec, installs, cwd).await?,
+        None => match env::refresh(&env_spec, installs, cwd).await {
+            Ok(map) => map,
+            Err(err) if capture_env => return Err(err),
+            Err(_) => HashMap::new(),
+        },
     };
     let mut env = extra;
     env.insert("PATH".to_string(), prepend_path(&bin_dir));

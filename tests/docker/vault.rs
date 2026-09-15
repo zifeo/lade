@@ -1,4 +1,4 @@
-use crate::common::{command_path, seed_store_cli};
+use crate::common::seed_stub_cli;
 use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
@@ -58,12 +58,11 @@ fn run_cmd(cmd: &str, args: &[&str]) {
 
 #[test]
 fn vault_shell_scripts_run_from_cargo_test_workspace() {
-    require_cmds(&["bash", "zsh", "fish", "curl", "docker", "vault"]);
+    require_cmds(&["bash", "zsh", "fish", "curl", "docker"]);
     assert!(docker_ready(), "docker daemon is required");
 
-    let vault = command_path("vault").expect("vault on PATH");
     let installs = tempdir().expect("mise installs");
-    seed_store_cli(installs.path(), "vault", "1.17.6", &vault);
+    seed_stub_cli(installs.path(), "vault", "1.17.6");
     let path = path_env();
     let installs_env = format!("MISE_INSTALLS_DIR={}", installs.path().display());
     run_cmd(

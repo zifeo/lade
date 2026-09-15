@@ -10,6 +10,18 @@ pub fn seed_store_cli(installs: &Path, name: &str, version: &str, src: &Path) {
     std::os::unix::fs::symlink(src, dest).unwrap();
 }
 
+pub fn seed_stub_cli(installs: &Path, name: &str, version: &str) {
+    let dest_dir = installs.join(name).join(version);
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    let dest = dest_dir.join(name);
+    std::fs::write(&dest, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 pub fn command_path(name: &str) -> Option<PathBuf> {
     let output = StdCommand::new("sh")
         .args(["-c", &format!("command -v {name}")])

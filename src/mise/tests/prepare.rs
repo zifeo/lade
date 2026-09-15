@@ -44,6 +44,42 @@ fn happy_path_prepends_store_without_mise() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn store_hit_without_sidecar_or_mise_still_runs() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let empty = dir.path().join("empty-path");
+    let bin = installs.join("jq/1.7.1");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&empty).unwrap();
+    write_exec(&bin.join("jq"), "echo PINNED");
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("mise.lock"),
+        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(empty.to_str().unwrap())),
+        ],
+        || {
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let out = block_on(prepare(&config, "jq .", dir.path(), &None)).unwrap();
+            let path = out.env.get("PATH").unwrap();
+            assert!(path.starts_with(&format!("{}:", bin.display())), "{path}");
+        },
+    );
+}
+
 #[test]
 fn bare_version_is_an_error() {
     let dir = tempdir().unwrap();
@@ -396,7 +432,6 @@ fn implied_pin_when_command_is_the_cli() {
     let bin = installs.join("kubectl/1.31.4");
     std::fs::create_dir_all(&bin).unwrap();
     write_exec(&bin.join("kubectl"), "echo KUBECTL");
-    write_cached_env(home.path(), "mise://aqua/kubernetes/kubectl@1.31.4", "{}");
     std::fs::write(
         dir.path().join("lade.yml"),
         "^kubectl:\n  CLUSTER: kubectl://bad-host/dev/service/postgres/5432\n",
