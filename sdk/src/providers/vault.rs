@@ -10,9 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{
-    Provider, Warnings, add_url, env_lookup, host_with_port, require_cli_ok, run_cli, search_cli,
-};
+use super::{Provider, Transport, Warnings, add_url, env_lookup, host_with_port, search_cli};
 
 const DOCS: &str = "https://developer.hashicorp.com/vault/docs/commands/kv/get";
 
@@ -92,19 +90,42 @@ fn vault_token(extra_env: &HashMap<String, String>) -> Option<String> {
     })
 }
 
-fn cli_env(
-    extra_env: &HashMap<String, String>,
+fn kv_v2_url(address: &str, mount: &str, key: &str) -> String {
+    let mount = urlencoding::encode(mount);
+    let key = key
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("{address}/v1/{mount}/data/{key}")
+}
+
+async fn kv_get(
+    client: &reqwest::Client,
     address: &str,
     token: &str,
     namespace: Option<&str>,
-) -> HashMap<String, String> {
-    let mut env = extra_env.clone();
-    env.insert("VAULT_ADDR".to_string(), address.to_string());
-    env.insert("VAULT_TOKEN".to_string(), token.to_string());
+    mount: &str,
+    key: &str,
+) -> Result<VaultExport> {
+    let url = kv_v2_url(address, mount, key);
+    let mut req = client.get(&url).header("X-Vault-Token", token);
     if let Some(namespace) = namespace {
-        env.insert("VAULT_NAMESPACE".to_string(), namespace.to_string());
+        req = req.header("X-Vault-Namespace", namespace);
     }
-    env
+    let response = req.send().await.map_err(|e| anyhow!("Vault error: {e}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| anyhow!("Vault error: {e}"))?;
+    if !status.is_success() {
+        return Err(anyhow!(
+            "Vault error: HTTP {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|e| anyhow!("Vault error: {e} (stderr: )"))
 }
 
 #[async_trait]
@@ -115,6 +136,10 @@ impl Provider for Vault {
 
     fn name(&self) -> &'static str {
         "Vault"
+    }
+
+    fn transport(&self) -> Transport {
+        Transport::Sdk
     }
 
     fn install_url(&self) -> &'static str {
@@ -164,9 +189,11 @@ impl Provider for Vault {
         })?;
         let namespace = env_lookup(&extra_env, &["VAULT_NAMESPACE", "LADE_VAULT_NAMESPACE"]);
         let scheme = vault_scheme(&extra_env);
-        let name = self.name();
-        let install_url = self.install_url();
-        let extra_env = Arc::new(extra_env);
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| anyhow!("Vault error: {e}"))?;
+        let client = Arc::new(client);
 
         let fetches = self
             .urls
@@ -192,7 +219,7 @@ impl Provider for Vault {
                                 let mount = mount.clone();
                                 let token = token.clone();
                                 let namespace = namespace.clone();
-                                let extra_env = Arc::clone(&extra_env);
+                                let client = Arc::clone(&client);
                                 async move {
                                     let address = format!("{scheme}://{host}");
                                     let mount = urlencoding::decode(&mount)
@@ -201,25 +228,15 @@ impl Provider for Vault {
                                     let key = urlencoding::decode(&key)
                                         .map_err(|e| anyhow!("Vault error: {e}"))?
                                         .into_owned();
-                                    let env =
-                                        cli_env(&extra_env, &address, &token, namespace.as_deref());
-                                    let mount_flag = format!("-mount={mount}");
-                                    let output = run_cli(
-                                        &["vault", "kv", "get", "-format=json", &mount_flag, &key],
-                                        &env,
-                                        name,
-                                        install_url,
-                                        None,
+                                    let loaded = kv_get(
+                                        &client,
+                                        &address,
+                                        &token,
+                                        namespace.as_deref(),
+                                        &mount,
+                                        &key,
                                     )
                                     .await?;
-                                    require_cli_ok(&output, name)?;
-                                    let loaded: VaultExport =
-                                        serde_json::from_slice(&output.stdout).map_err(|e| {
-                                            anyhow!(
-                                                "Vault error: {e} (stderr: {})",
-                                                String::from_utf8_lossy(&output.stderr)
-                                            )
-                                        })?;
                                     let mut hydration = Hydration::default();
                                     for (url, value) in group {
                                         let (_, _, field) = path_parts(url)?;

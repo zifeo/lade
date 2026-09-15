@@ -71,35 +71,40 @@ fn test_set_without_silence_shows_hydration_progress() {
 
 #[test]
 #[cfg(unix)]
-fn test_set_with_vault_cli() {
+fn test_set_with_vault_http() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+    use std::thread;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = listener.local_addr().unwrap().to_string();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 8192];
+        let _ = stream.read(&mut buf);
+        let body = r#"{"data":{"data":{"password":"vault_injected"}}}"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(resp.as_bytes());
+    });
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
-    let bins = tempdir().unwrap();
-    common::fake_cli(
-        &bins,
-        "vault",
-        r#"echo '{"data":{"data":{"password":"vault_injected"}}}'"#,
-    );
     let installs = tempdir().unwrap();
-    common::seed_store_cli(
-        installs.path(),
-        "vault",
-        "1.17.6",
-        &bins.path().join("vault"),
-    );
+    let dest_dir = installs.path().join("vault/1.17.6");
+    fs::create_dir_all(&dest_dir).unwrap();
+    let dest = dest_dir.join("vault");
+    fs::write(&dest, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&dest, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
         dir.path().join("lade.yml"),
-        "\"vault.*\":\n  PASSWORD: \"vault://127.0.0.1:8200/secret/myapp/password\"\n",
+        format!("\"vault.*\":\n  PASSWORD: \"vault://{host}/secret/myapp/password\"\n"),
     )
     .unwrap();
-    let path = format!(
-        "{}:{}",
-        bins.path().display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
     common::lade(home.path())
         .current_dir(dir.path())
-        .env("PATH", path)
         .env("MISE_INSTALLS_DIR", installs.path())
         .env("VAULT_TOKEN", "s.token")
         .env("LADE_VAULT_HTTP", "1")
@@ -109,6 +114,7 @@ fn test_set_with_vault_cli() {
         .stdout(predicates::str::contains(
             "export PASSWORD='vault_injected'",
         ));
+    server.join().unwrap();
 }
 
 #[test]
