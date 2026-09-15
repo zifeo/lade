@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::{env, time::Duration};
 
 mod access;
+mod add;
 mod age_plugin;
 mod agent_meta;
 mod args;
@@ -17,6 +18,7 @@ mod eval;
 mod event;
 mod exec;
 mod exit_codes;
+mod family;
 mod files;
 mod global_config;
 mod inject;
@@ -27,6 +29,7 @@ mod mcp;
 mod message_box;
 mod mise;
 mod network;
+mod packages;
 mod pretool;
 mod prompt;
 mod provider_progress;
@@ -142,14 +145,7 @@ async fn run() -> Result<()> {
     let config = match LadeFile::build(current_dir.clone()) {
         Ok(c) => c,
         Err(e) => {
-            message_box::MessageBox::new()
-                .error()
-                .line("Could not parse a lade.yml.")
-                .line("")
-                .paragraph(e.to_string())
-                .line("")
-                .line("Walk starts at this directory and stops at $HOME.")
-                .print_stderr();
+            crate::config::report_load_error(&e);
             std::process::exit(exit_codes::FAILURE);
         }
     };

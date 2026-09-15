@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, deserialize_output, run_cli};
+use super::{Provider, Warnings, add_url, deserialize_output, run_cli};
 
 #[derive(Default)]
 pub struct Passbolt {
@@ -35,10 +35,6 @@ impl Provider for Passbolt {
 
     fn install_url(&self) -> &'static str {
         "https://github.com/passbolt/go-passbolt-cli"
-    }
-
-    fn transport(&self) -> Transport {
-        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {

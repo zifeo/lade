@@ -87,7 +87,11 @@ fn inject_missing_mise_is_an_error() {
         .assert()
         .failure()
         .code(1)
-        .stderr(predicates::str::contains("Could not run mise"));
+        .stderr(predicates::str::contains("Could not run mise"))
+        .stderr(predicates::str::contains("lade setup"))
+        .stderr(predicates::str::contains(
+            "https://mise.jdx.dev/installing-mise.html",
+        ));
 }
 
 #[cfg(unix)]

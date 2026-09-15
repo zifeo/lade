@@ -1,6 +1,10 @@
 mod preexec;
+mod profile;
 
-pub use preexec::{install_current_preexec, preexec_installed, uninstall_current_preexec};
+pub use preexec::{
+    SetupShell, ci_job, enable_current_preexec, maybe_bootstrap_setup_shell, preexec_installed,
+    uninstall_current_preexec,
+};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;

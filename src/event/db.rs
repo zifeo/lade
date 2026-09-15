@@ -166,13 +166,17 @@ fn json_col(row: &rusqlite::Row<'_>, idx: usize) -> Option<Value> {
         .filter(|value: &Value| !value.is_null())
 }
 
-pub fn prune_before(ts: &DateTime<Utc>) -> rusqlite::Result<usize> {
+pub fn prune_before(ts: &DateTime<Utc>, repo: Option<&str>) -> rusqlite::Result<usize> {
     let mut conn = open()?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let n = tx.execute(
-        "DELETE FROM events WHERE ts < ?1",
-        params![ts.to_rfc3339_opts(SecondsFormat::Millis, true)],
-    )?;
+    let cutoff = ts.to_rfc3339_opts(SecondsFormat::Millis, true);
+    let n = match repo {
+        Some(repo) => tx.execute(
+            "DELETE FROM events WHERE ts < ?1 AND repo = ?2",
+            params![cutoff, repo],
+        )?,
+        None => tx.execute("DELETE FROM events WHERE ts < ?1", params![cutoff])?,
+    };
     tx.commit()?;
     Ok(n)
 }
@@ -183,7 +187,7 @@ pub fn warmup() {
     }
 }
 
-pub fn info() -> LogInfo {
+pub fn info_for_repo(repo: Option<&str>) -> LogInfo {
     let path = db_path();
     if !path.is_file() {
         return LogInfo {
@@ -194,11 +198,21 @@ pub fn info() -> LogInfo {
     }
     let events = open()
         .ok()
-        .and_then(|c| {
-            c.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+        .and_then(|c| match repo {
+            Some(repo) => c
+                .query_row(
+                    "SELECT COUNT(*) FROM events WHERE repo = ?1",
+                    params![repo],
+                    |r| r.get(0),
+                )
                 .optional()
                 .ok()
-                .flatten()
+                .flatten(),
+            None => c
+                .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+                .optional()
+                .ok()
+                .flatten(),
         })
         .unwrap_or(0);
     let mut bytes = 0u64;

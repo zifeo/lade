@@ -43,8 +43,7 @@ pub(crate) fn write_scoped(
     cwd: &Path,
     install: bool,
 ) -> Result<String> {
-    let agent =
-        Agent::from_slug(harness).with_context(|| format!("unknown harness '{harness}'"))?;
+    let agent = Agent::from_slug(harness).with_context(|| format!("unknown agent '{harness}'"))?;
     let path = match scope {
         Scope::User => agent.config_path(home),
         Scope::Project => canonical_project_path(agent, cwd),

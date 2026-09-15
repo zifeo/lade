@@ -13,7 +13,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url};
+use super::{Provider, Warnings, add_url, search_cli};
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
@@ -117,8 +117,24 @@ impl Provider for OnePassword {
         "https://1password.com/downloads/command-line/"
     }
 
-    fn transport(&self) -> Transport {
-        Transport::Cli
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        let output = search_cli("op", &["item", "list", "--format=json"], extra_env)?;
+        if !output.status.success() {
+            return Err(anyhow::anyhow!("op signin required"));
+        }
+        let items: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+            .map_err(|_| anyhow::anyhow!("could not parse `op item list`"))?;
+        Ok(items
+            .iter()
+            .filter_map(|item| {
+                let title = item.get("title")?.as_str()?;
+                let vault = item
+                    .pointer("/vault/name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Private");
+                Some(format!("{vault}/{title}"))
+            })
+            .collect())
     }
 
     fn batch_unit(&self) -> &'static str {

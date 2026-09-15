@@ -20,7 +20,7 @@ fn test_status_subcommand_is_not_treated_as_alias() {
         .current_dir(dir.path())
         .arg("status")
         .assert()
-        .code(1)
+        .success()
         .stdout(predicates::str::contains("lade version:"));
 }
 

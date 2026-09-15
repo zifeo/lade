@@ -39,7 +39,7 @@ pub(super) fn print_human(report: &StatusReport) {
     if report.hooks.preexec.installed {
         println!("  installed: yes");
     } else {
-        println!("  installed: no (run `lade setup`)");
+        println!("  installed: no (run `lade hook enable --shell`)");
     }
     match &report.hooks.preexec.inject_startup_skipped {
         Some(name) => println!("  inject wrap: skips startup files ({name} present)"),
@@ -76,6 +76,35 @@ pub(super) fn print_human(report: &StatusReport) {
         report.log.events,
         format_bytes(report.log.bytes)
     );
+    match (
+        report.mise.needed,
+        report.mise.in_range,
+        &report.mise.version,
+    ) {
+        (false, _, _) => println!("mise: (not needed)"),
+        (true, true, Some(version)) => {
+            println!("mise: {version} (in range {})", report.mise.range)
+        }
+        (true, true, None) => println!("mise: in range {}", report.mise.range),
+        (true, false, Some(version)) => println!(
+            "mise: {version} (outside {}, run `lade setup`)",
+            report.mise.range
+        ),
+        (true, false, None) => println!("mise: missing (run `lade setup`)"),
+    }
+    for tool in &report.mise.tools {
+        match (&tool.version, tool.present) {
+            (Some(version), true) => println!("  {}: {version} (store)", tool.name),
+            (Some(version), false) => {
+                println!(
+                    "  {}: {version} missing from store (run `lade setup`)",
+                    tool.name
+                )
+            }
+            (None, true) => println!("  {}: present (store)", tool.name),
+            (None, false) => println!("  {}: missing from store (run `lade setup`)", tool.name),
+        }
+    }
     if let Some(err) = &pc.error {
         println!("project config: error");
         println!("  {err}");
@@ -83,7 +112,7 @@ pub(super) fn print_human(report: &StatusReport) {
     }
     println!("project config: ok ({} rules)", pc.rule_count);
     if pc.providers.is_empty() && pc.vault_clis.checked.is_empty() {
-        println!("providers: (none referenced in lade.yml)");
+        println!("providers: (none referenced in lade.yaml)");
         return;
     }
     println!("providers:");
@@ -97,26 +126,9 @@ pub(super) fn print_human(report: &StatusReport) {
                 );
             }
             _ => {
-                match pc
-                    .vault_clis
-                    .warnings
-                    .iter()
-                    .find(|w| w.name == provider.name)
-                {
-                    Some(w) => println!(
-                        "  {}: cli ({} < {}, {})",
-                        provider.scheme, w.found, w.min, w.install_url
-                    ),
-                    None => println!("  {}: cli, {}", provider.scheme, provider.batch_unit),
-                }
+                println!("  {}: cli, {}", provider.scheme, provider.batch_unit);
             }
         }
-    }
-    for w in &pc.vault_clis.warnings {
-        if pc.providers.iter().any(|p| p.name == w.name) {
-            continue;
-        }
-        println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
     }
 }
 

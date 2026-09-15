@@ -86,7 +86,7 @@ fn test_status_json_is_valid_with_expected_keys() {
 }
 
 #[test]
-fn test_status_json_reports_sdk_provider_batch_unit() {
+fn test_status_json_reports_provider_batch_unit() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     fs::write(
@@ -106,7 +106,7 @@ fn test_status_json_reports_sdk_provider_batch_unit() {
     let providers = value["project_config"]["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 1);
     assert_eq!(providers[0]["scheme"], "awssm");
-    assert_eq!(providers[0]["transport"], "sdk");
+    assert_eq!(providers[0]["transport"], "cli");
     assert_eq!(providers[0]["batch_unit"], "(region, name)");
 }
 

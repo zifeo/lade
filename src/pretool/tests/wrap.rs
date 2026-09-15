@@ -1,6 +1,5 @@
+use super::super::bin::{invoked_lade_bin_from, lade_on_path};
 use super::super::handle;
-use super::super::invoked_lade_bin_from;
-use super::super::lade_on_path;
 use super::{
     assert_wraps_with_ticket, test_config, test_config_with_disclaimer, with_cursor_env,
     with_ticket_tmpdir,

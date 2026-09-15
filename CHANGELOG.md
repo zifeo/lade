@@ -13,6 +13,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
   `bw list items` per resolve. `password` is the default field.
+- **lade.yaml version**: optional first line `#: >=0.18.0`. A
+  YAML comment, so it cannot be a command regex. A rule for `#`
+  is a quoted key. Below the range, Lade refuses and shows the
+  box. Edit the comment by hand. No pin command. `lade upgrade`
+  does not load yaml.
 - **mise pins**: A `mise://` URI on a matched rule
   (`tofu: mise://aqua/opentofu/opentofu@1.8.2`) prepends that
   install's bin directory for the command. A miss runs `mise
@@ -41,12 +46,22 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 ### Changed
 
 - **`lade setup` / `lade teardown`**: replace `install` / `uninstall`.
-  Setup always wraps this shell. Agent hooks are written only inside a
-  git repo, into that repo. Home hooks are flagged, never offered.
-  Both planes at once is an error. No skill files. A leftover
-  Lade skill at home or in the repo is removed, with why. Agents
-  curl `agent-setup.sh`. `lade hook enable` / `disable` replace
-  `hook install` / `uninstall`.
+  Setup is this git repo. The shell wrap is written only the first
+  time this machine has no pre-exec, then reload this shell. Later
+  a missing wrap is `lade hook enable --shell`. Teardown does not
+  remove the wrap. Agent hooks stay in the repo. Home hooks are
+  flagged, never stacked. `--harness` is the spoken flag
+  (`--agent` still parses, hidden). `lade add` / `lade remove` write the nearest
+  `lade.yaml` and add runs setup. `lade.lock` sits next to each
+  yaml. Project `mise.toml` is ignored. Bin URIs may set
+  `?setup=` / `?teardown=`. Diary prune uses the same repo filter
+  plus `--global`. Both `lade.yaml` and `lade.yml` in one dir is
+  an error. No skill files. Agents curl `agent-setup.sh`.
+  `mise://…@latest` is resolved to the current version and written
+  as that exact pin. `CI` set skips the shell wrap. Inject warns
+  when a secret is raw. Generated project hooks emit `--harness`.
+  Secret and tunnel CLIs share one spec table. User-facing tunnel
+  errors say tunnel.
 - Azure Key Vault URIs use `azurekv://`.
 - Infisical hydrates through the Infisical CLI again, so a desktop
   `infisical login` is enough. A token still works when the CLI sees it.

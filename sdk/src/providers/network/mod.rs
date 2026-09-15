@@ -10,7 +10,7 @@ mod kubefwd;
 mod ssh;
 mod tsh;
 
-pub use cli::{NETWORK_CLI_SPECS, NetworkCliSpec, is_network_scheme};
+pub use cli::is_network_scheme;
 pub use command::{build_command, ensure_provider_preflight};
 
 #[derive(Debug, Clone)]

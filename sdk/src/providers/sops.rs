@@ -15,7 +15,7 @@ use super::params::{
     Query, apply_process_path, parse_plugin_name, remap_env, require_age_plugin_on_path,
     require_identity_names, split_scheme_path_query,
 };
-use super::{Provider, Transport, Warnings, json_query_string, run_cli};
+use super::{Provider, Warnings, json_query_string, run_cli};
 
 const DOCS: &str = "https://github.com/getsops/sops";
 
@@ -208,10 +208,6 @@ impl Provider for Sops {
 
     fn install_url(&self) -> &'static str {
         DOCS
-    }
-
-    fn transport(&self) -> Transport {
-        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {

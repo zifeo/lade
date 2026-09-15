@@ -114,7 +114,7 @@ fn refuse_double_plane(agents: &[Agent], home: &Path, dest: &Path) -> Result<()>
     }
     let mut mb = MessageBox::new()
         .error()
-        .line("These harnesses have Lade hooks in this repo and under the home directory:");
+        .line("These agents have Lade hooks in this repo and under the home directory:");
     for name in &stacked {
         mb = mb.line(format!("- {name}"));
     }

@@ -75,12 +75,29 @@ struct ProjectConfig {
 }
 
 #[derive(Serialize)]
+struct LockedTool {
+    name: String,
+    version: Option<String>,
+    present: bool,
+}
+
+#[derive(Serialize)]
+struct MiseInfo {
+    needed: bool,
+    version: Option<String>,
+    in_range: bool,
+    range: String,
+    tools: Vec<LockedTool>,
+}
+
+#[derive(Serialize)]
 struct StatusReport {
     version: VersionInfo,
     global_config: GlobalConfigInfo,
     hooks: HooksInfo,
     project_config: ProjectConfig,
     log: event::LogInfo,
+    mise: MiseInfo,
     ok: bool,
 }
 

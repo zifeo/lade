@@ -61,7 +61,7 @@ pub async fn acquire_attached(
     for (key, value) in &network.env {
         match env.get(key) {
             Some(existing) if existing != value => {
-                anyhow::bail!("conflicting binding '{key}' between secret and network providers")
+                anyhow::bail!("conflicting binding '{key}' between secret and tunnel providers")
             }
             Some(_) => {}
             None => {

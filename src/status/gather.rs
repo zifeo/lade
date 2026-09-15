@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::args::StatusCommand;
-use crate::compat::{self, all_supported_schemes, known_schemes};
+use crate::compat::{all_supported_schemes, known_schemes};
 use crate::config::LadeFile;
 use crate::event;
 use crate::global_config::GlobalConfig;
@@ -10,11 +10,10 @@ use crate::shell::{self, preexec_installed};
 use crate::upgrade;
 use lade_sdk::Transport;
 use lade_sdk::compat::spec_for;
-use lade_sdk::network::is_network_scheme;
 
 use super::{
-    CliWarning, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
-    StatusReport, VaultClis, VersionInfo,
+    GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo, StatusReport,
+    VaultClis, VersionInfo,
 };
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
@@ -75,7 +74,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             .or_else(|| std::env::var("USERNAME").ok())
     });
 
-    let project_config = match LadeFile::build(cwd) {
+    let project_config = match LadeFile::build(cwd.clone()) {
         Ok(config) => {
             let schemes = if opts.all {
                 all_supported_schemes()
@@ -92,20 +91,10 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 schemes.sort();
                 schemes
             };
-            let warnings = compat::check_schemes(schemes.clone())
-                .await?
-                .into_iter()
-                .map(|w| CliWarning {
-                    name: w.name,
-                    found: w.found,
-                    min: w.min,
-                    install_url: w.install_url,
-                })
-                .collect();
             let providers = provider_info(&schemes);
             let cli_checked: Vec<String> = schemes
                 .iter()
-                .filter(|scheme| spec_for(scheme).is_some() || is_network_scheme(scheme))
+                .filter(|scheme| spec_for(scheme).is_some())
                 .cloned()
                 .collect();
             ProjectConfig {
@@ -113,14 +102,14 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 error: None,
                 vault_clis: VaultClis {
                     checked: cli_checked,
-                    warnings,
+                    warnings: Vec::new(),
                 },
                 providers,
             }
         }
         Err(e) => ProjectConfig {
             rule_count: 0,
-            error: Some(e.to_string()),
+            error: Some(format!("{e:#}")),
             vault_clis: VaultClis {
                 checked: vec![],
                 warnings: vec![],
@@ -129,18 +118,40 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         },
     };
 
+    let mise_status = crate::mise::status_info().await;
+    let saved = saved_user.clone();
+    let tools = match LadeFile::build(cwd.clone()) {
+        Ok(config) => crate::mise::locked_tools(&cwd, &config, &saved)
+            .into_iter()
+            .map(|tool| super::LockedTool {
+                name: tool.name,
+                version: tool.version,
+                present: tool.present,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let tools_ok = tools.iter().all(|tool| tool.present);
+    let mise = super::MiseInfo {
+        needed: mise_status.needed,
+        version: mise_status.version,
+        in_range: mise_status.in_range,
+        range: mise_status.range,
+        tools,
+    };
     let ok = version.check_error.is_none()
-        && !version.update_available
-        && hooks.preexec.installed
         && project_config.error.is_none()
-        && project_config.vault_clis.warnings.is_empty();
+        && (!mise.needed || mise.in_range)
+        && tools_ok;
 
+    let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
         version,
         global_config,
         hooks,
         project_config,
-        log: event::info(),
+        log: event::info_for_repo(repo.as_deref()),
+        mise,
         ok,
     })
 }

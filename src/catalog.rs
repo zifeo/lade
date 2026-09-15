@@ -3,9 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use lade_sdk::network::is_network_scheme;
-
 use crate::event::Event;
+use crate::family::Family;
 
 #[derive(Debug, Serialize)]
 pub struct CommandRow {
@@ -127,13 +126,17 @@ fn tags_from(bindings: Option<&serde_json::Value>) -> Vec<String> {
 }
 
 fn uri_tag(uri: &str) -> &'static str {
-    let scheme = uri.split("://").next().unwrap_or("");
-    if scheme == "file" {
-        "file"
-    } else if is_network_scheme(scheme) {
-        "tunnel"
-    } else {
-        "env"
+    match Family::of_uri(uri) {
+        Family::Tunnel => "tunnel",
+        Family::Bin => Family::Bin.token(),
+        Family::Secret
+            if uri
+                .split_once("://")
+                .is_some_and(|(scheme, _)| scheme == "file") =>
+        {
+            "file"
+        }
+        Family::Secret => Family::Secret.token(),
     }
 }
 
@@ -211,6 +214,6 @@ mod tests {
         assert_eq!(rows[0].count, 2);
         assert_eq!(rows[0].human, 1);
         assert_eq!(rows[0].agent, 1);
-        assert_eq!(rows[0].tags, vec!["env"]);
+        assert_eq!(rows[0].tags, vec!["secret"]);
     }
 }

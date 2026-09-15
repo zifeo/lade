@@ -58,7 +58,7 @@ pub async fn refresh(
     cwd: &Path,
 ) -> Result<HashMap<String, String>, Error> {
     let tmp = tempfile::tempdir().map_err(|e| Error::env(e.to_string()))?;
-    let config = tmp.path().join("mise.toml");
+    let config = tmp.path().join("lade.toml");
     std::fs::write(&config, project::pin_only_toml(spec)).map_err(|e| Error::env(e.to_string()))?;
     let ignored = project::isolate_config_paths(cwd);
     let args = vec![

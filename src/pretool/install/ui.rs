@@ -92,14 +92,34 @@ pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
     }
 }
 
-pub(crate) fn print_setup(found: &str, verb: &str, path: &str, pretool: &PretoolReport) {
-    let mut mb = MessageBox::new()
-        .info()
-        .line("pre-exec  this shell")
-        .line("Wraps commands you type.")
-        .line("")
-        .line(found)
-        .line(format!("  {verb:<9}  {path}"))
+pub(crate) fn print_setup(shell: &crate::shell::SetupShell, pretool: &PretoolReport) {
+    let mut mb = MessageBox::new().info().line("pre-exec  this shell");
+    mb = mb.line("Wraps commands you type.").line("");
+    match shell {
+        crate::shell::SetupShell::Bootstrapped {
+            found,
+            path,
+            reload,
+        } => {
+            mb = mb
+                .line(found)
+                .line(format!("  {:<9}  {path}", "installed"))
+                .line(reload);
+        }
+        crate::shell::SetupShell::Current { found, path } => {
+            mb = mb.line(found).line(format!("  {:<9}  {path}", "current"));
+        }
+        crate::shell::SetupShell::Missing { found } => {
+            mb = mb
+                .line(found)
+                .line("  missing   this profile")
+                .line("Run `lade hook enable --shell`, then reload this shell.");
+        }
+        crate::shell::SetupShell::SkippedCi { found } => {
+            mb = mb.line(found).line("  skipped   CI. No shell wrap.");
+        }
+    }
+    mb = mb
         .line("")
         .line(format!("pre-tool  {}", pretool.where_line))
         .line("Wraps commands agents run.")
@@ -125,6 +145,47 @@ pub(crate) fn print_setup(found: &str, verb: &str, path: &str, pretool: &Pretool
                 mb = mb.line(format!("            {note}"));
             }
         }
+    }
+    mb.print_stderr();
+}
+
+pub(crate) fn print_teardown(pretool: &PretoolReport) {
+    let mut mb = MessageBox::new()
+        .info()
+        .line("pre-exec  this shell")
+        .line("Wrap stays. `lade hook disable --shell` removes it.")
+        .line("")
+        .line(format!("pre-tool  {}", pretool.where_line))
+        .line("Wraps commands agents run.")
+        .line("");
+    if pretool.rows.is_empty() {
+        mb = mb.line("nothing here.");
+    } else {
+        let mut last = None;
+        for row in &pretool.rows {
+            if last != Some(row.agent) {
+                mb = mb.line(row.agent);
+                last = Some(row.agent);
+            }
+            mb = mb.line(format!("  {:<9}  {}", row.verb.label(), row.path));
+            if !row.note.is_empty() {
+                mb = mb.line(format!("            {}", row.note));
+            }
+        }
+    }
+    mb.print_stderr();
+}
+
+pub(crate) fn print_shell_hook(found: &str, verb: &str, path: &str, reload: Option<&str>) {
+    let mut mb = MessageBox::new()
+        .info()
+        .line("pre-exec  this shell")
+        .line("Wraps commands you type.")
+        .line("")
+        .line(found)
+        .line(format!("  {verb:<9}  {path}"));
+    if let Some(reload) = reload {
+        mb = mb.line(reload);
     }
     mb.print_stderr();
 }

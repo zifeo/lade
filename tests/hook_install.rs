@@ -16,7 +16,9 @@ fn status_pretool(home: &std::path::Path, cwd: &std::path::Path) -> serde_json::
 }
 
 fn has_harness_command(body: &str, harness: &str) -> bool {
-    body.contains(&format!("lade hook --harness {harness}"))
+    body.contains(&format!("lade hook --agent {harness}"))
+        || body.contains(&format!("lade hook --harness {harness}"))
+        || body.contains(&format!(r#"["hook", "--agent", "{harness}"]"#))
         || body.contains(&format!(r#"["hook", "--harness", "{harness}"]"#))
 }
 

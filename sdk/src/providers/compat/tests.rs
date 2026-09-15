@@ -1,36 +1,6 @@
 use super::*;
-use crate::providers::fake_cli;
-use tempfile::tempdir;
-
-fn path_env(dir: &tempfile::TempDir) -> HashMap<String, String> {
-    HashMap::from([(
-        "PATH".to_string(),
-        dir.path().to_string_lossy().into_owned(),
-    )])
-}
-
-#[test]
-fn test_parse_version_plain() {
-    assert_eq!(parse_version("2.30.0"), Some(Version::new(2, 30, 0)));
-}
-
-#[test]
-fn test_parse_version_with_prefix() {
-    assert_eq!(parse_version("v3.76.0"), Some(Version::new(3, 76, 0)));
-}
-
-#[test]
-fn test_parse_version_vault_format() {
-    assert_eq!(
-        parse_version("Vault v1.15.0 ('abc')"),
-        Some(Version::new(1, 15, 0))
-    );
-}
-
-#[test]
-fn test_parse_version_none() {
-    assert_eq!(parse_version("no version here"), None);
-}
+use crate::providers::network::NetworkProviders;
+use semver::Version;
 
 #[test]
 fn test_specs_have_valid_min_versions() {
@@ -41,6 +11,13 @@ fn test_specs_have_valid_min_versions() {
             spec.scheme,
             spec.min_version
         );
+        if let Some(max) = spec.max_version {
+            assert!(
+                Version::parse(max).is_ok(),
+                "{} has invalid max_version {max}",
+                spec.scheme
+            );
+        }
     }
 }
 
@@ -59,55 +36,22 @@ fn test_all_supported_schemes_includes_secret_and_network() {
 }
 
 #[test]
-fn test_parse_network_version_two_part() {
-    assert_eq!(
-        parse_network_version("OpenSSH_7.6p1"),
-        Some(Version::new(7, 6, 0))
-    );
-}
-
-#[tokio::test]
-#[cfg(unix)]
-async fn test_check_warns_on_old_version() {
-    let fake_bin = tempdir().unwrap();
-    fake_cli(&fake_bin, "op", "echo '2.0.0'");
-    let warnings = check(&["op".to_string()], &path_env(&fake_bin)).await;
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].name, "1Password");
-    assert_eq!(warnings[0].found, "2.0.0");
-}
-
-#[tokio::test]
-#[cfg(unix)]
-async fn test_check_ok_on_recent_version() {
-    let fake_bin = tempdir().unwrap();
-    fake_cli(&fake_bin, "op", "echo '2.30.0'");
-    let warnings = check(&["op".to_string()], &path_env(&fake_bin)).await;
-    assert!(warnings.is_empty());
-}
-
-#[tokio::test]
-#[cfg(unix)]
-async fn test_check_skips_missing_binary() {
-    let empty_bin = tempdir().unwrap();
-    let warnings = check(&["op".to_string()], &path_env(&empty_bin)).await;
-    assert!(warnings.is_empty());
-}
-
-#[tokio::test]
-#[cfg(unix)]
-async fn test_check_ignores_unknown_scheme() {
-    let warnings = check(&["unknown".to_string()], &HashMap::new()).await;
-    assert!(warnings.is_empty());
-}
-
-#[tokio::test]
-#[cfg(unix)]
-async fn test_check_warns_on_old_network_cli() {
-    let fake_bin = tempdir().unwrap();
-    fake_cli(&fake_bin, "ssh", "echo 'OpenSSH_7.0p1' >&2");
-    let warnings = check(&["ssh".to_string()], &path_env(&fake_bin)).await;
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].name, "OpenSSH");
-    assert_eq!(warnings[0].found, "7.0.0");
+fn tunnel_specs_match_network_providers() {
+    let providers = NetworkProviders::new();
+    for spec in CLI_SPECS.iter().filter(|spec| spec.tunnel) {
+        assert!(
+            providers.provider(spec.scheme).is_some(),
+            "CLI_SPECS tunnel '{}' is missing from NetworkProviders",
+            spec.scheme
+        );
+        assert!(is_network_scheme(spec.scheme));
+    }
+    for scheme in ["kubectl", "kubefwd", "tsh", "ssh"] {
+        assert!(
+            is_network_scheme(scheme),
+            "{scheme} must be a tunnel scheme"
+        );
+    }
+    assert!(!is_network_scheme("op"));
+    assert!(!is_network_scheme("file"));
 }

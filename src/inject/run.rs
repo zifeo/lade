@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::args::InjectCommand;
 use crate::audience::Via;
-use crate::compat;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
@@ -107,6 +106,16 @@ pub async fn run_inject(
         return Err(e);
     }
 
+    if work
+        .secrets
+        .iter()
+        .any(|secret| crate::family::is_raw_secret(&secret.source))
+    {
+        crate::message_box::MessageBox::new()
+            .warning()
+            .line(crate::family::RAW_WARNING)
+            .print_stderr();
+    }
     let hydrate_started = std::time::Instant::now();
     let ticket_unlink = (ctx.via == Via::Pretool)
         .then_some(ctx.ticket_id.as_deref())
@@ -131,16 +140,6 @@ pub async fn run_inject(
         return Err(error);
     }
     select_tool_env(&mut env, pins.env)?;
-    compat::warn_outdated(
-        ctx,
-        compat::known_schemes(
-            sources
-                .values()
-                .map(String::as_str)
-                .chain(network.sources.iter().map(String::as_str)),
-        ),
-    )
-    .await;
     let redactor = if !opts.no_mask {
         Redactor::new(
             &masking::secrets_for_redaction(&env, &files, &sources, &maskable),

@@ -62,7 +62,15 @@ pub trait Provider: Sync {
     /// Where to install/find the backing tool or product docs.
     fn install_url(&self) -> &'static str;
 
-    fn transport(&self) -> Transport;
+    fn transport(&self) -> Transport {
+        Transport::Cli
+    }
+
+    /// Titles or paths a wizard can pick. Empty when this provider has no list CLI.
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        let _ = extra_env;
+        Ok(Vec::new())
+    }
 
     /// The key this provider groups on before one I/O call.
     fn batch_unit(&self) -> &'static str;
@@ -231,6 +239,32 @@ pub async fn run_cli(
         ),
         _ => anyhow!("{name} error: {e}"),
     })
+}
+
+pub(crate) fn search_cli(
+    bin: &str,
+    args: &[&str],
+    extra_env: &HashMap<String, String>,
+) -> Result<std::process::Output> {
+    std::process::Command::new(bin)
+        .args(args)
+        .envs(extra_env)
+        .output()
+        .map_err(|e| anyhow!("{bin} error: {e}"))
+}
+
+pub fn require_cli_ok(output: &std::process::Output, name: &str) -> Result<()> {
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = if !stderr.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
+    bail!("{name} error: {detail}")
 }
 
 pub fn deserialize_output<T: DeserializeOwned>(

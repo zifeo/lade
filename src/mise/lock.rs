@@ -10,6 +10,7 @@ pub struct LockSlot {
     pub name: String,
     pub version: String,
     pub backend: Option<String>,
+    pub checksum: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,14 +22,83 @@ struct LockFile {
 #[derive(Debug, Deserialize)]
 struct LockTool {
     version: String,
+    #[serde(default)]
     backend: Option<String>,
+    #[serde(default)]
+    checksum: Option<String>,
 }
 
+const LOCK_NAMES: &[&str] = &["lade.lock", "mise.lock"];
+
+pub fn file_checksum(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path).ok()?;
+    let digest = Sha256::digest(bytes);
+    Some(format!(
+        "sha256:{}",
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    ))
+}
+
+#[cfg(test)]
 pub fn find_lock(start: &Path) -> Option<PathBuf> {
     walk_up(start, |dir| {
-        let path = dir.join("mise.lock");
-        path.is_file().then_some(path)
+        LOCK_NAMES
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|path| path.is_file())
     })
+}
+
+pub fn slot_and_path(start: &Path, names: &[&str]) -> Option<(PathBuf, LockSlot)> {
+    walk_up(start, |dir| {
+        LOCK_NAMES.iter().find_map(|name| {
+            let path = dir.join(name);
+            if path.is_file() {
+                slot_for(&path, names).map(|slot| (path, slot))
+            } else {
+                None
+            }
+        })
+    })
+}
+
+pub fn slot_for_walk(start: &Path, names: &[&str]) -> Option<LockSlot> {
+    slot_and_path(start, names).map(|(_, slot)| slot)
+}
+
+pub fn write_tools(path: &Path, slots: &[LockSlot]) -> std::io::Result<()> {
+    let mut body = String::from("lockfile_version = 1\n\n");
+    for slot in slots {
+        let key = if slot
+            .name
+            .chars()
+            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
+        {
+            format!("\"{}\"", slot.name.replace('"', "\\\""))
+        } else {
+            slot.name.clone()
+        };
+        body.push_str(&format!("[[tools.{key}]]\n"));
+        body.push_str(&format!(
+            "version = \"{}\"\n",
+            slot.version.replace('"', "\\\"")
+        ));
+        if let Some(backend) = &slot.backend {
+            body.push_str(&format!("backend = \"{}\"\n", backend.replace('"', "\\\"")));
+        }
+        if let Some(checksum) = &slot.checksum {
+            body.push_str(&format!(
+                "checksum = \"{}\"\n",
+                checksum.replace('"', "\\\"")
+            ));
+        }
+        body.push('\n');
+    }
+    std::fs::write(path, body)
 }
 
 pub fn slot_for(path: &Path, names: &[&str]) -> Option<LockSlot> {
@@ -39,6 +109,7 @@ pub fn slot_for(path: &Path, names: &[&str]) -> Option<LockSlot> {
                 name: (*name).to_string(),
                 version: slot.version.clone(),
                 backend: slot.backend.clone(),
+                checksum: slot.checksum.clone(),
             });
         }
     }
@@ -50,14 +121,57 @@ fn parse(path: &Path) -> Option<LockFile> {
     toml::from_str(&bytes).ok()
 }
 
-pub fn agrees(slot: &LockSlot, version: &str, backend_id: &str) -> bool {
-    if slot.version != version {
-        return false;
+pub fn read_tools(path: &Path) -> Option<Vec<LockSlot>> {
+    let parsed = parse(path)?;
+    Some(
+        parsed
+            .tools
+            .into_iter()
+            .filter_map(|(name, tools)| {
+                let slot = tools.into_iter().next()?;
+                Some(LockSlot {
+                    name,
+                    version: slot.version,
+                    backend: slot.backend,
+                    checksum: slot.checksum,
+                })
+            })
+            .collect(),
+    )
+}
+
+pub fn upsert(slots: &mut Vec<LockSlot>, slot: LockSlot) {
+    if let Some(existing) = slots.iter_mut().find(|s| s.name == slot.name) {
+        *existing = slot;
+    } else {
+        slots.push(slot);
     }
-    match slot.backend.as_deref() {
+}
+
+pub fn agrees(slot: &LockSlot, version: &str, backend_id: &str) -> bool {
+    let backend_ok = match slot.backend.as_deref() {
         None => true,
         Some(backend) => backend == backend_id,
+    };
+    if !backend_ok {
+        return false;
     }
+    if slot.version == version {
+        return true;
+    }
+    if super::spec::version_is_floating(version) {
+        return true;
+    }
+    if !super::spec::version_is_range(version) {
+        return false;
+    }
+    let Ok(req) = semver::VersionReq::parse(version) else {
+        return false;
+    };
+    let Ok(found) = semver::Version::parse(&slot.version) else {
+        return false;
+    };
+    req.matches(&found)
 }
 
 #[cfg(test)]
@@ -154,9 +268,44 @@ backend = "aqua:jqlang/jq"
             name: "jq".to_string(),
             version: "1.7.1".to_string(),
             backend: None,
+            checksum: None,
         };
         assert!(agrees(&slot, "1.7.1", "aqua:jqlang/jq"));
         assert!(!agrees(&slot, "1.6.0", "aqua:jqlang/jq"));
+    }
+
+    #[test]
+    fn agrees_when_lock_satisfies_range() {
+        let slot = LockSlot {
+            name: "op".to_string(),
+            version: "2.31.0".to_string(),
+            backend: Some("aqua:1password/op".to_string()),
+            checksum: None,
+        };
+        assert!(agrees(&slot, ">=2.18.0", "aqua:1password/op"));
+        assert!(!agrees(&slot, ">=3.0.0", "aqua:1password/op"));
+        assert!(!agrees(&slot, "2.31.0", "aqua:other/op"));
+        assert!(agrees(&slot, "latest", "aqua:1password/op"));
+    }
+
+    #[test]
+    fn write_tools_includes_checksum() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("lade.lock");
+        write_tools(
+            &path,
+            &[LockSlot {
+                name: "jq".to_string(),
+                version: "1.7.1".to_string(),
+                backend: Some("aqua:jqlang/jq".to_string()),
+                checksum: Some("sha256:abc".to_string()),
+            }],
+        )
+        .unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("checksum = \"sha256:abc\""), "{body}");
+        let slot = slot_for(&path, &["jq"]).unwrap();
+        assert_eq!(slot.checksum.as_deref(), Some("sha256:abc"));
     }
 
     #[test]
@@ -166,23 +315,24 @@ backend = "aqua:jqlang/jq"
     }
 
     #[test]
-    fn child_lock_hides_parent_tool() {
+    fn child_lock_walk_finds_parent_tool() {
         let root = tempdir().unwrap();
         let child = root.path().join("apps/web");
         std::fs::create_dir_all(&child).unwrap();
         std::fs::write(
-            root.path().join("mise.lock"),
+            root.path().join("lade.lock"),
             "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
         )
         .unwrap();
         std::fs::write(
-            child.join("mise.lock"),
+            child.join("lade.lock"),
             "[[tools.node]]\nversion = \"24.16.0\"\n",
         )
         .unwrap();
         let found = find_lock(&child).unwrap();
-        assert_eq!(found, child.join("mise.lock"));
+        assert_eq!(found, child.join("lade.lock"));
         assert!(slot_for(&found, &["jq", "aqua:jqlang/jq"]).is_none());
-        assert!(slot_for(&found, &["node"]).is_some());
+        assert!(slot_for_walk(&child, &["jq", "aqua:jqlang/jq"]).is_some());
+        assert!(slot_for_walk(&child, &["node"]).is_some());
     }
 }

@@ -59,7 +59,7 @@ pub async fn run(opts: BenchCommand) -> Result<()> {
         Err(e) => {
             message_box::MessageBox::new()
                 .error()
-                .line("Could not parse a lade.yml.")
+                .line("Could not parse a lade.yaml.")
                 .line("")
                 .paragraph(e.to_string())
                 .line("")

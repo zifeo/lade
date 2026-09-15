@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -7,7 +8,7 @@ pub enum HookScope {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum HookHarness {
+pub enum HookAgent {
     Claude,
     Cursor,
     Codex,
@@ -15,31 +16,51 @@ pub enum HookHarness {
     OpenCode,
 }
 
-impl HookHarness {
+impl HookAgent {
     pub fn slug(self) -> &'static str {
         match self {
-            HookHarness::Claude => "claude",
-            HookHarness::Cursor => "cursor",
-            HookHarness::Codex => "codex",
-            HookHarness::OpenCode => "opencode",
+            HookAgent::Claude => "claude",
+            HookAgent::Cursor => "cursor",
+            HookAgent::Codex => "codex",
+            HookAgent::OpenCode => "opencode",
         }
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HookTarget {
+    Shell,
+    Agent(HookAgent),
+}
+
 #[derive(Parser, Debug)]
-pub struct HookScopeCommand {
-    /// `project` is this repo (default). `user` is this machine.
+pub struct HookToggleCommand {
+    /// This shell's pre-exec (machine).
+    #[clap(long, conflicts_with = "agent")]
+    pub shell: bool,
+    /// `claude`, `cursor`, `codex`, or `opencode`. Hidden `--agent` still
+    /// parses older generated hooks.
+    #[clap(long = "harness", alias = "agent", conflicts_with = "shell")]
+    pub agent: Option<HookAgent>,
+    /// `project` is this repo (default). `user` is leftover home agent hooks.
     #[clap(long, default_value = "project")]
     pub scope: HookScope,
-    /// `claude`, `cursor`, `codex`, or `opencode`.
-    #[clap(long)]
-    pub harness: HookHarness,
+}
+
+impl HookToggleCommand {
+    pub fn target(&self) -> Result<HookTarget> {
+        match (self.shell, self.agent) {
+            (true, None) => Ok(HookTarget::Shell),
+            (false, Some(agent)) => Ok(HookTarget::Agent(agent)),
+            _ => bail!("pass --shell or --harness <slug>"),
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
 pub enum HookAction {
-    /// Write the native pre-tool hook for one harness.
-    Enable(HookScopeCommand),
-    /// Remove a Lade-managed pre-tool hook.
-    Disable(HookScopeCommand),
+    /// Write this shell's pre-exec, or one agent's pre-tool hook.
+    Enable(HookToggleCommand),
+    /// Remove this shell's pre-exec, or one Lade-managed pre-tool hook.
+    Disable(HookToggleCommand),
 }

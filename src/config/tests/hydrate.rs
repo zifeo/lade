@@ -48,7 +48,7 @@ async fn test_collect_hydrate_rejects_numeric_non_network_key() {
     let err = config.collect_hydrate("cmd").await.expect_err("must fail");
     assert!(
         err.to_string()
-            .contains("numeric key '1223' must use a network URI")
+            .contains("numeric key '1223' must use a tunnel URI")
     );
 }
 

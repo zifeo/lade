@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 
-pub fn at_user_home(path: &Path) -> bool {
-    directories::UserDirs::new().is_some_and(|user| user.home_dir() == path)
-}
+use crate::config::at_user_home;
 
-pub fn walk_up<F>(start: &Path, mut find: F) -> Option<PathBuf>
+pub fn walk_up<T, F>(start: &Path, mut find: F) -> Option<T>
 where
-    F: FnMut(&Path) -> Option<PathBuf>,
+    F: FnMut(&Path) -> Option<T>,
 {
     let mut path = start.to_path_buf();
     loop {

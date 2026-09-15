@@ -39,6 +39,14 @@ pub(super) fn write_foreign_home_mise(home: &std::path::Path) {
 #[cfg(unix)]
 pub(super) fn isolation_record_stub() -> &'static str {
     r#"
+if [ "$1" = "--version" ]; then
+  printf '%s\n' "mise 2024.8.12"
+  exit 0
+fi
+if [ "$1" = "latest" ]; then
+  printf '%s\n' "1.7.1"
+  exit 0
+fi
 printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
 if [ -n "$MISE_GLOBAL_CONFIG_FILE" ]; then
   while IFS= read -r line; do
@@ -79,6 +87,8 @@ pub(super) fn assert_isolated_pin_only(
     );
 }
 
+mod ensure_flow;
 mod install_flow;
 mod lock;
 mod prepare;
+mod setup;

@@ -193,6 +193,11 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
         {
             log::debug!("age-plugin-lade copy: {err}");
         }
+        if crate::mise::managed_mise_in_play() {
+            crate::mise::ensure_for_setup().await.inspect_err(|e| {
+                e.emit();
+            })?;
+        }
     }
     Ok(())
 }

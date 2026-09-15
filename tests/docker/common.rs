@@ -1,4 +1,30 @@
 use assert_cmd::Command;
+use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
+
+pub fn seed_store_cli(installs: &Path, name: &str, version: &str, src: &Path) {
+    std::fs::create_dir_all(installs.join(name).join(version)).unwrap();
+    let dest = installs.join(name).join(version).join(name);
+    let _ = std::fs::remove_file(&dest);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(src, dest).unwrap();
+}
+
+pub fn command_path(name: &str) -> Option<PathBuf> {
+    let output = StdCommand::new("sh")
+        .args(["-c", &format!("command -v {name}")])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    }
+}
 
 pub fn lade(home: &std::path::Path) -> Command {
     let config_path = home.join("lade-config.json");

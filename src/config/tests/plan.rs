@@ -116,3 +116,41 @@ fn test_all_secret_sources_collects_values() {
     assert!(sources.contains(&"plain".to_string()));
     assert!(sources.iter().any(|s| s.starts_with("op://")));
 }
+
+#[test]
+fn test_package_uris_are_not_secrets() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  guard: apm://github/destructure-command-hook\n  KEY: plain\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let sources = config.all_secret_sources(&None);
+    assert!(sources.contains(&"plain".to_string()));
+    assert!(!sources.iter().any(|s| s.starts_with("apm://")));
+    assert_eq!(
+        config.package_uris(&None),
+        vec![(
+            "guard".to_string(),
+            "apm://github/destructure-command-hook".to_string()
+        )]
+    );
+    assert!(config.pins(&None).is_empty());
+}
+
+#[test]
+fn test_command_package_on_regex_is_flagged() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^ls:\n  NOTE: apm://github/destructure-command-hook\n.:\n  guard: apm://github/ok\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    assert_eq!(
+        config.command_package_uri("ls", &None).as_deref(),
+        Some("apm://github/destructure-command-hook")
+    );
+    assert!(config.command_package_uri("echo", &None).is_none());
+}

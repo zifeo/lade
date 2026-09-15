@@ -60,7 +60,7 @@ fn create_log_file(stream: &str) -> Result<(PathBuf, File)> {
             Err(e) => return Err(e.into()),
         }
     }
-    bail!("could not create network provider log file")
+    bail!("could not create tunnel log file")
 }
 
 pub(super) fn dedupe_lines(raw: &str) -> String {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::providers::fake_cli;
+use crate::providers::{Transport, fake_cli};
 use std::path::Path;
 use tempfile::tempdir;
 

@@ -8,7 +8,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, deserialize_output, run_cli};
+use super::{Provider, Warnings, add_url, deserialize_output, run_cli};
 
 const DOCS: &str = "https://bitwarden.com/help/cli/";
 
@@ -128,10 +128,6 @@ impl Provider for Bitwarden {
 
     fn install_url(&self) -> &'static str {
         DOCS
-    }
-
-    fn transport(&self) -> Transport {
-        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {

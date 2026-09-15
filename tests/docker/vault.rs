@@ -1,4 +1,6 @@
+use crate::common::{command_path, seed_store_cli};
 use std::process::{Command, Stdio};
+use tempfile::tempdir;
 
 fn repo_root() -> &'static str {
     env!("CARGO_MANIFEST_DIR")
@@ -56,15 +58,20 @@ fn run_cmd(cmd: &str, args: &[&str]) {
 
 #[test]
 fn vault_shell_scripts_run_from_cargo_test_workspace() {
-    require_cmds(&["bash", "zsh", "fish", "curl", "docker"]);
+    require_cmds(&["bash", "zsh", "fish", "curl", "docker", "vault"]);
     assert!(docker_ready(), "docker daemon is required");
 
+    let vault = command_path("vault").expect("vault on PATH");
+    let installs = tempdir().expect("mise installs");
+    seed_store_cli(installs.path(), "vault", "1.17.6", &vault);
     let path = path_env();
+    let installs_env = format!("MISE_INSTALLS_DIR={}", installs.path().display());
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "bash",
@@ -76,6 +83,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "zsh",
@@ -87,6 +95,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "fish",

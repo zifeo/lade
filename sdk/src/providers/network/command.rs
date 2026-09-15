@@ -124,7 +124,12 @@ pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> 
     }
 }
 
+const MISSING_SSH: &str = "ssh is not on PATH. Lade uses the OpenSSH client for ssh:// tunnels, not a mise pin. Install OpenSSH for this OS, then retry. https://www.openssh.com/";
+
 pub fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
+    if matches!(spec, ProviderSpec::Ssh { .. }) && !ssh_on_path() {
+        bail!("{MISSING_SSH}");
+    }
     if let ProviderSpec::TshKubeCluster {
         teleport_proxy,
         kube_cluster,
@@ -142,6 +147,14 @@ pub fn ensure_provider_preflight(spec: &ProviderSpec) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn ssh_on_path() -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path)
+        .any(|dir| dir.join("ssh").is_file() || dir.join("ssh.exe").is_file())
 }
 
 #[cfg(test)]
@@ -209,5 +222,12 @@ mod tests {
         let err = build_command(&spec, "0.0.0.0", 18000).expect_err("must reject host");
 
         assert!(err.to_string().contains("supports only"));
+    }
+
+    #[test]
+    fn missing_ssh_copy_points_at_openssh() {
+        assert!(MISSING_SSH.contains("OpenSSH"));
+        assert!(MISSING_SSH.contains("https://www.openssh.com/"));
+        assert!(MISSING_SSH.contains("not a mise pin"));
     }
 }

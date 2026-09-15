@@ -8,138 +8,19 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, json_query_string};
+use super::{Provider, Warnings, add_url, json_query_string, require_cli_ok, run_cli, search_cli};
 
 const DOCS: &str =
-    "https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_BatchGetSecretValue.html";
-const BATCH: usize = 20;
-
-#[async_trait]
-pub(crate) trait AwsSmApi: Send + Sync {
-    async fn batch_get(&self, region: &str, ids: &[String]) -> Result<HashMap<String, String>>;
-    async fn get(
-        &self,
-        region: &str,
-        id: &str,
-        version_id: Option<&str>,
-        version_stage: Option<&str>,
-    ) -> Result<String>;
-}
-
-#[derive(Default)]
-struct SdkAwsSm {
-    clients: tokio::sync::Mutex<HashMap<String, aws_sdk_secretsmanager::Client>>,
-}
-
-impl SdkAwsSm {
-    async fn client(&self, region: &str) -> aws_sdk_secretsmanager::Client {
-        let mut cache = self.clients.lock().await;
-        if let Some(client) = cache.get(region) {
-            return client.clone();
-        }
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(region.to_string()))
-            .load()
-            .await;
-        let client = aws_sdk_secretsmanager::Client::new(&config);
-        cache.insert(region.to_string(), client.clone());
-        client
-    }
-}
-
-#[async_trait]
-impl AwsSmApi for SdkAwsSm {
-    async fn batch_get(&self, region: &str, ids: &[String]) -> Result<HashMap<String, String>> {
-        let client = self.client(region).await;
-        let response = client
-            .batch_get_secret_value()
-            .set_secret_id_list(Some(ids.to_vec()))
-            .send()
-            .await
-            .map_err(|e| anyhow!("AWS Secrets Manager error: {e}. See {DOCS}."))?;
-        let mut out = HashMap::new();
-        for secret in response.secret_values() {
-            let value = secret.secret_string().ok_or_else(|| {
-                anyhow!(
-                    "AWS Secrets Manager error: secret has no string value (SecretBinary is not supported). See {DOCS}."
-                )
-            })?;
-            if let Some(name) = secret.name() {
-                out.insert(name.to_string(), value.to_string());
-            }
-            if let Some(arn) = secret.arn() {
-                out.insert(arn.to_string(), value.to_string());
-            }
-        }
-        if !response.errors().is_empty() {
-            let msgs: Vec<String> = response
-                .errors()
-                .iter()
-                .map(|e| {
-                    format!(
-                        "{}: {}",
-                        e.secret_id().unwrap_or("unknown"),
-                        e.message().unwrap_or("unknown error")
-                    )
-                })
-                .collect();
-            bail!(
-                "AWS Secrets Manager error: {}. See {DOCS}.",
-                msgs.join("; ")
-            );
-        }
-        for id in ids {
-            if !out.contains_key(id) {
-                bail!("AWS Secrets Manager error: secret '{id}' not found. See {DOCS}.");
-            }
-        }
-        Ok(out)
-    }
-
-    async fn get(
-        &self,
-        region: &str,
-        id: &str,
-        version_id: Option<&str>,
-        version_stage: Option<&str>,
-    ) -> Result<String> {
-        let client = self.client(region).await;
-        let mut req = client.get_secret_value().secret_id(id);
-        if let Some(version_id) = version_id {
-            req = req.version_id(version_id);
-        }
-        if let Some(version_stage) = version_stage {
-            req = req.version_stage(version_stage);
-        }
-        let response = req
-            .send()
-            .await
-            .map_err(|e| anyhow!("AWS Secrets Manager error: {e}. See {DOCS}."))?;
-        response.secret_string().map(|s| s.to_string()).ok_or_else(|| {
-            anyhow!(
-                "AWS Secrets Manager error: '{id}' has no string value (SecretBinary is not supported). See {DOCS}."
-            )
-        })
-    }
-}
+    "https://docs.aws.amazon.com/cli/latest/reference/secretsmanager/get-secret-value.html";
 
 #[derive(Default)]
 pub struct AwsSm {
     urls: FxHashMap<Url, String>,
-    api: Option<Arc<dyn AwsSmApi>>,
 }
 
 impl AwsSm {
     pub fn new() -> Self {
         Default::default()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_api(api: Arc<dyn AwsSmApi>) -> Self {
-        Self {
-            urls: FxHashMap::default(),
-            api: Some(api),
-        }
     }
 }
 
@@ -166,6 +47,19 @@ fn query_param(url: &Url, key: &str) -> Option<String> {
         .map(|(_, v)| v.into_owned())
 }
 
+fn secret_string(raw: &str, id: &str) -> Result<String> {
+    let json: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| anyhow!("AWS Secrets Manager error: {e}. See {DOCS}."))?;
+    json.get("SecretString")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            anyhow!(
+                "AWS Secrets Manager error: '{id}' has no string value (SecretBinary is not supported). See {DOCS}."
+            )
+        })
+}
+
 #[async_trait]
 impl Provider for AwsSm {
     fn add(&mut self, value: String) -> Result<()> {
@@ -184,8 +78,26 @@ impl Provider for AwsSm {
         DOCS
     }
 
-    fn transport(&self) -> Transport {
-        Transport::Sdk
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        let output = search_cli(
+            "aws",
+            &[
+                "secretsmanager",
+                "list-secrets",
+                "--query",
+                "SecretList[].Name",
+                "--output",
+                "text",
+            ],
+            extra_env,
+        )?;
+        if !output.status.success() {
+            return Err(anyhow!("aws login required"));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect())
     }
 
     fn batch_unit(&self) -> &'static str {
@@ -199,57 +111,57 @@ impl Provider for AwsSm {
     async fn resolve(
         &self,
         _: &Path,
-        _: &HashMap<String, String>,
+        extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let api: Arc<dyn AwsSmApi> = self
-            .api
-            .clone()
-            .unwrap_or_else(|| Arc::new(SdkAwsSm::default()));
-        let mut by_region: HashMap<
-            String,
-            Vec<(
-                String,
-                String,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            )>,
+        let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
+        let mut by_secret: HashMap<
+            (String, String, Option<String>, Option<String>),
+            Vec<(String, Option<String>)>,
         > = HashMap::new();
         for (url, raw) in &self.urls {
-            by_region.entry(region(url)?).or_default().push((
-                secret_id(url)?,
-                raw.clone(),
-                query_param(url, "query"),
-                query_param(url, "version"),
-                query_param(url, "version_stage"),
-            ));
+            by_secret
+                .entry((
+                    region(url)?,
+                    secret_id(url)?,
+                    query_param(url, "version"),
+                    query_param(url, "version_stage"),
+                ))
+                .or_default()
+                .push((raw.clone(), query_param(url, "query")));
         }
-        let fetches = by_region.into_iter().map(|(region, items)| {
-            let api = Arc::clone(&api);
+        let fetches = by_secret.into_iter().map(|(key, uris)| {
+            let extra_env = Arc::clone(&extra_env);
             async move {
-                let mut unique = Vec::new();
-                for (id, _, _, version, stage) in &items {
-                    if version.is_none() && stage.is_none() && !unique.contains(id) {
-                        unique.push(id.clone());
-                    }
+                let (region, id, version, stage) = key;
+                let mut args = vec![
+                    "aws".to_string(),
+                    "secretsmanager".to_string(),
+                    "get-secret-value".to_string(),
+                    "--secret-id".to_string(),
+                    id.clone(),
+                    "--region".to_string(),
+                    region,
+                    "--output".to_string(),
+                    "json".to_string(),
+                ];
+                if let Some(version) = version {
+                    args.push("--version-id".to_string());
+                    args.push(version);
                 }
-                let mut loaded = HashMap::new();
-                for chunk in unique.chunks(BATCH) {
-                    loaded.extend(api.batch_get(&region, chunk).await?);
+                if let Some(stage) = stage {
+                    args.push("--version-stage".to_string());
+                    args.push(stage);
                 }
+                let cmd: Vec<&str> = args.iter().map(String::as_str).collect();
+                let output = run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                require_cli_ok(&output, name)?;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let value = secret_string(&stdout, &id)?;
                 let mut hydration = Hydration::default();
-                for (id, raw, q, version, stage) in items {
-                    let value = if version.is_some() || stage.is_some() {
-                        api.get(&region, &id, version.as_deref(), stage.as_deref())
-                            .await?
-                    } else {
-                        loaded.get(&id).cloned().ok_or_else(|| {
-                            anyhow!(
-                                "AWS Secrets Manager error: secret '{id}' not found. See {DOCS}."
-                            )
-                        })?
-                    };
+                for (raw, q) in uris {
                     hydration.insert(raw, json_query_string(&value, q.as_deref())?);
                 }
                 Ok::<_, anyhow::Error>(hydration)

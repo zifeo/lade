@@ -10,6 +10,7 @@ pub mod mcp;
 mod providers;
 mod resolve;
 
+pub use providers::Provider;
 pub use providers::Providers;
 pub use providers::Transport;
 pub use providers::Warnings;

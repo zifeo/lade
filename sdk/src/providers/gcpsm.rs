@@ -8,79 +8,18 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, env_lookup, json_query_string};
+use super::{Provider, Warnings, add_url, json_query_string, require_cli_ok, run_cli, search_cli};
 
-const DOCS: &str = "https://cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions/access";
-
-#[async_trait]
-pub(crate) trait GcpSmApi: Send + Sync {
-    async fn access(&self, project: &str, name: &str, location: Option<&str>) -> Result<String>;
-}
-
-struct RestGcpSm {
-    token: String,
-    client: reqwest::Client,
-}
-
-#[async_trait]
-impl GcpSmApi for RestGcpSm {
-    async fn access(&self, project: &str, name: &str, location: Option<&str>) -> Result<String> {
-        let url = match location {
-            Some(location) => format!(
-                "https://secretmanager.{location}.rep.googleapis.com/v1/projects/{project}/locations/{location}/secrets/{name}/versions/latest:access"
-            ),
-            None => format!(
-                "https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{name}/versions/latest:access"
-            ),
-        };
-        let response = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.token)
-            .send()
-            .await
-            .map_err(|e| anyhow!("GCP Secret Manager error: {e}. See {DOCS}."))?;
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| anyhow!("GCP Secret Manager error: {e}. See {DOCS}."))?;
-        if !status.is_success() {
-            bail!("GCP Secret Manager error: {status} {body}. See {DOCS}.");
-        }
-        let json: serde_json::Value =
-            serde_json::from_str(&body).map_err(|e| anyhow!("GCP Secret Manager error: {e}"))?;
-        let b64 = json
-            .pointer("/payload/data")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                anyhow!("GCP Secret Manager error: secret '{name}' has no payload. See {DOCS}.")
-            })?;
-        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
-            .map_err(|e| anyhow!("GCP Secret Manager error: {e}"))?;
-        String::from_utf8(bytes).map_err(|_| {
-            anyhow!("GCP Secret Manager error: secret '{name}' is not UTF-8. See {DOCS}.")
-        })
-    }
-}
+const DOCS: &str = "https://cloud.google.com/sdk/gcloud/reference/secrets/versions/access";
 
 #[derive(Default)]
 pub struct GcpSm {
     urls: FxHashMap<Url, String>,
-    api: Option<Arc<dyn GcpSmApi>>,
 }
 
 impl GcpSm {
     pub fn new() -> Self {
         Default::default()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_api(api: Arc<dyn GcpSmApi>) -> Self {
-        Self {
-            urls: FxHashMap::default(),
-            api: Some(api),
-        }
     }
 }
 
@@ -108,29 +47,6 @@ fn query(url: &Url) -> Option<String> {
         .map(|(_, v)| v.into_owned())
 }
 
-async fn token(extra_env: &HashMap<String, String>) -> Result<String> {
-    if let Some(token) = env_lookup(
-        extra_env,
-        &[
-            "GOOGLE_OAUTH_ACCESS_TOKEN",
-            "CLOUDSDK_AUTH_ACCESS_TOKEN",
-            "LADE_GCP_TOKEN",
-        ],
-    ) {
-        return Ok(token);
-    }
-    let provider = gcp_auth::provider()
-        .await
-        .map_err(|e| anyhow!("GCP Secret Manager error: {e}. See {DOCS}."))?;
-    let token = gcp_auth::TokenProvider::token(
-        &*provider,
-        &["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    .await
-    .map_err(|e| anyhow!("GCP Secret Manager error: {e}. See {DOCS}."))?;
-    Ok(token.as_str().to_string())
-}
-
 #[async_trait]
 impl Provider for GcpSm {
     fn add(&mut self, value: String) -> Result<()> {
@@ -148,8 +64,21 @@ impl Provider for GcpSm {
         DOCS
     }
 
-    fn transport(&self) -> Transport {
-        Transport::Sdk
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        let output = search_cli(
+            "gcloud",
+            &["secrets", "list", "--format=value(name)"],
+            extra_env,
+        )?;
+        if !output.status.success() {
+            return Err(anyhow!("gcloud login required"));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| line.split('/').next_back().unwrap_or(line).to_string())
+            .collect())
     }
 
     fn batch_unit(&self) -> &'static str {
@@ -166,38 +95,47 @@ impl Provider for GcpSm {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let api: Arc<dyn GcpSmApi> = if let Some(api) = &self.api {
-            Arc::clone(api)
-        } else {
-            Arc::new(RestGcpSm {
-                token: token(extra_env).await?,
-                client: reqwest::Client::new(),
-            })
-        };
+        let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let mut by_secret: HashMap<
             (String, String, Option<String>),
             Vec<(String, Option<String>)>,
         > = HashMap::new();
         for (url, raw) in &self.urls {
-            let (project, name, location) = project_and_name(url)?;
+            let (project, secret, location) = project_and_name(url)?;
             by_secret
-                .entry((project, name, location))
+                .entry((project, secret, location))
                 .or_default()
                 .push((raw.clone(), query(url)));
         }
-        let fetches = by_secret
-            .into_iter()
-            .map(|((project, name, location), uris)| {
-                let api = Arc::clone(&api);
-                async move {
-                    let value = api.access(&project, &name, location.as_deref()).await?;
-                    let mut hydration = Hydration::default();
-                    for (raw, q) in uris {
-                        hydration.insert(raw, json_query_string(&value, q.as_deref())?);
-                    }
-                    Ok::<_, anyhow::Error>(hydration)
+        let fetches = by_secret.into_iter().map(|(key, uris)| {
+            let extra_env = Arc::clone(&extra_env);
+            async move {
+                let (project, secret, location) = key;
+                let mut args = vec![
+                    "gcloud".to_string(),
+                    "secrets".to_string(),
+                    "versions".to_string(),
+                    "access".to_string(),
+                    "latest".to_string(),
+                    format!("--secret={secret}"),
+                    format!("--project={project}"),
+                ];
+                if let Some(location) = location {
+                    args.push(format!("--location={location}"));
                 }
-            });
+                let cmd: Vec<&str> = args.iter().map(String::as_str).collect();
+                let output = run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                require_cli_ok(&output, name)?;
+                let value = String::from_utf8_lossy(&output.stdout).to_string();
+                let mut hydration = Hydration::default();
+                for (raw, q) in uris {
+                    hydration.insert(raw, json_query_string(&value, q.as_deref())?);
+                }
+                Ok::<_, anyhow::Error>(hydration)
+            }
+        });
         Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
     }
 }

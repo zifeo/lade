@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, host_with_port, run_cli};
+use super::{Provider, Warnings, add_url, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Infisical {
@@ -72,10 +72,6 @@ impl Provider for Infisical {
 
     fn install_url(&self) -> &'static str {
         "https://infisical.com/docs/cli/overview"
-    }
-
-    fn transport(&self) -> Transport {
-        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {

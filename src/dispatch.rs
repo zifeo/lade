@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::io::Read;
 use std::time::Duration;
 
-use crate::args::{Command, EvalCommand, HookAction};
+use crate::args::{Command, EvalCommand, HookAction, HookTarget};
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::exit_codes;
@@ -29,18 +29,24 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Setup(opts) => {
-            let pre = crate::shell::install_current_preexec()?;
-            let may_prompt = ctx.stdin_is_terminal
-                && ctx.stderr_is_terminal
-                && ctx.audience == crate::config::Audience::Human;
-            let tool = pretool::install::setup(may_prompt, &opts.slugs())?;
-            pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
+            run_setup(ctx, &opts.slugs()).await?;
             Ok(None)
         }
         Command::Teardown => {
-            let pre = crate::shell::uninstall_current_preexec()?;
+            require_lade_yaml()?;
             let tool = pretool::install::teardown()?;
-            pretool::install::print_setup(&pre.found, pre.verb, &pre.path, &tool);
+            crate::mise::run_lifecycle_commands("teardown").await?;
+            crate::packages::run("teardown").await?;
+            pretool::install::print_teardown(&tool);
+            Ok(None)
+        }
+        Command::Add(opts) => {
+            crate::add::run_add(opts, ctx)?;
+            run_setup(ctx, &[]).await?;
+            Ok(None)
+        }
+        Command::Remove(opts) => {
+            crate::add::run_remove(opts, ctx)?;
             Ok(None)
         }
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
@@ -56,15 +62,29 @@ pub(crate) async fn run_standalone(
             ..
         } => {
             match action {
-                HookAction::Enable(opts) => {
-                    pretool::install::install_scoped(hook_scope(opts.scope), opts.harness.slug())?;
-                }
-                HookAction::Disable(opts) => {
-                    pretool::install::uninstall_scoped(
-                        hook_scope(opts.scope),
-                        opts.harness.slug(),
-                    )?;
-                }
+                HookAction::Enable(opts) => match opts.target()? {
+                    HookTarget::Shell => {
+                        let (pre, reload) = crate::shell::enable_current_preexec()?;
+                        pretool::install::print_shell_hook(
+                            &pre.found,
+                            pre.verb,
+                            &pre.path,
+                            reload.as_deref(),
+                        );
+                    }
+                    HookTarget::Agent(agent) => {
+                        pretool::install::install_scoped(hook_scope(opts.scope), agent.slug())?;
+                    }
+                },
+                HookAction::Disable(opts) => match opts.target()? {
+                    HookTarget::Shell => {
+                        let pre = crate::shell::uninstall_current_preexec()?;
+                        pretool::install::print_shell_hook(&pre.found, pre.verb, &pre.path, None);
+                    }
+                    HookTarget::Agent(agent) => {
+                        pretool::install::uninstall_scoped(hook_scope(opts.scope), agent.slug())?;
+                    }
+                },
             }
             Ok(None)
         }
@@ -172,6 +192,46 @@ pub(crate) async fn run_config_verbs(
         }
         _ => unreachable!(),
     }
+}
+
+async fn run_setup(ctx: &InvocationContext, slugs: &[&str]) -> Result<()> {
+    let shell = crate::shell::maybe_bootstrap_setup_shell()?;
+    let may_prompt = ctx.stdin_is_terminal
+        && ctx.stderr_is_terminal
+        && ctx.audience == crate::config::Audience::Human;
+    let cwd = std::env::current_dir()?;
+    if crate::catalog::git_root(&cwd).is_none() {
+        let mut mb = MessageBox::new()
+            .info()
+            .line("This folder is not a git repo.");
+        if crate::shell::ci_job() {
+            mb = mb.line("CI. No shell wrap. Repo bins, locks, and agent hooks are skipped.");
+        } else {
+            mb = mb
+                .line("Shell wrap only. Repo bins, locks, and agent hooks are skipped.")
+                .line("cd into a repo and run `lade setup`.");
+        }
+        mb.print_stderr();
+        let tool = pretool::install::setup(may_prompt, slugs)?;
+        pretool::install::print_setup(&shell, &tool);
+        return Ok(());
+    }
+    require_lade_yaml()?;
+    crate::mise::setup_pins().await?;
+    let tool = pretool::install::setup(may_prompt, slugs)?;
+    crate::mise::run_lifecycle_commands("setup").await?;
+    crate::packages::run("setup").await?;
+    pretool::install::print_setup(&shell, &tool);
+    Ok(())
+}
+
+fn require_lade_yaml() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    if let Err(e) = crate::config::LadeFile::build(cwd) {
+        crate::config::report_load_error(&e);
+        std::process::exit(exit_codes::FAILURE);
+    }
+    Ok(())
 }
 
 fn hook_scope(scope: args::HookScope) -> pretool::install::Scope {

@@ -16,8 +16,8 @@ There is no `lade install` and no `lade uninstall`. The curl installer and `lade
 Surgical writes stay on the hook command, always for one agent:
 
 ```bash
-lade hook enable --agent cursor
-lade hook disable --agent cursor
+lade hook enable --harness cursor
+lade hook disable --harness cursor
 ```
 
 `--scope user` exists on `lade hook` only. `setup` never offers it.
@@ -77,7 +77,7 @@ In a git repo it removes Lade project hooks for the agents it put there. It does
 Home-directory agent hooks are left alone unless someone is explicit:
 
 ```bash
-lade hook disable --scope user --agent cursor
+lade hook disable --scope user --harness cursor
 ```
 
 A folder with no git is not a reason to touch `$HOME`.

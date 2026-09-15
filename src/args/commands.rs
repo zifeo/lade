@@ -4,8 +4,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Pre-exec wraps commands you type (this shell only). Pre-tool wraps
-/// commands agents run, in this git repo only.
+/// This git repo: locks, agent hooks, setup commands. First-time
+/// pre-exec only. Later: `lade hook enable --shell`. Pre-tool stays
+/// in this repo.
 #[derive(Parser, Debug)]
 pub struct SetupCommand {
     /// Write or refresh the Cursor hook.
@@ -39,6 +40,41 @@ impl SetupCommand {
         }
         slugs
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct AddCommand {
+    /// Family (`secret`, `bin`, `tunnel`) or a bin search (`ghjk`).
+    #[clap(value_parser)]
+    pub family: Option<String>,
+    /// Search or package name after the family.
+    #[clap(value_parser)]
+    pub query: Option<String>,
+    /// Regex rule to write. Required without a TTY.
+    #[clap(long)]
+    pub rule: Option<String>,
+    /// Env or port name on that rule.
+    #[clap(long)]
+    pub key: Option<String>,
+    /// URI to write (`op://`, `mise://`, `kubectl://`).
+    #[clap(long)]
+    pub uri: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct RemoveCommand {
+    /// Family (`secret`, `bin`, `tunnel`) or the key to drop.
+    #[clap(value_parser)]
+    pub family: Option<String>,
+    /// Key or package name after the family.
+    #[clap(value_parser)]
+    pub query: Option<String>,
+    /// Regex rule that holds the binding.
+    #[clap(long)]
+    pub rule: Option<String>,
+    /// Env or port name to drop.
+    #[clap(long)]
+    pub key: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -86,7 +122,7 @@ pub struct McpCommand {
 
 #[derive(Parser, Debug)]
 pub struct StatusCommand {
-    /// Check all supported secret providers, not only those referenced in lade.yml.
+    /// Check all supported secret providers, not only those referenced in lade.yaml.
     #[clap(long, default_value_t = false)]
     pub all: bool,
     /// Emit a machine-readable JSON report to stdout instead of human text.
@@ -159,6 +195,9 @@ pub struct LogCommand {
     /// Drop the git-root filter and read the whole diary.
     #[clap(long, default_value_t = false, conflicts_with = "path", global = true)]
     pub all: bool,
+    /// Same as `--all`. Widens prune past this repo.
+    #[clap(long, default_value_t = false, conflicts_with = "path", global = true)]
+    pub global: bool,
     /// Scope to the git root of this path. Worktrees count.
     #[clap(long, conflicts_with = "all", global = true)]
     pub path: Option<PathBuf>,

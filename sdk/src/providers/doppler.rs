@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, deserialize_output, host_with_port, run_cli};
+use super::{Provider, Warnings, add_url, deserialize_output, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Doppler {
@@ -42,10 +42,6 @@ impl Provider for Doppler {
 
     fn install_url(&self) -> &'static str {
         "https://docs.doppler.com/docs/install-cli"
-    }
-
-    fn transport(&self) -> Transport {
-        Transport::Cli
     }
 
     fn batch_unit(&self) -> &'static str {

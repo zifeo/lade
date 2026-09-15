@@ -58,7 +58,14 @@ Then a `lade.yaml` (or `lade.yml`) at the folder that owns the
 command. Lade walks from the current directory up to `$HOME`.
 The nearest file wins on a key. The parent is the default.
 
+The first line may be a YAML comment with the required Lade
+range. A comment cannot steal a command regex. A rule for `#`
+is a quoted key (`"#"` or `"\\#"`). Edit it by hand when the
+repo needs a Lade that is new enough. There is no pin command.
+`lade upgrade` still runs if this binary is too old.
+
 ```yaml
+#: >=0.18.0
 "^tofu":
   TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
 ```
@@ -112,7 +119,8 @@ in this family because it becomes an env var.
 | Raw | `"visible-in-the-yaml"` | Not a secret. `!` forces raw, `!!` keeps a leading `!`. |
 
 `lade eval <uri>` resolves one URI. Authenticate the provider CLI
-first (`op signin`, `vault login`, …).
+first. Lade does not pick the login command. See that product's
+docs, then retry.
 
 `.file` on the rule writes a temp JSON/YAML for the command, then
 deletes it. That is output, not the file provider.
@@ -207,7 +215,7 @@ Same yaml. Same resolve. The agent types the command. There is
 no Lade skill. The hook rewrites it.
 
 ```bash
-lade hook enable --agent cursor
+lade hook enable --harness cursor
 ```
 
 `--scope user` is leftover home hooks. `lade setup` never writes
@@ -353,6 +361,32 @@ More: [examples/tape/](examples/tape/). Re-record GIFs after
 - Diary flags: [docs/observability.md](docs/observability.md)
 - MCP one-shot (`lade mcp`): still supported, not the product
 - `1password_service_account` on `.` for CI `op://`
+
+## Coming from an older Lade
+
+New clone: `lade setup` prints the wrap, hooks, and pins this
+repo needs. `lade status` is the same report later. The
+changelog lists the break.
+
+Already on Lade: `lade status` after upgrade. A daily GitHub
+check can also say a newer tag exists. Generated project hooks
+now emit `--harness`. Older `--agent` lines still parse. A
+`lade.yaml` that starts with `#: >=0.18.0` refuses an older
+binary and points at `lade upgrade`.
+
+What changed that you can see:
+
+- Frontend file is `lade.yaml`. Both `.yaml` and `.yml` in one
+  directory is an error.
+- Required Lade version is the first-line comment `#:`, not a
+  YAML document string and not a `version:` key.
+- Spoken hook flag is `--harness` (`claude`, `cursor`, `codex`,
+  `opencode`). `--agent` stays as a hidden alias.
+- `lade setup` / `lade teardown` are this git repo. The shell
+  wrap is written once per profile.
+- Secret, tunnel, and bin are the three families on a rule.
+- A `mise://` pin is locked. Homebrew on PATH is not a
+  substitute. `ssh://` uses OpenSSH on this machine.
 
 ## Development
 

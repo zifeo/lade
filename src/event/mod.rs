@@ -13,7 +13,7 @@ mod git;
 mod tests;
 mod write;
 
-pub use db::{info, open, prune_before, query, warmup};
+pub use db::{info_for_repo, open, prune_before, query, warmup};
 pub use git::git_stamp;
 #[allow(unused_imports)]
 pub use write::emit;
@@ -121,21 +121,39 @@ pub fn match_tree_from(
     rules: &[(std::path::PathBuf, String, LadeRule)],
     saved_user: &Option<String>,
 ) -> Value {
-    let mut out = Vec::new();
+    let mut winners = indexmap::IndexMap::<String, (PathBuf, String, String)>::new();
     for (file, pattern, rule) in rules {
-        let bindings: Vec<Value> = Config::public_bindings(rule, saved_user)
-            .into_iter()
-            .map(|(key, uri)| json!({ "key": key, "uri": uri }))
-            .collect();
-        if bindings.is_empty() {
-            continue;
+        for (key, uri) in Config::public_bindings(rule, saved_user) {
+            winners.insert(key, (file.clone(), pattern.clone(), uri));
         }
-        out.push(json!({
-            "file": file.to_string_lossy(),
-            "rule": pattern,
-            "bindings": bindings
-        }));
     }
+    let mut grouped: indexmap::IndexMap<(PathBuf, String), Vec<Value>> = indexmap::IndexMap::new();
+    for (key, (file, pattern, uri)) in winners {
+        let family = crate::family::Family::of_uri(&uri);
+        let mut binding = json!({
+            "key": key,
+            "uri": uri,
+            "family": family.token()
+        });
+        if let Some(bin) = crate::mise::implied_bin(&uri) {
+            binding["bin"] = json!(bin);
+            let lock = file.join("lade.lock");
+            if let Some(slot) = crate::mise::lock_slot(&lock, bin) {
+                binding["version"] = json!(slot);
+            }
+        }
+        grouped.entry((file, pattern)).or_default().push(binding);
+    }
+    let out: Vec<Value> = grouped
+        .into_iter()
+        .map(|((file, pattern), bindings)| {
+            json!({
+                "file": file.to_string_lossy(),
+                "rule": pattern,
+                "bindings": bindings
+            })
+        })
+        .collect();
     Value::Array(out)
 }
 

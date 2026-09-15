@@ -23,11 +23,15 @@ pub enum Command {
     On,
     /// Disable pre-exec for this shell.
     Off,
-    /// Wire pre-exec (this shell) and pre-tool (this repo).
+    /// Wire this git repo. First-time pre-exec. pre-tool stays in the repo.
     Setup(SetupCommand),
-    /// Remove pre-exec (this shell) and pre-tool (this repo).
+    /// Remove this repo's Lade pre-tool hooks and run teardown commands.
     Teardown,
-    /// Run a command with matching lade.yml access. One-shot, no pre-exec.
+    /// Write a secret, binary, or tunnel into the nearest lade.yaml.
+    Add(AddCommand),
+    /// Remove a binding from the nearest lade.yaml.
+    Remove(RemoveCommand),
+    /// Run a command with matching lade.yaml access. One-shot, no pre-exec.
     Inject(InjectCommand),
     /// Resolve secrets for a local or remote MCP server.
     Mcp(McpCommand),
@@ -44,8 +48,9 @@ pub enum Command {
     },
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     Hook {
-        /// Host that installed this hook. Unknown values are ignored.
-        #[clap(long)]
+        /// Agent that installed this hook. Unknown values are ignored.
+        /// Hidden `--agent` still parses older generated hooks.
+        #[clap(long = "harness", alias = "agent")]
         harness: Option<String>,
         #[command(subcommand)]
         action: Option<HookAction>,
@@ -56,7 +61,7 @@ pub enum Command {
         /// The approval code printed in the disclaimer (e.g. `ab12c`).
         code: Option<String>,
     },
-    /// Set the lade.yml per-user key, or reset to the OS user.
+    /// Set the lade.yaml per-user key, or reset to the OS user.
     User {
         /// The username to set
         username: Option<String>,
@@ -66,7 +71,7 @@ pub enum Command {
     },
     /// Local command diary.
     Log(LogCommand),
-    /// Matched lade.yml rules in this tree, most frequent first. `--all` / `--path` change the tree.
+    /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--path` change the tree.
     Usage(UsageCommand),
     /// Shortcut for `lade inject <command...>`.
     #[command(external_subcommand)]
@@ -138,6 +143,18 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
         }
         Some(Command::Teardown) => {
             if let Some(sub) = cmd.find_subcommand_mut("teardown") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Add(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("add") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Remove(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("remove") {
                 sub.print_help()?;
             }
             return Ok(());

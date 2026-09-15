@@ -161,7 +161,14 @@ fn hook_stdin_still_parses_harness() {
 
 #[test]
 fn hook_enable_defaults_scope_to_project() {
-    assert!(Args::try_parse_from(["lade", "hook", "enable"]).is_err());
+    let bare = Args::try_parse_from(["lade", "hook", "enable"]).unwrap();
+    match bare.command {
+        Some(Command::Hook {
+            action: Some(HookAction::Enable(opts)),
+            ..
+        }) => assert!(opts.target().is_err()),
+        other => panic!("{other:?}"),
+    }
     let args = Args::try_parse_from(["lade", "hook", "enable", "--harness", "cursor"]).unwrap();
     match args.command {
         Some(Command::Hook {
@@ -169,7 +176,7 @@ fn hook_enable_defaults_scope_to_project() {
             harness: None,
         }) => {
             assert_eq!(opts.scope, HookScope::Project);
-            assert_eq!(opts.harness, HookHarness::Cursor);
+            assert_eq!(opts.agent, Some(HookAgent::Cursor));
         }
         other => panic!("{other:?}"),
     }
@@ -188,6 +195,33 @@ fn hook_enable_defaults_scope_to_project() {
             action: Some(HookAction::Enable(opts)),
             ..
         }) => assert_eq!(opts.scope, HookScope::User),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn hook_enable_shell_and_agent() {
+    let shell = Args::try_parse_from(["lade", "hook", "enable", "--shell"]).unwrap();
+    match shell.command {
+        Some(Command::Hook {
+            action: Some(HookAction::Enable(opts)),
+            ..
+        }) => {
+            assert!(matches!(
+                opts.target().unwrap(),
+                crate::args::HookTarget::Shell
+            ));
+        }
+        other => panic!("{other:?}"),
+    }
+    let agent = Args::try_parse_from(["lade", "hook", "enable", "--agent", "claude"]).unwrap();
+    match agent.command {
+        Some(Command::Hook {
+            action: Some(HookAction::Enable(opts)),
+            ..
+        }) => {
+            assert_eq!(opts.agent, Some(HookAgent::Claude));
+        }
         other => panic!("{other:?}"),
     }
 }
