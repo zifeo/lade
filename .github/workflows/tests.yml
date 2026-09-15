@@ -55,12 +55,19 @@ jobs:
       - name: Install 1Password CLI
         uses: 1password/install-cli-action@v4
 
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Tool versions
         run: |
           bash --version
           fish --version
           zsh --version
           op --version
+          mise --version
 
       - name: Run native tests
         run: |
@@ -88,6 +95,12 @@ jobs:
       - name: Install k3d
         run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Tool versions
         run: |
           bash --version
@@ -96,6 +109,7 @@ jobs:
           docker info
           k3d version
           kubectl version --client=true
+          mise --version
 
       - name: Run Docker tests
         run: cargo test -p lade --locked --no-default-features --features docker-tests --test docker
