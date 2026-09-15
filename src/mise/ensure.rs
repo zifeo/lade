@@ -20,9 +20,7 @@ pub fn managed_mise_in_play() -> bool {
 }
 
 pub fn managed_bin() -> PathBuf {
-    directories::ProjectDirs::from("com", "zifeo", "lade")
-        .map(|project| project.data_local_dir().join("mise/bin/mise"))
-        .unwrap_or_else(|| PathBuf::from(".lade-mise/mise"))
+    super::store::data_dir().join("bin/mise")
 }
 
 fn path_mise() -> Option<PathBuf> {

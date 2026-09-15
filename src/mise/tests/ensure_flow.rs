@@ -82,6 +82,14 @@ exit 1
     );
 }
 
+#[test]
+fn managed_bin_is_mise_data_dir() {
+    let dir = tempdir().unwrap();
+    temp_env::with_var("MISE_DATA_DIR", Some(dir.path()), || {
+        assert_eq!(ensure::managed_bin(), dir.path().join("bin/mise"));
+    });
+}
+
 #[cfg(unix)]
 #[test]
 fn pin_exact_resolves_latest_through_mise() {

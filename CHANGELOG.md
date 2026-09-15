@@ -68,6 +68,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - Vault hydrate is HTTP KV v2. Resolve does not run the Vault CLI.
   `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from
   `vault login`. Docker tests seed with `curl`, not a host `vault`.
+- **mise binary**: `lade setup` writes the official mise path
+  (`$MISE_DATA_DIR/bin/mise`, else `~/.local/share/mise/bin/mise`).
+  PATH mise in range is used as-is. No second copy under Lade's
+  data dir.
 
 ### Removed
 

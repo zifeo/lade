@@ -2,20 +2,24 @@ use std::path::{Path, PathBuf};
 
 use super::spec::Spec;
 
+pub fn data_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("MISE_DATA_DIR")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
+    }
+    directories::UserDirs::new()
+        .map(|user| user.home_dir().join(".local/share/mise"))
+        .unwrap_or_else(|| PathBuf::from(".local/share/mise"))
+}
+
 pub fn installs_dir() -> PathBuf {
     if let Ok(path) = std::env::var("MISE_INSTALLS_DIR")
         && !path.is_empty()
     {
         return PathBuf::from(path);
     }
-    if let Ok(path) = std::env::var("MISE_DATA_DIR")
-        && !path.is_empty()
-    {
-        return PathBuf::from(path).join("installs");
-    }
-    directories::UserDirs::new()
-        .map(|user| user.home_dir().join(".local/share/mise/installs"))
-        .unwrap_or_else(|| PathBuf::from(".local/share/mise/installs"))
+    data_dir().join("installs")
 }
 
 pub fn tool_names(spec: &Spec, pin_key: &str, lock_name: Option<&str>) -> Vec<String> {
@@ -208,6 +212,7 @@ mod tests {
             ],
             || {
                 assert_eq!(installs_dir(), dir.path().join("installs"));
+                assert_eq!(data_dir(), dir.path());
             },
         );
     }
