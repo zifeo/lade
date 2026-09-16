@@ -12,6 +12,7 @@ mod tsh;
 
 pub use cli::is_network_scheme;
 pub use command::{build_command, ensure_provider_preflight};
+pub use kubectl::compose_uri as compose_kubectl_uri;
 
 #[derive(Debug, Clone)]
 pub enum ProviderSpec {
@@ -63,6 +64,21 @@ pub trait NetworkProvider: Sync {
         segments: &[&str],
         query: &HashMap<String, String>,
     ) -> Result<ProviderSpec>;
+
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        let _ = extra_env;
+        Ok(Vec::new())
+    }
+
+    fn list(
+        &self,
+        extra_env: &HashMap<String, String>,
+        what: &str,
+        args: &[&str],
+    ) -> Result<Vec<String>> {
+        let _ = (extra_env, what, args);
+        Ok(Vec::new())
+    }
 }
 
 pub struct NetworkProviders {

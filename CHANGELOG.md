@@ -50,9 +50,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   time this machine has no pre-exec, then reload this shell. Later
   a missing wrap is `lade hook enable --shell`. Teardown does not
   remove the wrap. Agent hooks stay in the repo. Home hooks are
-  flagged, never stacked. `--harness` is the spoken flag
-  (`--agent` still parses, hidden). `lade add` / `lade remove` write the nearest
-  `lade.yaml` and add runs setup. `lade.lock` sits next to each
+  flagged, never stacked. `--harness` is the only hook flag.
+  `lade add` / `lade remove` write the nearest
+  `lade.yaml` and add runs setup. Pins write `mise.lock` when that
+  file already exists, otherwise `lade.lock` next to each
   yaml. Project `mise.toml` is ignored. Bin URIs may set
   `?setup=` / `?teardown=`. Diary prune uses the same repo filter
   plus `--global`. Both `lade.yaml` and `lade.yml` in one dir is
@@ -68,6 +69,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - Vault hydrate is HTTP KV v2. Resolve does not run the Vault CLI.
   `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from
   `vault login`. Docker tests seed with `curl`, not a host `vault`.
+  `vault://` does not imply a mise pin.
 - **mise binary**: `lade setup` writes the official mise path
   (`$MISE_DATA_DIR/bin/mise`, else `~/.local/share/mise/bin/mise`).
   PATH mise in range is used as-is. No second copy under Lade's

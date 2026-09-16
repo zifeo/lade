@@ -171,5 +171,19 @@ impl Provider for AwsSm {
     }
 }
 
+pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
+    key: "region",
+    prompt: "Region (us-east-1): ",
+    default: Some("us-east-1"),
+}];
+
+pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
+    let region = extras
+        .get("region")
+        .map(String::as_str)
+        .unwrap_or("us-east-1");
+    format!("awssm://{region}/{picked}")
+}
+
 #[cfg(test)]
 mod tests;

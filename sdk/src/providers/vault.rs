@@ -259,5 +259,30 @@ impl Provider for Vault {
     }
 }
 
+pub(super) const ADD_FIELDS: &[super::add::AddField] = &[
+    super::add::AddField {
+        key: "field",
+        prompt: "Field (password): ",
+        default: Some("password"),
+    },
+    super::add::AddField {
+        key: "host",
+        prompt: "Vault host (127.0.0.1:8200): ",
+        default: Some("127.0.0.1:8200"),
+    },
+];
+
+pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
+    let field = extras
+        .get("field")
+        .map(String::as_str)
+        .unwrap_or("password");
+    let host = extras
+        .get("host")
+        .map(String::as_str)
+        .unwrap_or("127.0.0.1:8200");
+    format!("vault://{host}/secret/{picked}/{field}")
+}
+
 #[cfg(test)]
 mod tests;

@@ -38,9 +38,8 @@ pub struct HookToggleCommand {
     /// This shell's pre-exec (machine).
     #[clap(long, conflicts_with = "agent")]
     pub shell: bool,
-    /// `claude`, `cursor`, `codex`, or `opencode`. Hidden `--agent` still
-    /// parses older generated hooks.
-    #[clap(long = "harness", alias = "agent", conflicts_with = "shell")]
+    /// `claude`, `cursor`, `codex`, or `opencode`.
+    #[clap(long = "harness", conflicts_with = "shell")]
     pub agent: Option<HookAgent>,
     /// `project` is this repo (default). `user` is leftover home agent hooks.
     #[clap(long, default_value = "project")]

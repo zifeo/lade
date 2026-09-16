@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
 
 use crate::message_box::MessageBox;
+use lade_sdk::compat::spec_for_bin;
+use std::collections::HashMap;
 
 use super::ask;
 
@@ -28,20 +30,19 @@ pub fn login_stop<T>(cli: &str) -> Result<T> {
 }
 
 fn cli_docs(cli: &str) -> &'static str {
-    match cli {
-        "op" => "https://developer.1password.com/docs/cli/get-started/",
-        "vault" => "https://developer.hashicorp.com/vault/docs/commands/login",
-        "aws" => "https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html",
-        "az" => "https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli",
-        "gcloud" => "https://cloud.google.com/sdk/docs/authorizing",
-        "kubectl" => "https://kubernetes.io/docs/reference/access-authn-authz/authentication/",
-        "tsh" => "https://goteleport.com/docs/connect-your-client/tsh/",
-        "passbolt" => "https://www.passbolt.com/docs/user-guide/cli/",
-        "doppler" => "https://docs.doppler.com/docs/cli",
-        "infisical" => "https://infisical.com/docs/cli/overview",
-        "bw" => "https://bitwarden.com/help/cli/",
-        _ => "that CLI's documentation",
-    }
+    spec_for_bin(cli)
+        .and_then(|spec| spec.docs)
+        .unwrap_or("that CLI's documentation")
+}
+
+pub fn locked_path_env(bin: &str) -> Result<HashMap<String, String>> {
+    let path = family_program(bin)?;
+    let dir = path.parent().context("bin has no parent")?;
+    let rest = std::env::var("PATH").unwrap_or_default();
+    Ok(HashMap::from([(
+        "PATH".to_string(),
+        format!("{}:{rest}", dir.display()),
+    )]))
 }
 
 pub fn pick_from_lines(title: &str, lines: &[String]) -> Result<String> {
@@ -59,23 +60,6 @@ pub fn pick_from_lines(title: &str, lines: &[String]) -> Result<String> {
         .get(index.saturating_sub(1))
         .cloned()
         .context("pick a number from the list")
-}
-
-pub fn run_cli_lines(bin: &str, args: &[&str]) -> Result<Vec<String>> {
-    let output = match std::process::Command::new(family_program(bin)?)
-        .args(args)
-        .output()
-    {
-        Ok(output) if output.status.success() => output,
-        Ok(_) | Err(_) => return login_stop(bin),
-    };
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| line.trim_start_matches("namespace/").to_string())
-        .map(|line| line.split('/').next_back().unwrap_or(&line).to_string())
-        .collect())
 }
 
 #[cfg(test)]

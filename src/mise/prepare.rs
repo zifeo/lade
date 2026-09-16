@@ -185,7 +185,7 @@ fn rewrite_nearest_lock(cwd: &Path, key: &str, spec: &spec::Spec) -> Result<(), 
     let Some(dir) = lookup::yaml_dirs(cwd)?.into_iter().next() else {
         return Ok(());
     };
-    let path = dir.join("lade.lock");
+    let path = lock::path_in(&dir);
     let mut slots = lock::read_tools(&path).unwrap_or_default();
     lock::upsert(
         &mut slots,

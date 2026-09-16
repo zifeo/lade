@@ -3,6 +3,12 @@
   SHELL_VAL: sh://echo hello
 
 > lade inject --no-mask printenv SHELL_VAL
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ sh echo hello: SHELL_VAL
 
 ✔︎ sh echo hello: SHELL_VAL                                               9 ms

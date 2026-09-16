@@ -15,6 +15,7 @@ use url::Url;
 
 use crate::Hydration;
 
+pub mod add;
 pub mod compat;
 pub mod network;
 
@@ -201,6 +202,21 @@ impl Providers {
         }
 
         Ok((full_hydration, maskable_sources))
+    }
+}
+
+pub fn compose_secret_add_uri(
+    scheme: &str,
+    picked: &str,
+    extras: &HashMap<String, String>,
+) -> Option<String> {
+    match scheme {
+        "op" => Some(onepassword::compose_add_uri(picked, extras)),
+        "vault" => Some(vault::compose_add_uri(picked, extras)),
+        "awssm" => Some(awssm::compose_add_uri(picked, extras)),
+        "azurekv" => Some(azurekv::compose_add_uri(picked, extras)),
+        "gcpsm" => Some(gcpsm::compose_add_uri(picked, extras)),
+        _ => None,
     }
 }
 

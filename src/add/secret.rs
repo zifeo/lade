@@ -1,9 +1,9 @@
-use anyhow::{Context, Result, bail};
-use lade_sdk::Providers;
+use anyhow::{Result, bail};
+use lade_sdk::{Providers, secret_add_fields, secret_search_scope};
 use std::collections::HashMap;
 
 use super::ask;
-use super::cli::{family_program, login_stop, pick_from_lines};
+use super::cli::{locked_path_env, login_stop, pick_from_lines};
 use super::warn_raw;
 
 pub fn secret_uri() -> Result<String> {
@@ -32,70 +32,34 @@ fn pick_provider_secret(scheme: &str) -> Result<Option<String>> {
         .map(|spec| spec.bin)
         .unwrap_or(scheme);
     let mut extra_env = locked_path_env(bin)?;
-    let scope = if scheme == "azurekv" {
-        let vault = ask("Vault name: ")?;
-        if vault.is_empty() {
-            bail!("a vault name is required");
-        }
-        extra_env.insert("LADE_SEARCH_SCOPE".to_string(), vault.clone());
-        Some(vault)
-    } else {
-        None
-    };
+    let mut extras = HashMap::new();
+    if let Some(field) = secret_search_scope(scheme) {
+        let value = ask_field(&field)?;
+        extra_env.insert("LADE_SEARCH_SCOPE".to_string(), value.clone());
+        extras.insert(field.key.to_string(), value);
+    }
     let hits = match lade_sdk::Provider::search(provider, &extra_env) {
         Ok(hits) if !hits.is_empty() => hits,
         Ok(_) => return Ok(None),
         Err(_) => return login_stop(bin),
     };
     let picked = pick_from_lines(lade_sdk::Provider::name(provider), &hits)?;
-    Ok(Some(compose_secret_uri(scheme, &picked, scope.as_deref())?))
-}
-
-fn compose_secret_uri(scheme: &str, picked: &str, scope: Option<&str>) -> Result<String> {
-    match scheme {
-        "op" => {
-            let field = ask_or("Field (password): ", "password")?;
-            Ok(format!("op://{picked}/{field}"))
-        }
-        "vault" => {
-            let field = ask_or("Field (password): ", "password")?;
-            let host = ask_or("Vault host (127.0.0.1:8200): ", "127.0.0.1:8200")?;
-            Ok(format!("vault://{host}/secret/{picked}/{field}"))
-        }
-        "awssm" => {
-            let region = ask_or("Region (us-east-1): ", "us-east-1")?;
-            Ok(format!("awssm://{region}/{picked}"))
-        }
-        "azurekv" => {
-            let vault = scope.context("vault name")?;
-            Ok(format!("azurekv://{vault}/{picked}"))
-        }
-        "gcpsm" => {
-            let project = ask("Project: ")?;
-            if project.is_empty() {
-                bail!("a project is required");
-            }
-            Ok(format!("gcpsm://{project}/{picked}"))
-        }
-        _ => Ok(format!("{scheme}://{picked}")),
+    for field in secret_add_fields(scheme) {
+        extras.insert(field.key.to_string(), ask_field(field)?);
     }
+    Ok(Some(
+        lade_sdk::compose_secret_add_uri(scheme, &picked, &extras)
+            .unwrap_or_else(|| format!("{scheme}://{picked}")),
+    ))
 }
 
-fn ask_or(prompt: &str, default: &str) -> Result<String> {
-    let answer = ask(prompt)?;
-    Ok(if answer.is_empty() {
-        default.to_string()
-    } else {
-        answer
-    })
-}
-
-fn locked_path_env(bin: &str) -> Result<HashMap<String, String>> {
-    let path = family_program(bin)?;
-    let dir = path.parent().context("bin has no parent")?;
-    let rest = std::env::var("PATH").unwrap_or_default();
-    Ok(HashMap::from([(
-        "PATH".to_string(),
-        format!("{}:{rest}", dir.display()),
-    )]))
+fn ask_field(field: &lade_sdk::AddField) -> Result<String> {
+    let answer = ask(field.prompt)?;
+    if !answer.is_empty() {
+        return Ok(answer);
+    }
+    match field.default {
+        Some(default) => Ok(default.to_string()),
+        None => bail!("{} is required", field.key),
+    }
 }

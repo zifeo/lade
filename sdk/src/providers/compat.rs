@@ -7,6 +7,7 @@ pub struct CliSpec {
     pub max_version: Option<&'static str>,
     pub mise: Option<&'static str>,
     pub tunnel: bool,
+    pub docs: Option<&'static str>,
 }
 
 pub static CLI_SPECS: &[CliSpec] = &[
@@ -17,6 +18,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/1password/op"),
         tunnel: false,
+        docs: Some("https://developer.1password.com/docs/cli/get-started/"),
     },
     CliSpec {
         scheme: "doppler",
@@ -25,6 +27,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/DopplerHQ/cli"),
         tunnel: false,
+        docs: Some("https://docs.doppler.com/docs/cli"),
     },
     CliSpec {
         scheme: "passbolt",
@@ -33,6 +36,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("github/passbolt/go-passbolt-cli"),
         tunnel: false,
+        docs: Some("https://www.passbolt.com/docs/user-guide/cli/"),
     },
     CliSpec {
         scheme: "sops",
@@ -41,6 +45,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/getsops/sops"),
         tunnel: false,
+        docs: Some("https://github.com/getsops/sops"),
     },
     CliSpec {
         scheme: "infisical",
@@ -49,6 +54,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/Infisical/infisical"),
         tunnel: false,
+        docs: Some("https://infisical.com/docs/cli/overview"),
     },
     CliSpec {
         scheme: "bw",
@@ -57,14 +63,18 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/bitwarden/clients"),
         tunnel: false,
+        docs: Some("https://bitwarden.com/help/cli/"),
     },
     CliSpec {
         scheme: "vault",
         bin: "vault",
         min_version: "1.15.0",
         max_version: None,
-        mise: Some("aqua/hashicorp/vault"),
+        // Hydrate is HTTP KV v2. vault login still writes the token
+        // file. No implied mise pin.
+        mise: None,
         tunnel: false,
+        docs: Some("https://developer.hashicorp.com/vault/docs/commands/login"),
     },
     CliSpec {
         scheme: "awssm",
@@ -73,6 +83,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/aws/aws-cli"),
         tunnel: false,
+        docs: Some("https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html"),
     },
     CliSpec {
         scheme: "azurekv",
@@ -81,6 +92,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/Azure/azure-cli"),
         tunnel: false,
+        docs: Some("https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli"),
     },
     CliSpec {
         scheme: "gcpsm",
@@ -89,6 +101,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/GoogleCloudPlatform/cloud-sdk"),
         tunnel: false,
+        docs: Some("https://cloud.google.com/sdk/docs/authorizing"),
     },
     CliSpec {
         scheme: "kubectl",
@@ -97,6 +110,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/kubernetes/kubectl"),
         tunnel: true,
+        docs: Some("https://kubernetes.io/docs/reference/access-authn-authz/authentication/"),
     },
     CliSpec {
         scheme: "kubefwd",
@@ -105,6 +119,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/txn2/kubefwd"),
         tunnel: true,
+        docs: Some("https://github.com/txn2/kubefwd"),
     },
     CliSpec {
         scheme: "tsh",
@@ -113,6 +128,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         max_version: None,
         mise: Some("aqua/gravitational/teleport"),
         tunnel: true,
+        docs: Some("https://goteleport.com/docs/connect-your-client/tsh/"),
     },
     CliSpec {
         scheme: "ssh",
@@ -123,6 +139,25 @@ pub static CLI_SPECS: &[CliSpec] = &[
         // build we trust. Missing ssh is a box, not a fetch.
         mise: None,
         tunnel: true,
+        docs: Some("https://www.openssh.com/"),
+    },
+    CliSpec {
+        scheme: "apm",
+        bin: "apm",
+        min_version: "0.23.1",
+        max_version: None,
+        mise: Some("github/microsoft/apm"),
+        tunnel: false,
+        docs: Some("https://github.com/microsoft/apm"),
+    },
+    CliSpec {
+        scheme: "skills",
+        bin: "skills",
+        min_version: "1.4.0",
+        max_version: None,
+        mise: Some("npm/skills"),
+        tunnel: false,
+        docs: Some("https://github.com/vercel-labs/skills"),
     },
 ];
 
@@ -149,6 +184,10 @@ pub fn sdk_specs() -> Vec<SdkSpec> {
 
 pub fn spec_for(scheme: &str) -> Option<&'static CliSpec> {
     CLI_SPECS.iter().find(|s| s.scheme == scheme)
+}
+
+pub fn spec_for_bin(bin: &str) -> Option<&'static CliSpec> {
+    CLI_SPECS.iter().find(|s| s.bin == bin)
 }
 
 pub fn is_network_scheme(scheme: &str) -> bool {

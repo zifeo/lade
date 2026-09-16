@@ -28,7 +28,16 @@ struct LockTool {
     checksum: Option<String>,
 }
 
-const LOCK_NAMES: &[&str] = &["lade.lock", "mise.lock"];
+const LOCK_NAMES: &[&str] = &["mise.lock", "lade.lock"];
+
+pub fn path_in(dir: &Path) -> PathBuf {
+    let native = dir.join("mise.lock");
+    if native.is_file() {
+        native
+    } else {
+        dir.join("lade.lock")
+    }
+}
 
 pub fn file_checksum(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -71,6 +80,19 @@ pub fn slot_for_walk(start: &Path, names: &[&str]) -> Option<LockSlot> {
 }
 
 pub fn write_tools(path: &Path, slots: &[LockSlot]) -> std::io::Result<()> {
+    let merge = path.file_name().is_some_and(|name| name == "mise.lock") && path.is_file();
+    if merge {
+        let mut all = read_tools(path).unwrap_or_default();
+        for slot in slots {
+            upsert(&mut all, slot.clone());
+        }
+        write_lock_body(path, &all)
+    } else {
+        write_lock_body(path, slots)
+    }
+}
+
+fn write_lock_body(path: &Path, slots: &[LockSlot]) -> std::io::Result<()> {
     let mut body = String::from("lockfile_version = 1\n\n");
     for slot in slots {
         let key = if slot
@@ -334,5 +356,47 @@ backend = "aqua:jqlang/jq"
         assert!(slot_for(&found, &["jq", "aqua:jqlang/jq"]).is_none());
         assert!(slot_for_walk(&child, &["jq", "aqua:jqlang/jq"]).is_some());
         assert!(slot_for_walk(&child, &["node"]).is_some());
+    }
+
+    #[test]
+    fn path_in_keeps_native_mise_lock() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("mise.lock"), "lockfile_version = 1\n").unwrap();
+        assert_eq!(path_in(dir.path()), dir.path().join("mise.lock"));
+        let empty = tempdir().unwrap();
+        assert_eq!(path_in(empty.path()), empty.path().join("lade.lock"));
+    }
+
+    #[test]
+    fn write_tools_merges_into_existing_mise_lock() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("mise.lock");
+        write_tools(
+            &path,
+            &[LockSlot {
+                name: "node".to_string(),
+                version: "24.16.0".to_string(),
+                backend: None,
+                checksum: None,
+            }],
+        )
+        .unwrap();
+        write_tools(
+            &path,
+            &[LockSlot {
+                name: "jq".to_string(),
+                version: "1.7.1".to_string(),
+                backend: Some("aqua:jqlang/jq".to_string()),
+                checksum: None,
+            }],
+        )
+        .unwrap();
+        let slots = read_tools(&path).unwrap();
+        assert!(slots.iter().any(|slot| slot.name == "node"));
+        assert!(
+            slots
+                .iter()
+                .any(|slot| slot.name == "jq" && slot.version == "1.7.1")
+        );
     }
 }

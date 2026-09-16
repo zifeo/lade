@@ -214,7 +214,7 @@ fn hook_enable_shell_and_agent() {
         }
         other => panic!("{other:?}"),
     }
-    let agent = Args::try_parse_from(["lade", "hook", "enable", "--agent", "claude"]).unwrap();
+    let agent = Args::try_parse_from(["lade", "hook", "enable", "--harness", "claude"]).unwrap();
     match agent.command {
         Some(Command::Hook {
             action: Some(HookAction::Enable(opts)),
@@ -224,6 +224,10 @@ fn hook_enable_shell_and_agent() {
         }
         other => panic!("{other:?}"),
     }
+    assert!(
+        Args::try_parse_from(["lade", "hook", "enable", "--agent", "claude"]).is_err(),
+        "--agent is not a hook flag"
+    );
 }
 
 #[test]

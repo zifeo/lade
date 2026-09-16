@@ -1,19 +1,41 @@
 > ./show-example token
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ^echo token:
   TOKEN: vault://127.0.0.1:8200/secret/password/value1
 
 > echo token $TOKEN
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ Vault 127.0.0.1:8200: TOKEN
 
-✔︎ Vault 127.0.0.1:8200: TOKEN                                          926 ms
+✔︎ Vault 127.0.0.1:8200: TOKEN                                            8 ms
 
 token itsasecret
 
 > ./show-example format
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ^printenv FROM_FILE:
   FROM_FILE: file://../sources/config.json?query=.format
 
 > printenv FROM_FILE
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ File: FROM_FILE
 
 ✔︎ File: FROM_FILE                                                        0 ms

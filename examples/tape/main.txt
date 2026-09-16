@@ -1,16 +1,15 @@
 > echo hello $GREETING
 hello
 
-> lade setup
-pre-exec  this shell
-First wrap for this profile. Reload: source ~/.zshrc
-  installed  ~/.zshrc
-pre-tool  this repo
-  …
-
-> source ~/.zshrc
+> eval "$(lade on)"
 
 > echo hello $GREETING
+╭ Warning ────────────────────────────────────────────────────────────────────────╮
+│                                                                                 │
+│   Raw is a value you typed, not a vault secret.                                 │
+│                                                                                 │
+╰─────────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ Raw: GREETING
 
 ✔︎ Raw: GREETING                                                             0 ms

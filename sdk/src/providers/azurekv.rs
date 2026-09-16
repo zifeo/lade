@@ -187,5 +187,18 @@ impl Provider for AzureKv {
     }
 }
 
+pub(super) const SEARCH_SCOPE: super::add::AddField = super::add::AddField {
+    key: "vault",
+    prompt: "Vault name: ",
+    default: None,
+};
+
+pub(super) const ADD_FIELDS: &[super::add::AddField] = &[];
+
+pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
+    let vault = extras.get("vault").map(String::as_str).unwrap_or("vault");
+    format!("azurekv://{vault}/{picked}")
+}
+
 #[cfg(test)]
 mod tests;

@@ -262,5 +262,19 @@ impl Provider for OnePassword {
     }
 }
 
+pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
+    key: "field",
+    prompt: "Field (password): ",
+    default: Some("password"),
+}];
+
+pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
+    let field = extras
+        .get("field")
+        .map(String::as_str)
+        .unwrap_or("password");
+    format!("op://{picked}/{field}")
+}
+
 #[cfg(test)]
 mod tests;

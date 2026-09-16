@@ -2,70 +2,137 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
-Temporary access to secrets and private networks for one command,
-then gone. Same wrap for humans and agents. See which access was used.
+**Why.** A command needs secrets or a private network. That access
+should exist for the process, then be gone.
+
+**What.** One `lade.yaml`. Three families: secret, tunnel, bin. The
+same wrap for humans and agents. See which access was used.
+
+**How.** Install, `lade setup`, type the command.
 
 <p align="center">
   <img src="./examples/tape/main.gif" alt="Demo" />
 </p>
 
-Lade (/leɪd/) on [Fish](https://fishshell.com),
+Lade on [Fish](https://fishshell.com),
 [Bash](https://www.gnu.org/software/bash/), or [Zsh](https://zsh.sourceforge.io).
 macOS and Linux.
-
-You clone a repo, run `lade setup`, type the command. The matching
-rule hydrates what that process needs. When it exits, that access is
-gone. Humans, agents, and CI **build** use the same `lade.yaml`.
-CI **runtime** is out of scope.
-
-Three families on a rule: **secret**, **tunnel**, **bin**. A tool
-manager (today [mise](https://mise.jdx.dev); it could be nix) pins
-CLIs. That name is an implementation detail.
 
 ## Getting started
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
-cd your-repo
-lade setup
-```
-
-`lade setup` is **this repo**: locks, agent hooks, setup commands.
-The first time this shell has no Lade wrap, setup also writes
-pre-exec into this profile, then tells you to reload:
-
-```bash
-source ~/.zshrc    # bash: source ~/.bashrc
-# or open a new terminal
-```
-
-Other shells on this machine are listed, not written.
-`lade hook enable --shell` wraps another profile.
-`lade on` / `lade off` pause this shell.
-
-An agent, from a git repo:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/agent-setup.sh | bash
 ```
 
 ```bash
 cargo install lade --locked
-lade upgrade
 ```
 
-Then a `lade.yaml` (or `lade.yml`) at the folder that owns the
-command. Lade walks from the current directory up to `$HOME`.
-The nearest file wins on a key. The parent is the default.
+An agent should download
+[`agent-setup.sh`](https://raw.githubusercontent.com/zifeo/lade/main/agent-setup.sh)
+and run it from the git repo. That script installs Lade if needed
+and runs `lade setup`. It is the prompt to fetch, not a second
+install path to paste next to the human curl.
+
+Then `cd` into the repo and run `lade setup`. Setup prints the
+reload line when this shell just got its first wrap.
+
+You do not prefix the command. Pre-exec (or the agent hook) wraps
+it. Without a wrap: `lade tofu apply` or `lade inject -- tofu apply`.
+
+`lade on` / `lade off` pause this shell.
+`lade hook enable --shell` wraps another profile.
+
+## Patterns
+
+<table>
+<tr>
+<td width="50%">
+
+**pre-exec.** Run commands normally. Lade injects access only when
+the command matches `lade.yaml`.
+
+</td>
+<td width="50%">
+
+![pre-exec](./examples/tape/hooks.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Provider resolution.** Match commands and load values from vaults,
+files, or inline config only when needed.
+
+</td>
+<td width="50%">
+
+![Provider resolution](./examples/tape/resolution.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Private networks.** Open a local forward only while the command
+runs, then close it automatically.
+
+</td>
+<td width="50%">
+
+![Private network](./examples/tape/network.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Secrets as files.** Write temporary config files for commands that
+expect credentials on disk.
+
+</td>
+<td width="50%">
+
+![Secrets as files](./examples/tape/file-output.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Manual injection.** Use `lade <command>` in scripts, CI, or shells
+without hooks. The explicit form is `lade inject <command>`.
+
+</td>
+<td width="50%">
+
+![Manual injection](./examples/tape/inject.gif)
+
+</td>
+</tr>
+</table>
+
+More: [examples/tape/](examples/tape/). Re-record GIFs after
+`examples/tape/render.sh` when the setup copy changes.
+
+## Config
+
+A `lade.yaml` (or `lade.yml`) at the folder that owns the command.
+Lade walks from the current directory up to `$HOME`. The nearest
+file wins on a key. The parent is the default.
 
 The first line may be a YAML comment with the required Lade
 range. A comment cannot steal a command regex. A rule for `#`
-is a quoted key (`"#"` or `"\\#"`). Edit it by hand when the
-repo needs a Lade that is new enough. There is no pin command.
-`lade upgrade` still runs if this binary is too old.
+is a quoted key (`"#"` or `"\\#"`). An empty key is also a regex,
+not a version (`"": ">0.18,<=0.20"` does not pin Lade). Edit `#:`
+by hand when the repo needs a Lade that is new enough. There is
+no pin command. `lade upgrade` still runs if this binary is too
+old.
 
 ```yaml
 #: >=0.18.0
+
 "^tofu":
   TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
 ```
@@ -74,16 +141,13 @@ repo needs a Lade that is new enough. There is no pin command.
 tofu apply
 ```
 
-You do not prefix the command. Pre-exec (or the agent hook) wraps
-it. Without a wrap: `lade tofu apply` or `lade inject -- tofu apply`.
-
 ## Families
 
-| Family | Spoken | What |
-| --- | --- | --- |
-| `secret` | secret | A value for the command (`op://`, `file://`, raw, …). Lands in the process env |
-| `tunnel` | tunnel | A local forward for the process (`kubectl://`, `tsh://`, …) |
-| `bin` | binary | A CLI pinned for that command |
+| Family | What |
+| --- | --- |
+| `secret` | A value for the command (`op://`, `file://`, raw, …). Lands in the process env |
+| `tunnel` | A local forward for the process (`kubectl://`, `tsh://`, …) |
+| `bin` | A CLI pinned for that command |
 
 `lade add secret` / `lade add tunnel` / `lade add bin` write the
 nearest yaml, then run `lade setup`. `env` is an alias of `secret`.
@@ -152,17 +216,18 @@ local port unless `local=` sets one. A numeric key is a fixed port.
 
 ### Bin
 
-A CLI for the matched command. The key is the name you type
-(`tofu`, not `tofu1.8`). Lade asks the tool manager to pin it,
-then puts that install first on PATH for this process.
+A CLI for the matched command. The key is the argv0 you type.
+If the binary is `tofu1.8`, the key is `tofu1.8`. Lade asks the
+tool manager to pin it, then puts that install first on PATH for
+this process.
 
 ```yaml
 ^tofu:
-  tofu: mise://aqua/opentofu/opentofu@1.8.2
+  tofu1.8: mise://aqua/opentofu/opentofu@1.8.2
   TF_VAR_FOO: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-Today the URI scheme is `mise://…`. That is how the current
+Today the URI scheme is `mise://`. That is how the current
 manager is addressed. A Homebrew binary on PATH is not the pin.
 The lock next to this yaml is what the next command must match.
 
@@ -174,7 +239,11 @@ Optional `?setup=` / `?teardown=` run on `lade setup` /
   dcg: mise://github:Dicklesworthstone/destructive_command_guard@0.6.6?setup=install&teardown=uninstall
 ```
 
-`apm://` and `skills://` are bins too: a package CLI plus a ref.
+| Scheme | URI | What |
+| --- | --- | --- |
+| `mise` | `mise://<backend>/<package>@<version>` | A CLI pin |
+| `apm` | `apm://<owner>/<repo>` | An APM package CLI plus a ref |
+| `skills` | `skills://<owner>/<repo>` | A skills package CLI plus a ref |
 
 ## Hierarchy
 
@@ -212,40 +281,8 @@ Details: [docs/observability.md](docs/observability.md).
 ## Humans and agents
 
 Same yaml. Same resolve. The agent types the command. There is
-no Lade skill. The hook rewrites it.
-
-```bash
-lade hook enable --harness cursor
-```
-
-`--scope user` is leftover home hooks. `lade setup` never writes
-those.
-
-<details>
-<summary>Cursor, Claude, Codex, OpenCode hook files</summary>
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {
-        "command": "lade hook --harness cursor",
-        "matcher": "Shell"
-      }
-    ]
-  }
-}
-```
-
-Claude: `lade hook --harness claude` under `PreToolUse` / `Bash`.
-Codex: same shape in `.codex/hooks.json`. Trust the command in
-`/hooks`. OpenCode: plugin that runs `lade hook --harness opencode`.
-
-</details>
-
-Without a pre-tool hook, put in `AGENTS.md`: prefix matching
-commands with `lade`.
+no Lade skill. `lade setup` writes the pre-tool hook. Enable one
+harness by hand with `lade hook enable --harness cursor`.
 
 ## When, users, approval
 
@@ -286,74 +323,6 @@ lade inject -- tofu apply
 
 GitHub Action: `zifeo/lade`. Image: `ghcr.io/zifeo/lade`.
 
-## Patterns
-
-<table>
-<tr>
-<td width="50%">
-
-**pre-exec.** You type the command in this shell.
-
-</td>
-<td width="50%">
-
-![pre-exec](./examples/tape/hooks.gif)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Secret.** Only the matching rule’s URIs load.
-
-</td>
-<td width="50%">
-
-![Provider resolution](./examples/tape/resolution.gif)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Tunnel.** Local forward for the process.
-
-</td>
-<td width="50%">
-
-![Private network](./examples/tape/network.gif)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**`.file` output.** Temp JSON/YAML, then deleted.
-
-</td>
-<td width="50%">
-
-![Secrets as files](./examples/tape/file-output.gif)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Prefix.** No wrap? `lade tofu apply`.
-
-</td>
-<td width="50%">
-
-![Manual injection](./examples/tape/inject.gif)
-
-</td>
-</tr>
-</table>
-
-More: [examples/tape/](examples/tape/). Re-record GIFs after
-`examples/tape/render.sh` when the setup copy changes.
-
 ## More
 
 - Intermediate bindings, `sh://` wrap, age/SOPS query params:
@@ -361,32 +330,6 @@ More: [examples/tape/](examples/tape/). Re-record GIFs after
 - Diary flags: [docs/observability.md](docs/observability.md)
 - MCP one-shot (`lade mcp`): still supported, not the product
 - `1password_service_account` on `.` for CI `op://`
-
-## Coming from an older Lade
-
-New clone: `lade setup` prints the wrap, hooks, and pins this
-repo needs. `lade status` is the same report later. The
-changelog lists the break.
-
-Already on Lade: `lade status` after upgrade. A daily GitHub
-check can also say a newer tag exists. Generated project hooks
-now emit `--harness`. Older `--agent` lines still parse. A
-`lade.yaml` that starts with `#: >=0.18.0` refuses an older
-binary and points at `lade upgrade`.
-
-What changed that you can see:
-
-- Frontend file is `lade.yaml`. Both `.yaml` and `.yml` in one
-  directory is an error.
-- Required Lade version is the first-line comment `#:`, not a
-  YAML document string and not a `version:` key.
-- Spoken hook flag is `--harness` (`claude`, `cursor`, `codex`,
-  `opencode`). `--agent` stays as a hidden alias.
-- `lade setup` / `lade teardown` are this git repo. The shell
-  wrap is written once per profile.
-- Secret, tunnel, and bin are the three families on a rule.
-- A `mise://` pin is locked. Homebrew on PATH is not a
-  substitute. `ssh://` uses OpenSSH on this machine.
 
 ## Development
 

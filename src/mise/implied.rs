@@ -21,31 +21,6 @@ pub struct Implied {
     pub uri: String,
 }
 
-const PACKAGES: &[ImpliedSeed] = &[
-    ImpliedSeed {
-        scheme: "apm",
-        key: "apm",
-        mise: "github/microsoft/apm",
-        min_version: "0.23.1",
-        max_version: None,
-    },
-    ImpliedSeed {
-        scheme: "skills",
-        key: "skills",
-        mise: "npm/skills",
-        min_version: "1.4.0",
-        max_version: None,
-    },
-];
-
-struct ImpliedSeed {
-    scheme: &'static str,
-    key: &'static str,
-    mise: &'static str,
-    min_version: &'static str,
-    max_version: Option<&'static str>,
-}
-
 fn range_uri(mise: &str, min: &str, max: Option<&str>) -> String {
     match max {
         Some(max) => format!("mise://{mise}@>={min},<{max}"),
@@ -65,13 +40,6 @@ fn table() -> &'static [Implied] {
                 scheme: spec.scheme,
                 key: spec.bin,
                 uri: range_uri(mise, spec.min_version, spec.max_version),
-            });
-        }
-        for row in PACKAGES {
-            out.push(Implied {
-                scheme: row.scheme,
-                key: row.key,
-                uri: range_uri(row.mise, row.min_version, row.max_version),
             });
         }
         out
@@ -170,6 +138,7 @@ mod tests {
                 "file:///tmp/x?query=.a".to_string(),
                 "age://key".to_string(),
                 "raw://x".to_string(),
+                "vault://127.0.0.1:8200/secret/k/f".to_string(),
             ],
             &[],
         );

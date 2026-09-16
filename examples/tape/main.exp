@@ -1,4 +1,3 @@
 echo hello $GREETING
-lade setup
-source ~/.zshrc
+eval "$(lade on)"
 echo hello $GREETING

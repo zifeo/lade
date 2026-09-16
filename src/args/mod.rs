@@ -49,8 +49,7 @@ pub enum Command {
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     Hook {
         /// Agent that installed this hook. Unknown values are ignored.
-        /// Hidden `--agent` still parses older generated hooks.
-        #[clap(long = "harness", alias = "agent")]
+        #[clap(long = "harness")]
         harness: Option<String>,
         #[command(subcommand)]
         action: Option<HookAction>,

@@ -24,6 +24,9 @@ pub(super) async fn apply_pins(
     match mise::prepare(config, command, cwd, saved_user).await {
         Ok(out) => {
             if let Some(path) = out.env.get("PATH") {
+                // Hydrate CLIs and tunnel children inherit process PATH.
+                // Command.env covers our children. age plugins and OpenSSH
+                // still read the process. Edition 2024 set_var is unsafe.
                 unsafe {
                     std::env::set_var("PATH", path);
                 }

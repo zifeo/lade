@@ -14,7 +14,9 @@ pub use providers::Provider;
 pub use providers::Providers;
 pub use providers::Transport;
 pub use providers::Warnings;
+pub use providers::add::{AddField, secret_add_fields, secret_search_scope};
 pub use providers::compat;
+pub use providers::compose_secret_add_uri;
 pub use providers::network;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

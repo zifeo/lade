@@ -1,16 +1,34 @@
 > ./show-example network
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ^curl .*127.0.0.1:18080/.*$:
   TF_VAR_demo_token: file://../sources/config.json?query=.token
   18080: kubectl://127.0.0.1:6445/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080
 
+> sleep 1
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 > curl -s --data ping=pong http://127.0.0.1:18080/ | jq -r .body
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ File: TF_VAR_demo_token
 
 ⠋ http-echo:8080 on 18080
 
 ✔︎ File: TF_VAR_demo_token                                                0 ms
 
-✔︎ http-echo:8080 on 18080 pid=43944                                    309 ms
+✔︎ http-echo:8080 on 18080 pid=24469                                   1132 ms
 
 ping=pong
 

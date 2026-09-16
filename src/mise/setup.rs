@@ -57,7 +57,7 @@ pub async fn setup_pins() -> anyhow::Result<()> {
                 }
             }
         }
-        let lock_path = dir.join("lade.lock");
+        let lock_path = lock::path_in(&dir);
         lock::write_tools(&lock_path, &slots).map_err(|e| Error::install(e.to_string()))?;
     }
     Ok(())

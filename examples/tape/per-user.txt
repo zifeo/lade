@@ -9,6 +9,12 @@
 User set to alice
 
 > lade inject printenv GREETING
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ Raw: GREETING
 
 ✔︎ Raw: GREETING                                                          0 ms
@@ -19,6 +25,12 @@ hello alice
 User set to bob
 
 > lade inject printenv GREETING
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Raw is a value you typed, not a vault secret.                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 ⠋ Raw: GREETING
 
 ✔︎ Raw: GREETING                                                          0 ms

@@ -32,4 +32,64 @@ impl NetworkProvider for KubectlProvider {
             pod_running_timeout: query.get("pod-running-timeout").cloned(),
         })
     }
+
+    fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
+        kubectl_lines(extra_env, &["config", "get-contexts", "-o", "name"])
+    }
+
+    fn list(
+        &self,
+        extra_env: &HashMap<String, String>,
+        what: &str,
+        args: &[&str],
+    ) -> Result<Vec<String>> {
+        match (what, args) {
+            ("namespaces", [context]) => kubectl_lines(
+                extra_env,
+                &["--context", context, "get", "ns", "-o", "name"],
+            ),
+            ("resources", [context, namespace, kind]) => kubectl_lines(
+                extra_env,
+                &[
+                    "--context",
+                    context,
+                    "-n",
+                    namespace,
+                    "get",
+                    kind,
+                    "-o",
+                    "name",
+                ],
+            ),
+            _ => bail!("kubectl list {what} needs the right args"),
+        }
+    }
+}
+
+fn kubectl_lines(extra_env: &HashMap<String, String>, args: &[&str]) -> Result<Vec<String>> {
+    let output = std::process::Command::new("kubectl")
+        .args(args)
+        .envs(extra_env)
+        .output()?;
+    if !output.status.success() {
+        bail!("kubectl login required");
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches("namespace/").to_string())
+        .map(|line| line.split('/').next_back().unwrap_or(&line).to_string())
+        .collect())
+}
+
+pub fn compose_uri(
+    host: &str,
+    context: &str,
+    namespace: &str,
+    kind: &str,
+    name: &str,
+    port: &str,
+) -> String {
+    format!("kubectl://{host}/{context}/{namespace}/{kind}/{name}/{port}")
 }

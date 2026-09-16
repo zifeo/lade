@@ -140,5 +140,19 @@ impl Provider for GcpSm {
     }
 }
 
+pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
+    key: "project",
+    prompt: "Project: ",
+    default: None,
+}];
+
+pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
+    let project = extras
+        .get("project")
+        .map(String::as_str)
+        .unwrap_or("project");
+    format!("gcpsm://{project}/{picked}")
+}
+
 #[cfg(test)]
 mod tests;

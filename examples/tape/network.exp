@@ -1,4 +1,5 @@
 eval "$(lade on)"
 clear
 ./show-example network
+sleep 1
 curl -s --data ping=pong http://127.0.0.1:18080/ | jq -r .body

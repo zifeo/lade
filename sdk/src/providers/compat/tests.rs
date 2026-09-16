@@ -55,3 +55,17 @@ fn tunnel_specs_match_network_providers() {
     assert!(!is_network_scheme("op"));
     assert!(!is_network_scheme("file"));
 }
+
+#[test]
+fn package_clis_live_in_the_spec_table() {
+    let apm = spec_for("apm").expect("apm");
+    assert_eq!(apm.bin, "apm");
+    assert_eq!(apm.mise, Some("github/microsoft/apm"));
+    let skills = spec_for("skills").expect("skills");
+    assert_eq!(skills.bin, "skills");
+    assert_eq!(skills.mise, Some("npm/skills"));
+    assert_eq!(
+        spec_for_bin("op").and_then(|spec| spec.docs),
+        Some("https://developer.1password.com/docs/cli/get-started/")
+    );
+}

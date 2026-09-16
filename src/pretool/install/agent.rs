@@ -99,15 +99,10 @@ impl Agent {
 }
 
 fn instantiate_json(snapshot: &str, slug: &str, command: &str) -> String {
-    snapshot
-        .replace(
-            &format!("\"lade hook --harness {slug}\""),
-            &format!("\"{command}\""),
-        )
-        .replace(
-            &format!("\"lade hook --agent {slug}\""),
-            &format!("\"{command}\""),
-        )
+    snapshot.replace(
+        &format!("\"lade hook --harness {slug}\""),
+        &format!("\"{command}\""),
+    )
 }
 
 fn instantiate_plugin(snapshot: &str, command: &str) -> String {
