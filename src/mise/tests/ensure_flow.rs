@@ -5,6 +5,7 @@ use super::*;
 #[test]
 fn require_for_inject_refuses_out_of_range_without_fetch() {
     let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
     let stub = dir.path().join("stub");
     std::fs::create_dir_all(&installs).unwrap();
@@ -21,9 +22,13 @@ exit 1
 "#,
     );
     let path = format!("{}:/usr/bin:/bin", stub.display());
+    let data = dir.path().join("mise-data");
+    let mise = stub.join("mise");
     temp_env::with_vars(
         [
-            ("LADE_MISE", Some(stub.join("mise").to_str().unwrap())),
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("LADE_MISE", Some(mise.to_str().unwrap())),
+            ("MISE_DATA_DIR", Some(data.to_str().unwrap())),
             ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
             ("PATH", Some(path.as_str())),
             ("LADE_MISE_FETCH", Some("0")),
