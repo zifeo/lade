@@ -26,6 +26,10 @@ pub(super) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
         .block_on(fut)
 }
 
+pub(super) fn git_init(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+}
+
 pub(super) fn write_foreign_home_mise(home: &std::path::Path) {
     std::fs::create_dir_all(home.join(".config/mise")).unwrap();
     std::fs::write(

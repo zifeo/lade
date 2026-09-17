@@ -222,7 +222,8 @@ async fn run_setup(
         && ctx.stderr_is_terminal
         && ctx.audience == crate::config::Audience::Human;
     let cwd = std::env::current_dir()?;
-    if crate::catalog::git_root(&cwd).is_none() {
+    let snap = crate::mise::scan(&cwd);
+    if snap.project_git_root.is_none() {
         let mut mb = MessageBox::new()
             .info()
             .line("This folder is not a git repo.");
@@ -234,6 +235,10 @@ async fn run_setup(
                 .line("cd into a repo and run `lade setup`.");
         }
         mb.print_stderr();
+        if snap.is_mise() {
+            require_lade_yaml()?;
+            crate::mise::setup_pins(mode).await?;
+        }
         let tool = pretool::install::setup(may_prompt, slugs)?;
         pretool::install::print_setup(&shell, &tool);
         return Ok(());

@@ -177,7 +177,7 @@ var.
 | 1Password | `op://DOMAIN/VAULT/ITEM/FIELD` | Optional section. 1Password CLI. |
 | Infisical | `infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME` | Nested folders. Infisical CLI. |
 | Doppler | `doppler://DOMAIN/PROJECT_NAME/ENV_NAME/SECRET_NAME` | Doppler CLI. |
-| Vault | `vault://DOMAIN/MOUNT/KEY/FIELD` | KV v2. `VAULT_TOKEN` or `~/.vault-token`. |
+| Vault | `vault://DOMAIN/MOUNT/KEY/FIELD` | KV v2. `VAULT_TOKEN` or `~/.vault-token`. Setup locks the Vault CLI. |
 | Passbolt | `passbolt://DOMAIN/RESOURCE_ID/FIELD` | Passbolt CLI. |
 | Bitwarden | `bw://ITEM/FIELD` | `BW_SESSION` after `bw unlock`. |
 | AWS Secrets Manager | `awssm://REGION/NAME` | Optional `?query=`, `?version=`. |
@@ -236,10 +236,13 @@ this process.
 
 Today the URI scheme is `mise://`. That is how the current
 manager is addressed. A Homebrew binary on PATH is not the pin.
-`lade setup` installs the lock next to this yaml (`mise.lock` if
-that file exists, else `lade.lock`). Missing slots are resolved
-once and written. `lade update` re-resolves implied and ranged
-pins to the latest matching bin, rewrites the lock, and installs.
+`lade setup` walks toward `$HOME` once. A committed `mise.toml`
+or `mise.lock` in the repo is the plane: setup extends both.
+`$HOME` itself counts only for `~/lade.yaml`. Otherwise one
+`lade.lock` at the git root. A git repo in `$HOME` is not that
+root. Missing slots are resolved once and written. `lade update`
+re-resolves implied and ranged pins, rewrites the lock (and
+`mise.toml` on the Mise plane), and installs.
 Exact yaml pins stay. `lade setup --unlock` ignores the lock this
 once. `lade upgrade` is the Lade binary.
 

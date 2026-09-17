@@ -69,6 +69,7 @@ tar = "0.4.46"
 flate2 = "1.1.10"
 tempfile = "3.27.0"
 toml = "1.1"
+toml_edit = "0.23"
 [features]
 default = ["docker-tests"]
 docker-tests = []

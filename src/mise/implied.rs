@@ -5,9 +5,9 @@
 //! `lade setup`. `lade update` moves that lock to the latest bin
 //! in the product range. Inject uses that store bin when it is present.
 //! A miss refuses. Homebrew or another PATH binary is not used.
-//! Same for `awssm://`, `apm://`, `skills://`, and the other rows
-//! in this table. `ssh://` stays the OpenSSH binary on PATH: there
-//! is no implied mise pin.
+//! Same for `vault://`, `awssm://`, `apm://`, `skills://`, and the
+//! other rows in this table. `ssh://` stays the OpenSSH binary on
+//! PATH: there is no implied mise pin.
 
 use std::sync::OnceLock;
 
@@ -141,7 +141,6 @@ mod tests {
                 "file:///tmp/x?query=.a".to_string(),
                 "age://key".to_string(),
                 "raw://x".to_string(),
-                "vault://127.0.0.1:8200/secret/k/f".to_string(),
             ],
             &[],
         );
@@ -191,5 +190,15 @@ mod tests {
         assert_eq!(pins[0].1.prefix, "aqua");
         assert_eq!(pins[0].1.package, "kubernetes/kubectl");
         assert_eq!(pins[0].1.version, ">=1.27.0");
+    }
+
+    #[test]
+    fn vault_implies_lock() {
+        let pins = pins_for(&["vault://127.0.0.1:8200/secret/k/f".to_string()], &[]);
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].0, "vault");
+        assert_eq!(pins[0].1.prefix, "aqua");
+        assert_eq!(pins[0].1.package, "hashicorp/vault");
+        assert_eq!(pins[0].1.version, ">=1.15.0");
     }
 }

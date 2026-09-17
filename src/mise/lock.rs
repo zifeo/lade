@@ -63,6 +63,12 @@ pub fn find_lock(start: &Path) -> Option<PathBuf> {
 }
 
 pub fn slot_and_path(start: &Path, names: &[&str]) -> Option<(PathBuf, LockSlot)> {
+    let snap = super::plane::scan(start);
+    if let Some(path) = snap.lock_path()
+        && let Some(slot) = slot_for(path, names)
+    {
+        return Some((path.to_path_buf(), slot));
+    }
     walk_up(start, |dir| {
         LOCK_NAMES.iter().find_map(|name| {
             let path = dir.join(name);

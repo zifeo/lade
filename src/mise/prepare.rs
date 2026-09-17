@@ -182,16 +182,24 @@ fn rewrite_floating_yaml(
 }
 
 fn rewrite_nearest_lock(cwd: &Path, key: &str, spec: &spec::Spec) -> Result<(), Error> {
-    let Some(dir) = lookup::yaml_dirs(cwd)?.into_iter().next() else {
+    let snap = super::plane::scan(cwd);
+    let Some(path) = snap.lock_path().map(Path::to_path_buf) else {
         return Ok(());
     };
-    let path = lock::path_in(&dir);
     let mut slots = lock::read_tools(&path).unwrap_or_default();
     lock::upsert(
         &mut slots,
         lookup::slot_after_install(key, spec, &store::installs_dir()),
     );
-    lock::write_tools(&path, &slots).map_err(|e| Error::install(e.to_string()))
+    lock::write_tools(&path, &slots).map_err(|e| Error::install(e.to_string()))?;
+    if let super::plane::Plane::Mise { toml_write, .. } = snap.plane {
+        let entries = slots
+            .iter()
+            .map(|slot| (slot.name.clone(), slot.version.clone()))
+            .collect::<Vec<_>>();
+        super::toml_merge::upsert_tools(&toml_write, &entries).map_err(Error::install)?;
+    }
+    Ok(())
 }
 
 fn spec_for_env(spec: &spec::Spec, resolved: &str) -> spec::Spec {

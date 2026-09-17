@@ -7,6 +7,7 @@ mod install;
 mod lifecycle;
 mod lock;
 mod lookup;
+mod plane;
 mod prepare;
 mod project;
 mod range;
@@ -14,6 +15,7 @@ mod run;
 mod setup;
 mod spec;
 mod store;
+mod toml_merge;
 mod walk;
 
 #[cfg(test)]
@@ -22,6 +24,7 @@ mod tests;
 pub use ensure::{ensure_for_setup, managed_mise_in_play, mise_program, status_info};
 pub use error::Error;
 pub use lifecycle::run_lifecycle_commands;
+pub use plane::scan;
 pub use prepare::{implied_bin, locked_bin, locked_cli_bin, locked_tools, prepare};
 pub use run::run_in_repo;
 pub use setup::{PinMode, setup_pins};
@@ -32,8 +35,11 @@ pub use spec::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub fn lock_path_in(dir: &Path) -> PathBuf {
-    lock::path_in(dir)
+pub fn lock_path_in(start: &Path) -> PathBuf {
+    match scan(start).lock_path() {
+        Some(path) => path.to_path_buf(),
+        None => lock::path_in(start),
+    }
 }
 
 pub fn lock_slot(path: &Path, name: &str) -> Option<String> {

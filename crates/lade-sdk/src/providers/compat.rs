@@ -70,9 +70,9 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "vault",
         min_version: "1.15.0",
         max_version: None,
-        // Hydrate is HTTP KV v2. vault login still writes the token
-        // file. No implied mise pin.
-        mise: None,
+        // Hydrate stays HTTP KV v2. The pin is for `vault login`, PATH,
+        // and setup/update.
+        mise: Some("aqua/hashicorp/vault"),
         tunnel: false,
         docs: Some("https://developer.hashicorp.com/vault/docs/commands/login"),
     },
