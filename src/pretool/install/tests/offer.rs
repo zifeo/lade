@@ -1,7 +1,6 @@
 use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan, setup_at};
-use super::super::paths::{ItemVerb, short_path};
-use super::super::skill::WHY_NO_SKILL;
+use super::super::paths::short_path;
 use super::super::ui::{parse_agents, parse_yes_no};
 use super::super::write::Scope;
 
@@ -133,81 +132,6 @@ fn setup_errors_when_both_planes_exist() {
         err.to_string().contains("home and repo hooks both present"),
         "{err}"
     );
-}
-
-fn official_skill() -> &'static str {
-    "---\nname: lade\ndescription: Use Lade safely.\n---\n\nLade is also called AD, AID, or LAID.\n"
-}
-
-fn write_skill(path: &std::path::Path, body: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, body).unwrap();
-}
-
-#[test]
-fn setup_removes_lade_skills_at_home_and_in_the_repo() {
-    let home = tempfile::tempdir().unwrap();
-    let cwd = tempfile::tempdir().unwrap();
-    git_dir(cwd.path());
-    let home_skill = home
-        .path()
-        .join(".cursor")
-        .join("skills")
-        .join("lade")
-        .join("SKILL.md");
-    let repo_skill = cwd
-        .path()
-        .join(".claude")
-        .join("skills")
-        .join("lade")
-        .join("SKILL.md");
-    let foreign = home
-        .path()
-        .join(".codex")
-        .join("skills")
-        .join("lade")
-        .join("SKILL.md");
-    write_skill(&home_skill, official_skill());
-    write_skill(&repo_skill, official_skill());
-    write_skill(&foreign, "# mine\n");
-    let report = setup_at(false, &[], home.path(), cwd.path()).unwrap();
-    assert!(!home_skill.exists());
-    assert!(!repo_skill.exists());
-    assert_eq!(std::fs::read_to_string(&foreign).unwrap(), "# mine\n");
-    let removed: Vec<_> = report
-        .rows
-        .iter()
-        .filter(|row| row.agent == "skill")
-        .collect();
-    assert_eq!(removed.len(), 2);
-    assert!(removed.iter().all(|row| row.verb == ItemVerb::Removed));
-    assert!(removed.iter().all(|row| row.note == WHY_NO_SKILL));
-}
-
-#[test]
-fn setup_outside_git_removes_home_skill_not_cwd_skill() {
-    let home = tempfile::tempdir().unwrap();
-    let cwd = tempfile::tempdir().unwrap();
-    let home_skill = home
-        .path()
-        .join(".cursor")
-        .join("skills")
-        .join("lade")
-        .join("SKILL.md");
-    let cwd_skill = cwd
-        .path()
-        .join(".cursor")
-        .join("skills")
-        .join("lade")
-        .join("SKILL.md");
-    write_skill(&home_skill, official_skill());
-    write_skill(&cwd_skill, official_skill());
-    let report = setup_at(false, &[], home.path(), cwd.path()).unwrap();
-    assert_eq!(report.where_line, "not a git repo, agents skipped");
-    assert!(!home_skill.exists());
-    assert!(cwd_skill.exists());
-    assert_eq!(report.rows.len(), 1);
-    assert_eq!(report.rows[0].note, WHY_NO_SKILL);
 }
 
 #[test]

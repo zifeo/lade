@@ -101,6 +101,28 @@ fn pretool_before_mcp() {
 }
 
 #[test]
+fn eval_access_command_is_hidden() {
+    let args = Args::try_parse_from([
+        "lade",
+        "eval",
+        "--access-command",
+        "age-plugin-lade",
+        "file:///tmp/k?query=.k",
+    ])
+    .unwrap();
+    match args.command {
+        Some(Command::Eval {
+            uri,
+            access_command,
+        }) => {
+            assert_eq!(uri, "file:///tmp/k?query=.k");
+            assert_eq!(access_command.as_deref(), Some("age-plugin-lade"));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn log_is_not_inject_alias() {
     let args = Args::try_parse_from(["lade", "log", "--since", "1d"]).unwrap();
     match args.command {
@@ -245,7 +267,10 @@ fn setup_help_names_preexec_and_pretool() {
 fn setup_agent_flags_select_slugs() {
     let bare = Args::try_parse_from(["lade", "setup"]).unwrap();
     match bare.command {
-        Some(Command::Setup(opts)) => assert!(opts.slugs().is_empty()),
+        Some(Command::Setup(opts)) => {
+            assert!(opts.slugs().is_empty());
+            assert!(!opts.unlock);
+        }
         other => panic!("{other:?}"),
     }
     let args = Args::try_parse_from(["lade", "setup", "--cursor", "--opencode"]).unwrap();
@@ -258,13 +283,34 @@ fn setup_agent_flags_select_slugs() {
 }
 
 #[test]
+fn update_is_a_top_level_command() {
+    let args = Args::try_parse_from(["lade", "update"]).unwrap();
+    assert!(matches!(args.command, Some(Command::Update)));
+    let unlock = Args::try_parse_from(["lade", "setup", "--unlock"]).unwrap();
+    match unlock.command {
+        Some(Command::Setup(opts)) => assert!(opts.unlock),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn usage_all_and_path_conflict() {
     assert!(Args::try_parse_from(["lade", "usage", "--all", "--path", "/tmp"]).is_err());
+    assert!(Args::try_parse_from(["lade", "usage", "--global", "--path", "/tmp"]).is_err());
     let args = Args::try_parse_from(["lade", "usage", "--all"]).unwrap();
     match args.command {
         Some(Command::Usage(usage)) => {
             assert!(usage.all);
+            assert!(!usage.global);
             assert!(usage.path.is_none());
+        }
+        other => panic!("{other:?}"),
+    }
+    let global = Args::try_parse_from(["lade", "usage", "--global"]).unwrap();
+    match global.command {
+        Some(Command::Usage(usage)) => {
+            assert!(usage.global);
+            assert!(!usage.all);
         }
         other => panic!("{other:?}"),
     }

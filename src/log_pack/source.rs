@@ -8,7 +8,7 @@ use rusqlite::{Connection, params};
 use tar::Archive;
 use tempfile::TempDir;
 
-use crate::event::{Event, db_path, event_from_row};
+use crate::event::{ChainStatus, Event, db_path, event_from_row, unsigned_pack, verify_chain};
 
 use super::basename_or_self;
 
@@ -73,6 +73,21 @@ fn expand_sources(sources: &[String], cwd: &Path) -> Result<ExpandedSources> {
     })
 }
 
+pub fn verify_sources(sources: &[String]) -> Result<Vec<(PathBuf, ChainStatus)>> {
+    let cwd = std::env::current_dir()?;
+    let expanded = expand_sources(sources, &cwd)?;
+    let mut out = Vec::new();
+    for path in &expanded.paths {
+        let conn = Connection::open(path)?;
+        if !attached_has_column(&conn, "main", "row_hash") {
+            out.push((path.clone(), unsigned_pack()));
+            continue;
+        }
+        out.push((path.clone(), verify_chain(&conn)?));
+    }
+    Ok(out)
+}
+
 fn resolve_source_path(source: &str, cwd: &Path) -> PathBuf {
     let path = Path::new(source);
     if path.is_absolute() {
@@ -96,15 +111,9 @@ fn list_packs_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub(super) fn is_tar_gz(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "gz")
-        && path
-            .file_name()
-            .and_then(|name| {
-                name.to_str()
-                    .and_then(|s| s.strip_suffix(".tar.gz"))
-                    .map(|_| ())
-            })
-            .is_some()
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".tar.gz"))
 }
 
 fn extract_pack_db(pack: &Path, dest_dir: &Path) -> Result<()> {

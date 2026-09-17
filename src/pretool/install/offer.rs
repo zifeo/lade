@@ -7,7 +7,6 @@ use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
 use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short_path};
-use super::skill::sweep_lade_skills;
 use super::ui::{PretoolReport, PretoolRow, ask_agents, where_line};
 use super::write::{Scope, hook_path, write_hook};
 
@@ -25,11 +24,10 @@ pub(super) fn setup_at(
     cwd: &Path,
 ) -> Result<PretoolReport> {
     let git_root = crate::catalog::git_root(cwd);
-    let skill_rows = sweep_lade_skills(home, git_root.as_deref());
     let Some(dest) = git_root else {
         return Ok(PretoolReport {
             where_line: "not a git repo, agents skipped".to_string(),
-            rows: skill_rows,
+            rows: Vec::new(),
         });
     };
     let flagged = !only.is_empty();
@@ -47,9 +45,7 @@ pub(super) fn setup_at(
         detected
     };
     refuse_double_plane(&agents, home, &dest)?;
-    let mut report = apply_project(&agents, home, &dest)?;
-    report.rows.extend(skill_rows);
-    Ok(report)
+    apply_project(&agents, home, &dest)
 }
 
 pub(super) struct Plan {

@@ -38,8 +38,8 @@ sequenceDiagram
 ## 2. Configuration Resolution
 
 Lade walks from the current directory up to `$HOME`, loads every
-`lade.yml` / `lade.yaml` it finds, then evaluates the rules against
-the current command. `~/lade.yml` is included. Parents above `$HOME`
+`lade.yaml` / `lade.yml` it finds, then evaluates the rules against
+the current command. `~/lade.yaml` is included. Parents above `$HOME`
 are not. A later file overlays the same key. Last explicit `log`
 wins.
 
@@ -70,13 +70,14 @@ URI parse, CLI version tables, and tunnel command builders live in
 `lade-sdk`. The CLI owns process lifecycle (spawn, ready wait,
 restart, kill).
 
-`age-plugin-lade` is a second Cargo binary from the same `src/main.rs`.
+`age-plugin-lade` is a separate crate (`crates/age-plugin-lade`).
 `argv0` or `--age-plugin=` selects the
 [C2SP age-plugin](https://c2sp.org/age-plugin) state machines. The
-payload is a Lade URI. Hydrate is `eval` (`hydrate_one`, no
-`lade.yml`). The age crate then wraps or unwraps with whatever that
-URI returned (X25519, SSH, tagged, post-quantum `age1tagpq1`). No
-network providers. No disclaimer.
+payload is a Lade URI. The plugin execs `lade eval` (sibling of the
+plugin, then `PATH`, or `LADE_BIN`). Hydrate is the same path as a
+typed `lade eval` (`hydrate_one`, no `lade.yml`). The age crate then
+wraps or unwraps with whatever that URI returned (X25519, SSH, tagged,
+post-quantum `age1tagpq1`). No network providers. No disclaimer.
 
 For shell hooks, `lade set` must finish both secret hydration and network
 acquisition before it can print the shell exports. When a matching rule contains
@@ -250,14 +251,15 @@ Pre-exec hooks skip any command that starts with `lade ` or is exactly `lade`,
 so `lade approve`, `lade status`, and `lade upgrade` do not wrap themselves.
 The match is a prefix slice (`${1:0:5}` in Bash/Zsh, `string sub` in Fish).
 
-Use `lade status` for an active report (version, config, pre-exec and
-pre-tool, `lade.yml`, secret providers, diary path and size).
-`--json` keeps `version`, `global_config`, `hooks`, `project_config`,
-and `ok`. `hooks` is `preexec` plus `pretool`. `log` is extra (`path`,
-`events`, raw `bytes`). A successful daily GitHub check persists the
-latest tag. Upgrade and compat nudges on inject only remind you to
-run `lade upgrade` or `lade status`. `lade bench` times parse, match,
-and per-rule hydrate. It does not acquire network.
+Use `lade status` for an active report (version, `age-plugin-lade`,
+config, pre-exec and pre-tool, `lade.yaml`, mise and locked tools,
+providers, diary path and size). `--json` keeps `version`,
+`global_config`, `hooks`, `project_config`, and `ok`. `hooks` is
+`preexec` plus `pretool`. `log`, `mise`, and `age_plugin` are extra.
+A successful daily GitHub check persists the latest tag. Upgrade
+nudges on inject only remind you to run `lade upgrade` or
+`lade status`. `lade bench` times parse, match, and per-rule hydrate.
+It does not acquire network.
 
 ## 7. Agents (`lade hook`) and the direct path
 
@@ -290,7 +292,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo hook snapshots. `lade setup` writes pre-exec for this shell and, inside a git repo, pre-tool hooks for this repo. Outside git it wraps this shell only. `lade teardown` removes this shell and this repo's Lade hooks. Home-directory agent hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. Agents can curl `agent-setup.sh`, which installs the binary if needed and runs `lade setup`.
+The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, agent hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's agent hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory agent hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. An agent that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
 
 ### Direct path
 

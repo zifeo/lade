@@ -4,16 +4,6 @@ hello
 > eval "$(lade on)"
 
 > echo hello $GREETING
-╭ Warning ────────────────────────────────────────────────────────────────────────╮
-│                                                                                 │
-│   Raw is a value you typed, not a vault secret.                                 │
-│                                                                                 │
-╰─────────────────────────────────────────────────────────────────────────────────╯
-
-⠋ Raw: GREETING
-
-✔︎ Raw: GREETING                                                             0 ms
-
 hello world
 
 >

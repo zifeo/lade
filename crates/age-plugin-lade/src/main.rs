@@ -1,14 +1,12 @@
-use std::ffi::OsString;
-
-use age_plugin::run_state_machine;
 use anyhow::Result;
+use std::ffi::OsString;
+use std::io::{self, Write};
 
 mod handler;
 mod link;
 mod parse;
 
-pub use handler::PLUGIN_NAME;
-pub(crate) use link::copy_beside;
+use handler::PLUGIN_NAME;
 use link::is_plugin_argv0;
 
 pub enum Invoke {
@@ -45,16 +43,35 @@ pub fn invoke_from_argv(argv: &[OsString]) -> Option<Invoke> {
     None
 }
 
-pub fn run(invoke: Invoke) -> Result<()> {
+fn run(invoke: Invoke) -> Result<()> {
     match invoke {
         Invoke::StateMachine(sm) => {
-            run_state_machine(&sm, handler::Handler).map_err(|e| anyhow::anyhow!(e))?;
+            age_plugin::run_state_machine(&sm, handler::Handler).map_err(|e| anyhow::anyhow!(e))?;
         }
         Invoke::Encode(uri) => {
             age_plugin::print_new_identity(PLUGIN_NAME, uri.as_bytes(), uri.as_bytes());
         }
     }
     Ok(())
+}
+
+fn main() -> Result<()> {
+    #[cfg(target_family = "unix")]
+    {
+        use nix::sys::signal;
+        unsafe {
+            signal::signal(signal::Signal::SIGPIPE, signal::SigHandler::SigDfl)?;
+        }
+    }
+
+    let argv: Vec<_> = std::env::args_os().collect();
+    match invoke_from_argv(&argv) {
+        Some(invoke) => run(invoke),
+        None => {
+            let _ = writeln!(io::stderr(), "usage: {} <uri>", link::PLUGIN_BIN);
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -67,13 +84,14 @@ mod tests {
 
     #[test]
     fn intercepts_equals_form() {
-        let v = invoke_from_argv(&os(&["lade", "--age-plugin=identity-v1"])).unwrap();
+        let v = invoke_from_argv(&os(&["age-plugin-lade", "--age-plugin=identity-v1"])).unwrap();
         assert!(matches!(v, Invoke::StateMachine(s) if s == "identity-v1"));
     }
 
     #[test]
     fn intercepts_separate_form() {
-        let v = invoke_from_argv(&os(&["lade", "--age-plugin", "recipient-v1"])).unwrap();
+        let v =
+            invoke_from_argv(&os(&["age-plugin-lade", "--age-plugin", "recipient-v1"])).unwrap();
         assert!(matches!(v, Invoke::StateMachine(s) if s == "recipient-v1"));
     }
 
@@ -90,8 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_lade_argv_is_ignored() {
+    fn other_argv0_without_flag_is_ignored() {
         assert!(invoke_from_argv(&os(&["lade", "eval", "op://v/i/f"])).is_none());
-        assert!(invoke_from_argv(&os(&["lade", "install"])).is_none());
     }
 }

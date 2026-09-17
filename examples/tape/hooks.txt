@@ -1,23 +1,8 @@
 > ./show-example hooks
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
 ^echo hooks:
   DEMO: "hello world"
 
 > echo hooks $DEMO
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
-⠋ Raw: DEMO
-
-✔︎ Raw: DEMO                                                              0 ms
-
 hooks hello world
 
 >

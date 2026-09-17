@@ -29,7 +29,17 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Setup(opts) => {
-            run_setup(ctx, &opts.slugs()).await?;
+            let mode = if opts.unlock {
+                crate::mise::PinMode::Unlock
+            } else {
+                crate::mise::PinMode::Locked
+            };
+            run_setup(ctx, &opts.slugs(), mode).await?;
+            Ok(None)
+        }
+        Command::Update => {
+            require_lade_yaml()?;
+            crate::mise::setup_pins(crate::mise::PinMode::Update).await?;
             Ok(None)
         }
         Command::Teardown => {
@@ -42,7 +52,7 @@ pub(crate) async fn run_standalone(
         }
         Command::Add(opts) => {
             crate::add::run_add(opts, ctx)?;
-            run_setup(ctx, &[]).await?;
+            run_setup(ctx, &[], crate::mise::PinMode::Locked).await?;
             Ok(None)
         }
         Command::Remove(opts) => {
@@ -50,10 +60,18 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
-        Command::Eval { uri } => {
+        Command::Eval {
+            uri,
+            access_command,
+        } => {
+            if access_command.as_ref().is_some_and(|name| name.is_empty()) {
+                anyhow::bail!("--access-command cannot be empty");
+            }
+            let command = access_command.unwrap_or_else(|| "eval".to_string());
             let current_dir = std::env::current_dir()?;
             let value =
-                crate::eval::resolve_uri(uri, &current_dir, "eval", ctx.via, ctx.audience).await?;
+                crate::eval::resolve_uri(uri, &current_dir, &command, ctx.via, ctx.audience)
+                    .await?;
             println!("{value}");
             Ok(None)
         }
@@ -194,7 +212,11 @@ pub(crate) async fn run_config_verbs(
     }
 }
 
-async fn run_setup(ctx: &InvocationContext, slugs: &[&str]) -> Result<()> {
+async fn run_setup(
+    ctx: &InvocationContext,
+    slugs: &[&str],
+    mode: crate::mise::PinMode,
+) -> Result<()> {
     let shell = crate::shell::maybe_bootstrap_setup_shell()?;
     let may_prompt = ctx.stdin_is_terminal
         && ctx.stderr_is_terminal
@@ -217,7 +239,7 @@ async fn run_setup(ctx: &InvocationContext, slugs: &[&str]) -> Result<()> {
         return Ok(());
     }
     require_lade_yaml()?;
-    crate::mise::setup_pins().await?;
+    crate::mise::setup_pins(mode).await?;
     let tool = pretool::install::setup(may_prompt, slugs)?;
     crate::mise::run_lifecycle_commands("setup").await?;
     crate::packages::run("setup").await?;

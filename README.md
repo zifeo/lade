@@ -26,13 +26,19 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
 
 ```bash
 cargo install lade --locked
+cargo install age-plugin-lade --locked
 ```
 
-An agent should download
-[`agent-setup.sh`](https://raw.githubusercontent.com/zifeo/lade/main/agent-setup.sh)
-and run it from the git repo. That script installs Lade if needed
-and runs `lade setup`. It is the prompt to fetch, not a second
-install path to paste next to the human curl.
+The plugin execs `lade eval`. Keep `lade` next to it or on `PATH`.
+
+From this repo the plugin is `crates/age-plugin-lade`, not `crates/age`:
+
+```bash
+cargo install --path . --locked
+cargo install --path crates/age-plugin-lade --locked
+```
+
+> If `lade` is missing, install it with the curl above. From this git repo run `lade setup`.
 
 Then `cd` into the repo and run `lade setup`. Setup prints the
 reload line when this shell just got its first wrap.
@@ -156,8 +162,9 @@ nearest yaml, then run `lade setup`. `env` is an alias of `secret`.
 
 A vault, a file, a shell snippet, or a raw string. Provider-resolved
 values are masked unless `--no-mask`. Raw is **not** a vault secret.
-It is a value you put in the yaml. The wizard warns. It still lives
-in this family because it becomes an env var.
+It is a value you put in the yaml. `lade add` warns once. Inject
+does not. It still lives in this family because it becomes an env
+var.
 
 ```yaml
 "^psql":
@@ -229,7 +236,12 @@ this process.
 
 Today the URI scheme is `mise://`. That is how the current
 manager is addressed. A Homebrew binary on PATH is not the pin.
-The lock next to this yaml is what the next command must match.
+`lade setup` installs the lock next to this yaml (`mise.lock` if
+that file exists, else `lade.lock`). Missing slots are resolved
+once and written. `lade update` re-resolves implied and ranged
+pins to the latest matching bin, rewrites the lock, and installs.
+Exact yaml pins stay. `lade setup --unlock` ignores the lock this
+once. `lade upgrade` is the Lade binary.
 
 Optional `?setup=` / `?teardown=` run on `lade setup` /
 `lade teardown` in this repo.
@@ -241,9 +253,9 @@ Optional `?setup=` / `?teardown=` run on `lade setup` /
 
 | Scheme | URI | What |
 | --- | --- | --- |
-| `mise` | `mise://<backend>/<package>@<version>` | A CLI pin |
-| `apm` | `apm://<owner>/<repo>` | An APM package CLI plus a ref |
-| `skills` | `skills://<owner>/<repo>` | A skills package CLI plus a ref |
+| `mise` | `mise://<backend>/<package>@<version>` | A CLI pin. `lade add bin` writes this. |
+| `apm` | `apm://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
+| `skills` | `skills://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
 
 ## Hierarchy
 
@@ -282,7 +294,7 @@ Details: [docs/observability.md](docs/observability.md).
 
 Same yaml. Same resolve. The agent types the command. There is
 no Lade skill. `lade setup` writes the pre-tool hook. Enable one
-harness by hand with `lade hook enable --harness cursor`.
+agent by hand with `lade hook enable --harness cursor`.
 
 ## When, users, approval
 

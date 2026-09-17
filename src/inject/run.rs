@@ -106,16 +106,6 @@ pub async fn run_inject(
         return Err(e);
     }
 
-    if work
-        .secrets
-        .iter()
-        .any(|secret| crate::family::is_raw_secret(&secret.source))
-    {
-        crate::message_box::MessageBox::new()
-            .warning()
-            .line(crate::family::RAW_WARNING)
-            .print_stderr();
-    }
     let hydrate_started = std::time::Instant::now();
     let ticket_unlink = (ctx.via == Via::Pretool)
         .then_some(ctx.ticket_id.as_deref())

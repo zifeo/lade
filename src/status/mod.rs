@@ -22,6 +22,12 @@ struct VersionInfo {
 }
 
 #[derive(Serialize)]
+struct AgePluginInfo {
+    present: bool,
+    path: Option<PathBuf>,
+}
+
+#[derive(Serialize)]
 struct GlobalConfigInfo {
     path: PathBuf,
     user: Option<String>,
@@ -93,6 +99,7 @@ struct MiseInfo {
 #[derive(Serialize)]
 struct StatusReport {
     version: VersionInfo,
+    age_plugin: AgePluginInfo,
     global_config: GlobalConfigInfo,
     hooks: HooksInfo,
     project_config: ProjectConfig,

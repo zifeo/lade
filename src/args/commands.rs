@@ -4,11 +4,14 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// This git repo: locks, agent hooks, setup commands. First-time
-/// pre-exec only. Later: `lade hook enable --shell`. Pre-tool stays
-/// in this repo.
+/// This git repo: install locked bins, first-time pre-exec, repo
+/// pre-tool. The lock is the version. `lade update` re-resolves.
+/// `--unlock` ignores the lock this once.
 #[derive(Parser, Debug)]
 pub struct SetupCommand {
+    /// Ignore the lock, resolve from yaml, rewrite, and install.
+    #[clap(long, default_value_t = false)]
+    pub unlock: bool,
     /// Write or refresh the Cursor hook.
     #[clap(long, default_value_t = false)]
     pub cursor: bool,
@@ -222,6 +225,8 @@ pub enum LogAction {
         #[clap(short, long)]
         output: Option<PathBuf>,
     },
+    /// Check the diary hash chain.
+    Verify,
 }
 
 #[derive(Parser, Debug)]
@@ -244,6 +249,9 @@ pub struct UsageCommand {
     /// Drop the git-root filter and read the whole diary.
     #[clap(long, default_value_t = false, conflicts_with = "path")]
     pub all: bool,
+    /// Same as `--all`.
+    #[clap(long, default_value_t = false, conflicts_with = "path")]
+    pub global: bool,
     /// Scope to the git root of this path. Worktrees count.
     #[clap(long, conflicts_with = "all")]
     pub path: Option<PathBuf>,

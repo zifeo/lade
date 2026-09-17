@@ -1,6 +1,6 @@
 mod common;
 use common::{
-    backdate_all, filter_log, inject, lade_user, leftover_src_dirs_in, row_line, share_pack,
+    backdate_all, filter_log, inject, lade, lade_user, leftover_src_dirs_in, row_line, share_pack,
     write_yml,
 };
 use std::fs;
@@ -261,4 +261,143 @@ fn source_directory_is_not_recursive() {
     );
     let cmds: Vec<String> = rows.iter().map(row_line).collect();
     assert_eq!(cmds, vec!["echo top".to_string()]);
+}
+
+#[test]
+fn log_and_usage_warn_and_still_print_a_tampered_row() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "first"]);
+    inject(home.path(), dir.path(), &["echo", "second"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm' WHERE seq = 1", [])
+        .unwrap();
+    let log = lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--json", "--since", "1d"])
+        .assert()
+        .success();
+    let log_err = String::from_utf8_lossy(&log.get_output().stderr);
+    let log_out = String::from_utf8_lossy(&log.get_output().stdout);
+    assert!(log_err.contains("tampered"), "{log_err}");
+    assert!(log_err.contains("seq=1"), "{log_err}");
+    assert!(log_err.contains("0 rows before it"), "{log_err}");
+    assert!(log_err.contains("1 row after it"), "{log_err}");
+    assert!(
+        log_out.contains("rm") || log_out.contains("echo"),
+        "{log_out}"
+    );
+    let usage = lade(home.path())
+        .current_dir(dir.path())
+        .args(["usage", "--json", "--since", "1d"])
+        .assert()
+        .success();
+    let usage_err = String::from_utf8_lossy(&usage.get_output().stderr);
+    assert!(usage_err.contains("tampered"), "{usage_err}");
+    assert!(!usage.get_output().stdout.is_empty());
+}
+
+#[test]
+fn log_warns_later_tamper_with_rows_before() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "first"]);
+    inject(home.path(), dir.path(), &["echo", "second"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm' WHERE seq = 2", [])
+        .unwrap();
+    let log = lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--json", "--since", "1d"])
+        .assert()
+        .success();
+    let err = String::from_utf8_lossy(&log.get_output().stderr);
+    assert!(err.contains("seq=2"), "{err}");
+    assert!(err.contains("1 row before it"), "{err}");
+    assert!(err.contains("0 rows after it"), "{err}");
+}
+
+#[test]
+fn intact_log_has_no_tamper_warning() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "ok"]);
+    let log = lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--json", "--since", "1d"])
+        .assert()
+        .success();
+    let err = String::from_utf8_lossy(&log.get_output().stderr);
+    assert!(!err.contains("tampered"), "{err}");
+}
+
+#[test]
+fn log_verify_still_fails_when_tampered() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "ok"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm'", [])
+        .unwrap();
+    lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "verify"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn source_pack_warns_when_snapshot_is_tampered() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "packed"]);
+    let pack = share_pack(home.path(), dir.path(), &[]);
+    let work = tempdir().unwrap();
+    let status = std::process::Command::new("tar")
+        .args([
+            "-xzf",
+            pack.to_str().unwrap(),
+            "-C",
+            work.path().to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let db = work.path().join("events.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("UPDATE events SET command = 'rm'", [])
+        .unwrap();
+    let broken = dir.path().join("broken.tar.gz");
+    let status = std::process::Command::new("tar")
+        .current_dir(work.path())
+        .args([
+            "-czf",
+            broken.to_str().unwrap(),
+            "manifest.json",
+            "events.db",
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let log = lade(home.path())
+        .current_dir(dir.path())
+        .args([
+            "log",
+            "--json",
+            "--since",
+            "1d",
+            "--source",
+            broken.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let err = String::from_utf8_lossy(&log.get_output().stderr);
+    let out = String::from_utf8_lossy(&log.get_output().stdout);
+    assert!(err.contains("tampered"), "{err}");
+    assert!(!out.trim().is_empty(), "{out}");
 }

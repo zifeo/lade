@@ -1,10 +1,13 @@
 //! Implied pins lock a product CLI that a URI needs, without writing it in
 //! yaml.
 //!
-//! `op://vault/item/field` with no `op:` pin still locks `op` so inject does
-//! not pick a random PATH binary. Same for `awssm://`, `apm://`, `skills://`,
-//! and the other rows in this table. `ssh://` stays the OpenSSH binary on
-//! PATH: there is no implied mise pin.
+//! `op://vault/item/field` with no `op:` pin still locks `op` on
+//! `lade setup`. `lade update` moves that lock to the latest bin
+//! in the product range. Inject uses that store bin when it is present.
+//! A miss refuses. Homebrew or another PATH binary is not used.
+//! Same for `awssm://`, `apm://`, `skills://`, and the other rows
+//! in this table. `ssh://` stays the OpenSSH binary on PATH: there
+//! is no implied mise pin.
 
 use std::sync::OnceLock;
 

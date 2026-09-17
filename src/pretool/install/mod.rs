@@ -11,7 +11,6 @@ mod merge;
 mod merge_json;
 mod offer;
 mod paths;
-mod skill;
 mod ui;
 mod write;
 

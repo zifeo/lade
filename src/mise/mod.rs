@@ -24,13 +24,17 @@ pub use error::Error;
 pub use lifecycle::run_lifecycle_commands;
 pub use prepare::{implied_bin, locked_bin, locked_cli_bin, locked_tools, prepare};
 pub use run::run_in_repo;
-pub use setup::setup_pins;
+pub use setup::{PinMode, setup_pins};
 pub use spec::{
     argv0, is_mise_argv0, looks_like_bare_version, looks_like_spec, parse as parse_spec,
 };
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+pub fn lock_path_in(dir: &Path) -> PathBuf {
+    lock::path_in(dir)
+}
 
 pub fn lock_slot(path: &Path, name: &str) -> Option<String> {
     lock::slot_for(path, &[name]).map(|slot| slot.version)
@@ -46,21 +50,26 @@ pub fn pin_exact(uri: &str) -> anyhow::Result<String> {
     if !spec::version_is_floating(&spec.version) {
         return Ok(uri.to_string());
     }
-    let version = latest_version(&spec.backend_id())?;
+    let version = latest_matching(&spec)?;
     if version.is_empty() {
         anyhow::bail!("mise latest returned nothing for {}", spec.backend_id());
     }
     Ok(spec::replace_version(uri, &version))
 }
 
-fn latest_version(backend_id: &str) -> anyhow::Result<String> {
+pub(super) fn latest_matching(spec: &spec::Spec) -> anyhow::Result<String> {
+    let query = if spec::version_is_range(&spec.version) {
+        format!("{}@{}", spec.backend_id(), spec.version)
+    } else {
+        spec.backend_id()
+    };
     let output = std::process::Command::new(ensure::mise_program())
-        .args(["latest", backend_id])
+        .args(["latest", &query])
         .output()
         .map_err(|e| Error::missing_mise(e.to_string()))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("mise latest {backend_id} failed: {stderr}");
+        anyhow::bail!("mise latest {query} failed: {stderr}");
     }
     Ok(parse_latest_stdout(&String::from_utf8_lossy(
         &output.stdout,

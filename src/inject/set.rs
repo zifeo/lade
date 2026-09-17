@@ -128,16 +128,6 @@ pub async fn handle_set(
         let _ = ticket::unlink(&id);
         return Err(e);
     }
-    if work
-        .secrets
-        .iter()
-        .any(|secret| crate::family::is_raw_secret(&secret.source))
-    {
-        crate::message_box::MessageBox::new()
-            .warning()
-            .line(crate::family::RAW_WARNING)
-            .print_stderr();
-    }
     let hydrate_started = std::time::Instant::now();
     let ((mut env, files, _sources, _maskable, warnings), detached) = acquire_secrets_and_network(
         ctx,

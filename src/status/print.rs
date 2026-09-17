@@ -25,6 +25,13 @@ pub(super) fn print_human(report: &StatusReport) {
         }
     }
 
+    match &report.age_plugin.path {
+        Some(path) => println!("age-plugin-lade: {}", display_path(path)),
+        None => println!(
+            "age-plugin-lade: missing (run `lade upgrade` or `cargo install age-plugin-lade`)"
+        ),
+    }
+
     println!(
         "global config: {}",
         display_path(&report.global_config.path)

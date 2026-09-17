@@ -1,11 +1,11 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::sync::LazyLock;
 
 use anyhow::{Result, bail};
-use once_cell::sync::Lazy;
 use regex::Regex;
 
-static VAR: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$(?:\{(\w+)\}|(\w+))").unwrap());
-static TEMPLATE_VAR: Lazy<Regex> = Lazy::new(|| {
+static VAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$(?:\{(\w+)\}|(\w+))").unwrap());
+static TEMPLATE_VAR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$(?:\{(\.?[A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))").unwrap()
 });
 

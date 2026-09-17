@@ -5,11 +5,11 @@ use anyhow::Result;
 use chrono::{DateTime, SecondsFormat, Utc};
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use tar::Builder;
 
-use crate::event::{Event, events_ddl, query as query_live};
+use crate::event::{Event, events_ddl, insert_sealed, query as query_live};
 use crate::global_config::GlobalConfig;
 use crate::message_box;
 
@@ -37,19 +37,6 @@ pub fn share(
         None => "all".to_string(),
     };
     let to_label = compact_utc(to_ts);
-    let manifest = json!({
-        "v": 2,
-        "exported_at": now.to_rfc3339_opts(SecondsFormat::Millis, true),
-        "since": since
-            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Millis, true))
-            .unwrap_or_else(|| "unbounded".to_string()),
-        "until": until
-            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Millis, true))
-            .unwrap_or_else(|| now.to_rfc3339_opts(SecondsFormat::Millis, true)),
-        "count": redacted.len(),
-        "from": from_label,
-        "to": to_label,
-    });
     let out_path = match output {
         Some(path) => path.to_path_buf(),
         None => {
@@ -64,10 +51,28 @@ pub fn share(
     let work = tempfile::Builder::new()
         .prefix("lade-log-share-")
         .tempdir()?;
+    let snapshot_path = work.path().join("events.db");
+    let head = write_snapshot_db(&redacted, &snapshot_path)?;
+    let manifest = json!({
+        "v": 3,
+        "exported_at": now.to_rfc3339_opts(SecondsFormat::Millis, true),
+        "since": since
+            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Millis, true))
+            .unwrap_or_else(|| "unbounded".to_string()),
+        "until": until
+            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Millis, true))
+            .unwrap_or_else(|| now.to_rfc3339_opts(SecondsFormat::Millis, true)),
+        "count": redacted.len(),
+        "from": from_label,
+        "to": to_label,
+        "chain": {
+            "alg": "hmac-sha256-v1",
+            "head": head,
+            "rows": redacted.len(),
+        },
+    });
     let manifest_path = work.path().join("manifest.json");
     fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
-    let snapshot_path = work.path().join("events.db");
-    write_snapshot_db(&redacted, &snapshot_path)?;
     write_tar_gz(&out_path, &manifest_path, &snapshot_path)?;
     message_box::MessageBox::new()
         .info()
@@ -76,45 +81,22 @@ pub fn share(
     Ok(())
 }
 
-fn write_snapshot_db(events: &[Event], path: &Path) -> Result<()> {
+fn write_snapshot_db(events: &[Event], path: &Path) -> Result<Option<String>> {
     let _ = fs::remove_file(path);
-    let conn = Connection::open(path)?;
+    let mut conn = Connection::open(path)?;
     conn.execute_batch("PRAGMA journal_mode=OFF")?;
     conn.execute_batch(&events_ddl())?;
-    for event in events {
-        let matches = serde_json::to_string(&event.matches).unwrap_or_else(|_| "[]".into());
-        let agent = event
-            .agent
-            .as_ref()
-            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
-        let argv = event
-            .argv
-            .as_ref()
-            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
-        conn.execute(
-            "INSERT INTO events (
-                id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, matches, agent, argv
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, jsonb(?12), jsonb(?13), jsonb(?14))",
-            params![
-                event.id,
-                event.ts,
-                event.kind,
-                event.via,
-                event.audience,
-                event.actor,
-                event.repo,
-                event.git_commit,
-                event.command,
-                event.command_truncated as i64,
-                event.hydrate_ms,
-                matches,
-                agent,
-                argv,
-            ],
-        )?;
+    let tx = conn.transaction()?;
+    for event in events.iter().rev() {
+        insert_sealed(&tx, event)?;
     }
-    Ok(())
+    let head = tx
+        .query_row("SELECT head_hash FROM chain_head WHERE id = 1", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?;
+    tx.commit()?;
+    Ok(head)
 }
 
 fn write_tar_gz(out: &Path, manifest: &Path, events_db: &Path) -> Result<()> {

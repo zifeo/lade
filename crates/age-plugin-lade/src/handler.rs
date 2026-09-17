@@ -1,53 +1,47 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::process::Stdio;
 
 use age_core::format::{FileKey, Stanza};
 use age_plugin::identity::{self, IdentityPluginV1};
 use age_plugin::recipient::{self, RecipientPluginV1};
 use age_plugin::{Callbacks, PluginHandler};
-use tokio::runtime::Runtime;
 
+use super::link::{PLUGIN_BIN, find_lade};
 use super::parse::{as_identities, as_recipients};
-use crate::args::Command;
-use crate::audience;
-use crate::eval;
 
 pub const PLUGIN_NAME: &str = "lade";
 
-fn runtime() -> &'static Runtime {
-    static RT: OnceLock<Runtime> = OnceLock::new();
-    RT.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("age-plugin-lade tokio runtime")
-    })
+fn strip_println_newline(s: &str) -> &str {
+    s.strip_suffix("\r\n")
+        .or_else(|| s.strip_suffix('\n'))
+        .unwrap_or(s)
 }
 
 fn hydrate(uri: &str) -> Result<String, String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let stdin = std::io::IsTerminal::is_terminal(&std::io::stdin());
-    let stderr = std::io::IsTerminal::is_terminal(&std::io::stderr());
-    let d = audience::detect(
-        &Command::Eval {
-            uri: uri.to_string(),
-        },
-        false,
-        stdin,
-        stderr,
-    )
-    .expect("eval detect");
-    runtime()
-        .block_on(eval::resolve_uri(
-            uri.to_string(),
-            &cwd,
-            super::link::PLUGIN_BIN,
-            d.via,
-            d.audience,
-        ))
-        .map_err(|e| e.to_string())
+    let bin = find_lade()?;
+    let output = std::process::Command::new(&bin)
+        .arg("eval")
+        .arg("--access-command")
+        .arg(PLUGIN_BIN)
+        .arg("--")
+        .arg(uri)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("failed to run lade eval: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        if stderr.is_empty() {
+            return Err(format!("lade eval failed ({})", output.status));
+        }
+        return Err(stderr.to_string());
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|_| "lade eval output is not UTF-8".to_string())?;
+    Ok(strip_println_newline(&stdout).to_string())
 }
 
 fn lade_uri(name: &str, bytes: &[u8]) -> Result<String, String> {

@@ -11,6 +11,16 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Added
 
+- **Diary chain**: each events.db row is HMAC-SHA256 of the
+  previous hash plus the payload. The salt is compiled into this
+  Lade version. `lade log verify` walks the chain. A raw SQL
+  edit fails. Parallel writes append under an Immediate
+  transaction. `lade log share` reseals the redacted snapshot.
+  `lade log` and `lade usage` warn if a row was tampered and
+  still print. The warning says how many rows verify before and
+  after that row. `lade log verify` exits non-zero.
+  `lade log prune` starts a new epoch over the rows that remain.
+  Tamper-evident, not tamper-proof.
 - **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
   `bw list items` per resolve. `password` is the default field.
 - **lade.yaml version**: optional first line `#: >=0.18.0`. A
@@ -23,7 +33,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   install's bin directory for the command. A miss runs `mise
   install` (or `--locked`) in a temp dir whose only config is
   this pin, then refuses if the binary is still missing.
-  `lade.yml` stays the config. The repo is not written. Typing
+  `lade.yaml` stays the config. The repo is not written. Typing
   `mise` hands a composed project-plus-pins view. The user mise
   config tree (`~/.config/mise`, `$XDG_CONFIG_HOME/mise`,
   `conf.d`) and `MISE_ENV` are ignored on install, env dump,
@@ -34,14 +44,19 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   secrets. A `mise.lock` keyed by backend id
   (`[[tools."aqua:jqlang/jq"]]`) is found. A miss after install
   refuses. Homebrew is not used. No rust-only table.
-- **age plugin**: Cargo builds `lade` and `age-plugin-lade` from the
-  same `main`. The release tarball, installer, image, and
-  `cargo install` ship both files. `lade upgrade` copies the new
-  `lade` over the plugin name because self_update extracts one
-  binary. age and rage resolve a Lade URI the same way `lade eval`
-  does, then wrap or unwrap with the age crate (X25519, SSH, tagged,
+- **age plugin**: `age-plugin-lade` is its own crate
+  (`crates/age-plugin-lade`). It speaks C2SP and execs `lade eval`
+  (sibling, `PATH`, or `LADE_BIN`). It does not link the `lade`
+  crate. `lade-sdk` lives at `crates/lade-sdk`. The release
+  tarball, installer, and image still ship both files.
+  `cargo install` is two crates. `lade upgrade` extracts the
+  plugin from the same GitHub release, not a copy of `lade`.
+  age and rage resolve a Lade URI the same way `lade eval` does,
+  then wrap or unwrap with the age crate (X25519, SSH, tagged,
   and post-quantum `age1tagpq1` recipients). `lade eval` and the
   plugin write an `access` diary row (URI only, never the value).
+  `lade status` reports whether `age-plugin-lade` is next to `lade`
+  or on `PATH`. A miss does not flip `ok`.
 
 ### Changed
 
@@ -57,10 +72,15 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   yaml. Project `mise.toml` is ignored. Bin URIs may set
   `?setup=` / `?teardown=`. Diary prune uses the same repo filter
   plus `--global`. Both `lade.yaml` and `lade.yml` in one dir is
-  an error. No skill files. Agents curl `agent-setup.sh`.
+  an error. No skill files. `lade setup` does not sweep leftover
+  `SKILL.md`. The README blockquote is the agent
+  prompt. There is no `agent-setup.sh`.
   `mise://…@latest` is resolved to the current version and written
-  as that exact pin. `CI` set skips the shell wrap. Inject warns
-  when a secret is raw. Generated project hooks emit `--harness`.
+  as that exact pin.   `CI` set skips the shell wrap. `lade add` warns once when a
+  secret is raw. Inject does not. Generated project hooks emit
+  `--harness`. `lade setup` installs the lock. `lade update`
+  re-resolves implied and ranged pins. `lade setup --unlock`
+  ignores the lock this once.
   Secret and tunnel CLIs share one spec table. User-facing tunnel
   errors say tunnel.
 - Azure Key Vault URIs use `azurekv://`.
@@ -78,10 +98,13 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 ### Removed
 
 - APM package (`apm.yml`, `.apm/skills/lade`). Hooks are written by the
-  binary. `agent-setup.sh` is the agent install path.
+  binary. `agent-setup.sh` is gone. The README blockquote is the
+  agent prompt.
 
 ### Fixed
 
+- **`lade upgrade`**: if `age-plugin-lade` is missing beside `lade`,
+  the next upgrade installs it even when Lade is already current.
 - **Installer during a release**: GitHub `latest` stays on the previous
   tag until the binary assets are uploaded, so `curl|bash` and
   installer-e2e do not hit an empty vX.Y.Z.

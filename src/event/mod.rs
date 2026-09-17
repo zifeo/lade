@@ -7,20 +7,23 @@ use serde_json::{Value, json};
 use crate::audience::Via;
 use crate::config::{Audience, Config, LadeRule};
 
+mod chain;
 mod db;
 mod git;
 #[cfg(test)]
 mod tests;
 mod write;
 
-pub use db::{info_for_repo, open, prune_before, query, warmup};
+pub use chain::{ChainStatus, insert_sealed, unsigned_pack, verify as verify_chain};
+pub use db::{info_for_repo, open, prune_before, query, verify_live, warmup};
 pub use git::git_stamp;
-#[allow(unused_imports)]
-pub use write::emit;
-pub use write::emit_if;
-pub use write::emit_verb;
+pub use write::{emit, emit_if, emit_verb};
 
 pub(crate) use db::event_from_row;
+
+pub(crate) const EVENT_COLS: &str = "id, ts, kind, via, audience, actor, repo, git_commit,
+                command, command_truncated, hydrate_ms, json(matches), json(agent),
+                json(argv)";
 
 const BUSY_MS: u64 = 250;
 const OPEN_ATTEMPTS: u32 = 20;
@@ -49,7 +52,10 @@ pub(crate) const EVENTS_AGENT_DDL: &str = "ALTER TABLE events ADD COLUMN agent B
 pub(crate) const EVENTS_ARGV_DDL: &str = "ALTER TABLE events ADD COLUMN argv JSONB";
 
 pub(crate) fn events_ddl() -> String {
-    format!("{EVENTS_DDL}{EVENTS_AGENT_DDL};{EVENTS_ARGV_DDL};")
+    format!(
+        "{EVENTS_DDL}{EVENTS_AGENT_DDL};{EVENTS_ARGV_DDL};{}",
+        chain::EVENTS_CHAIN_DDL
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +75,7 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Event {
     pub id: String,
     pub ts: String,
@@ -135,9 +141,17 @@ pub fn match_tree_from(
             "uri": uri,
             "family": family.token()
         });
-        if let Some(bin) = crate::mise::implied_bin(&uri) {
+        let implied = crate::mise::implied_bin(&uri);
+        let bin = implied.or_else(|| {
+            if family == crate::family::Family::Bin && crate::mise::looks_like_spec(&uri) {
+                Some(key.as_str())
+            } else {
+                None
+            }
+        });
+        if let Some(bin) = bin {
             binding["bin"] = json!(bin);
-            let lock = file.join("lade.lock");
+            let lock = crate::mise::lock_path_in(&file);
             if let Some(slot) = crate::mise::lock_slot(&lock, bin) {
                 binding["version"] = json!(slot);
             }

@@ -3,12 +3,6 @@
   TOKEN: "file://../sources/config.json?query=.token"
 
 > lade printenv TOKEN
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
 ⠋ File: TOKEN
 
 ✔︎ File: TOKEN                                                            1 ms
@@ -16,12 +10,6 @@
 ${TOKEN:-REDACTED}
 
 > lade inject --no-mask printenv TOKEN
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
 ⠋ File: TOKEN
 
 ✔︎ File: TOKEN                                                            0 ms

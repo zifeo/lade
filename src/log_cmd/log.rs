@@ -31,6 +31,7 @@ pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
             return run_share(&opts, agent, output.clone());
         }
         Some(LogAction::Prune { ref keep }) => return run_prune(&opts, keep.as_deref()),
+        Some(LogAction::Verify) => return run_verify(&opts),
         None => {}
     }
     let group = match opts.group.as_deref() {
@@ -99,6 +100,33 @@ fn log_command(row: &Event) -> String {
             .unwrap_or("-")
             .to_string()
     })
+}
+
+fn run_verify(opts: &LogCommand) -> Result<()> {
+    let reports = super::chain_reports(&opts.source)?;
+    let mut ok = true;
+    let mut lines = Vec::new();
+    for (path, status) in reports {
+        if !status.ok {
+            ok = false;
+        }
+        lines.extend(status.report_lines(path.display()));
+    }
+    let mut box_ = if ok {
+        message_box::MessageBox::new().info()
+    } else {
+        message_box::MessageBox::new().error()
+    };
+    for line in lines {
+        box_ = box_.line(line);
+    }
+    if ok {
+        box_.print_plain_stderr();
+        Ok(())
+    } else {
+        box_.print_stderr();
+        std::process::exit(crate::exit_codes::FAILURE);
+    }
 }
 
 fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<()> {

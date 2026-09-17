@@ -25,12 +25,7 @@ pub fn bin_uri(query: Option<&str>, tty: bool) -> Result<String> {
         bail!("pass --uri mise://<backend>/<package>@<version> (got `{query}`)");
     }
     if tty {
-        let kind = ask("Binary kind (mise, apm, skills): ")?;
-        return match kind.as_str() {
-            "apm" => search_package("apm", ""),
-            "skills" => search_package("skills", ""),
-            _ => require_or_ask(None, "URI (mise://, apm://, skills://): ", true),
-        };
+        return require_or_ask(None, "URI (mise://…): ", true);
     }
     bail!("pass --uri")
 }

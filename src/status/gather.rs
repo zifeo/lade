@@ -12,8 +12,8 @@ use lade_sdk::Transport;
 use lade_sdk::compat::spec_for;
 
 use super::{
-    GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo, StatusReport,
-    VaultClis, VersionInfo,
+    AgePluginInfo, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
+    StatusReport, VaultClis, VersionInfo,
 };
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
@@ -147,6 +147,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
         version,
+        age_plugin: age_plugin_info(),
         global_config,
         hooks,
         project_config,
@@ -154,6 +155,48 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         mise,
         ok,
     })
+}
+
+const AGE_PLUGIN_BIN: &str = "age-plugin-lade";
+
+fn age_plugin_info() -> AgePluginInfo {
+    match find_age_plugin() {
+        Some(path) => AgePluginInfo {
+            present: true,
+            path: Some(path),
+        },
+        None => AgePluginInfo {
+            present: false,
+            path: None,
+        },
+    }
+}
+
+fn find_age_plugin() -> Option<std::path::PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()));
+    find_age_plugin_from(exe_dir.as_deref(), std::env::var_os("PATH").as_deref())
+}
+
+fn find_age_plugin_from(
+    exe_dir: Option<&std::path::Path>,
+    path_var: Option<&std::ffi::OsStr>,
+) -> Option<std::path::PathBuf> {
+    if let Some(dir) = exe_dir {
+        let sibling = dir.join(AGE_PLUGIN_BIN);
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    let path = path_var?;
+    for dir in std::env::split_paths(path) {
+        let candidate = dir.join(AGE_PLUGIN_BIN);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn provider_info(schemes: &[String]) -> Vec<ProviderInfo> {
@@ -193,4 +236,51 @@ fn inject_startup_skipped(shell: &shell::Shell) -> Option<String> {
             .unwrap_or("startup file")
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn sibling_wins_over_path() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let sibling = exe_dir.path().join(AGE_PLUGIN_BIN);
+        let on_path = path_dir.path().join(AGE_PLUGIN_BIN);
+        fs::write(&sibling, "").unwrap();
+        fs::write(&on_path, "").unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            Some(sibling)
+        );
+    }
+
+    #[test]
+    fn path_is_used_when_no_sibling() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let on_path = path_dir.path().join(AGE_PLUGIN_BIN);
+        fs::write(&on_path, "").unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            Some(on_path)
+        );
+    }
+
+    #[test]
+    fn missing_everywhere_is_none() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            None
+        );
+    }
 }

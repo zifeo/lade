@@ -1,4 +1,3 @@
-docs/prd.md
 .DS_Store
 .cargo/*.sock
 examples/tape/.render-logs/

@@ -16,6 +16,7 @@ fn test_status_reports_version_and_project() {
         .arg("status")
         .assert()
         .stdout(predicates::str::contains("lade version:"))
+        .stdout(predicates::str::contains("age-plugin-lade:"))
         .stdout(predicates::str::contains("latest:"))
         .stdout(predicates::str::contains("tried"))
         .stdout(predicates::str::contains("project config: ok"))
@@ -45,6 +46,8 @@ fn test_status_json_is_valid_with_expected_keys() {
     let value: serde_json::Value =
         serde_json::from_slice(&output).expect("status --json must emit valid JSON");
     assert!(value.get("version").is_some());
+    assert!(value.get("age_plugin").is_some());
+    assert!(value["age_plugin"].get("present").is_some());
     assert!(value.get("global_config").is_some());
     assert!(value.get("hooks").is_some());
     assert!(value["hooks"].get("preexec").is_some());

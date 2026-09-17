@@ -1,30 +1,15 @@
 > ./show-example intermediate
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
 ^printenv Authorization user:
   user: demo-user
   .password: vault://127.0.0.1:8200/secret/password/value1
   Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")"'
 
 > printenv Authorization user
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
-⠋ Raw: user
-
 ⠋ Vault 127.0.0.1:8200: .password
 
 ⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
 
 -d "\n")": Authorization
-
-✔︎ Raw: user                                                             18 ms
 
 ✔︎ Vault 127.0.0.1:8200: .password                                       18 ms
 

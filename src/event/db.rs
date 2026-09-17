@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::{
     BUSY_MS, EVENTS_AGENT_DDL, EVENTS_ARGV_DDL, EVENTS_DDL, Event, LogInfo, OPEN_ATTEMPTS,
-    OPEN_RETRY_MS, db_path,
+    OPEN_RETRY_MS, chain, db_path,
 };
 
 fn migrations() -> Migrations<'static> {
@@ -16,6 +16,7 @@ fn migrations() -> Migrations<'static> {
         M::up(EVENTS_DDL),
         M::up(EVENTS_AGENT_DDL),
         M::up(EVENTS_ARGV_DDL),
+        M::up(chain::EVENTS_CHAIN_DDL),
     ])
 }
 
@@ -47,6 +48,7 @@ fn open_once(path: &std::path::Path) -> rusqlite::Result<Connection> {
             return Err(map_migrate_err(err));
         }
     }
+    chain::backfill(&mut conn)?;
     Ok(conn)
 }
 
@@ -76,12 +78,7 @@ pub fn query(
     repo: Option<&str>,
 ) -> rusqlite::Result<Vec<Event>> {
     let conn = open()?;
-    let mut sql = String::from(
-        "SELECT id, ts, kind, via, audience, actor, repo, git_commit,
-                command, command_truncated, hydrate_ms, json(matches), json(agent),
-                json(argv)
-         FROM events WHERE 1=1",
-    );
+    let mut sql = format!("SELECT {} FROM events WHERE 1=1", super::EVENT_COLS);
     if since.is_some() {
         sql.push_str(" AND ts >= ?");
     }
@@ -168,17 +165,12 @@ fn json_col(row: &rusqlite::Row<'_>, idx: usize) -> Option<Value> {
 
 pub fn prune_before(ts: &DateTime<Utc>, repo: Option<&str>) -> rusqlite::Result<usize> {
     let mut conn = open()?;
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let cutoff = ts.to_rfc3339_opts(SecondsFormat::Millis, true);
-    let n = match repo {
-        Some(repo) => tx.execute(
-            "DELETE FROM events WHERE ts < ?1 AND repo = ?2",
-            params![cutoff, repo],
-        )?,
-        None => tx.execute("DELETE FROM events WHERE ts < ?1", params![cutoff])?,
-    };
-    tx.commit()?;
-    Ok(n)
+    chain::prune_and_reseal(&mut conn, &cutoff, repo)
+}
+
+pub fn verify_live() -> rusqlite::Result<super::ChainStatus> {
+    chain::verify(&open()?)
 }
 
 pub fn warmup() {

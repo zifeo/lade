@@ -251,6 +251,33 @@ fn test_pre_event_work_resolves_user_maps_and_private_keys() {
     assert!(!work.log);
 }
 
+#[test]
+fn match_tree_reads_lock_beside_yaml() {
+    use crate::event::match_tree_from;
+
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yaml"),
+        "^terraform:\n  TF_VAR_FOO: op://v/i/f\n  tofu: mise://aqua/opentofu/opentofu@1.8.2\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        "[[tools.op]]\nversion = \"2.31.0\"\n\n[[tools.tofu]]\nversion = \"1.8.2\"\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let rules = config.collect_for_with_pattern("terraform plan", Audience::Human);
+    let matches = match_tree_from(&rules, &None);
+    let text = matches.to_string();
+    assert!(text.contains("\"family\":\"secret\""), "{text}");
+    assert!(text.contains("\"family\":\"bin\""), "{text}");
+    assert!(text.contains("\"bin\":\"op\""), "{text}");
+    assert!(text.contains("\"version\":\"2.31.0\""), "{text}");
+    assert!(text.contains("\"bin\":\"tofu\""), "{text}");
+    assert!(text.contains("\"version\":\"1.8.2\""), "{text}");
+}
+
 #[tokio::test]
 async fn test_hydrate_work_plain_source() {
     use crate::ticket::TicketSecret;

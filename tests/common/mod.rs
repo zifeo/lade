@@ -146,7 +146,12 @@ pub fn leftover_src_dirs_in(dir: &Path) -> usize {
 
 pub fn backdate_all(home: &Path, ts: &str) {
     let conn = rusqlite::Connection::open(home.join("events.db")).unwrap();
-    conn.execute("UPDATE events SET ts = ?1", [ts]).unwrap();
+    conn.execute(
+        "UPDATE events SET ts = ?1, seq = NULL, prev_hash = NULL, row_hash = NULL, seal_ver = NULL",
+        [ts],
+    )
+    .unwrap();
+    let _ = conn.execute("DELETE FROM chain_head", []);
 }
 
 pub fn lade_std(home: &Path) -> StdCommand {

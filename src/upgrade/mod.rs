@@ -136,23 +136,53 @@ pub async fn check_message() -> Result<Option<String>> {
     Ok(None)
 }
 
-pub async fn perform(opts: UpgradeCommand) -> Result<()> {
-    let updated = tokio::task::spawn_blocking(move || {
-        let mut update = Update::configure();
-        update
-            .repo_owner("zifeo")
-            .repo_name("lade")
-            // One name. The tarball also has `age-plugin-lade` (Cargo.toml).
-            .bin_name("lade")
-            .show_download_progress(true)
-            .current_version(cargo_crate_version!())
-            .no_confirm(opts.yes);
+fn configure_github(bin_name: &str, yes: bool, version: Option<&str>) -> Result<Update> {
+    let mut update = Update::configure();
+    update
+        .repo_owner("zifeo")
+        .repo_name("lade")
+        .bin_name(bin_name)
+        .show_download_progress(true)
+        .current_version(cargo_crate_version!())
+        .no_confirm(yes);
+    if let Some(version) = version {
+        update.release_tag(format!("v{version}"));
+    }
+    Ok(update.build()?)
+}
 
-        if let Some(version) = opts.version {
-            update.release_tag(format!("v{version}"));
+const PLUGIN_BIN: &str = "age-plugin-lade";
+
+fn plugin_beside(lade: &std::path::Path) -> Option<std::path::PathBuf> {
+    Some(lade.parent()?.join(PLUGIN_BIN))
+}
+
+fn plugin_missing(lade: &std::path::Path) -> bool {
+    plugin_beside(lade).is_none_or(|path| !path.is_file())
+}
+
+fn should_install_plugin(lade_updated: bool, lade_exe: Option<&std::path::Path>) -> bool {
+    lade_updated || lade_exe.is_none_or(plugin_missing)
+}
+
+fn install_plugin_binary(yes: bool, version: Option<&str>) -> Result<()> {
+    match configure_github(PLUGIN_BIN, yes, version)?.update() {
+        std::result::Result::Ok(_) => Ok(()),
+        Err(err) => {
+            MessageBox::new()
+                .warning()
+                .paragraph(format!("{PLUGIN_BIN} was not installed: {err}."))
+                .print_stderr();
+            Ok(())
         }
+    }
+}
 
-        let updated = match update.build()?.update_extended()? {
+pub async fn perform(opts: UpgradeCommand) -> Result<()> {
+    let yes = opts.yes;
+    let version = opts.version.clone();
+    let updated = tokio::task::spawn_blocking(move || {
+        let updated = match configure_github("lade", yes, version.as_deref())?.update_extended()? {
             ReleaseStatus::UpToDate => {
                 MessageBox::new()
                     .info()
@@ -180,19 +210,15 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
                 false
             }
         };
+        let exe = std::env::current_exe().ok();
+        if should_install_plugin(updated, exe.as_deref()) {
+            install_plugin_binary(yes, version.as_deref())?;
+        }
         Ok(updated)
     })
     .await??;
     if updated {
         let _ = GlobalConfig::update(void_daily_stamps).await;
-        // self_update's default path is extract_file(bin_name). It does not
-        // install the second Cargo binary from the tarball. Copy the new lade
-        // onto age-plugin-lade so the C2SP name stays in sync.
-        if let std::result::Result::Ok(exe) = std::env::current_exe()
-            && let Err(err) = crate::age_plugin::copy_beside(&exe)
-        {
-            log::debug!("age-plugin-lade copy: {err}");
-        }
         if crate::mise::managed_mise_in_play() {
             crate::mise::ensure_for_setup().await.inspect_err(|e| {
                 e.emit();

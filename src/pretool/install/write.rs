@@ -8,7 +8,6 @@ use super::locate::{canonical_project_path, find_project, leftover_json_hook};
 use super::paths::{
     ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
 };
-use super::skill::sweep_lade_skills;
 use super::ui::{PretoolReport, PretoolRow, report, where_line};
 
 /// User home config versus the files in the current directory.
@@ -140,16 +139,13 @@ pub fn teardown() -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let git_root = crate::catalog::git_root(&cwd);
-    let skill_rows = sweep_lade_skills(&home, git_root.as_deref());
     let Some(dest) = git_root else {
         return Ok(PretoolReport {
             where_line: "not a git repo, agents skipped".to_string(),
-            rows: skill_rows,
+            rows: Vec::new(),
         });
     };
-    let mut report = uninstall_plane(Scope::Project, &home, &dest)?;
-    report.rows.extend(skill_rows);
-    Ok(report)
+    uninstall_plane(Scope::Project, &home, &dest)
 }
 
 pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {

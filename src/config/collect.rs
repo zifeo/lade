@@ -20,7 +20,7 @@ fn rule_applies_to(rule: &LadeRule, audience: Audience) -> bool {
 }
 
 impl Config {
-    /// Rules matching `command`, in overlay order: parent `lade.yml` then
+    /// Rules matching `command`, in overlay order: parent yaml then
     /// child, and top-to-bottom within a file. Later entries replace the same
     /// key. Callers on the hot path should call this once per invocation and
     /// reuse the result, rather than letting each downstream step

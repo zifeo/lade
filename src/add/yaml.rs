@@ -73,7 +73,7 @@ pub fn upsert_binding(path: &Path, rule: &str, key: &str, uri: &str) -> Result<(
     Ok(())
 }
 
-pub fn drop_binding(path: &Path, rule: &str, key: &str) -> Result<bool> {
+pub fn drop_binding(path: &Path, rule: &str, key: &str) -> Result<Option<String>> {
     let mut file = load_file(path)?;
     let removed = {
         let Some(map) = file.root.as_mapping_mut() else {
@@ -81,12 +81,16 @@ pub fn drop_binding(path: &Path, rule: &str, key: &str) -> Result<bool> {
         };
         let rule_key = Value::String(rule.to_string());
         let Some(entry) = map.get_mut(&rule_key) else {
-            return Ok(false);
+            return Ok(None);
         };
         let Some(rule_map) = entry.as_mapping_mut() else {
             bail!("rule `{rule}` is not a mapping");
         };
-        let removed = rule_map.remove(Value::String(key.to_string())).is_some();
+        let removed = match rule_map.remove(Value::String(key.to_string())) {
+            Some(Value::String(uri)) => Some(uri),
+            Some(_) => Some(String::new()),
+            None => None,
+        };
         if rule_map.is_empty() {
             map.remove(&rule_key);
         }
@@ -165,7 +169,11 @@ mod tests {
         let body = fs::read_to_string(&path).unwrap();
         assert!(body.contains("TF_VAR_FOO"));
         assert!(body.contains("op://v/i/f"));
-        assert!(drop_binding(&path, "^terraform", "TF_VAR_FOO").unwrap());
+        assert!(
+            drop_binding(&path, "^terraform", "TF_VAR_FOO")
+                .unwrap()
+                .is_some()
+        );
         let body = fs::read_to_string(&path).unwrap();
         assert!(!body.contains("TF_VAR_FOO"));
     }

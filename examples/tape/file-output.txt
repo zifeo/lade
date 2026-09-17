@@ -5,16 +5,6 @@
   KEY: "written-to-disk"
 
 > lade inject --no-mask cat .lade-secrets.json
-╭ Warning ─────────────────────────────────────────────────────────────────────╮
-│                                                                              │
-│   Raw is a value you typed, not a vault secret.                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-
-⠋ Raw: KEY
-
-✔︎ Raw: KEY                                                               0 ms
-
 {"KEY":"written-to-disk"}
 
 > ls .lade-secrets.json

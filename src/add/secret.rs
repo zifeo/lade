@@ -4,17 +4,12 @@ use std::collections::HashMap;
 
 use super::ask;
 use super::cli::{locked_path_env, login_stop, pick_from_lines};
-use super::warn_raw;
-
 pub fn secret_uri() -> Result<String> {
     let scheme = ask("Scheme (op, vault, awssm, azurekv, gcpsm, raw, …): ")?;
     if scheme.is_empty() {
         bail!("a scheme is required");
     }
     if scheme == "raw" || scheme == "file" || scheme == "age" {
-        if scheme == "raw" {
-            warn_raw();
-        }
         return ask("Value or URI: ");
     }
     if let Some(uri) = pick_provider_secret(&scheme)? {

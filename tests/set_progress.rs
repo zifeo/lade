@@ -17,7 +17,8 @@ fn test_set_overlay_shows_overridden_progress() {
         .args(["set", "echo hi"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("TOKEN (overridden)"));
+        .stdout(predicates::str::contains("export TOKEN='b'"))
+        .stderr(predicates::str::contains("TOKEN (overridden)").not());
 }
 
 #[test]
@@ -35,7 +36,7 @@ fn test_set_git_cancel_shows_cancelled_progress() {
         .assert()
         .success()
         .stdout(predicates::str::contains("export SSH_AUTH_SOCK").not())
-        .stderr(predicates::str::contains("SSH_AUTH_SOCK (cancelled)"));
+        .stderr(predicates::str::contains("SSH_AUTH_SOCK (cancelled)").not());
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn test_set_without_silence_shows_hydration_progress() {
         .args(["set", "echo hi"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("Raw: KEY"));
+        .stderr(predicates::str::contains("Raw: KEY").not());
 }
 
 #[test]

@@ -48,7 +48,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
         }
         None => bail!("pass --uri"),
     };
-    if family == Family::Secret && !uri.contains("://") {
+    if family == Family::Secret && crate::family::is_raw_secret(&uri) {
         warn_raw();
     }
     if Family::of_uri(&uri) != family {
@@ -70,7 +70,6 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
         .line(format!("Wrote {} `{key}` on `{rule}`.", family.spoken()))
         .line(path.display().to_string())
         .line("Running `lade setup` for this repo.")
-        .line("If this was the first shell wrap, reload with `source ~/.zshrc` (or your profile).")
         .print_stderr();
     Ok(())
 }
@@ -99,16 +98,17 @@ pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
         bail!("pass --key");
     };
     let path = yaml::nearest_yaml()?.with_context(|| "no lade.yaml on the walk")?;
-    let removed = yaml::drop_binding(&path, &rule, &key)?;
-    if !removed {
+    let Some(uri) = yaml::drop_binding(&path, &rule, &key)? else {
         bail!("no `{key}` on `{rule}` in {}", path.display());
-    }
-    MessageBox::new()
+    };
+    let mut mb = MessageBox::new()
         .info()
         .line(format!("Removed {} `{key}` on `{rule}`.", family.spoken()))
-        .line(path.display().to_string())
-        .line("Teardown commands run on `lade teardown`.")
-        .print_stderr();
+        .line(path.display().to_string());
+    if uri.contains("teardown=") {
+        mb = mb.line("Teardown commands run on `lade teardown`.");
+    }
+    mb.print_stderr();
     Ok(())
 }
 

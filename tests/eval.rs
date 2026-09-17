@@ -31,6 +31,28 @@ fn eval_prints_file_uri_and_writes_diary() {
 }
 
 #[test]
+fn eval_access_command_writes_diary_name() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let key = dir.path().join("secret.json");
+    std::fs::write(&key, r#"{"token":"eval-secret-value"}"#).unwrap();
+    let uri = format!("file://{}?query=.token", key.display());
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["eval", "--access-command", "age-plugin-lade", "--", &uri])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("eval-secret-value"));
+
+    let rows = common::log_rows(home.path(), dir.path());
+    let items = rows.as_array().expect("log array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["kind"], "access");
+    assert_eq!(items[0]["command"], "age-plugin-lade");
+}
+
+#[test]
 fn eval_unknown_uri_is_literal() {
     let home = tempfile::tempdir().unwrap();
     let dir = tempfile::tempdir().unwrap();

@@ -15,7 +15,7 @@ pub use hook::*;
 pub enum Command {
     /// Download and install the latest release.
     Upgrade(UpgradeCommand),
-    /// Report version, config, pre-exec, pre-tool, and secret providers.
+    /// Report version, mise, locked tools, age-plugin-lade, config, pre-exec, pre-tool, and providers.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     Bench(BenchCommand),
@@ -23,8 +23,13 @@ pub enum Command {
     On,
     /// Disable pre-exec for this shell.
     Off,
-    /// Wire this git repo. First-time pre-exec. pre-tool stays in the repo.
+    /// Wire this git repo. Installs the locked bins. First-time
+    /// pre-exec. pre-tool stays in the repo.
     Setup(SetupCommand),
+    /// Re-resolve implied and ranged pins to the latest matching bin.
+    /// Rewrites the lock and installs. Exact yaml pins stay.
+    /// `lade upgrade` is the Lade binary.
+    Update,
     /// Remove this repo's Lade pre-tool hooks and run teardown commands.
     Teardown,
     /// Write a secret, binary, or tunnel into the nearest lade.yaml.
@@ -43,6 +48,9 @@ pub enum Command {
     Unset(EvalCommand),
     /// Evaluate a secret URI and print its resolved value.
     Eval {
+        /// Diary command name. age-plugin-lade passes its binary name.
+        #[arg(long = "access-command", hide = true)]
+        access_command: Option<String>,
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
@@ -70,7 +78,7 @@ pub enum Command {
     },
     /// Local command diary.
     Log(LogCommand),
-    /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--path` change the tree.
+    /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--global` / `--path` change the tree.
     Usage(UsageCommand),
     /// Shortcut for `lade inject <command...>`.
     #[command(external_subcommand)]
@@ -136,6 +144,12 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
         }
         Some(Command::Setup(_)) => {
             if let Some(sub) = cmd.find_subcommand_mut("setup") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Update) => {
+            if let Some(sub) = cmd.find_subcommand_mut("update") {
                 sub.print_help()?;
             }
             return Ok(());
