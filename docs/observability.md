@@ -74,7 +74,7 @@ only keeps the scrubbed `command`, `argv`, and public `matches`.
           "key": "API_TOKEN",
           "uri": "op://prod/api/credential",
           "family": "secret",
-          "bin": "op",
+          "package": "op",
           "version": "2.31.0"
         }
       ]
@@ -103,7 +103,8 @@ only keeps the scrubbed `command`, `argv`, and public `matches`.
 
 `matches` lists public keys and their `lade.yaml` URIs, not values.
 `file` is the directory of that yaml. Each binding has `family`
-(`secret` / `tunnel` / `bin`). Implied or explicit bins add `bin`
+(`secret` / `tunnel` / `package`). Implied or explicit packages add
+`package`
 and, when the lock beside that yaml agrees, `version`. Winners only.
 `.NAME` is omitted. `agent` is optional hook metadata (`harness`,
 `tool`, `session`, …). Keys may be absent.

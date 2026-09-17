@@ -271,10 +271,10 @@ fn match_tree_reads_lock_beside_yaml() {
     let matches = match_tree_from(&rules, &None);
     let text = matches.to_string();
     assert!(text.contains("\"family\":\"secret\""), "{text}");
-    assert!(text.contains("\"family\":\"bin\""), "{text}");
-    assert!(text.contains("\"bin\":\"op\""), "{text}");
+    assert!(text.contains("\"family\":\"package\""), "{text}");
+    assert!(text.contains("\"package\":\"op\""), "{text}");
     assert!(text.contains("\"version\":\"2.31.0\""), "{text}");
-    assert!(text.contains("\"bin\":\"tofu\""), "{text}");
+    assert!(text.contains("\"package\":\"tofu\""), "{text}");
     assert!(text.contains("\"version\":\"1.8.2\""), "{text}");
 }
 

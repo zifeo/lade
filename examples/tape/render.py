@@ -154,14 +154,11 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
 
             # Read result until next prompt
             output_accum = ""
-            wait = 8.0 if cmd.startswith(("lade ", "curl ", "sleep ")) else 2.0
-            deadline = time.time() + wait
-            while time.time() < deadline:
-                r, _, _ = select.select([fd], [], [], 0.4)
+            while True:
+                r, _, _ = select.select([fd], [], [], 1.0)
                 if r:
                     res = os.read(fd, 8192).decode("utf-8", errors="replace")
                     output_accum += res
-                    deadline = time.time() + wait
                     if (
                         'Type "yes" to continue' in res
                         or "cancel):" in res
@@ -169,22 +166,10 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
                     ):
                         break
                 else:
-                    if output_accum.strip().endswith(">"):
-                        break
+                    break
 
             if output_accum:
                 log_event(output_accum, delay=0.05)
-
-            if cmd.startswith("lade setup"):
-                extra = ""
-                quiet_since = time.time()
-                while time.time() - quiet_since < 1.5:
-                    r, _, _ = select.select([fd], [], [], 0.3)
-                    if r:
-                        extra += os.read(fd, 8192).decode("utf-8", errors="replace")
-                        quiet_since = time.time()
-                if extra:
-                    log_event(extra, delay=0.05)
 
             time.sleep(WAIT_AFTER)
 

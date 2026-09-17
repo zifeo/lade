@@ -3,8 +3,6 @@
   TF_VAR_demo_token: file://../sources/config.json?query=.token
   18080: kubectl://127.0.0.1:6445/k3d-lade-k3d-shared/lade-k3d-ns/service/http-echo/8080
 
-> sleep 1
-
 > curl -s --data ping=pong http://127.0.0.1:18080/ | jq -r .body
 ⠋ File: TF_VAR_demo_token
 

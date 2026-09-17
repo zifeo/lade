@@ -141,18 +141,18 @@ pub fn match_tree_from(
             "uri": uri,
             "family": family.token()
         });
-        let implied = crate::mise::implied_bin(&uri);
-        let bin = implied.or_else(|| {
-            if family == crate::family::Family::Bin && crate::mise::looks_like_spec(&uri) {
+        let implied = crate::mise::implied_package(&uri);
+        let package = implied.or_else(|| {
+            if family == crate::family::Family::Package && crate::mise::looks_like_spec(&uri) {
                 Some(key.as_str())
             } else {
                 None
             }
         });
-        if let Some(bin) = bin {
-            binding["bin"] = json!(bin);
+        if let Some(package) = package {
+            binding["package"] = json!(package);
             let lock = crate::mise::lock_path_in(&file);
-            if let Some(slot) = crate::mise::lock_slot(&lock, bin) {
+            if let Some(slot) = crate::mise::lock_slot(&lock, package) {
                 binding["version"] = json!(slot);
             }
         }

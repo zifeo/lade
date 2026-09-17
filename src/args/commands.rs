@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// This git repo: install locked bins, first-time pre-exec, repo
+/// This git repo: install locked packages, first-time pre-exec, repo
 /// pre-tool. The lock is the version. `lade update` re-resolves.
 /// `--unlock` ignores the lock this once.
 #[derive(Parser, Debug)]
@@ -47,7 +47,7 @@ impl SetupCommand {
 
 #[derive(Parser, Debug)]
 pub struct AddCommand {
-    /// Family (`secret`, `bin`, `tunnel`) or a bin search (`ghjk`).
+    /// Family (`secret`, `package`, `tunnel`) or a package search (`ghjk`).
     #[clap(value_parser)]
     pub family: Option<String>,
     /// Search or package name after the family.
@@ -66,7 +66,7 @@ pub struct AddCommand {
 
 #[derive(Parser, Debug)]
 pub struct RemoveCommand {
-    /// Family (`secret`, `bin`, `tunnel`) or the key to drop.
+    /// Family (`secret`, `package`, `tunnel`) or the key to drop.
     #[clap(value_parser)]
     pub family: Option<String>,
     /// Key or package name after the family.

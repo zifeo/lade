@@ -183,10 +183,10 @@ fn hash_key_is_a_rule_not_a_version() {
 }
 
 #[test]
-fn version_comment_then_mapping_loads() {
+fn version_key_then_mapping_loads() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "#: >=0.1.0\n\"cmd\":\n  KEY: val\n").unwrap();
+    std::fs::write(&file_path, ": >=0.1.0\n\"cmd\":\n  KEY: val\n").unwrap();
     let lade_file = LadeFile::from_path(&file_path).unwrap();
     assert!(
         lade_file.commands.get("cmd").unwrap()[0]
@@ -196,7 +196,7 @@ fn version_comment_then_mapping_loads() {
 }
 
 #[test]
-fn missing_version_comment_still_loads() {
+fn missing_version_still_loads() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
     std::fs::write(&file_path, "\"cmd\":\n  KEY: val\n").unwrap();
@@ -207,7 +207,7 @@ fn missing_version_comment_still_loads() {
 fn version_too_new_refuses() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "#: >=99.0.0\n\"cmd\":\n  KEY: val\n").unwrap();
+    std::fs::write(&file_path, ": >=99.0.0\n\"cmd\":\n  KEY: val\n").unwrap();
     let err = LadeFile::from_path(&file_path).unwrap_err().to_string();
     assert!(err.contains("needs Lade >=99.0.0"), "{err}");
     assert!(err.contains("lade upgrade"), "{err}");
@@ -221,7 +221,7 @@ fn parent_version_too_new_refuses_build() {
     std::fs::create_dir(&child).unwrap();
     std::fs::write(
         parent.path().join("lade.yml"),
-        "#: >=99.0.0\n\"cmd\":\n  PARENT_KEY: pval\n",
+        ": >=99.0.0\n\"cmd\":\n  PARENT_KEY: pval\n",
     )
     .unwrap();
     std::fs::write(child.join("lade.yml"), "\"cmd\":\n  CHILD_KEY: cval\n").unwrap();
@@ -233,10 +233,10 @@ fn parent_version_too_new_refuses_build() {
 }
 
 #[test]
-fn empty_version_comment_fails() {
+fn empty_version_fails() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "#:\n\"cmd\":\n  KEY: val\n").unwrap();
+    std::fs::write(&file_path, ":\n\"cmd\":\n  KEY: val\n").unwrap();
     let err = LadeFile::from_path(&file_path).unwrap_err().to_string();
     assert!(err.contains("version is empty"), "{err}");
 }
@@ -245,7 +245,7 @@ fn empty_version_comment_fails() {
 fn render_roundtrip_keeps_version() {
     let mapping: serde_yaml::Value = serde_yaml::from_str("\"cmd\":\n  KEY: val\n").unwrap();
     let raw = render_lade_yaml(Some(">=0.18.0"), &mapping).unwrap();
-    assert!(raw.starts_with("#: >=0.18.0\n"), "{raw}");
+    assert!(raw.starts_with(": >=0.18.0\n"), "{raw}");
     let (req, body) = parse_lade_yaml(&raw).unwrap();
     assert_eq!(req.as_deref(), Some(">=0.18.0"));
     assert!(
@@ -255,29 +255,32 @@ fn render_roundtrip_keeps_version() {
 }
 
 #[test]
-fn empty_key_is_a_command_regex_not_a_version() {
+fn empty_key_mapping_is_not_a_command() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
     std::fs::write(&file_path, "\"\":\n  KEY: val\n").unwrap();
-    let lade_file = LadeFile::from_path(&file_path).unwrap();
-    assert!(lade_file.commands.contains_key(""));
-}
-
-#[test]
-fn empty_key_version_string_is_not_a_lade_version() {
-    let dir = tempdir().unwrap();
-    let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "\"\": \">0.18,<=0.20\"\n\"cmd\":\n  KEY: val\n").unwrap();
     let err = LadeFile::from_path(&file_path).unwrap_err().to_string();
-    assert!(!err.contains("needs Lade"), "{err}");
-    assert!(!err.contains("version is empty"), "{err}");
+    assert!(err.contains("Use `.` to match every command"), "{err}");
 }
 
 #[test]
-fn version_comment_accepts_a_compound_range() {
+fn empty_key_string_is_the_lade_version() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "#: >0.18.0,<=0.20.0\n\"cmd\":\n  KEY: val\n").unwrap();
+    std::fs::write(&file_path, "\"\": \">=0.1.0\"\n\"cmd\":\n  KEY: val\n").unwrap();
+    let lade_file = LadeFile::from_path(&file_path).unwrap();
+    assert!(
+        lade_file.commands.get("cmd").unwrap()[0]
+            .secrets
+            .contains_key("KEY")
+    );
+}
+
+#[test]
+fn version_key_accepts_a_compound_range() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yaml");
+    std::fs::write(&file_path, ": >0.18.0,<=0.20.0\n\"cmd\":\n  KEY: val\n").unwrap();
     let lade_file = LadeFile::from_path(&file_path).unwrap();
     assert!(
         lade_file.commands.get("cmd").unwrap()[0]
@@ -290,7 +293,15 @@ fn version_comment_accepts_a_compound_range() {
 fn invalid_version_range_fails() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, "#: not a range\n\"cmd\":\n  KEY: val\n").unwrap();
+    std::fs::write(&file_path, ": not a range\n\"cmd\":\n  KEY: val\n").unwrap();
     let err = LadeFile::from_path(&file_path).unwrap_err().to_string();
     assert!(err.contains("is not a semver range"), "{err}");
+}
+
+#[test]
+fn dot_matches_every_command() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("lade.yml"), ".:\n  KEY: val\n").unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    assert_eq!(config.collect("anything at all").len(), 1);
 }

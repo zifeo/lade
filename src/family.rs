@@ -3,7 +3,7 @@
 pub enum Family {
     Secret,
     Tunnel,
-    Bin,
+    Package,
 }
 
 impl Family {
@@ -11,7 +11,7 @@ impl Family {
         match self {
             Family::Secret => "secret",
             Family::Tunnel => "tunnel",
-            Family::Bin => "bin",
+            Family::Package => "package",
         }
     }
 
@@ -19,7 +19,7 @@ impl Family {
         match self {
             Family::Secret => "secret",
             Family::Tunnel => "tunnel",
-            Family::Bin => "binary",
+            Family::Package => "package",
         }
     }
 
@@ -27,14 +27,14 @@ impl Family {
         match raw {
             "secret" | "env" => Some(Family::Secret),
             "tunnel" | "net" | "network" | "fwd" => Some(Family::Tunnel),
-            "bin" | "cli" | "tool" | "pkg" | "package" | "apm" | "skill" => Some(Family::Bin),
+            "package" | "pkg" | "cli" | "tool" | "apm" | "skill" => Some(Family::Package),
             _ => None,
         }
     }
 
     pub fn of_uri(uri: &str) -> Self {
         if crate::mise::looks_like_spec(uri) || is_package_uri(uri) {
-            return Family::Bin;
+            return Family::Package;
         }
         if let Some((scheme, _)) = uri.split_once("://")
             && lade_sdk::network::is_network_scheme(scheme)
@@ -63,8 +63,10 @@ mod tests {
     fn aliases_map_to_tokens() {
         assert_eq!(Family::parse("env"), Some(Family::Secret));
         assert_eq!(Family::parse("fwd"), Some(Family::Tunnel));
-        assert_eq!(Family::parse("pkg"), Some(Family::Bin));
-        assert_eq!(Family::parse("apm"), Some(Family::Bin));
+        assert_eq!(Family::parse("pkg"), Some(Family::Package));
+        assert_eq!(Family::parse("apm"), Some(Family::Package));
+        assert_eq!(Family::parse("package"), Some(Family::Package));
+        assert!(Family::parse("bin").is_none());
         assert!(Family::parse("mise").is_none());
     }
 
@@ -72,14 +74,17 @@ mod tests {
     fn uri_classifies_families() {
         assert_eq!(Family::of_uri("op://vault/item/field"), Family::Secret);
         assert_eq!(Family::of_uri("raw://hello"), Family::Secret);
-        assert_eq!(Family::of_uri("mise://aqua/jqlang/jq@1.7.1"), Family::Bin);
+        assert_eq!(
+            Family::of_uri("mise://aqua/jqlang/jq@1.7.1"),
+            Family::Package
+        );
         assert_eq!(
             Family::of_uri("apm://github/destructure-command-hook"),
-            Family::Bin
+            Family::Package
         );
         assert_eq!(
             Family::of_uri("skills://vercel-labs/agent-skills"),
-            Family::Bin
+            Family::Package
         );
         assert_eq!(Family::of_uri("kubectl://ctx"), Family::Tunnel);
         assert_eq!(Family::of_uri("file:///tmp/x?query=.a"), Family::Secret);

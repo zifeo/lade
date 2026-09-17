@@ -54,13 +54,13 @@ pub(super) fn resolve_entry(
     }
     let value = resolve_lade_secret(secret, saved_user)?;
     match Family::of_uri(&value) {
-        Family::Bin if is_package_uri(&value) => {
+        Family::Package if is_package_uri(&value) => {
             return Some(ResolvedEntry::Package {
                 key: key.to_string(),
                 uri: value,
             });
         }
-        Family::Bin => {
+        Family::Package => {
             return Some(ResolvedEntry::Pin {
                 key: key.to_string(),
                 value,

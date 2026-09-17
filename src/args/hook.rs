@@ -58,7 +58,7 @@ impl HookToggleCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum HookAction {
-    /// Write this shell's pre-exec, or one agent's pre-tool hook.
+    /// Write this shell's pre-exec, or one harness pre-tool hook.
     Enable(HookToggleCommand),
     /// Remove this shell's pre-exec, or one Lade-managed pre-tool hook.
     Disable(HookToggleCommand),

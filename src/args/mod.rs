@@ -23,16 +23,16 @@ pub enum Command {
     On,
     /// Disable pre-exec for this shell.
     Off,
-    /// Wire this git repo. Installs the locked bins. First-time
+    /// Wire this git repo. Installs the locked packages. First-time
     /// pre-exec. pre-tool stays in the repo.
     Setup(SetupCommand),
-    /// Re-resolve implied and ranged pins to the latest matching bin.
+    /// Re-resolve implied and ranged pins to the latest matching package.
     /// Rewrites the lock and installs. Exact yaml pins stay.
     /// `lade upgrade` is the Lade binary.
     Update,
     /// Remove this repo's Lade pre-tool hooks and run teardown commands.
     Teardown,
-    /// Write a secret, binary, or tunnel into the nearest lade.yaml.
+    /// Write a secret, package, or tunnel into the nearest lade.yaml.
     Add(AddCommand),
     /// Remove a binding from the nearest lade.yaml.
     Remove(RemoveCommand),
@@ -56,7 +56,7 @@ pub enum Command {
     },
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     Hook {
-        /// Agent that installed this hook. Unknown values are ignored.
+        /// Harness that installed this hook. Unknown values are ignored.
         #[clap(long = "harness")]
         harness: Option<String>,
         #[command(subcommand)]

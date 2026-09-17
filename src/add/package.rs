@@ -6,21 +6,21 @@ use super::ask;
 use super::cli::{family_program, login_stop, pick_from_lines};
 use super::require_or_ask;
 
-pub fn bin_uri(query: Option<&str>, tty: bool) -> Result<String> {
+pub fn package_uri(query: Option<&str>, tty: bool) -> Result<String> {
     if let Some(query) = query {
         if query.contains("://") {
             return Ok(query.to_string());
         }
         if tty && (query == "apm" || query.starts_with("apm/")) {
             let q = query.strip_prefix("apm/").unwrap_or("");
-            return search_package("apm", q);
+            return search_registry("apm", q);
         }
         if tty && (query == "skills" || query.starts_with("skills/")) {
             let q = query.strip_prefix("skills/").unwrap_or("");
-            return search_package("skills", q);
+            return search_registry("skills", q);
         }
         if tty {
-            return search_bin(query);
+            return search_mise(query);
         }
         bail!("pass --uri mise://<backend>/<package>@<version> (got `{query}`)");
     }
@@ -30,7 +30,7 @@ pub fn bin_uri(query: Option<&str>, tty: bool) -> Result<String> {
     bail!("pass --uri")
 }
 
-fn search_package(cli: &str, query: &str) -> Result<String> {
+fn search_registry(cli: &str, query: &str) -> Result<String> {
     let query = if query.is_empty() {
         ask(&format!("{cli} package (owner/repo): "))?
     } else {
@@ -73,7 +73,7 @@ fn search_package(cli: &str, query: &str) -> Result<String> {
     Ok(format!("{cli}://{query}"))
 }
 
-fn search_bin(query: &str) -> Result<String> {
+fn search_mise(query: &str) -> Result<String> {
     let hits = mise_search(query)?;
     if hits.is_empty() {
         bail!("mise search found nothing for `{query}`. Pass --uri if you know the pin.");

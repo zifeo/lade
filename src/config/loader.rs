@@ -51,6 +51,9 @@ impl LadeFile {
         let raw: RawLadeFile = serde_yaml::from_value(config)?;
         let mut commands = IndexMap::new();
         for (pattern, bodies) in raw.commands {
+            if pattern.is_empty() {
+                bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+            }
             commands.insert(pattern.clone(), bodies.into_rules(&pattern)?);
         }
         Ok(LadeFile { commands })
@@ -126,25 +129,38 @@ pub(crate) fn yaml_files_on_walk(start: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Optional first line `#: >=0.18.0`. A YAML comment, so it cannot be a
-/// command regex. A rule for `#` is a quoted key (`"#"` or `"\\#"`).
+/// Optional empty-key range (`: >=0.18.0`). Empty regex is not a command.
+/// Use `.` to match every command. The line is peeled before YAML parse:
+/// a leading `: range` is not valid YAML as a mapping key.
 pub(crate) fn parse_lade_yaml(raw: &str) -> Result<(Option<String>, serde_yaml::Value)> {
-    let (req, yaml_src) = take_version_line(raw)?;
+    let (line_req, yaml_src) = take_version_line(raw)?;
     if yaml_src.trim().is_empty() {
-        return Ok((req, serde_yaml::Value::Mapping(serde_yaml::Mapping::new())));
+        return Ok((
+            line_req,
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        ));
     }
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml_src).context("invalid YAML")?;
+    let mut value: serde_yaml::Value = serde_yaml::from_str(yaml_src).context("invalid YAML")?;
     if !value.is_mapping() {
         bail!("lade.yaml body must be a mapping");
     }
+    let key_req = take_version_key(value.as_mapping_mut().expect("mapping"))?;
+    let req = match (line_req, key_req) {
+        (None, None) => None,
+        (Some(req), None) | (None, Some(req)) => Some(req),
+        (Some(_), Some(_)) => {
+            bail!("lade.yaml has two versions. Keep one `: >=0.18.0`.");
+        }
+    };
     Ok((req, value))
 }
 
 pub(crate) fn render_lade_yaml(req: Option<&str>, mapping: &serde_yaml::Value) -> Result<String> {
     let body = serde_yaml::to_string(mapping)?;
+    let body = body.strip_prefix("---\n").unwrap_or(&body);
     match req {
-        Some(req) => Ok(format!("#: {req}\n{body}")),
-        None => Ok(body),
+        Some(req) => Ok(format!(": {req}\n{body}")),
+        None => Ok(body.to_string()),
     }
 }
 
@@ -155,18 +171,68 @@ fn take_version_line(raw: &str) -> Result<(Option<String>, &str)> {
         None => (body.strip_suffix('\r').unwrap_or(body), ""),
     };
     let trimmed = first.trim();
-    let Some(after_hash) = trimmed.strip_prefix('#') else {
+    if trimmed.starts_with('#') {
         return Ok((None, body));
-    };
-    let after_hash = after_hash.trim_start();
-    let Some(req) = after_hash.strip_prefix(':') else {
-        return Ok((None, body));
-    };
-    let req = req.trim();
-    if req.is_empty() {
-        bail!("lade.yaml `#:` version is empty. Example: `#: >=0.18.0`");
     }
-    Ok((Some(req.to_string()), rest))
+    let Some(after) = trimmed.strip_prefix(':') else {
+        return Ok((None, body));
+    };
+    let after = unquote_version(after.trim());
+    if after.is_empty() {
+        if rest.starts_with(' ') || rest.starts_with('\t') {
+            bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+        }
+        bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+    }
+    if after.contains(':') {
+        return Ok((None, body));
+    }
+    Ok((Some(after.to_string()), rest))
+}
+
+fn unquote_version(s: &str) -> &str {
+    for quote in ['"', '\''] {
+        if s.len() >= 2 && s.starts_with(quote) && s.ends_with(quote) {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
+
+fn take_version_key(map: &mut serde_yaml::Mapping) -> Result<Option<String>> {
+    let null_val = map.remove(serde_yaml::Value::Null);
+    let empty_val = map.remove(serde_yaml::Value::String(String::new()));
+    let value = match (null_val, empty_val) {
+        (None, None) => return Ok(None),
+        (Some(value), None) | (None, Some(value)) => value,
+        (Some(_), Some(_)) => {
+            bail!("lade.yaml has both `:` and `\"\":`. Keep one version: `: >=0.18.0`.");
+        }
+    };
+    version_from_value(value)
+}
+
+fn version_from_value(value: serde_yaml::Value) -> Result<Option<String>> {
+    match value {
+        serde_yaml::Value::String(req) => {
+            let req = req.trim();
+            if req.is_empty() {
+                bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+            }
+            Ok(Some(req.to_string()))
+        }
+        serde_yaml::Value::Null => {
+            bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+        }
+        serde_yaml::Value::Mapping(_) | serde_yaml::Value::Sequence(_) => {
+            bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+        }
+        other => {
+            bail!(
+                "lade.yaml `:` version must be a semver range. Example: `: >=0.18.0`. Got {other:?}."
+            );
+        }
+    }
 }
 
 fn current_lade_version() -> Version {
@@ -178,7 +244,7 @@ fn current_lade_version() -> Version {
 pub(crate) fn require_lade_version(req: &str, path: &Path) -> Result<()> {
     let parsed = VersionReq::parse(req).with_context(|| {
         format!(
-            "{} version `{req}` is not a semver range. Example: `#: >=0.18.0`",
+            "{} version `{req}` is not a semver range. Example: `: >=0.18.0`",
             path.display()
         )
     })?;
@@ -187,7 +253,7 @@ pub(crate) fn require_lade_version(req: &str, path: &Path) -> Result<()> {
         return Ok(());
     }
     bail!(
-        "{} needs Lade {req}. This binary is {}.\nRun `lade upgrade`, or edit the `#:` line at the top of that file.",
+        "{} needs Lade {req}. This binary is {}.\nRun `lade upgrade`, or edit the `:` version in that file.",
         path.display(),
         env!("CARGO_PKG_VERSION")
     );

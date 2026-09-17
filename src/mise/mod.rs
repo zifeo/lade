@@ -25,7 +25,7 @@ pub use ensure::{ensure_for_setup, managed_mise_in_play, mise_program, status_in
 pub use error::Error;
 pub use lifecycle::run_lifecycle_commands;
 pub use plane::scan;
-pub use prepare::{implied_bin, locked_bin, locked_cli_bin, locked_tools, prepare};
+pub use prepare::{implied_package, locked_bin, locked_cli_bin, locked_tools, prepare};
 pub use run::run_in_repo;
 pub use setup::{PinMode, setup_pins};
 pub use spec::{

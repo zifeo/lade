@@ -215,9 +215,9 @@ fn warn_plane(snap: &Snapshot) {
 fn print_update(bumped: &[(String, String, String)]) {
     let mut mb = crate::message_box::MessageBox::new().info();
     if bumped.is_empty() {
-        mb = mb.line("Lock already at the latest matching bins.");
+        mb = mb.line("Lock already at the latest matching packages.");
     } else {
-        mb = mb.line("Updated the lock and installed the new bins.");
+        mb = mb.line("Updated the lock and installed the new packages.");
         for (key, from, to) in bumped {
             if from.is_empty() {
                 mb = mb.line(format!("  {key}  {to}"));

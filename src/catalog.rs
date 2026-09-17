@@ -128,7 +128,7 @@ fn tags_from(bindings: Option<&serde_json::Value>) -> Vec<String> {
 fn uri_tag(uri: &str) -> &'static str {
     match Family::of_uri(uri) {
         Family::Tunnel => "tunnel",
-        Family::Bin => Family::Bin.token(),
+        Family::Package => Family::Package.token(),
         Family::Secret
             if uri
                 .split_once("://")

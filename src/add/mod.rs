@@ -6,8 +6,8 @@ use crate::context::InvocationContext;
 use crate::family::Family;
 use crate::message_box::MessageBox;
 
-mod bin;
 mod cli;
+mod package;
 mod secret;
 mod tunnel;
 mod yaml;
@@ -19,16 +19,16 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
     let (family, query) = resolve_family(opts.family.as_deref(), opts.query.as_deref(), tty)?;
     let rule = require_or_ask(opts.rule.as_deref(), "Rule (regex): ", tty)?;
     let key = match family {
-        Family::Bin => opts
+        Family::Package => opts
             .key
             .clone()
-            .or_else(|| bin::key_from_query_or_uri(query.as_deref(), opts.uri.as_deref()))
+            .or_else(|| package::key_from_query_or_uri(query.as_deref(), opts.uri.as_deref()))
             .or_else(|| {
                 tty.then(|| ask("Key (env name, default argv0): ").ok())
                     .flatten()
                     .filter(|s| !s.is_empty())
             })
-            .or_else(|| bin::key_from_query_or_uri(query.as_deref(), opts.uri.as_deref())),
+            .or_else(|| package::key_from_query_or_uri(query.as_deref(), opts.uri.as_deref())),
         _ => Some(require_or_ask(
             opts.key.as_deref(),
             "Key (env or port): ",
@@ -40,7 +40,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
     };
     let uri = match opts.uri.clone() {
         Some(uri) => uri,
-        None if family == Family::Bin => bin::bin_uri(query.as_deref(), tty)?,
+        None if family == Family::Package => package::package_uri(query.as_deref(), tty)?,
         None if family == Family::Secret && tty => secret::secret_uri()?,
         None if family == Family::Tunnel && tty => tunnel::tunnel_uri()?,
         None if family == Family::Tunnel => {
@@ -58,7 +58,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
             family.token()
         );
     }
-    let uri = if family == Family::Bin {
+    let uri = if family == Family::Package {
         crate::mise::pin_exact(&uri)?
     } else {
         uri
@@ -86,7 +86,7 @@ pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
             let family = ask_family()?;
             (family, opts.query.clone())
         }
-        _ => bail!("pass a family (`secret`, `bin`, `tunnel`) or a key"),
+        _ => bail!("pass a family (`secret`, `package`, `tunnel`) or a key"),
     };
     let rule = require_or_ask(opts.rule.as_deref(), "Rule (regex): ", tty)?;
     let key = opts
@@ -119,16 +119,16 @@ fn resolve_family(
 ) -> Result<(Family, Option<String>)> {
     match first {
         None if tty => Ok((ask_family()?, second.map(str::to_string))),
-        None => bail!("pass a family: secret, bin, or tunnel"),
+        None => bail!("pass a family: secret, package, or tunnel"),
         Some(token) if Family::parse(token).is_some() => {
             Ok((Family::parse(token).unwrap(), second.map(str::to_string)))
         }
-        Some(query) => Ok((Family::Bin, Some(query.to_string()))),
+        Some(query) => Ok((Family::Package, Some(query.to_string()))),
     }
 }
 
 fn ask_family() -> Result<Family> {
-    let answer = ask("Family (secret, bin, tunnel): ")?;
+    let answer = ask("Family (secret, package, tunnel): ")?;
     Family::parse(&answer).with_context(|| format!("unknown family '{answer}'"))
 }
 

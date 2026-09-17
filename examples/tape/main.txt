@@ -1,9 +1,20 @@
 > echo hello $GREETING
 hello
 
-> eval "$(lade on)"
+> lade setup
+pre-exec  this shell
+First wrap for this profile. Reload: source ~/.zshrc
+  installed  ~/.zshrc
+pre-tool  this repo
+  …
+
+> source ~/.zshrc
 
 > echo hello $GREETING
+⠋ Raw: GREETING
+
+✔︎ Raw: GREETING                                                             0 ms
+
 hello world
 
 >

@@ -199,17 +199,17 @@ mod tests {
     }
 
     #[test]
-    fn upsert_keeps_leading_version_comment() {
+    fn upsert_keeps_version() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("lade.yaml");
         fs::write(
             &path,
-            "#: >=0.1.0\n\"^jq\":\n  jq: mise://aqua/jqlang/jq@1.7.0\n",
+            ": >=0.1.0\n\"^jq\":\n  jq: mise://aqua/jqlang/jq@1.7.0\n",
         )
         .unwrap();
         upsert_binding(&path, "^jq", "jq", "mise://aqua/jqlang/jq@1.7.1").unwrap();
         let body = fs::read_to_string(&path).unwrap();
-        assert!(body.starts_with("#: >=0.1.0\n"), "{body}");
+        assert!(body.starts_with(": >=0.1.0\n"), "{body}");
         assert!(!body.contains("---"), "{body}");
         assert!(body.contains("1.7.1"), "{body}");
     }

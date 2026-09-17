@@ -5,7 +5,7 @@
 **Why.** A command needs secrets or a private network. That access
 should exist for the process, then be gone.
 
-**What.** One `lade.yaml`. Three families: secret, tunnel, bin. The
+**What.** One `lade.yaml`. Three families: secret, tunnel, package. The
 same wrap for humans and agents. See which access was used.
 
 **How.** Install, `lade setup`, type the command.
@@ -16,38 +16,34 @@ same wrap for humans and agents. See which access was used.
 
 Lade on [Fish](https://fishshell.com),
 [Bash](https://www.gnu.org/software/bash/), or [Zsh](https://zsh.sourceforge.io).
-macOS and Linux.
+macOS and Linux. [Cursor](https://cursor.com),
+[Claude Code](https://code.claude.com),
+[Codex](https://developers.openai.com/codex), and
+[OpenCode](https://opencode.ai).
 
 ## Getting started
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | bash
+cd your-repo
+lade setup
 ```
 
-```bash
-cargo install lade --locked
-cargo install age-plugin-lade --locked
-```
+Setup installs a global shell hook once, in your profile, so every
+command you type can match. The rest stays in the repo: the pre-tool
+hook for Cursor, Claude Code, Codex, and OpenCode, and the lock for
+pinned packages. The wrap is yours. The access is this repo's.
 
-The plugin execs `lade eval`. Keep `lade` next to it or on `PATH`.
-
-From this repo the plugin is `crates/age-plugin-lade`, not `crates/age`:
-
-```bash
-cargo install --path . --locked
-cargo install --path crates/age-plugin-lade --locked
-```
-
-> If `lade` is missing, install it with the curl above. From this git repo run `lade setup`.
-
-Then `cd` into the repo and run `lade setup`. Setup prints the
-reload line when this shell just got its first wrap.
-
-You do not prefix the command. Pre-exec (or the agent hook) wraps
-it. Without a wrap: `lade tofu apply` or `lade inject -- tofu apply`.
+You do not prefix the command. Without a wrap: `lade -- tofu apply`.
 
 `lade on` / `lade off` pause this shell.
 `lade hook enable --shell` wraps another profile.
+
+Or from GitHub:
+
+```bash
+cargo install --git https://github.com/zifeo/lade --locked
+```
 
 ## Patterns
 
@@ -107,20 +103,19 @@ expect credentials on disk.
 <tr>
 <td width="50%">
 
-**Manual injection.** Use `lade <command>` in scripts, CI, or shells
-without hooks. The explicit form is `lade inject <command>`.
+**One command.** Use `lade -- tofu apply` in scripts, CI, or shells
+without hooks.
 
 </td>
 <td width="50%">
 
-![Manual injection](./examples/tape/inject.gif)
+![One command](./examples/tape/inject.gif)
 
 </td>
 </tr>
 </table>
 
-More: [examples/tape/](examples/tape/). Re-record GIFs after
-`examples/tape/render.sh` when the setup copy changes.
+More: [examples/tape/](examples/tape/).
 
 ## Config
 
@@ -128,16 +123,14 @@ A `lade.yaml` (or `lade.yml`) at the folder that owns the command.
 Lade walks from the current directory up to `$HOME`. The nearest
 file wins on a key. The parent is the default.
 
-The first line may be a YAML comment with the required Lade
-range. A comment cannot steal a command regex. A rule for `#`
-is a quoted key (`"#"` or `"\\#"`). An empty key is also a regex,
-not a version (`"": ">0.18,<=0.20"` does not pin Lade). Edit `#:`
-by hand when the repo needs a Lade that is new enough. There is
-no pin command. `lade upgrade` still runs if this binary is too
-old.
+The file may pin the required Lade range with an empty YAML key
+(`: >=0.18.0`). An empty command regex is not a rule. Use `.` to
+match every command. Edit `:` by hand when the repo needs a Lade
+that is new enough. There is no pin command. `lade upgrade` still
+runs if this binary is too old.
 
 ```yaml
-#: >=0.18.0
+: >=0.18.0
 
 "^tofu":
   TF_VAR_api_key: op://DOMAIN/VAULT/ITEM/FIELD
@@ -153,16 +146,16 @@ tofu apply
 | --- | --- |
 | `secret` | A value for the command (`op://`, `file://`, raw, …). Lands in the process env |
 | `tunnel` | A local forward for the process (`kubectl://`, `tsh://`, …) |
-| `bin` | A CLI pinned for that command |
+| `package` | A pinned CLI or setup package (`mise://`, `apm://`, `skills://`) |
 
-`lade add secret` / `lade add tunnel` / `lade add bin` write the
+`lade add secret` / `lade add tunnel` / `lade add package` write the
 nearest yaml, then run `lade setup`. `env` is an alias of `secret`.
 
 ### Secret
 
 A vault, a file, a shell snippet, or a raw string. Provider-resolved
 values are masked unless `--no-mask`. Raw is **not** a vault secret.
-It is a value you put in the yaml. `lade add` warns once. Inject
+It is a value you put in the yaml. `lade add` warns once. A wrap
 does not. It still lives in this family because it becomes an env
 var.
 
@@ -221,12 +214,12 @@ local port unless `local=` sets one. A numeric key is a fixed port.
 | `tsh` | `tsh://<proxy>:<port>/<kind>/<resource-path>` | `local=` |
 | `ssh` | `ssh://<jump>:<port>/<remote-host>/<remote-port>` | `local=` |
 
-### Bin
+### Package
 
-A CLI for the matched command. The key is the argv0 you type.
-If the binary is `tofu1.8`, the key is `tofu1.8`. Lade asks the
-tool manager to pin it, then puts that install first on PATH for
-this process.
+A CLI for the matched command, or a setup-only package. The key
+is the argv0 you type. If the binary is `tofu1.8`, the key is
+`tofu1.8`. Lade asks the tool manager to pin it, then puts that
+install first on PATH for this process.
 
 ```yaml
 ^tofu:
@@ -256,7 +249,7 @@ Optional `?setup=` / `?teardown=` run on `lade setup` /
 
 | Scheme | URI | What |
 | --- | --- | --- |
-| `mise` | `mise://<backend>/<package>@<version>` | A CLI pin. `lade add bin` writes this. |
+| `mise` | `mise://<backend>/<package>@<version>` | A CLI pin. `lade add package` writes this. |
 | `apm` | `apm://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
 | `skills` | `skills://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
 
@@ -275,7 +268,7 @@ Same directory must not have both `lade.yaml` and `lade.yml`.
 ## Observability
 
 Opt-in. `log: true` on a rule records that the command ran, what
-matched, which bin resolved. Values are never stored. The row is
+matched, which package resolved. Values are never stored. The row is
 an audit snapshot at write time.
 
 ```yaml
@@ -297,7 +290,7 @@ Details: [docs/observability.md](docs/observability.md).
 
 Same yaml. Same resolve. The agent types the command. There is
 no Lade skill. `lade setup` writes the pre-tool hook. Enable one
-agent by hand with `lade hook enable --harness cursor`.
+harness by hand with `lade hook enable --harness cursor`.
 
 ## When, users, approval
 
@@ -333,18 +326,41 @@ Build time only. Same yaml. Not production runtime.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
 lade setup
-lade inject -- tofu apply
+lade -- tofu apply
 ```
 
 GitHub Action: `zifeo/lade`. Image: `ghcr.io/zifeo/lade`.
 
+## age plugin
+
+`age-plugin-lade` lets [age](https://github.com/FiloSottile/age)
+hydrate a secret through Lade. The plugin execs `lade eval`. Keep
+`lade` next to it or on `PATH`.
+
+```bash
+cargo install age-plugin-lade --locked
+```
+
+From this repo the plugin is `crates/age-plugin-lade`:
+
+```bash
+cargo install --path crates/age-plugin-lade --locked
+```
+
 ## More
 
-- Intermediate bindings, `sh://` wrap, age/SOPS query params:
-  [docs/architecture.md](docs/architecture.md)
-- Diary flags: [docs/observability.md](docs/observability.md)
-- MCP one-shot (`lade mcp`): still supported, not the product
-- `1password_service_account` on `.` for CI `op://`
+A command can build one value from another (`${NAME}`), run a
+shell snippet (`sh://`), or pull a field from age or SOPS. The
+why and the flags are in
+[docs/architecture.md](docs/architecture.md).
+
+`lade log` and `lade usage` flags:
+[docs/observability.md](docs/observability.md).
+
+CI that talks to 1Password without a person: set
+`1password_service_account` on `.`.
+
+`lade mcp` wraps one MCP server when a hook is not enough.
 
 ## Development
 
@@ -352,5 +368,6 @@ GitHub Action: `zifeo/lade`. Image: `ghcr.io/zifeo/lade`.
 eval "$(lade off)"
 eval "$(cargo run -- on)"
 cargo test --workspace --locked
+eval "$(cargo run -- off)"
 eval "$(lade on)"
 ```

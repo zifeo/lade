@@ -268,7 +268,7 @@ pub fn locked_cli_bin(cli: &str) -> Option<PathBuf> {
     locked_bin(cwd.as_deref(), row.key, &spec)
 }
 
-pub fn implied_bin(uri: &str) -> Option<&'static str> {
+pub fn implied_package(uri: &str) -> Option<&'static str> {
     uri.split_once("://")
         .and_then(|(scheme, _)| implied::by_scheme(scheme).map(|row| row.key))
 }

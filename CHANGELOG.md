@@ -23,11 +23,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   Tamper-evident, not tamper-proof.
 - **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
   `bw list items` per resolve. `password` is the default field.
-- **lade.yaml version**: optional first line `#: >=0.18.0`. A
-  YAML comment, so it cannot be a command regex. A rule for `#`
-  is a quoted key. Below the range, Lade refuses and shows the
-  box. Edit the comment by hand. No pin command. `lade upgrade`
-  does not load yaml.
+- **lade.yaml version**: optional empty key `: >=0.18.0`. An
+  empty command regex is not a rule. Use `.` to match every
+  command. Below the range, Lade refuses and shows the box.
+  Edit `:` by hand. No pin command. `lade upgrade` does not
+  load yaml.
 - **mise pins**: A `mise://` URI on a matched rule
   (`tofu: mise://aqua/opentofu/opentofu@1.8.2`) prepends that
   install's bin directory for the command. A miss runs `mise
@@ -72,7 +72,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `$HOME` unless the yaml is there) is the Mise plane: setup
   extends both. Otherwise one `lade.lock` at the git root. A git
   repo in `$HOME` is not that root. `mise.local.toml` is not a
-  plane. Bin URIs may set
+  plane. The third family is `package` (`lade add package`), not
+  `bin`. Diary bindings use `package`. Package URIs may set
   `?setup=` / `?teardown=`. Diary prune uses the same repo filter
   plus `--global`. Both `lade.yaml` and `lade.yml` in one dir is
   an error. No skill files. `lade setup` does not sweep leftover
