@@ -15,7 +15,7 @@ pub use hook::*;
 pub enum Command {
     /// Download and install the latest release.
     Upgrade(UpgradeCommand),
-    /// Report version, config, pre-exec, pre-tool, skills, and secret providers.
+    /// Report version, mise, locked tools, age-plugin-lade, config, pre-exec, pre-tool, and providers.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     Bench(BenchCommand),
@@ -23,11 +23,20 @@ pub enum Command {
     On,
     /// Disable pre-exec for this shell.
     Off,
-    /// Install pre-exec (this shell) and pre-tool (agents).
-    Install(InstallCommand),
-    /// Remove pre-exec (this shell) and pre-tool (same plane as install).
-    Uninstall,
-    /// Run a command with matching lade.yml access. One-shot, no pre-exec.
+    /// Wire this git repo. Installs the locked packages. First-time
+    /// pre-exec. pre-tool stays in the repo.
+    Setup(SetupCommand),
+    /// Re-resolve implied and ranged pins to the latest matching package.
+    /// Rewrites the lock and installs. Exact yaml pins stay.
+    /// `lade upgrade` is the Lade binary.
+    Update,
+    /// Remove this repo's Lade pre-tool hooks and run teardown commands.
+    Teardown,
+    /// Write a secret, package, or tunnel into the nearest lade.yaml.
+    Add(AddCommand),
+    /// Remove a binding from the nearest lade.yaml.
+    Remove(RemoveCommand),
+    /// Run a command with matching lade.yaml access. One-shot, no pre-exec.
     Inject(InjectCommand),
     /// Resolve secrets for a local or remote MCP server.
     Mcp(McpCommand),
@@ -39,13 +48,16 @@ pub enum Command {
     Unset(EvalCommand),
     /// Evaluate a secret URI and print its resolved value.
     Eval {
+        /// Diary command name. age-plugin-lade passes its binary name.
+        #[arg(long = "access-command", hide = true)]
+        access_command: Option<String>,
         /// The secret URI to resolve (e.g., op://vault/item/field)
         uri: String,
     },
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     Hook {
-        /// Host that installed this hook. Unknown values are ignored.
-        #[clap(long)]
+        /// Harness that installed this hook. Unknown values are ignored.
+        #[clap(long = "harness")]
         harness: Option<String>,
         #[command(subcommand)]
         action: Option<HookAction>,
@@ -56,7 +68,7 @@ pub enum Command {
         /// The approval code printed in the disclaimer (e.g. `ab12c`).
         code: Option<String>,
     },
-    /// Set the lade.yml per-user key, or reset to the OS user.
+    /// Set the lade.yaml per-user key, or reset to the OS user.
     User {
         /// The username to set
         username: Option<String>,
@@ -66,7 +78,7 @@ pub enum Command {
     },
     /// Local command diary.
     Log(LogCommand),
-    /// Matched lade.yml rules in this tree, most frequent first. `--all` / `--path` change the tree.
+    /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--global` / `--path` change the tree.
     Usage(UsageCommand),
     /// Shortcut for `lade inject <command...>`.
     #[command(external_subcommand)]
@@ -130,14 +142,32 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
             }
             return Ok(());
         }
-        Some(Command::Install(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("install") {
+        Some(Command::Setup(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("setup") {
                 sub.print_help()?;
             }
             return Ok(());
         }
-        Some(Command::Uninstall) => {
-            if let Some(sub) = cmd.find_subcommand_mut("uninstall") {
+        Some(Command::Update) => {
+            if let Some(sub) = cmd.find_subcommand_mut("update") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Teardown) => {
+            if let Some(sub) = cmd.find_subcommand_mut("teardown") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Add(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("add") {
+                sub.print_help()?;
+            }
+            return Ok(());
+        }
+        Some(Command::Remove(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("remove") {
                 sub.print_help()?;
             }
             return Ok(());

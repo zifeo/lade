@@ -1,4 +1,4 @@
-lade install
+lade setup
 source ~/.zshrc
 clear
 ./show-example hooks

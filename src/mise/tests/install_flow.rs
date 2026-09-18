@@ -100,7 +100,7 @@ fn intercept_mise_composes_project_and_pin_not_home_java() {
             let out = block_on(prepare(&config, "mise ls", dir.path(), &None)).unwrap();
             let composed_path = out.env.get("MISE_GLOBAL_CONFIG_FILE").unwrap();
             let composed = std::fs::read_to_string(composed_path).unwrap();
-            assert!(composed.contains("node = \"24.16.0\""), "{composed}");
+            assert!(!composed.contains("node = \"24.16.0\""), "{composed}");
             assert!(composed.contains("aqua:jqlang/jq"), "{composed}");
             assert!(composed.contains("1.7.1"), "{composed}");
             assert!(!composed.contains("java"), "{composed}");

@@ -28,7 +28,6 @@ pub fn start_attached_network_session(
         return Ok(AcquiredNetwork::empty());
     }
     let mut env = HashMap::new();
-    let mut sources = Vec::new();
     let mut guards = Vec::new();
     let handles = bindings
         .iter()
@@ -41,17 +40,15 @@ pub fn start_attached_network_session(
     for handle in handles {
         let attached = handle
             .join()
-            .map_err(|_| anyhow::anyhow!("network provider worker panicked"))
+            .map_err(|_| anyhow::anyhow!("tunnel worker panicked"))
             .and_then(|inner| inner)?;
         if let Some((key, value)) = attached.env_entry {
             env.insert(key, value);
         }
-        sources.push(attached.source_uri);
         guards.push(attached.guard);
     }
     Ok(AcquiredNetwork {
         env,
-        sources,
         _guards: guards,
     })
 }
@@ -76,7 +73,7 @@ pub fn start_detached_network_session(
     for handle in handles {
         let outcome = handle
             .join()
-            .map_err(|_| anyhow::anyhow!("network provider worker panicked"))
+            .map_err(|_| anyhow::anyhow!("tunnel worker panicked"))
             .and_then(|inner| inner);
         let (env_entry, pid) = match outcome {
             Ok(value) => value,
@@ -166,7 +163,6 @@ fn prepare_binding(
 
 struct AttachedBinding {
     env_entry: Option<(String, String)>,
-    source_uri: String,
     guard: RunningForward,
 }
 
@@ -175,7 +171,7 @@ fn acquire_attached_binding(
     progress: ProviderProgressSink,
 ) -> Result<AttachedBinding> {
     let PreparedBinding {
-        mut parsed,
+        parsed,
         local_host,
         local_port,
         command,
@@ -211,7 +207,6 @@ fn acquire_attached_binding(
     );
     Ok(AttachedBinding {
         env_entry,
-        source_uri: std::mem::take(&mut parsed.source_uri),
         guard: process,
     })
 }

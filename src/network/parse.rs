@@ -30,7 +30,7 @@ pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
     let providers = NetworkProviders::new();
     let parser = providers
         .provider(scheme)
-        .ok_or_else(|| anyhow::anyhow!("unsupported network provider scheme '{}'", scheme))?;
+        .ok_or_else(|| anyhow::anyhow!("unsupported tunnel scheme '{}'", scheme))?;
     let spec = parser.parse(&authority, &segments, &query_map)?;
 
     Ok(ParsedBinding {
@@ -38,7 +38,6 @@ pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
         local_host,
         local_port,
         spec,
-        source_uri: binding.uri.clone(),
     })
 }
 

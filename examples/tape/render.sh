@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Orchestrates the rendering of all tapes using render.py.
 # Requires: docker, python3, asciinema, agg.
+# Re-run after setup/copy changes. The checked-in .gif files are stale
+# until this script completes.
 
 set -euo pipefail
 

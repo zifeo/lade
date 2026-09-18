@@ -10,7 +10,7 @@ pub fn run_usage(opts: UsageCommand) -> Result<()> {
         query_window(opts.since.as_deref(), opts.until.as_deref(), opts.limit)?;
     let cwd = std::env::current_dir()?;
     let audience = filter_opt(&opts.audience);
-    let repo = repo_filter(opts.all, opts.path.as_deref(), &cwd);
+    let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
     let events = fetch_events(
         &opts.source,
         since.as_ref(),

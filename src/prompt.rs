@@ -41,7 +41,8 @@ fn code_for_window(command: &str, window: u64) -> String {
     hasher.update(command.as_bytes());
     hasher.update(b"\n");
     hasher.update(window.to_le_bytes());
-    hex::encode(hasher.finalize())[..APPROVAL_CODE_LEN].to_string()
+    let digest = hasher.finalize();
+    format!("{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2])[..APPROVAL_CODE_LEN].to_string()
 }
 
 /// The approval code to display for `command` right now.

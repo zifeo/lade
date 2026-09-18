@@ -30,7 +30,8 @@ pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
         Some(LogAction::Share { ref output }) => {
             return run_share(&opts, agent, output.clone());
         }
-        Some(LogAction::Prune { keep }) => return run_prune(keep.as_deref()),
+        Some(LogAction::Prune { ref keep }) => return run_prune(&opts, keep.as_deref()),
+        Some(LogAction::Verify) => return run_verify(&opts),
         None => {}
     }
     let group = match opts.group.as_deref() {
@@ -49,7 +50,7 @@ pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
     let audience = filter_opt(&opts.audience);
     let kind = filter_opt(&opts.kind);
     let cwd = std::env::current_dir()?;
-    let repo = repo_filter(opts.all, opts.path.as_deref(), &cwd);
+    let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
     let event_limit = if group.is_some() { None } else { limit };
     let rows = fetch_events(
         &opts.source,
@@ -101,6 +102,33 @@ fn log_command(row: &Event) -> String {
     })
 }
 
+fn run_verify(opts: &LogCommand) -> Result<()> {
+    let reports = super::chain_reports(&opts.source)?;
+    let mut ok = true;
+    let mut lines = Vec::new();
+    for (path, status) in reports {
+        if !status.ok {
+            ok = false;
+        }
+        lines.extend(status.report_lines(path.display()));
+    }
+    let mut box_ = if ok {
+        message_box::MessageBox::new().info()
+    } else {
+        message_box::MessageBox::new().error()
+    };
+    for line in lines {
+        box_ = box_.line(line);
+    }
+    if ok {
+        box_.print_plain_stderr();
+        Ok(())
+    } else {
+        box_.print_stderr();
+        std::process::exit(crate::exit_codes::FAILURE);
+    }
+}
+
 fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<()> {
     if agent {
         message_box::MessageBox::new()
@@ -114,7 +142,7 @@ fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<
     let audience = filter_opt(&opts.audience);
     let kind = filter_opt(&opts.kind);
     let cwd = std::env::current_dir()?;
-    let repo = repo_filter(opts.all, opts.path.as_deref(), &cwd);
+    let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
     match log_pack::share(
         since.as_ref(),
         until.as_ref(),
@@ -135,7 +163,7 @@ fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<
     }
 }
 
-fn run_prune(keep: Option<&str>) -> Result<()> {
+fn run_prune(opts: &LogCommand, keep: Option<&str>) -> Result<()> {
     let Some(keep) = keep else {
         message_box::MessageBox::new()
             .error()
@@ -153,7 +181,9 @@ fn run_prune(keep: Option<&str>) -> Result<()> {
             std::process::exit(crate::exit_codes::FAILURE);
         }
     };
-    let n = match event::prune_before(&ts) {
+    let cwd = std::env::current_dir()?;
+    let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
+    let n = match event::prune_before(&ts, repo.as_deref()) {
         Ok(n) => n,
         Err(e) => {
             message_box::MessageBox::new()

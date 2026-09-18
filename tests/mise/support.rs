@@ -21,6 +21,21 @@ pub(super) fn write_cached_env(home: &Path, tool: &str, slug: &str, version: &st
 #[cfg(unix)]
 pub(super) fn write_exec(path: &Path, body: &str) {
     use std::os::unix::fs::PermissionsExt;
+    let body = if path.file_name().and_then(|n| n.to_str()) == Some("mise")
+        && !body.contains("--version")
+    {
+        format!(
+            r#"
+if [ "$1" = "--version" ]; then
+  printf '%s\n' "mise 2024.8.12"
+  exit 0
+fi
+{body}
+"#
+        )
+    } else {
+        body.to_string()
+    };
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }

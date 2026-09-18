@@ -19,8 +19,9 @@ fn test_set_raw_values() {
         .success()
         .stdout(predicates::str::contains("export SECRET='mysecret'"))
         .stderr(
-            predicates::str::contains("Lade connecting: Raw: SECRET")
-                .and(predicates::str::contains("Lade connected: Raw: SECRET")),
+            predicates::str::contains("Raw: SECRET")
+                .not()
+                .and(predicates::str::contains("not a vault secret").not()),
         );
 }
 

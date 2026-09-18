@@ -63,7 +63,7 @@ fn hook_install_and_uninstall_cover_both_scopes() {
     for (harness, user, project) in cases {
         common::lade(home.path())
             .current_dir(dir.path())
-            .args(["hook", "install", "--scope", "user", "--harness", harness])
+            .args(["hook", "enable", "--scope", "user", "--harness", harness])
             .assert()
             .success();
         let user_body = fs::read_to_string(&user).unwrap();
@@ -74,14 +74,7 @@ fn hook_install_and_uninstall_cover_both_scopes() {
 
         common::lade(home.path())
             .current_dir(dir.path())
-            .args([
-                "hook",
-                "install",
-                "--scope",
-                "project",
-                "--harness",
-                harness,
-            ])
+            .args(["hook", "enable", "--scope", "project", "--harness", harness])
             .assert()
             .success();
         let project_body = fs::read_to_string(&project).unwrap();
@@ -98,14 +91,14 @@ fn hook_install_and_uninstall_cover_both_scopes() {
 
         common::lade(home.path())
             .current_dir(dir.path())
-            .args(["hook", "uninstall", "--scope", "user", "--harness", harness])
+            .args(["hook", "disable", "--scope", "user", "--harness", harness])
             .assert()
             .success();
         common::lade(home.path())
             .current_dir(dir.path())
             .args([
                 "hook",
-                "uninstall",
+                "disable",
                 "--scope",
                 "project",
                 "--harness",
@@ -142,7 +135,7 @@ fn hook_install_preserves_claude_permissions_and_model() {
         .current_dir(dir.path())
         .args([
             "hook",
-            "install",
+            "enable",
             "--scope",
             "project",
             "--harness",

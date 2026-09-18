@@ -12,13 +12,11 @@ pub(crate) struct ParsedBinding {
     pub(crate) local_host: String,
     pub(crate) local_port: Option<u16>,
     pub(crate) spec: ProviderSpec,
-    pub(crate) source_uri: String,
 }
 
 #[derive(Debug)]
 pub struct AcquiredNetwork {
     pub env: std::collections::HashMap<String, String>,
-    pub sources: Vec<String>,
     pub(crate) _guards: Vec<crate::network::process::RunningForward>,
 }
 
@@ -26,7 +24,6 @@ impl AcquiredNetwork {
     pub fn empty() -> Self {
         Self {
             env: std::collections::HashMap::new(),
-            sources: Vec::new(),
             _guards: Vec::new(),
         }
     }

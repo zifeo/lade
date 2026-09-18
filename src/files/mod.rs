@@ -106,7 +106,7 @@ fn provider_label(source: &str) -> String {
 fn secret_progress_groups(plan: &SecretSources) -> Vec<(String, String)> {
     let mut groups = BTreeMap::<String, Vec<String>>::new();
     for (key, source) in &plan.sources {
-        if plan.silent.contains(key) {
+        if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
             continue;
         }
         let name = if plan.overridden.contains(key) {
@@ -117,7 +117,7 @@ fn secret_progress_groups(plan: &SecretSources) -> Vec<(String, String)> {
         groups.entry(provider_label(source)).or_default().push(name);
     }
     for (key, source) in &plan.cancelled {
-        if plan.silent.contains(key) {
+        if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
             continue;
         }
         groups

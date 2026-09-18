@@ -7,10 +7,10 @@ import select
 import re
 import sys
 import tempfile
-import concurrent.futures
 import fcntl
 import struct
 import termios
+import shutil
 
 # --- CONFIGURATION ---
 TYPE_SPEED = 0.1
@@ -44,6 +44,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             "USER": "bob",
             "USERNAME": "bob",
         }
+        seed_kubectl_store(home_dir, tape_dir)
 
         with open(os.path.join(home_dir, ".zshrc"), "w") as f:
             f.write("unsetopt PROMPT_SP\n")
@@ -98,6 +99,8 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
         for cmd in setup_commands:
             os.write(fd, (cmd + "\r").encode())
             time.sleep(0.1)
+            if cmd.startswith("lade setup") or cmd.startswith("source "):
+                time.sleep(2.0)
 
         # Reset screen without typing an echoed command.
         os.write(fd, b"\x1bc")
@@ -110,7 +113,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             if r:
                 os.read(fd, 8192)
                 last_output = time.time()
-            elif time.time() - last_output >= 1.0:
+            elif time.time() - last_output >= 2.0:
                 break
 
         # 2. Start recording
@@ -214,6 +217,29 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             os.waitpid(pid, 0)
         except OSError:
             pass
+
+
+def seed_kubectl_store(home_dir, tape_dir):
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        return
+    version = "1.31.4"
+    dest_dir = os.path.join(
+        home_dir, ".local", "share", "mise", "installs", "kubectl", version
+    )
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "kubectl")
+    shutil.copy2(kubectl, dest)
+    os.chmod(dest, 0o755)
+    lock = os.path.join(tape_dir, "lade.lock")
+    if not os.path.exists(lock):
+        with open(lock, "w") as f:
+            f.write(
+                "lockfile_version = 1\n\n"
+                "[[tools.kubectl]]\n"
+                f'version = "{version}"\n'
+                'backend = "aqua:kubernetes/kubectl"\n'
+            )
 
 
 def sanitize_text(text):
@@ -360,7 +386,5 @@ if __name__ == "__main__":
             f[:-4] for f in os.listdir(".") if f.endswith(".exp") and f != "common.exp"
         ]
 
-        # Parallel execution using ProcessPoolExecutor
-        # ProcessPool is better for CPU-bound tasks like agg rendering
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            executor.map(generate_outputs, tapes)
+        for tape in sorted(tapes):
+            generate_outputs(tape)

@@ -4,15 +4,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::locate::{
-    canonical_project_path, find_agents_skill, find_project, find_project_skill,
-    leftover_json_hook, project_skill_file,
-};
+use super::locate::{canonical_project_path, find_project, leftover_json_hook};
 use super::paths::{
     ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
 };
-use super::skill::{SKILL_MD, is_lade_skill, skill_is_current};
-use super::ui::{PretoolReport, PretoolRow, default_scope, report, where_line};
+use super::ui::{PretoolReport, PretoolRow, report, where_line};
 
 /// User home config versus the files in the current directory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,8 +42,7 @@ pub(crate) fn write_scoped(
     cwd: &Path,
     install: bool,
 ) -> Result<String> {
-    let agent =
-        Agent::from_slug(harness).with_context(|| format!("unknown harness '{harness}'"))?;
+    let agent = Agent::from_slug(harness).with_context(|| format!("unknown agent '{harness}'"))?;
     let path = match scope {
         Scope::User => agent.config_path(home),
         Scope::Project => canonical_project_path(agent, cwd),
@@ -138,38 +133,19 @@ pub(super) fn hook_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) ->
     }
 }
 
-pub(super) fn skill_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> PathBuf {
-    match scope {
-        Scope::User => agent.skill_path(home),
-        Scope::Project => project_skill_file(agent, dest),
-    }
-}
-
-/// Remove pre-tool on the same default plane as `lade install`.
-/// If that plane is empty, remove the other plane when it has Lade files.
-pub fn uninstall() -> Result<PretoolReport> {
+/// Remove Lade project hooks in this repo. No git: no agent writes.
+/// Home hooks stay until `lade hook disable --scope user`.
+pub fn teardown() -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let git_root = crate::catalog::git_root(&cwd);
-    let dest = git_root.as_deref().unwrap_or(cwd.as_path());
-    uninstall_preferred(default_scope(git_root.is_some()), &home, dest)
-}
-
-pub(super) fn uninstall_preferred(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {
-    let report = uninstall_plane(scope, home, dest)?;
-    if !report.rows.is_empty() {
-        return Ok(report);
-    }
-    let other = match scope {
-        Scope::Project => Scope::User,
-        Scope::User => Scope::Project,
+    let Some(dest) = git_root else {
+        return Ok(PretoolReport {
+            where_line: "not a git repo, agents skipped".to_string(),
+            rows: Vec::new(),
+        });
     };
-    let fallback = uninstall_plane(other, home, dest)?;
-    if fallback.rows.is_empty() {
-        Ok(report)
-    } else {
-        Ok(fallback)
-    }
+    uninstall_plane(Scope::Project, &home, &dest)
 }
 
 pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {
@@ -187,13 +163,7 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
                 agent: agent.name(),
                 verb: ItemVerb::Removed,
                 path: short_path(&path, home, dest),
-            });
-        }
-        if let Some(path) = uninstall_skill_at(&skill_path(agent, scope, home, dest)) {
-            rows.push(PretoolRow {
-                agent: agent.name(),
-                verb: ItemVerb::Removed,
-                path: short_path(&path, home, dest),
+                note: "",
             });
         }
     }
@@ -201,15 +171,6 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
         where_line: where_line(scope, home, dest),
         rows,
     })
-}
-
-fn uninstall_skill_at(path: &Path) -> Option<PathBuf> {
-    let content = fs::read_to_string(path).ok()?;
-    if !is_lade_skill(&content) {
-        return None;
-    }
-    let _ = fs::remove_file(path);
-    Some(path.to_path_buf())
 }
 
 /// Rewrite already-installed hook files to today's command. Never creates
@@ -236,24 +197,7 @@ pub(crate) fn refresh_at(home: &Path, cwd: &Path) {
         if let Ok((project_path, true)) = find_project(agent, home, cwd) {
             refresh_path(agent, &project_path, &project_hook_command(agent));
         }
-        refresh_skill(&agent.skill_path(home));
-        if let Ok((path, true)) = find_project_skill(agent, home, cwd) {
-            refresh_skill(&path);
-        }
     }
-    if let Some(path) = find_agents_skill(home, cwd) {
-        refresh_skill(&path);
-    }
-}
-
-fn refresh_skill(path: &Path) {
-    let Ok(existing) = fs::read_to_string(path) else {
-        return;
-    };
-    if !is_lade_skill(&existing) || skill_is_current(&existing) {
-        return;
-    }
-    let _ = fs::write(path, SKILL_MD);
 }
 
 pub(super) fn refresh_path(agent: Agent, path: &Path, command: &str) {

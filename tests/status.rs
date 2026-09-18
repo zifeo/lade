@@ -16,6 +16,7 @@ fn test_status_reports_version_and_project() {
         .arg("status")
         .assert()
         .stdout(predicates::str::contains("lade version:"))
+        .stdout(predicates::str::contains("age-plugin-lade:"))
         .stdout(predicates::str::contains("latest:"))
         .stdout(predicates::str::contains("tried"))
         .stdout(predicates::str::contains("project config: ok"))
@@ -45,6 +46,8 @@ fn test_status_json_is_valid_with_expected_keys() {
     let value: serde_json::Value =
         serde_json::from_slice(&output).expect("status --json must emit valid JSON");
     assert!(value.get("version").is_some());
+    assert!(value.get("age_plugin").is_some());
+    assert!(value["age_plugin"].get("present").is_some());
     assert!(value.get("global_config").is_some());
     assert!(value.get("hooks").is_some());
     assert!(value["hooks"].get("preexec").is_some());
@@ -60,8 +63,7 @@ fn test_status_json_is_valid_with_expected_keys() {
         value["hooks"]["preexec"]["inject_skips_startup_files"],
         true
     );
-    assert!(value.get("skills").is_some());
-    assert!(value["skills"].get("cursor").is_some());
+    assert!(value.get("skills").is_none());
     assert!(value.get("log").is_some());
     assert!(value["log"].get("path").is_some());
     assert_eq!(value["log"]["events"], 0);
@@ -87,7 +89,7 @@ fn test_status_json_is_valid_with_expected_keys() {
 }
 
 #[test]
-fn test_status_json_reports_sdk_provider_batch_unit() {
+fn test_status_json_reports_provider_batch_unit() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     fs::write(
@@ -107,7 +109,7 @@ fn test_status_json_reports_sdk_provider_batch_unit() {
     let providers = value["project_config"]["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 1);
     assert_eq!(providers[0]["scheme"], "awssm");
-    assert_eq!(providers[0]["transport"], "sdk");
+    assert_eq!(providers[0]["transport"], "cli");
     assert_eq!(providers[0]["batch_unit"], "(region, name)");
 }
 
@@ -133,7 +135,7 @@ fn test_status_reports_project_pretool_hook() {
         .stdout(predicates::str::contains("pre-exec (this shell)"))
         .stdout(predicates::str::contains("pre-tool (agents)"))
         .stdout(predicates::str::contains(
-            "drift: run `lade install` to refresh stale hooks and skills",
+            "drift: run `lade setup` to refresh stale hooks",
         ));
     let output = common::lade(home.path())
         .current_dir(dir.path())

@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::args::InjectCommand;
 use crate::audience::Via;
-use crate::compat;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
@@ -131,16 +130,6 @@ pub async fn run_inject(
         return Err(error);
     }
     select_tool_env(&mut env, pins.env)?;
-    compat::warn_outdated(
-        ctx,
-        compat::known_schemes(
-            sources
-                .values()
-                .map(String::as_str)
-                .chain(network.sources.iter().map(String::as_str)),
-        ),
-    )
-    .await;
     let redactor = if !opts.no_mask {
         Redactor::new(
             &masking::secrets_for_redaction(&env, &files, &sources, &maskable),

@@ -1,19 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-
 use super::spec::{self, Spec};
-use super::walk::{walk_up, walk_up_all};
-
-const TOML_NAMES: &[&str] = &[
-    "mise.toml",
-    ".mise.toml",
-    "mise/config.toml",
-    ".mise/config.toml",
-    ".config/mise.toml",
-    ".config/mise/config.toml",
-];
+use super::walk::walk_up_all;
+#[allow(unused_imports)]
+use serde::Deserialize;
 const IGNORE_FILES: &[&str] = &[
     "mise.toml",
     ".mise.toml",
@@ -32,19 +23,11 @@ pub struct ProjectTool {
     pub version: String,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct MiseToml {
     #[serde(default)]
     tools: BTreeMap<String, toml::Value>,
-}
-
-pub fn find_mise_toml(start: &Path) -> Option<PathBuf> {
-    walk_up(start, |dir| {
-        TOML_NAMES
-            .iter()
-            .map(|name| dir.join(name))
-            .find(|path| path.is_file())
-    })
 }
 
 pub fn ignored_config_paths(start: &Path) -> Vec<PathBuf> {
@@ -64,6 +47,7 @@ pub fn ignored_config_paths(start: &Path) -> Vec<PathBuf> {
     })
 }
 
+#[cfg(test)]
 pub fn project_tools(path: &Path) -> Vec<ProjectTool> {
     let Ok(bytes) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -78,6 +62,7 @@ pub fn project_tools(path: &Path) -> Vec<ProjectTool> {
         .collect()
 }
 
+#[cfg(test)]
 fn version_of(value: &toml::Value) -> Option<String> {
     match value {
         toml::Value::String(raw) => {
@@ -95,6 +80,7 @@ fn version_of(value: &toml::Value) -> Option<String> {
     }
 }
 
+#[cfg(test)]
 pub fn conflict<'a>(
     spec: &Spec,
     pin_key: &str,

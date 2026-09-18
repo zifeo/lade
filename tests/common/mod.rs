@@ -1,16 +1,16 @@
+//! Shared helpers for integration crates. Each crate compiles this module
+//! alone, so helpers unused in one crate would warn. Keep them.
+#![allow(dead_code)]
+
 use assert_cmd::Command;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
-#[allow(dead_code)]
 pub const SECRET: &str = "tok_example_0000000001";
-#[allow(dead_code)]
 pub const OTHER: &str = "other_example_0000000002";
-#[allow(dead_code)]
 pub const LOG_ON: &str = ".:\n  .:\n    log: true\n";
 
-#[allow(dead_code)]
 pub fn write_yml(dir: &Path, body: &str) {
     let contents = if body.trim() == "{}" {
         LOG_ON.to_string()
@@ -20,12 +20,10 @@ pub fn write_yml(dir: &Path, body: &str) {
     fs::write(dir.join("lade.yml"), contents).unwrap();
 }
 
-#[allow(dead_code)]
 pub fn write_yml_raw(dir: &Path, body: &str) {
     fs::write(dir.join("lade.yml"), body).unwrap();
 }
 
-#[allow(dead_code)]
 pub fn inject(home: &Path, dir: &Path, args: &[&str]) {
     let _ = lade(home)
         .current_dir(dir)
@@ -34,7 +32,6 @@ pub fn inject(home: &Path, dir: &Path, args: &[&str]) {
         .unwrap();
 }
 
-#[allow(dead_code)]
 pub fn log_rows(home: &Path, dir: &Path) -> serde_json::Value {
     let out = lade(home)
         .current_dir(dir)
@@ -47,7 +44,6 @@ pub fn log_rows(home: &Path, dir: &Path) -> serde_json::Value {
     serde_json::from_slice(&out).unwrap()
 }
 
-#[allow(dead_code)]
 pub fn stored_command(home: &Path, dir: &Path) -> String {
     row_line(&log_rows(home, dir)[0])
 }
@@ -70,7 +66,6 @@ pub fn row_line(row: &serde_json::Value) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub fn filter_log(home: &Path, dir: &Path, extra: &[&str]) -> Vec<serde_json::Value> {
     let mut args = vec!["log", "--json", "--since", "1d"];
     args.extend(extra);
@@ -85,7 +80,6 @@ pub fn filter_log(home: &Path, dir: &Path, extra: &[&str]) -> Vec<serde_json::Va
     serde_json::from_slice(&out).unwrap()
 }
 
-#[allow(dead_code)]
 pub fn init_git(dir: &Path) {
     fs::create_dir(dir.join(".git")).unwrap();
     fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -93,14 +87,12 @@ pub fn init_git(dir: &Path) {
     fs::write(dir.join(".git/refs/heads/main"), "a".repeat(40)).unwrap();
 }
 
-#[allow(dead_code)]
 pub fn lade_user(home: &Path) -> Command {
     let mut cmd = lade(home);
     cmd.env("USER", "alice");
     cmd
 }
 
-#[allow(dead_code)]
 pub fn share_pack(home: &Path, dir: &Path, extra: &[&str]) -> PathBuf {
     let mut args = vec!["log", "share"];
     args.extend(extra);
@@ -140,7 +132,6 @@ pub fn share_pack(home: &Path, dir: &Path, extra: &[&str]) -> PathBuf {
     name
 }
 
-#[allow(dead_code)]
 pub fn leftover_src_dirs_in(dir: &Path) -> usize {
     std::fs::read_dir(dir)
         .unwrap()
@@ -153,10 +144,14 @@ pub fn leftover_src_dirs_in(dir: &Path) -> usize {
         .count()
 }
 
-#[allow(dead_code)]
 pub fn backdate_all(home: &Path, ts: &str) {
     let conn = rusqlite::Connection::open(home.join("events.db")).unwrap();
-    conn.execute("UPDATE events SET ts = ?1", [ts]).unwrap();
+    conn.execute(
+        "UPDATE events SET ts = ?1, seq = NULL, prev_hash = NULL, row_hash = NULL, seal_ver = NULL",
+        [ts],
+    )
+    .unwrap();
+    let _ = conn.execute("DELETE FROM chain_head", []);
 }
 
 pub fn lade_std(home: &Path) -> StdCommand {
@@ -202,12 +197,10 @@ pub fn lade_std(home: &Path) -> StdCommand {
     cmd
 }
 
-#[allow(dead_code)]
 pub fn lade(home: &Path) -> Command {
     Command::from_std(lade_std(home))
 }
 
-#[allow(dead_code)]
 pub fn extract_lade_t(stdout: &str) -> Option<String> {
     for prefix in ["export LADE_T='", "LADE_T='", "export LADE_T="] {
         let Some(start) = stdout.find(prefix) else {
@@ -223,11 +216,18 @@ pub fn extract_lade_t(stdout: &str) -> Option<String> {
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 pub mod child;
 
 #[cfg(unix)]
-#[allow(dead_code)]
+pub fn seed_store_cli(installs: &Path, name: &str, version: &str, src: &Path) {
+    let dest_dir = installs.join(name).join(version);
+    fs::create_dir_all(&dest_dir).unwrap();
+    let dest = dest_dir.join(name);
+    let _ = fs::remove_file(&dest);
+    std::os::unix::fs::symlink(src, dest).unwrap();
+}
+
+#[cfg(unix)]
 pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

@@ -20,7 +20,7 @@ fn rule_applies_to(rule: &LadeRule, audience: Audience) -> bool {
 }
 
 impl Config {
-    /// Rules matching `command`, in overlay order: parent `lade.yml` then
+    /// Rules matching `command`, in overlay order: parent yaml then
     /// child, and top-to-bottom within a file. Later entries replace the same
     /// key. Callers on the hot path should call this once per invocation and
     /// reuse the result, rather than letting each downstream step
@@ -124,7 +124,8 @@ impl Config {
             match resolve_entry(&name, secret, saved_user) {
                 Some(ResolvedEntry::Secret { key, value })
                 | Some(ResolvedEntry::Pin { key, value })
-                | Some(ResolvedEntry::Network { key, uri: value }) => {
+                | Some(ResolvedEntry::Tunnel { key, uri: value })
+                | Some(ResolvedEntry::Package { key, uri: value }) => {
                     out.push((key, value));
                 }
                 _ => {}

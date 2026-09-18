@@ -1,5 +1,5 @@
 name: "setup-lade"
-description: "Install the lade CLI (download a pinned or latest release, verify its SHA256 checksum, and add it to PATH)."
+description: "Install lade and age-plugin-lade (download a pinned or latest release, verify its SHA256 checksum, and add the directory to PATH)."
 author: "zifeo"
 
 branding:
@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "latest"
   out-dir:
-    description: "Directory to install the lade binary into (added to PATH)."
+    description: "Directory to install lade and age-plugin-lade into (added to PATH)."
     required: false
     default: "${{ github.workspace }}/.lade-bin"
 

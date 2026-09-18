@@ -2,9 +2,9 @@ use anyhow::{Result, bail};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use super::resolve::{ResolvedEntry, binding_name, resolve_entry, rule_sources};
+use super::resolve::{ResolvedEntry, binding_name, resolve_entry};
 use super::secret::resolve_lade_secret;
-use super::{Config, LadeRule, NetworkBinding, Output, SecretSources};
+use super::{Config, LadeRule, Output, SecretSources};
 use crate::ticket::TicketSecret;
 
 pub(super) fn secrets_from_rules(
@@ -17,13 +17,14 @@ pub(super) fn secrets_from_rules(
         for (key, secret) in &rule.secrets {
             match resolve_entry(key, secret, saved_user) {
                 Some(ResolvedEntry::Unset { key })
-                | Some(ResolvedEntry::Network { key, .. })
-                | Some(ResolvedEntry::Pin { key, .. }) => {
+                | Some(ResolvedEntry::Tunnel { key, .. })
+                | Some(ResolvedEntry::Pin { key, .. })
+                | Some(ResolvedEntry::Package { key, .. }) => {
                     let (name, _) = binding_name(&key)?;
                     bindings.remove(&name);
                 }
                 Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
-                    "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                    "numeric key '{}' must use a tunnel URI (kubectl://, kubefwd://, tsh://)",
                     key
                 ),
                 None => {}
@@ -102,15 +103,16 @@ impl Config {
                         mark_silent(&mut plan.silent, &key, silent);
                         plan.cancelled.insert(key, previous);
                     }
-                    Some(ResolvedEntry::Network { key, .. })
-                    | Some(ResolvedEntry::Pin { key, .. }) => {
+                    Some(ResolvedEntry::Tunnel { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. })
+                    | Some(ResolvedEntry::Package { key, .. }) => {
                         plan.overridden.remove(&key);
                         plan.cancelled.remove(&key);
                         plan.silent.remove(&key);
                         plan.sources.remove(&key);
                     }
                     Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
-                        "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                        "numeric key '{}' must use a tunnel URI (kubectl://, kubefwd://, tsh://)",
                         key
                     ),
                     None => {}
@@ -140,8 +142,9 @@ impl Config {
                         keys.insert(key);
                     }
                     Some(ResolvedEntry::Unset { key })
-                    | Some(ResolvedEntry::Network { key, .. })
-                    | Some(ResolvedEntry::Pin { key, .. }) => {
+                    | Some(ResolvedEntry::Tunnel { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. })
+                    | Some(ResolvedEntry::Package { key, .. }) => {
                         keys.remove(&key);
                     }
                     _ => {}
@@ -172,145 +175,5 @@ impl Config {
     ) -> Result<HashMap<Output, Vec<String>>> {
         let saved_user = super::saved_user().await?;
         Ok(Self::keys_from_rules(&self.collect(command), &saved_user))
-    }
-
-    pub fn all_secret_sources(&self, saved_user: &Option<String>) -> Vec<String> {
-        self.rules
-            .iter()
-            .filter_map(|(_, rule)| rule_sources(rule, saved_user).ok())
-            .flat_map(|sources| sources.into_values())
-            .collect()
-    }
-
-    pub fn all_network_sources(&self, saved_user: &Option<String>) -> Vec<String> {
-        self.rules
-            .iter()
-            .flat_map(|(_, rule)| {
-                rule.secrets.iter().filter_map(|(key, secret)| {
-                    match resolve_entry(key, secret, saved_user) {
-                        Some(ResolvedEntry::Network { uri, .. }) => Some(uri),
-                        _ => None,
-                    }
-                })
-            })
-            .collect()
-    }
-
-    /// Network bindings for already-collected `rules`. Later matching rules
-    /// overlay the same key; YAML null cancels it.
-    pub fn network_bindings_from_rules(
-        rules: &[(PathBuf, LadeRule)],
-        saved_user: &Option<String>,
-    ) -> Vec<NetworkBinding> {
-        let mut by_key = HashMap::<String, String>::new();
-        for (_, rule) in rules {
-            for (key, secret) in &rule.secrets {
-                match resolve_entry(key, secret, saved_user) {
-                    Some(ResolvedEntry::Unset { key })
-                    | Some(ResolvedEntry::Secret { key, .. })
-                    | Some(ResolvedEntry::Pin { key, .. })
-                        if !key.starts_with('.') =>
-                    {
-                        by_key.remove(&key);
-                    }
-                    Some(ResolvedEntry::Network { key, uri }) if !key.starts_with('.') => {
-                        by_key.insert(key, uri);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        by_key
-            .into_iter()
-            .map(|(key, uri)| NetworkBinding { key, uri })
-            .collect()
-    }
-
-    /// True when this command needs a process wrap: inject payload or a
-    /// mise pin / bare version for argv0.
-    pub(crate) fn needs_wrap<'a>(
-        work: &super::PreEventWork,
-        command: &str,
-        rules: impl IntoIterator<Item = &'a LadeRule>,
-        saved_user: &Option<String>,
-    ) -> bool {
-        work.needs_inject() || Self::pin_wraps(rules, command, saved_user)
-    }
-
-    pub(crate) fn pins(&self, saved_user: &Option<String>) -> Vec<(String, String)> {
-        let mut by_key = indexmap::IndexMap::<String, String>::new();
-        for (_, rule) in &self.rules {
-            for (key, secret) in &rule.secrets {
-                match resolve_entry(key, secret, saved_user) {
-                    Some(ResolvedEntry::Pin { key, value }) => {
-                        by_key.insert(key, value);
-                    }
-                    Some(ResolvedEntry::Unset { key })
-                    | Some(ResolvedEntry::Secret { key, .. })
-                    | Some(ResolvedEntry::Network { key, .. }) => {
-                        by_key.shift_remove(&key);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        by_key.into_iter().collect()
-    }
-
-    fn pin_wraps<'a>(
-        rules: impl IntoIterator<Item = &'a LadeRule>,
-        command: &str,
-        saved_user: &Option<String>,
-    ) -> bool {
-        let argv0 = crate::mise::argv0(command);
-        let mut has_pin = false;
-        for rule in rules {
-            for (key, secret) in &rule.secrets {
-                match resolve_entry(key, secret, saved_user) {
-                    Some(ResolvedEntry::Pin { key, .. }) => {
-                        has_pin = true;
-                        if key == argv0 {
-                            return true;
-                        }
-                    }
-                    Some(ResolvedEntry::Secret { key, value })
-                        if key == argv0 && crate::mise::looks_like_bare_version(&value) =>
-                    {
-                        return true;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        has_pin && crate::mise::is_mise_argv0(argv0)
-    }
-
-    pub(crate) fn bare_version_for(
-        &self,
-        command: &str,
-        argv0: &str,
-        saved_user: &Option<String>,
-    ) -> Option<String> {
-        for (_, rule) in self.collect(command) {
-            let Some(secret) = rule.secrets.get(argv0) else {
-                continue;
-            };
-            if let Some(ResolvedEntry::Secret { value, .. }) =
-                resolve_entry(argv0, secret, saved_user)
-                && crate::mise::looks_like_bare_version(&value)
-            {
-                return Some(value);
-            }
-        }
-        None
-    }
-
-    #[cfg(test)]
-    pub fn collect_network_bindings(
-        &self,
-        command: &str,
-        saved_user: &Option<String>,
-    ) -> Vec<NetworkBinding> {
-        Self::network_bindings_from_rules(&self.collect(command), saved_user)
     }
 }

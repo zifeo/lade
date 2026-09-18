@@ -30,17 +30,6 @@ impl Error {
         ])
     }
 
-    pub fn conflict(tool: &str, theirs: &str, ours: &str, file: &str) -> Self {
-        Self::box_lines([
-            format!("mise.toml and lade.yml pin {tool} to different versions."),
-            String::new(),
-            format!("{file} has {theirs}."),
-            format!("lade.yml has {ours}."),
-            String::new(),
-            "Make them match. Lade will not pick one.".to_string(),
-        ])
-    }
-
     pub fn refuse(argv0: &str, spec: &str) -> Self {
         Self::box_lines([
             format!("Could not run the locked {argv0}."),
@@ -76,7 +65,9 @@ impl Error {
             String::new(),
             detail,
             String::new(),
-            "Install mise from https://mise.jdx.dev".to_string(),
+            "Run `lade setup` to fetch mise, or install mise yourself and put it on PATH."
+                .to_string(),
+            "https://mise.jdx.dev/installing-mise.html".to_string(),
         ])
     }
 

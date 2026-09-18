@@ -110,9 +110,19 @@ fn inject_leaves_existing_mise_toml_untouched() {
 
 #[cfg(unix)]
 #[test]
-fn inject_refuses_version_conflict() {
+fn inject_ignores_project_mise_toml() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    fs::create_dir_all(installs.join("jq/1.7.1")).unwrap();
+    write_exec(&installs.join("jq/1.7.1/jq"), "echo PINNED");
+    write_cached_env(
+        home.path(),
+        "aqua:jqlang/jq",
+        "aqua-jqlang-jq",
+        "1.7.1",
+        "{}",
+    );
     fs::write(
         dir.path().join("lade.yml"),
         "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
@@ -121,11 +131,11 @@ fn inject_refuses_version_conflict() {
     fs::write(dir.path().join("mise.toml"), "[tools]\njq = \"1.6.0\"\n").unwrap();
     common::lade(home.path())
         .current_dir(dir.path())
+        .env("MISE_INSTALLS_DIR", &installs)
         .args(["inject", "--", "jq"])
         .assert()
-        .failure()
-        .code(1)
-        .stderr(predicates::str::contains("different versions"));
+        .success()
+        .stderr(predicates::str::contains("different versions").not());
 }
 
 #[cfg(unix)]

@@ -40,27 +40,32 @@ jobs:
         with:
           key: ${{ runner.os }}-native
 
-      - name: Install dependencies on Linux
+      - uses: jdx/mise-action@v3
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash fish zsh
-
-      - name: Install dependencies on macOS
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install fish zsh
-
-      - name: Install 1Password CLI
-        uses: 1password/install-cli-action@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          install: true
+          cache: true
+          experimental: true
+          mise_toml: |
+            [tools]
+            op = "2"
+            "aqua:fish-shell/fish-shell" = "4"
+            "github:romkatv/zsh-bin" = "6"
 
-      - name: Install APM
-        run: pip install apm-cli
+      - uses: jdx/mise-action@v3
+        if: runner.os == 'macOS'
+        with:
+          install: true
+          cache: true
+          experimental: true
+          mise_toml: |
+            [tools]
+            op = "2"
+            "github:romkatv/zsh-bin" = "6"
+
+      - name: Install fish on macOS
+        if: runner.os == 'macOS'
+        run: brew install fish
 
       - name: Tool versions
         run: |
@@ -68,7 +73,6 @@ jobs:
           fish --version
           zsh --version
           op --version
-          apm --version
 
       - name: Run native tests
         run: |
@@ -88,13 +92,20 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-docker-action@v5
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash curl fish kubectl zsh
+      - uses: jdx/mise-action@v3
+        with:
+          install: true
+          cache: true
+          experimental: true
+          mise_toml: |
+            [tools]
+            "aqua:fish-shell/fish-shell" = "4"
+            "github:romkatv/zsh-bin" = "6"
+            "aqua:kubernetes/kubectl" = "1"
+            "aqua:k3d-io/k3d" = "5"
 
-      - name: Install k3d
-        run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+      - name: Install curl
+        run: sudo apt-get update && sudo apt-get install -y curl
 
       - name: Tool versions
         run: |

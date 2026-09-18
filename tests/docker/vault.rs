@@ -1,4 +1,6 @@
+use crate::common::seed_stub_cli;
 use std::process::{Command, Stdio};
+use tempfile::tempdir;
 
 fn repo_root() -> &'static str {
     env!("CARGO_MANIFEST_DIR")
@@ -59,12 +61,16 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
     require_cmds(&["bash", "zsh", "fish", "curl", "docker"]);
     assert!(docker_ready(), "docker daemon is required");
 
+    let installs = tempdir().expect("mise installs");
+    seed_stub_cli(installs.path(), "vault", "1.17.6");
     let path = path_env();
+    let installs_env = format!("MISE_INSTALLS_DIR={}", installs.path().display());
     run_cmd(
         "env",
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "bash",
@@ -76,6 +82,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "zsh",
@@ -87,6 +94,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         &[
             "-i",
             &format!("PATH={path}"),
+            &installs_env,
             "VAULT_TOKEN=token",
             "LADE_VAULT_HTTP=1",
             "fish",

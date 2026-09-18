@@ -14,6 +14,41 @@ use crate::window;
 
 const DEFAULT_SINCE: &str = "90d";
 
+fn chain_reports(sources: &[String]) -> Result<Vec<(PathBuf, event::ChainStatus)>> {
+    if sources.is_empty() {
+        Ok(vec![(event::db_path(), event::verify_live()?)])
+    } else {
+        log_pack::verify_sources(sources)
+    }
+}
+
+fn ensure_chain(sources: &[String]) -> Result<()> {
+    let reports = match chain_reports(sources) {
+        Ok(reports) => reports,
+        Err(e) => {
+            message_box::MessageBox::new()
+                .error()
+                .paragraph(e.to_string())
+                .print_stderr();
+            std::process::exit(crate::exit_codes::FAILURE);
+        }
+    };
+    let lines: Vec<String> = reports
+        .iter()
+        .filter(|(_, status)| !status.ok)
+        .flat_map(|(path, status)| status.report_lines(path.display()))
+        .collect();
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let mut box_ = message_box::MessageBox::new().warning();
+    for line in lines {
+        box_ = box_.line(line);
+    }
+    box_.print_stderr();
+    Ok(())
+}
+
 fn fetch_events(
     sources: &[String],
     since: Option<&chrono::DateTime<chrono::Utc>>,
@@ -23,6 +58,7 @@ fn fetch_events(
     kind: Option<&str>,
     repo: Option<&str>,
 ) -> Result<Vec<event::Event>> {
+    ensure_chain(sources)?;
     let result = if sources.is_empty() {
         event::query(since, until, limit, audience, kind, repo).map_err(Into::into)
     } else {

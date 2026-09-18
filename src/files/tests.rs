@@ -51,14 +51,20 @@ fn test_split_mixed() {
 fn secret_progress_groups_omit_silent_keys() {
     let groups = secret_progress_groups(&SecretSources {
         sources: HashMap::from([
-            ("QUIET".to_string(), "demo-user".to_string()),
-            ("LOUD".to_string(), "demo-user".to_string()),
+            (
+                "QUIET".to_string(),
+                "vault://vault.example.com/secret/quiet/value".to_string(),
+            ),
+            (
+                "LOUD".to_string(),
+                "vault://vault.example.com/secret/loud/value".to_string(),
+            ),
         ]),
         silent: ["QUIET".to_string()].into_iter().collect(),
         ..SecretSources::default()
     });
     assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].1, "Raw: LOUD");
+    assert_eq!(groups[0].1, "Vault vault.example.com: LOUD");
 }
 
 #[test]
@@ -75,7 +81,7 @@ fn secret_progress_groups_omit_silent_cancelled_keys() {
 }
 
 #[test]
-fn secret_progress_groups_include_raw_values() {
+fn secret_progress_groups_omit_raw_values() {
     let groups = secret_progress_groups(&SecretSources {
         sources: HashMap::from([
             ("USER".to_string(), "demo-user".to_string()),
@@ -86,19 +92,18 @@ fn secret_progress_groups_include_raw_values() {
         ]),
         ..SecretSources::default()
     });
-    assert_eq!(groups.len(), 2);
-    assert!(groups.iter().any(|(_, display)| display == "Raw: USER"));
-    assert!(
-        groups
-            .iter()
-            .any(|(_, display)| display == "Vault vault.example.com: PASSWORD")
-    );
+    assert_eq!(groups.len(), 1);
+    assert!(!groups.iter().any(|(_, display)| display.contains("Raw")));
+    assert_eq!(groups[0].1, "Vault vault.example.com: PASSWORD");
 }
 
 #[test]
 fn secret_progress_groups_mark_overrides_and_cancels() {
     let groups = secret_progress_groups(&SecretSources {
-        sources: HashMap::from([("KEEP".to_string(), "child".to_string())]),
+        sources: HashMap::from([(
+            "KEEP".to_string(),
+            "op://my.1password.eu/vault/item".to_string(),
+        )]),
         overridden: ["KEEP".to_string()].into_iter().collect(),
         cancelled: HashMap::from([(
             "TOKEN".to_string(),

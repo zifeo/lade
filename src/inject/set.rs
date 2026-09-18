@@ -31,6 +31,7 @@ pub async fn handle_set(
     let command = commands.join(" ");
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
     let saved_user = crate::config::saved_user().await?;
+    let original_path = std::env::var("PATH").ok();
     let pins = apply_pins(config, &command, &current_dir, &saved_user).await?;
     let work = resolve_provider_work(
         config,
@@ -51,7 +52,10 @@ pub async fn handle_set(
             }
             let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
             let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-            println!("{}", stamp_preexec(shell, pins.env, &id)?);
+            println!(
+                "{}",
+                stamp_preexec(shell, pins.env, &id, original_path.clone())?
+            );
             return Ok(());
         }
     };
@@ -78,7 +82,10 @@ pub async fn handle_set(
         }
         let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
         let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-        println!("{}", stamp_preexec(shell, pins.env, &id)?);
+        println!(
+            "{}",
+            stamp_preexec(shell, pins.env, &id, original_path.clone())?
+        );
         return Ok(());
     }
 
@@ -157,7 +164,7 @@ pub async fn handle_set(
             agent: crate::agent_meta::merge(work.agent.clone()),
         },
     );
-    println!("{}", stamp_preexec(shell, env, &id)?);
+    println!("{}", stamp_preexec(shell, env, &id, original_path)?);
     Ok(())
 }
 
@@ -193,11 +200,19 @@ fn stamp_preexec(
     shell: &Shell,
     mut env: HashMap<String, String>,
     ticket_id: &str,
+    original_path: Option<String>,
 ) -> Result<String> {
     env.insert(crate::shell::LADE_T.to_string(), ticket_id.to_string());
     let mut previous = env
         .keys()
-        .map(|key| (key.clone(), std::env::var(key).ok()))
+        .map(|key| {
+            let value = if key == "PATH" {
+                original_path.clone()
+            } else {
+                std::env::var(key).ok()
+            };
+            (key.clone(), value)
+        })
         .collect::<HashMap<_, _>>();
     previous.insert("MISE_ENV".to_string(), std::env::var("MISE_ENV").ok());
     previous.insert(

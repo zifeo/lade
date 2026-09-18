@@ -3,12 +3,17 @@ mod hydrate;
 mod loader;
 mod patterns;
 mod plan;
+mod query;
 mod resolve;
 mod secret;
 #[cfg(test)]
 mod tests;
 
 pub use loader::LadeFile;
+pub(crate) use loader::{
+    at_user_home, config_in_dir, parse_lade_yaml, render_lade_yaml, report_load_error,
+    require_lade_version, yaml_files_on_walk,
+};
 pub use secret::*;
 
 use crate::global_config::GlobalConfig;

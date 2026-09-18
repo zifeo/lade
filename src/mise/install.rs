@@ -7,11 +7,11 @@ use super::spec::Spec;
 
 pub async fn install_from_url(spec: &Spec, installs: &Path, cwd: &Path) -> Result<(), Error> {
     let tmp = tempfile::tempdir().map_err(|e| Error::install(e.to_string()))?;
-    let config = tmp.path().join("mise.toml");
+    let config = tmp.path().join("lade.toml");
     std::fs::write(&config, project::pin_only_toml(spec))
         .map_err(|e| Error::install(e.to_string()))?;
     let ignored = project::isolate_config_paths(cwd);
-    let args = vec!["install".to_string(), spec.cli_spec()];
+    let args = vec!["install".to_string(), spec.install_arg()];
     let output = run_mise(installs, tmp.path(), args.clone(), Some(config), &ignored).await?;
     require_ok(output, &args)
 }
@@ -26,7 +26,7 @@ pub async fn install_locked(
     let tmp = tempfile::tempdir().map_err(|e| Error::install(e.to_string()))?;
     let lock_dest = tmp.path().join("mise.lock");
     std::fs::copy(lock_src, &lock_dest).map_err(|e| Error::install(e.to_string()))?;
-    std::fs::write(tmp.path().join("mise.toml"), project::pin_only_toml(spec))
+    std::fs::write(tmp.path().join("lade.toml"), project::pin_only_toml(spec))
         .map_err(|e| Error::install(e.to_string()))?;
     let args = vec![
         "install".to_string(),
@@ -38,7 +38,7 @@ pub async fn install_locked(
         installs,
         tmp.path(),
         args.clone(),
-        Some(tmp.path().join("mise.toml")),
+        Some(tmp.path().join("lade.toml")),
         &ignored,
     )
     .await?;
@@ -52,7 +52,7 @@ pub(super) async fn run_mise(
     config: Option<PathBuf>,
     ignored: &[PathBuf],
 ) -> Result<Output, Error> {
-    let mut cmd = tokio::process::Command::new("mise");
+    let mut cmd = tokio::process::Command::new(super::ensure::mise_program());
     cmd.arg("--cd")
         .arg(cd)
         .args(&args)

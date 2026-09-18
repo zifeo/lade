@@ -56,7 +56,7 @@ impl RunningForward {
         });
         let pid = ready_rx
             .recv()
-            .map_err(|_| anyhow!("network provider supervisor stopped before readiness"))??;
+            .map_err(|_| anyhow!("tunnel supervisor stopped before readiness"))??;
         Ok((
             Self {
                 shutdown,
@@ -99,7 +99,7 @@ fn supervise<F>(
     loop {
         if shutdown.load(Ordering::Acquire) {
             if !ready_sent {
-                let _ = ready_tx.send(Err(anyhow!("network provider stopped before readiness")));
+                let _ = ready_tx.send(Err(anyhow!("tunnel stopped before readiness")));
             }
             return;
         }
@@ -239,7 +239,7 @@ fn wait_forward_ready(
             );
         }
         if shutdown_rx.recv_timeout(READINESS_POLL_INTERVAL).is_ok() {
-            bail!("network provider stopped before readiness");
+            bail!("tunnel stopped before readiness");
         }
     }
 }

@@ -48,7 +48,7 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
                 tokio::task::spawn_blocking(move || start_network(&network_bindings, network_sink))
                     .await
                     .map_err(|e| anyhow::anyhow!("network task join error: {e}"))?;
-            result.map_err(|e| anyhow::anyhow!("network provider error: {e}"))
+            result.map_err(|e| anyhow::anyhow!("tunnel error: {e}"))
         };
         race_provider_tasks(secret_task, network_task).await
     };

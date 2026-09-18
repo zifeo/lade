@@ -4,26 +4,29 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Pre-exec wraps commands you type (this shell only). Pre-tool wraps
-/// commands agents run (hook and skill together). A git repo defaults
-/// to this repo. Outside git, this machine.
+/// This git repo: install locked packages, first-time pre-exec, repo
+/// pre-tool. The lock is the version. `lade update` re-resolves.
+/// `--unlock` ignores the lock this once.
 #[derive(Parser, Debug)]
-pub struct InstallCommand {
-    /// Install or refresh the Cursor hook and skill.
+pub struct SetupCommand {
+    /// Ignore the lock, resolve from yaml, rewrite, and install.
+    #[clap(long, default_value_t = false)]
+    pub unlock: bool,
+    /// Write or refresh the Cursor hook.
     #[clap(long, default_value_t = false)]
     pub cursor: bool,
-    /// Install or refresh the Claude Code hook and skill.
+    /// Write or refresh the Claude Code hook.
     #[clap(long, default_value_t = false)]
     pub claude: bool,
-    /// Install or refresh the Codex hook and skill.
+    /// Write or refresh the Codex hook.
     #[clap(long, default_value_t = false)]
     pub codex: bool,
-    /// Install or refresh the OpenCode hook and skill.
+    /// Write or refresh the OpenCode hook.
     #[clap(long, default_value_t = false)]
     pub opencode: bool,
 }
 
-impl InstallCommand {
+impl SetupCommand {
     pub fn slugs(&self) -> Vec<&'static str> {
         let mut slugs = Vec::new();
         if self.cursor {
@@ -40,6 +43,41 @@ impl InstallCommand {
         }
         slugs
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct AddCommand {
+    /// Family (`secret`, `package`, `tunnel`) or a package search (`ghjk`).
+    #[clap(value_parser)]
+    pub family: Option<String>,
+    /// Search or package name after the family.
+    #[clap(value_parser)]
+    pub query: Option<String>,
+    /// Regex rule to write. Required without a TTY.
+    #[clap(long)]
+    pub rule: Option<String>,
+    /// Env or port name on that rule.
+    #[clap(long)]
+    pub key: Option<String>,
+    /// URI to write (`op://`, `mise://`, `kubectl://`).
+    #[clap(long)]
+    pub uri: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct RemoveCommand {
+    /// Family (`secret`, `package`, `tunnel`) or the key to drop.
+    #[clap(value_parser)]
+    pub family: Option<String>,
+    /// Key or package name after the family.
+    #[clap(value_parser)]
+    pub query: Option<String>,
+    /// Regex rule that holds the binding.
+    #[clap(long)]
+    pub rule: Option<String>,
+    /// Env or port name to drop.
+    #[clap(long)]
+    pub key: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -87,7 +125,7 @@ pub struct McpCommand {
 
 #[derive(Parser, Debug)]
 pub struct StatusCommand {
-    /// Check all supported secret providers, not only those referenced in lade.yml.
+    /// Check all supported secret providers, not only those referenced in lade.yaml.
     #[clap(long, default_value_t = false)]
     pub all: bool,
     /// Emit a machine-readable JSON report to stdout instead of human text.
@@ -160,6 +198,9 @@ pub struct LogCommand {
     /// Drop the git-root filter and read the whole diary.
     #[clap(long, default_value_t = false, conflicts_with = "path", global = true)]
     pub all: bool,
+    /// Same as `--all`. Widens prune past this repo.
+    #[clap(long, default_value_t = false, conflicts_with = "path", global = true)]
+    pub global: bool,
     /// Scope to the git root of this path. Worktrees count.
     #[clap(long, conflicts_with = "all", global = true)]
     pub path: Option<PathBuf>,
@@ -184,6 +225,8 @@ pub enum LogAction {
         #[clap(short, long)]
         output: Option<PathBuf>,
     },
+    /// Check the diary hash chain.
+    Verify,
 }
 
 #[derive(Parser, Debug)]
@@ -206,6 +249,9 @@ pub struct UsageCommand {
     /// Drop the git-root filter and read the whole diary.
     #[clap(long, default_value_t = false, conflicts_with = "path")]
     pub all: bool,
+    /// Same as `--all`.
+    #[clap(long, default_value_t = false, conflicts_with = "path")]
+    pub global: bool,
     /// Scope to the git root of this path. Worktrees count.
     #[clap(long, conflicts_with = "all")]
     pub path: Option<PathBuf>,

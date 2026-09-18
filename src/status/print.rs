@@ -25,6 +25,13 @@ pub(super) fn print_human(report: &StatusReport) {
         }
     }
 
+    match &report.age_plugin.path {
+        Some(path) => println!("age-plugin-lade: {}", display_path(path)),
+        None => println!(
+            "age-plugin-lade: missing (run `lade upgrade` or `cargo install age-plugin-lade`)"
+        ),
+    }
+
     println!(
         "global config: {}",
         display_path(&report.global_config.path)
@@ -39,7 +46,7 @@ pub(super) fn print_human(report: &StatusReport) {
     if report.hooks.preexec.installed {
         println!("  installed: yes");
     } else {
-        println!("  installed: no (run `lade install`)");
+        println!("  installed: no (run `lade hook enable --shell`)");
     }
     match &report.hooks.preexec.inject_startup_skipped {
         Some(name) => println!("  inject wrap: skips startup files ({name} present)"),
@@ -65,17 +72,8 @@ pub(super) fn print_human(report: &StatusReport) {
     );
     print_pretool_line("OpenCode this repo", &report.hooks.pretool.opencode.project);
 
-    println!("skills");
-    print_pretool_line("Cursor this machine", &report.skills.cursor.global);
-    print_pretool_line("Cursor this repo", &report.skills.cursor.project);
-    print_pretool_line("Claude Code this machine", &report.skills.claude.global);
-    print_pretool_line("Claude Code this repo", &report.skills.claude.project);
-    print_pretool_line("Codex this machine", &report.skills.codex.global);
-    print_pretool_line("Codex this repo", &report.skills.codex.project);
-    print_pretool_line("OpenCode this machine", &report.skills.opencode.global);
-    print_pretool_line("OpenCode this repo", &report.skills.opencode.project);
     if has_stale_pretool(report) {
-        println!("  drift: run `lade install` to refresh stale hooks and skills");
+        println!("  drift: run `lade setup` to refresh stale hooks");
     }
 
     let pc = &report.project_config;
@@ -85,6 +83,35 @@ pub(super) fn print_human(report: &StatusReport) {
         report.log.events,
         format_bytes(report.log.bytes)
     );
+    match (
+        report.mise.needed,
+        report.mise.in_range,
+        &report.mise.version,
+    ) {
+        (false, _, _) => println!("mise: (not needed)"),
+        (true, true, Some(version)) => {
+            println!("mise: {version} (in range {})", report.mise.range)
+        }
+        (true, true, None) => println!("mise: in range {}", report.mise.range),
+        (true, false, Some(version)) => println!(
+            "mise: {version} (outside {}, run `lade setup`)",
+            report.mise.range
+        ),
+        (true, false, None) => println!("mise: missing (run `lade setup`)"),
+    }
+    for tool in &report.mise.tools {
+        match (&tool.version, tool.present) {
+            (Some(version), true) => println!("  {}: {version} (store)", tool.name),
+            (Some(version), false) => {
+                println!(
+                    "  {}: {version} missing from store (run `lade setup`)",
+                    tool.name
+                )
+            }
+            (None, true) => println!("  {}: present (store)", tool.name),
+            (None, false) => println!("  {}: missing from store (run `lade setup`)", tool.name),
+        }
+    }
     if let Some(err) = &pc.error {
         println!("project config: error");
         println!("  {err}");
@@ -92,7 +119,7 @@ pub(super) fn print_human(report: &StatusReport) {
     }
     println!("project config: ok ({} rules)", pc.rule_count);
     if pc.providers.is_empty() && pc.vault_clis.checked.is_empty() {
-        println!("providers: (none referenced in lade.yml)");
+        println!("providers: (none referenced in lade.yaml)");
         return;
     }
     println!("providers:");
@@ -106,26 +133,9 @@ pub(super) fn print_human(report: &StatusReport) {
                 );
             }
             _ => {
-                match pc
-                    .vault_clis
-                    .warnings
-                    .iter()
-                    .find(|w| w.name == provider.name)
-                {
-                    Some(w) => println!(
-                        "  {}: cli ({} < {}, {})",
-                        provider.scheme, w.found, w.min, w.install_url
-                    ),
-                    None => println!("  {}: cli, {}", provider.scheme, provider.batch_unit),
-                }
+                println!("  {}: cli, {}", provider.scheme, provider.batch_unit);
             }
         }
-    }
-    for w in &pc.vault_clis.warnings {
-        if pc.providers.iter().any(|p| p.name == w.name) {
-            continue;
-        }
-        println!("  {} {} < {} ({})", w.name, w.found, w.min, w.install_url);
     }
 }
 
@@ -137,15 +147,7 @@ fn has_stale_pretool(report: &StatusReport) -> bool {
         stale(&status.global) || stale(&status.project)
     }
     let hooks = &report.hooks.pretool;
-    let skills = &report.skills;
-    agent(&hooks.cursor)
-        || agent(&hooks.claude)
-        || agent(&hooks.codex)
-        || agent(&hooks.opencode)
-        || agent(&skills.cursor)
-        || agent(&skills.claude)
-        || agent(&skills.codex)
-        || agent(&skills.opencode)
+    agent(&hooks.cursor) || agent(&hooks.claude) || agent(&hooks.codex) || agent(&hooks.opencode)
 }
 
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {

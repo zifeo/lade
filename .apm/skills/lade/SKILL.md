@@ -1,1 +1,0 @@
-../../../.agents/skills/lade/SKILL.md

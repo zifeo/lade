@@ -86,7 +86,7 @@ fn usage_lists_matched_rules_by_frequency() {
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["rule"], "^npm run deploy");
     assert_eq!(rows[0]["count"], 1);
-    assert_eq!(rows[0]["tags"], serde_json::json!(["env"]));
+    assert_eq!(rows[0]["tags"], serde_json::json!(["secret"]));
     inject(home.path(), dir.path(), &["npm", "run", "deploy"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())

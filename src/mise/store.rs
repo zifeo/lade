@@ -2,20 +2,24 @@ use std::path::{Path, PathBuf};
 
 use super::spec::Spec;
 
+pub fn data_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("MISE_DATA_DIR")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
+    }
+    directories::UserDirs::new()
+        .map(|user| user.home_dir().join(".local/share/mise"))
+        .unwrap_or_else(|| PathBuf::from(".local/share/mise"))
+}
+
 pub fn installs_dir() -> PathBuf {
     if let Ok(path) = std::env::var("MISE_INSTALLS_DIR")
         && !path.is_empty()
     {
         return PathBuf::from(path);
     }
-    if let Ok(path) = std::env::var("MISE_DATA_DIR")
-        && !path.is_empty()
-    {
-        return PathBuf::from(path).join("installs");
-    }
-    directories::UserDirs::new()
-        .map(|user| user.home_dir().join(".local/share/mise/installs"))
-        .unwrap_or_else(|| PathBuf::from(".local/share/mise/installs"))
+    data_dir().join("installs")
 }
 
 pub fn tool_names(spec: &Spec, pin_key: &str, lock_name: Option<&str>) -> Vec<String> {
@@ -24,6 +28,7 @@ pub fn tool_names(spec: &Spec, pin_key: &str, lock_name: Option<&str>) -> Vec<St
         lock_name.map(str::to_string),
         Some(spec.short_name().to_string()),
         Some(pin_key.to_string()),
+        Some(spec.backend_id()),
         Some(spec.backend_slug()),
         Some(spec.backend_id().replace(['/', ':'], "-")),
     ]
@@ -64,6 +69,69 @@ pub fn find_pinned_bin(
     names
         .iter()
         .find_map(|name| find_bin_dir(installs, name, version, argv0))
+}
+
+pub fn resolve_matching_version(
+    installs: &Path,
+    names: &[String],
+    argv0: &str,
+    requested: &str,
+) -> Option<String> {
+    let mut best: Option<String> = None;
+    for name in names {
+        let root = installs.join(name);
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let version = entry.file_name().to_string_lossy().into_owned();
+            if find_bin_dir(installs, name, &version, argv0).is_none() {
+                continue;
+            }
+            if !version_matches(&version, requested) {
+                continue;
+            }
+            best = Some(newer_version(best, version));
+        }
+        if best.is_some() {
+            return best;
+        }
+    }
+    None
+}
+
+fn version_matches(installed: &str, requested: &str) -> bool {
+    if requested == "*" || installed == requested || super::spec::version_is_floating(requested) {
+        return true;
+    }
+    if !super::spec::version_is_range(requested) {
+        return false;
+    }
+    let Ok(req) = semver::VersionReq::parse(requested) else {
+        return false;
+    };
+    let Ok(found) = semver::Version::parse(installed) else {
+        return false;
+    };
+    req.matches(&found)
+}
+
+fn newer_version(current: Option<String>, candidate: String) -> String {
+    let Some(current) = current else {
+        return candidate;
+    };
+    match (
+        semver::Version::parse(&current),
+        semver::Version::parse(&candidate),
+    ) {
+        (Ok(left), Ok(right)) if right > left => candidate,
+        (Ok(_), Ok(_)) => current,
+        _ if candidate > current => candidate,
+        _ => current,
+    }
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -144,6 +212,7 @@ mod tests {
             ],
             || {
                 assert_eq!(installs_dir(), dir.path().join("installs"));
+                assert_eq!(data_dir(), dir.path());
             },
         );
     }
@@ -157,5 +226,36 @@ mod tests {
         write_exec(&bins.join("jq"));
         let found = find_bin_dir(dir.path(), "jq", "1.7.1", "jq").unwrap();
         assert_eq!(found, bins);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_picks_installed_version() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("jq/2.0.0");
+        std::fs::create_dir_all(&root).unwrap();
+        write_exec(&root.join("jq"));
+        let version = resolve_matching_version(dir.path(), &["jq".to_string()], "jq", "*").unwrap();
+        assert_eq!(version, "2.0.0");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn matching_keeps_exact_pin_not_sibling() {
+        let dir = tempdir().unwrap();
+        for version in ["1.7.1", "1.8.0", "1.10.0"] {
+            let root = dir.path().join("jq").join(version);
+            std::fs::create_dir_all(&root).unwrap();
+            write_exec(&root.join("jq"));
+        }
+        let names = vec!["jq".to_string()];
+        assert_eq!(
+            resolve_matching_version(dir.path(), &names, "jq", "1.7.1").as_deref(),
+            Some("1.7.1")
+        );
+        assert_eq!(
+            resolve_matching_version(dir.path(), &names, "jq", ">=1.8.0").as_deref(),
+            Some("1.10.0")
+        );
     }
 }

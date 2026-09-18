@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Bump the workspace crate version and rewrite apm.yml to match.
-# cargo set-version does not touch apm.yml. APM consumers pin the GitHub
-# tag (zifeo/lade#vX.Y.Z). apm.yml version is only for `apm view`.
+# Bump the workspace crate version.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,5 +26,4 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
-printf 'name: lade\nversion: %s\n' "$version" >apm.yml
 printf '%s\n' "$version"
