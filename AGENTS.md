@@ -33,8 +33,7 @@ bash tests/installer_test.sh
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor
   versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
-  `skills` is additive (same agent shape as `hooks.pretool`). A skill is
-  Lade-managed when its frontmatter is the official `name: lade` skill.
+  `age_plugin` is extra (`present`, `path`). `mise` and `log` are extra.
   Spoken stderr, README, and clap say pre-exec / pre-tool. JSON stays
   `preexec` / `pretool`. `--scope user` and JSON `global` stay.
 - **`lade status` latest**: a successful daily GitHub check must persist
@@ -47,16 +46,18 @@ bash tests/installer_test.sh
 ## Project layout
 
 - `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse / MCP verb
-  handler plus `lade hook install --scope user|project` into
+  handler plus `lade hook enable --scope user|project` into
   Cursor/Claude/Codex/OpenCode configs), `audience.rs`
   (`detect()` for Via, Audience, UI), `prompt.rs` (disclaimer flow),
   `inject.rs`/`exec/` (PTY execution + masking), `network/` (acquire and
   process groups), `mise/` (command-scoped pins via mise.lock and
   `$MISE_INSTALLS_DIR`), `status.rs`, `shell/` (preexec integration),
   `config/`, `message_box/`.
-- `sdk/` — providers: vault hydrate, network URI parse, tunnel command
-  builders, CLI version tables. MCP HTTP byte bridge.
+- `crates/lade-sdk` — providers: vault hydrate, network URI parse, tunnel
+  command builders, CLI version tables. MCP HTTP byte bridge.
+- `crates/age-plugin-lade` — C2SP `age-plugin-lade` binary. Execs
+  `lade eval` for hydrate. Not compiled into the `lade` binary.
 - `tests/` — Rust integration tests + `installer_test.sh`.
 - `scripts/`, `examples/tape/` — shell-hook fixtures and README demo tapes.
-- `installer.sh`, `action.yml`, `Dockerfile`, `.github/workflows/` —
-  install & CI surface.
+- `installer.sh`, `action.yml`, `Dockerfile`,
+  `.github/workflows/` — install & CI surface.

@@ -1,6 +1,7 @@
 [workspace]
 members = [
-  "sdk",
+  "crates/lade-sdk",
+  "crates/age-plugin-lade",
 ]
 resolver = "2"
 
@@ -15,7 +16,7 @@ name = "lade"
 version = "0.18.1-beta.1"
 edition = "2024"
 default-run = "lade"
-description = "Temporary access to secrets, files, and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
+description = "Temporary access to secrets and private networks for one command, then gone. Same wrap for humans and agents. See which access was used."
 license = "MPL-2.0"
 repository = "https://github.com/zifeo/lade"
 
@@ -34,7 +35,7 @@ serde_yaml = "0.9.34"
 clap = { version = "4.6.6", features = ["derive"] }
 regex = "1.13.1"
 fancy-regex = "0.19"
-lade-sdk = { path = "./sdk", version = "0.18.1-beta.1" }
+lade-sdk = { path = "./crates/lade-sdk", version = "0.18.1-beta.1" }
 tokio = { version = "1", features = ["rt", "macros", "fs", "time", "signal", "io-std", "io-util", "process"] }
 indexmap = { version = "2.14.2", features = ["serde"] }
 clap-verbosity-flag = "3.0.4"
@@ -57,9 +58,9 @@ textwrap = "0.16.2"
 owo-colors = "4.4.0"
 aho-corasick = "1.1.5"
 rustc-hash = "2"
-base64 = "0.23.1"
-sha2 = "0.11.0"
-hex = "0.4.3"
+base64 = "0.22"
+sha2 = "0.10"
+hmac = "0.12"
 url = "2.5"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rusqlite_migration = "2.6.0"
@@ -68,10 +69,7 @@ tar = "0.4.46"
 flate2 = "1.1.10"
 tempfile = "3.27.0"
 toml = "1.1"
-age = { version = "0.12.1", default-features = false, features = ["ssh"] }
-age-plugin = "0.7.0"
-age-core = "0.12.0"
-
+toml_edit = "0.23"
 [features]
 default = ["docker-tests"]
 docker-tests = []
@@ -84,23 +82,11 @@ libc = "0.2"
 assert_cmd = "2.2.2"
 predicates = "3"
 temp-env = "0.3"
-serde_json = "1.0.151"
 criterion = { version = "0.8", features = ["html_reports"] }
-rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [[bin]]
 name = "lade"
 path = "src/main.rs"
-
-# C2SP-specific: age/rage look up `age-plugin-<name>` on PATH.
-# Same program as `lade`, not a second crate. Cargo compiles it twice.
-# `lade upgrade` still copies the new `lade` onto this name: self_update
-# extracts one `bin_name` (`extract_file`). See src/upgrade/mod.rs.
-[[bin]]
-name = "age-plugin-lade"
-path = "src/main.rs"
-test = false
-bench = false
 
 [[bench]]
 name = "redact"

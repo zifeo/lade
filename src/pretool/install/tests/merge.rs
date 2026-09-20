@@ -11,6 +11,7 @@ fn is_lade_hook_matches_bare_and_absolute() {
     assert!(is_lade_hook("target/debug/lade hook"));
     assert!(is_lade_hook("lade.exe hook"));
     assert!(is_lade_hook("lade hook --harness cursor"));
+    assert!(is_lade_hook("lade hook --agent cursor"));
     assert!(is_lade_hook("/usr/local/bin/lade hook --harness claude"));
     assert!(!is_lade_hook("lade inject"));
     assert!(!is_lade_hook("blade hook"));

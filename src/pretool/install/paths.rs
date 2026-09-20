@@ -66,9 +66,7 @@ pub(crate) enum ItemVerb {
     Installed,
     Updated,
     Removed,
-    Unmanaged,
-    Stale,
-    Missing,
+    Flagged,
 }
 
 impl ItemVerb {
@@ -78,9 +76,7 @@ impl ItemVerb {
             ItemVerb::Installed => "installed",
             ItemVerb::Updated => "updated",
             ItemVerb::Removed => "removed",
-            ItemVerb::Unmanaged => "skipped",
-            ItemVerb::Stale => "stale",
-            ItemVerb::Missing => "missing",
+            ItemVerb::Flagged => "flagged",
         }
     }
 }

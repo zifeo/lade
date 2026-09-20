@@ -7,20 +7,23 @@ use serde_json::{Value, json};
 use crate::audience::Via;
 use crate::config::{Audience, Config, LadeRule};
 
+mod chain;
 mod db;
 mod git;
 #[cfg(test)]
 mod tests;
 mod write;
 
-pub use db::{info, open, prune_before, query, warmup};
+pub use chain::{ChainStatus, insert_sealed, unsigned_pack, verify as verify_chain};
+pub use db::{info_for_repo, open, prune_before, query, verify_live, warmup};
 pub use git::git_stamp;
-#[allow(unused_imports)]
-pub use write::emit;
-pub use write::emit_if;
-pub use write::emit_verb;
+pub use write::{emit, emit_if, emit_verb};
 
 pub(crate) use db::event_from_row;
+
+pub(crate) const EVENT_COLS: &str = "id, ts, kind, via, audience, actor, repo, git_commit,
+                command, command_truncated, hydrate_ms, json(matches), json(agent),
+                json(argv)";
 
 const BUSY_MS: u64 = 250;
 const OPEN_ATTEMPTS: u32 = 20;
@@ -49,7 +52,10 @@ pub(crate) const EVENTS_AGENT_DDL: &str = "ALTER TABLE events ADD COLUMN agent B
 pub(crate) const EVENTS_ARGV_DDL: &str = "ALTER TABLE events ADD COLUMN argv JSONB";
 
 pub(crate) fn events_ddl() -> String {
-    format!("{EVENTS_DDL}{EVENTS_AGENT_DDL};{EVENTS_ARGV_DDL};")
+    format!(
+        "{EVENTS_DDL}{EVENTS_AGENT_DDL};{EVENTS_ARGV_DDL};{}",
+        chain::EVENTS_CHAIN_DDL
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +75,7 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Event {
     pub id: String,
     pub ts: String,
@@ -121,21 +127,47 @@ pub fn match_tree_from(
     rules: &[(std::path::PathBuf, String, LadeRule)],
     saved_user: &Option<String>,
 ) -> Value {
-    let mut out = Vec::new();
+    let mut winners = indexmap::IndexMap::<String, (PathBuf, String, String)>::new();
     for (file, pattern, rule) in rules {
-        let bindings: Vec<Value> = Config::public_bindings(rule, saved_user)
-            .into_iter()
-            .map(|(key, uri)| json!({ "key": key, "uri": uri }))
-            .collect();
-        if bindings.is_empty() {
-            continue;
+        for (key, uri) in Config::public_bindings(rule, saved_user) {
+            winners.insert(key, (file.clone(), pattern.clone(), uri));
         }
-        out.push(json!({
-            "file": file.to_string_lossy(),
-            "rule": pattern,
-            "bindings": bindings
-        }));
     }
+    let mut grouped: indexmap::IndexMap<(PathBuf, String), Vec<Value>> = indexmap::IndexMap::new();
+    for (key, (file, pattern, uri)) in winners {
+        let family = crate::family::Family::of_uri(&uri);
+        let mut binding = json!({
+            "key": key,
+            "uri": uri,
+            "family": family.token()
+        });
+        let implied = crate::mise::implied_package(&uri);
+        let package = implied.or_else(|| {
+            if family == crate::family::Family::Package && crate::mise::looks_like_spec(&uri) {
+                Some(key.as_str())
+            } else {
+                None
+            }
+        });
+        if let Some(package) = package {
+            binding["package"] = json!(package);
+            let lock = crate::mise::lock_path_in(&file);
+            if let Some(slot) = crate::mise::lock_slot(&lock, package) {
+                binding["version"] = json!(slot);
+            }
+        }
+        grouped.entry((file, pattern)).or_default().push(binding);
+    }
+    let out: Vec<Value> = grouped
+        .into_iter()
+        .map(|((file, pattern), bindings)| {
+            json!({
+                "file": file.to_string_lossy(),
+                "rule": pattern,
+                "bindings": bindings
+            })
+        })
+        .collect();
     Value::Array(out)
 }
 

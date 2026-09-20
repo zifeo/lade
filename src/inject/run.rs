@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::args::InjectCommand;
 use crate::audience::Via;
-use crate::compat;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
@@ -40,7 +39,7 @@ pub async fn run_inject(
         None
     };
     let saved_user = crate::config::saved_user().await?;
-    let pins = apply_pins(config, &command, current_dir, &saved_user).await?;
+    let pins = apply_pins(config, &command, current_dir, &saved_user, ctx.audience).await?;
     let _pin_cleanup = PinCleanup(pins.cleanup.clone());
     let work = resolve_provider_work(
         config,
@@ -131,16 +130,6 @@ pub async fn run_inject(
         return Err(error);
     }
     select_tool_env(&mut env, pins.env)?;
-    compat::warn_outdated(
-        ctx,
-        compat::known_schemes(
-            sources
-                .values()
-                .map(String::as_str)
-                .chain(network.sources.iter().map(String::as_str)),
-        ),
-    )
-    .await;
     let redactor = if !opts.no_mask {
         Redactor::new(
             &masking::secrets_for_redaction(&env, &files, &sources, &maskable),

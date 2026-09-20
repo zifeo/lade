@@ -20,9 +20,20 @@ pub(super) async fn apply_pins(
     command: &str,
     cwd: &std::path::Path,
     saved_user: &Option<String>,
+    audience: crate::config::Audience,
 ) -> Result<PinOutcome> {
-    match mise::prepare(config, command, cwd, saved_user).await {
-        Ok(out) => Ok(out),
+    match mise::prepare(config, command, cwd, saved_user, audience).await {
+        Ok(out) => {
+            if let Some(path) = out.env.get("PATH") {
+                // Hydrate CLIs and tunnel children inherit process PATH.
+                // Command.env covers our children. age plugins and OpenSSH
+                // still read the process. Edition 2024 set_var is unsafe.
+                unsafe {
+                    std::env::set_var("PATH", path);
+                }
+            }
+            Ok(out)
+        }
         Err(error) => {
             error.emit();
             std::process::exit(crate::exit_codes::FAILURE);
@@ -42,7 +53,7 @@ pub(super) fn select_tool_env(
         match env.get(&key) {
             Some(existing) if existing != &value => {
                 anyhow::bail!(
-                    "conflicting env '{key}' between lade.yml and the mise pin: '{existing}' vs '{value}'"
+                    "conflicting env '{key}' between lade.yaml and the mise pin: '{existing}' vs '{value}'"
                 );
             }
             Some(_) => {}

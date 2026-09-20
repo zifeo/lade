@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 #[test]
 fn never_checked_is_always_due() {
@@ -42,6 +43,28 @@ fn version_change_is_due_even_when_check_is_recent() {
         "0.18.0",
         Utc::now()
     ));
+}
+
+#[test]
+fn plugin_missing_when_sibling_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let lade = dir.path().join("lade");
+    fs::write(&lade, b"lade").unwrap();
+    assert!(plugin_missing(&lade));
+    fs::write(dir.path().join(PLUGIN_BIN), b"plugin").unwrap();
+    assert!(!plugin_missing(&lade));
+}
+
+#[test]
+fn plugin_install_retries_when_lade_is_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let lade = dir.path().join("lade");
+    fs::write(&lade, b"lade").unwrap();
+    assert!(should_install_plugin(false, Some(&lade)));
+    fs::write(dir.path().join(PLUGIN_BIN), b"plugin").unwrap();
+    assert!(!should_install_plugin(false, Some(&lade)));
+    assert!(should_install_plugin(true, Some(&lade)));
+    assert!(should_install_plugin(false, None));
 }
 
 #[test]

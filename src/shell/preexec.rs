@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 
@@ -67,11 +67,13 @@ impl Shell {
     }
 
     pub fn install(&self) -> Result<String> {
-        configure_auto_launch(self, true).map(|c| path_for_display(&c))
+        super::profile::configure_auto_launch(self, true)
+            .map(|c| super::profile::path_for_display(&c))
     }
 
     pub fn uninstall(&self) -> Result<String> {
-        configure_auto_launch(self, false).map(|c| path_for_display(&c))
+        super::profile::configure_auto_launch(self, false)
+            .map(|c| super::profile::path_for_display(&c))
     }
 }
 
@@ -105,15 +107,104 @@ pub struct PreexecReport {
     pub path: String,
 }
 
-pub fn install_current_preexec() -> Result<PreexecReport> {
+pub enum SetupShell {
+    Bootstrapped {
+        found: String,
+        path: String,
+        reload: String,
+    },
+    Current {
+        found: String,
+        path: String,
+    },
+    Missing {
+        found: String,
+    },
+    SkippedCi {
+        found: String,
+    },
+}
+
+pub fn ci_job() -> bool {
+    std::env::var("CI")
+        .map(|value| {
+            let value = value.trim();
+            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+        })
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BootstrapDecision {
+    Current,
+    Missing,
+    SkipCi,
+    Write,
+}
+
+pub(crate) fn bootstrap_decision(
+    this_wrapped: bool,
+    any_wrapped: bool,
+    ci: bool,
+) -> BootstrapDecision {
+    if ci {
+        return BootstrapDecision::SkipCi;
+    }
+    if this_wrapped {
+        return BootstrapDecision::Current;
+    }
+    if any_wrapped {
+        return BootstrapDecision::Missing;
+    }
+    BootstrapDecision::Write
+}
+
+pub fn reload_hint(shell: Shell, path: &str) -> String {
+    match shell {
+        Shell::Bash | Shell::Zsh | Shell::Fish => format!("Reload this shell: source {path}"),
+        Shell::Sh => "Open a new terminal to load the wrap.".to_string(),
+    }
+}
+
+pub fn any_profile_wrapped() -> bool {
+    DETECTABLE.iter().any(|shell| preexec_installed(shell).1)
+}
+
+/// First machine profile with no wrap: write this shell. Later setups
+/// never write. A missing wrap is `lade hook enable --shell`.
+pub fn maybe_bootstrap_setup_shell() -> Result<SetupShell> {
+    let current = Shell::detect()?;
+    let (path_buf, installed) = preexec_installed(&current);
+    let found = found_shells_line(&present_shells(), current);
+    let path = super::profile::path_for_display(&path_buf);
+    match bootstrap_decision(installed, any_profile_wrapped(), ci_job()) {
+        BootstrapDecision::Current => Ok(SetupShell::Current { found, path }),
+        BootstrapDecision::Missing => Ok(SetupShell::Missing { found }),
+        BootstrapDecision::SkipCi => Ok(SetupShell::SkippedCi { found }),
+        BootstrapDecision::Write => {
+            let path = current.install()?;
+            Ok(SetupShell::Bootstrapped {
+                found: found_shells_line(&present_shells(), current),
+                path: path.clone(),
+                reload: reload_hint(current, &path),
+            })
+        }
+    }
+}
+
+pub fn enable_current_preexec() -> Result<(PreexecReport, Option<String>)> {
     let current = Shell::detect()?;
     let already = preexec_installed(&current).1;
     let path = current.install()?;
-    Ok(PreexecReport {
-        found: found_shells_line(&present_shells(), current),
-        verb: if already { "current" } else { "installed" },
-        path,
-    })
+    let reload = (!already).then(|| reload_hint(current, &path));
+    Ok((
+        PreexecReport {
+            found: found_shells_line(&present_shells(), current),
+            verb: if already { "current" } else { "installed" },
+            path,
+        },
+        reload,
+    ))
 }
 
 pub fn uninstall_current_preexec() -> Result<PreexecReport> {
@@ -126,101 +217,9 @@ pub fn uninstall_current_preexec() -> Result<PreexecReport> {
     })
 }
 
-fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
-    let bin = crate::pretool::invoked_lade_bin();
-
-    let (command, config_file) = match shell {
-        Shell::Bash => (
-            format!("source <(echo \"$({bin} on)\")"),
-            profile_config_file(shell),
-        ),
-        Shell::Zsh => (format!("eval \"$({bin} on)\""), profile_config_file(shell)),
-        Shell::Fish => (
-            format!("source ({bin} on | psub)"),
-            profile_config_file(shell),
-        ),
-        _ => bail!("Unsupported behavior on shell {}", shell.bin()),
-    };
-
-    edit_config(&config_file, command, install)?;
-    Ok(config_file)
-}
-
-fn path_for_display(path: &Path) -> String {
-    let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) else {
-        return path.display().to_string();
-    };
-    match path.strip_prefix(&home) {
-        Ok(stripped) if stripped.as_os_str().is_empty() => "~".to_string(),
-        Ok(stripped) => format!("~/{}", stripped.display()),
-        Err(_) => path.display().to_string(),
-    }
-}
-
-fn edit_config<P: AsRef<Path>>(config_file: P, line: String, install: bool) -> Result<()> {
-    let old_config = std::fs::read_to_string(&config_file).unwrap_or_default();
-    let mut new_config = old_config
-        .lines()
-        .filter(|l| !l.contains(MARKER))
-        .collect::<Vec<_>>();
-    let new_line = format!("{}  # {}", line, MARKER);
-    if install {
-        new_config.push(&new_line);
-    }
-    std::fs::write(config_file, new_config.join("\n"))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_edit_config_install_appends_line() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join(".bashrc");
-        std::fs::write(&cfg, "existing content\n").unwrap();
-        edit_config(&cfg, "eval $(lade on)".to_string(), true).unwrap();
-        let content = std::fs::read_to_string(&cfg).unwrap();
-        assert!(content.contains("eval $(lade on)"));
-        assert!(content.contains(MARKER));
-        assert!(content.contains("existing content"));
-    }
-
-    #[test]
-    fn test_edit_config_install_idempotent() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join(".bashrc");
-        std::fs::write(&cfg, "").unwrap();
-        edit_config(&cfg, "eval $(lade on)".to_string(), true).unwrap();
-        edit_config(&cfg, "eval $(lade on)".to_string(), true).unwrap();
-        let content = std::fs::read_to_string(&cfg).unwrap();
-        assert_eq!(content.lines().filter(|l| l.contains(MARKER)).count(), 1);
-    }
-
-    #[test]
-    fn test_edit_config_uninstall_removes_marker_line() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join(".bashrc");
-        std::fs::write(
-            &cfg,
-            "other line\neval $(lade on)  # lade-do-not-edit\nmore content",
-        )
-        .unwrap();
-        edit_config(&cfg, "eval $(lade on)".to_string(), false).unwrap();
-        let content = std::fs::read_to_string(&cfg).unwrap();
-        assert!(!content.contains(MARKER));
-        assert!(content.contains("other line") && content.contains("more content"));
-    }
-
-    #[test]
-    fn test_path_for_display_under_home() {
-        if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
-            let cfg = home.join(".zshrc");
-            assert_eq!(path_for_display(&cfg), "~/.zshrc");
-        }
-    }
 
     #[test]
     fn found_shells_line_lists_detected_and_keeps_current_only() {
@@ -239,13 +238,39 @@ mod tests {
     }
 
     #[test]
-    fn test_edit_config_uninstall_no_marker_is_noop() {
-        let dir = tempdir().unwrap();
-        let cfg = dir.path().join(".bashrc");
-        std::fs::write(&cfg, "line1\nline2").unwrap();
-        edit_config(&cfg, "eval $(lade on)".to_string(), false).unwrap();
-        let content = std::fs::read_to_string(&cfg).unwrap();
-        assert!(content.contains("line1") && content.contains("line2"));
-        assert!(!content.contains(MARKER));
+    fn ci_skips_shell_wrap() {
+        assert_eq!(
+            bootstrap_decision(false, false, true),
+            BootstrapDecision::SkipCi
+        );
+        assert_eq!(
+            bootstrap_decision(true, true, true),
+            BootstrapDecision::SkipCi
+        );
+    }
+
+    #[test]
+    fn first_profile_writes_later_warns() {
+        assert_eq!(
+            bootstrap_decision(false, false, false),
+            BootstrapDecision::Write
+        );
+        assert_eq!(
+            bootstrap_decision(true, false, false),
+            BootstrapDecision::Current
+        );
+        assert_eq!(
+            bootstrap_decision(false, true, false),
+            BootstrapDecision::Missing
+        );
+    }
+
+    #[test]
+    fn ci_env_truthy_values() {
+        temp_env::with_var("CI", Some("true"), || assert!(ci_job()));
+        temp_env::with_var("CI", Some("1"), || assert!(ci_job()));
+        temp_env::with_var("CI", Some("false"), || assert!(!ci_job()));
+        temp_env::with_var("CI", Some("0"), || assert!(!ci_job()));
+        temp_env::with_var("CI", None::<&str>, || assert!(!ci_job()));
     }
 }

@@ -1,5 +1,6 @@
 use super::common;
 use super::support::*;
+use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use tempfile::tempdir;
 
@@ -40,7 +41,7 @@ fn set_mise_ls_ignores_home_java_keeps_project_node() {
     let composed_path =
         export_value(&stdout, "MISE_GLOBAL_CONFIG_FILE").expect("composed mise config");
     let composed = fs::read_to_string(composed_path).unwrap();
-    assert!(composed.contains("node = \"24.16.0\""), "{composed}");
+    assert!(!composed.contains("node = \"24.16.0\""), "{composed}");
     assert!(composed.contains("aqua:jqlang/jq"), "{composed}");
     assert!(!composed.contains("java"), "{composed}");
     assert!(!composed.contains("NODE_VERSION"), "{composed}");
@@ -210,7 +211,7 @@ fn unset_restores_path_after_jq_pin_set() {
 
 #[cfg(unix)]
 #[test]
-fn set_refuses_mise_toml_version_conflict() {
+fn set_ignores_project_mise_toml() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     fs::write(
@@ -223,7 +224,5 @@ fn set_refuses_mise_toml_version_conflict() {
         .current_dir(dir.path())
         .args(["set", "jq"])
         .assert()
-        .failure()
-        .code(1)
-        .stderr(predicates::str::contains("different versions"));
+        .stderr(predicates::str::contains("different versions").not());
 }

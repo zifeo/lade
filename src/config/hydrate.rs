@@ -48,13 +48,14 @@ async fn bindings_from_rules(
         for (key, secret) in &rule.secrets {
             match resolve_entry(key, secret, saved_user) {
                 Some(ResolvedEntry::Unset { key })
-                | Some(ResolvedEntry::Network { key, .. })
-                | Some(ResolvedEntry::Pin { key, .. }) => {
+                | Some(ResolvedEntry::Tunnel { key, .. })
+                | Some(ResolvedEntry::Pin { key, .. })
+                | Some(ResolvedEntry::Package { key, .. }) => {
                     let (name, _) = binding_name(&key)?;
                     bindings.remove(&name);
                 }
                 Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
-                    "numeric key '{}' must use a network URI (kubectl://, kubefwd://, tsh://)",
+                    "numeric key '{}' must use a tunnel URI (kubectl://, kubefwd://, tsh://)",
                     key
                 ),
                 None => {}

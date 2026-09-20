@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::args::StatusCommand;
-use crate::compat::{self, all_supported_schemes, known_schemes};
+use crate::compat::{all_supported_schemes, known_schemes};
 use crate::config::LadeFile;
 use crate::event;
 use crate::global_config::GlobalConfig;
@@ -10,10 +10,9 @@ use crate::shell::{self, preexec_installed};
 use crate::upgrade;
 use lade_sdk::Transport;
 use lade_sdk::compat::spec_for;
-use lade_sdk::network::is_network_scheme;
 
 use super::{
-    CliWarning, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
+    AgePluginInfo, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
     StatusReport, VaultClis, VersionInfo,
 };
 
@@ -68,7 +67,6 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         },
         pretool: pretool::install::inspect(&cwd)?,
     };
-    let skills = pretool::install::inspect_skills(&cwd)?;
 
     let saved_user = global.user.or_else(|| {
         std::env::var("USER")
@@ -76,7 +74,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             .or_else(|| std::env::var("USERNAME").ok())
     });
 
-    let project_config = match LadeFile::build(cwd) {
+    let project_config = match LadeFile::build(cwd.clone()) {
         Ok(config) => {
             let schemes = if opts.all {
                 all_supported_schemes()
@@ -93,20 +91,10 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 schemes.sort();
                 schemes
             };
-            let warnings = compat::check_schemes(schemes.clone())
-                .await?
-                .into_iter()
-                .map(|w| CliWarning {
-                    name: w.name,
-                    found: w.found,
-                    min: w.min,
-                    install_url: w.install_url,
-                })
-                .collect();
             let providers = provider_info(&schemes);
             let cli_checked: Vec<String> = schemes
                 .iter()
-                .filter(|scheme| spec_for(scheme).is_some() || is_network_scheme(scheme))
+                .filter(|scheme| spec_for(scheme).is_some())
                 .cloned()
                 .collect();
             ProjectConfig {
@@ -114,14 +102,14 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
                 error: None,
                 vault_clis: VaultClis {
                     checked: cli_checked,
-                    warnings,
+                    warnings: Vec::new(),
                 },
                 providers,
             }
         }
         Err(e) => ProjectConfig {
             rule_count: 0,
-            error: Some(e.to_string()),
+            error: Some(format!("{e:#}")),
             vault_clis: VaultClis {
                 checked: vec![],
                 warnings: vec![],
@@ -130,21 +118,85 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         },
     };
 
+    let mise_status = crate::mise::status_info().await;
+    let saved = saved_user.clone();
+    let tools = match LadeFile::build(cwd.clone()) {
+        Ok(config) => crate::mise::locked_tools(&cwd, &config, &saved)
+            .into_iter()
+            .map(|tool| super::LockedTool {
+                name: tool.name,
+                version: tool.version,
+                present: tool.present,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let tools_ok = tools.iter().all(|tool| tool.present);
+    let mise = super::MiseInfo {
+        needed: mise_status.needed,
+        version: mise_status.version,
+        in_range: mise_status.in_range,
+        range: mise_status.range,
+        tools,
+    };
     let ok = version.check_error.is_none()
-        && !version.update_available
-        && hooks.preexec.installed
         && project_config.error.is_none()
-        && project_config.vault_clis.warnings.is_empty();
+        && (!mise.needed || mise.in_range)
+        && tools_ok;
 
+    let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
         version,
+        age_plugin: age_plugin_info(),
         global_config,
         hooks,
-        skills,
         project_config,
-        log: event::info(),
+        log: event::info_for_repo(repo.as_deref()),
+        mise,
         ok,
     })
+}
+
+const AGE_PLUGIN_BIN: &str = "age-plugin-lade";
+
+fn age_plugin_info() -> AgePluginInfo {
+    match find_age_plugin() {
+        Some(path) => AgePluginInfo {
+            present: true,
+            path: Some(path),
+        },
+        None => AgePluginInfo {
+            present: false,
+            path: None,
+        },
+    }
+}
+
+fn find_age_plugin() -> Option<std::path::PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()));
+    find_age_plugin_from(exe_dir.as_deref(), std::env::var_os("PATH").as_deref())
+}
+
+fn find_age_plugin_from(
+    exe_dir: Option<&std::path::Path>,
+    path_var: Option<&std::ffi::OsStr>,
+) -> Option<std::path::PathBuf> {
+    if let Some(dir) = exe_dir {
+        let sibling = dir.join(AGE_PLUGIN_BIN);
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    let path = path_var?;
+    for dir in std::env::split_paths(path) {
+        let candidate = dir.join(AGE_PLUGIN_BIN);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn provider_info(schemes: &[String]) -> Vec<ProviderInfo> {
@@ -184,4 +236,51 @@ fn inject_startup_skipped(shell: &shell::Shell) -> Option<String> {
             .unwrap_or("startup file")
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn sibling_wins_over_path() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let sibling = exe_dir.path().join(AGE_PLUGIN_BIN);
+        let on_path = path_dir.path().join(AGE_PLUGIN_BIN);
+        fs::write(&sibling, "").unwrap();
+        fs::write(&on_path, "").unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            Some(sibling)
+        );
+    }
+
+    #[test]
+    fn path_is_used_when_no_sibling() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let on_path = path_dir.path().join(AGE_PLUGIN_BIN);
+        fs::write(&on_path, "").unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            Some(on_path)
+        );
+    }
+
+    #[test]
+    fn missing_everywhere_is_none() {
+        let exe_dir = tempdir().unwrap();
+        let path_dir = tempdir().unwrap();
+        let path = OsString::from(path_dir.path());
+        assert_eq!(
+            find_age_plugin_from(Some(exe_dir.path()), Some(path.as_os_str())),
+            None
+        );
+    }
 }

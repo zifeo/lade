@@ -1,5 +1,4 @@
-lade install
-source ~/.zshrc
+eval "$(lade on)"
 clear
 ./show-example hooks
 echo hooks $DEMO

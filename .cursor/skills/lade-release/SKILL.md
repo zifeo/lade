@@ -13,8 +13,8 @@ description: >-
 Release prep touches:
 
 - `CHANGELOG.md` (Keep a Changelog format)
-- Crate versions via `cargo set-version --workspace` (`lade` + `lade-sdk`, including the path dependency)
-- `apm.yml` `version` via `scripts/set-version.sh` (same number as the crate). Consumers pin the **GitHub tag** `zifeo/lade#vX.Y.Z`, not this field. The field exists so `apm view` matches the crate.
+- Crate versions via `cargo set-version --workspace` (`lade`, `lade-sdk`, `age-plugin-lade`, including path deps)
+- Crate versions only. There is no APM package.
 
 Never commit, tag, or push — the user handles git.
 
@@ -53,7 +53,7 @@ bash scripts/set-version.sh X.Y.Z
 cargo test --workspace --locked
 ```
 
-The script runs `cargo set-version --workspace` (`lade`, `lade-sdk`, path dep) then rewrites `apm.yml`. APM install pins the GitHub tag (`zifeo/lade#vX.Y.Z`). Run tests (same as CI) to refresh `Cargo.lock` and verify the bump.
+The script runs `cargo set-version --workspace` (`lade`, `lade-sdk`, `age-plugin-lade`, path deps). Run tests (same as CI) to refresh `Cargo.lock` and verify the bump.
 
 If `cargo set-version` is missing: `cargo install cargo-edit`. CI beta bumps use `bash scripts/set-version.sh --bump beta`.
 

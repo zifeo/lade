@@ -30,7 +30,7 @@ fn lock_version_mismatch_skips_locked_install() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            block_on(prepare(&config, "jq", dir.path(), &None)).unwrap();
+            block_on(prepare(&config, "jq", dir.path(), &None, Audience::Human)).unwrap();
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("install"), "{args}");
             assert!(!args.contains("--locked"), "{args}");
@@ -67,7 +67,7 @@ fn lock_backend_id_key_uses_locked_install() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            block_on(prepare(&config, "jq", dir.path(), &None)).unwrap();
+            block_on(prepare(&config, "jq", dir.path(), &None, Audience::Human)).unwrap();
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("install"), "{args}");
             assert!(args.contains("--locked"), "{args}");
@@ -85,7 +85,10 @@ fn refuse_when_install_leaves_bin_missing() {
     let stub = dir.path().join("stub");
     std::fs::create_dir_all(&installs).unwrap();
     std::fs::create_dir_all(&stub).unwrap();
-    write_exec(&stub.join("mise"), "exit 0\n");
+    write_exec(
+        &stub.join("mise"),
+        "if [ \"$1\" = \"--version\" ]; then echo 'mise 2024.8.12'; exit 0; fi\nexit 0\n",
+    );
     std::fs::write(
         dir.path().join("lade.yml"),
         "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
@@ -100,7 +103,8 @@ fn refuse_when_install_leaves_bin_missing() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let err = block_on(prepare(&config, "jq", dir.path(), &None)).unwrap_err();
+            let err =
+                block_on(prepare(&config, "jq", dir.path(), &None, Audience::Human)).unwrap_err();
             assert!(
                 err.to_string().contains("Could not run the locked"),
                 "{err}"
@@ -132,7 +136,8 @@ fn missing_mise_is_an_error() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let err = block_on(prepare(&config, "jq", dir.path(), &None)).unwrap_err();
+            let err =
+                block_on(prepare(&config, "jq", dir.path(), &None, Audience::Human)).unwrap_err();
             assert!(err.to_string().contains("Could not run mise"), "{err}");
         },
     );
@@ -161,7 +166,7 @@ fn prepare_finds_mise_bins_layout() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let out = block_on(prepare(&config, "jq", dir.path(), &None)).unwrap();
+            let out = block_on(prepare(&config, "jq", dir.path(), &None, Audience::Human)).unwrap();
             let path = out.env.get("PATH").unwrap();
             assert!(path.starts_with(&format!("{}:", bins.display())), "{path}");
         },
@@ -199,7 +204,7 @@ fn parent_lock_triggers_locked_install() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            block_on(prepare(&config, "jq", &child, &None)).unwrap();
+            block_on(prepare(&config, "jq", &child, &None, Audience::Human)).unwrap();
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("--locked"), "{args}");
         },
@@ -208,7 +213,7 @@ fn parent_lock_triggers_locked_install() {
 
 #[cfg(unix)]
 #[test]
-fn child_lock_without_jq_skips_locked_install() {
+fn child_lock_walks_parent_for_missing_tool() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let child = dir.path().join("apps/web");
@@ -242,29 +247,40 @@ fn child_lock_without_jq_skips_locked_install() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            block_on(prepare(&config, "jq", &child, &None)).unwrap();
+            block_on(prepare(&config, "jq", &child, &None, Audience::Human)).unwrap();
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("install"), "{args}");
-            assert!(!args.contains("--locked"), "{args}");
+            assert!(args.contains("--locked"), "{args}");
         },
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn parent_mise_toml_conflict_refuses() {
+fn parent_mise_toml_is_ignored() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let child = dir.path().join("apps/web");
+    let installs = dir.path().join("installs");
     std::fs::create_dir_all(&child).unwrap();
+    std::fs::create_dir_all(installs.join("jq/1.7.1")).unwrap();
+    write_exec(&installs.join("jq/1.7.1/jq"), "echo PINNED");
+    write_cached_env(home.path(), "mise://aqua/jqlang/jq@1.7.1", "{}");
     std::fs::write(
         dir.path().join("lade.yml"),
         "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
     )
     .unwrap();
     std::fs::write(dir.path().join("mise.toml"), "[tools]\njq = \"1.6.0\"\n").unwrap();
-    temp_env::with_var("HOME", Some(home.path()), || {
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let err = block_on(prepare(&config, "jq", &child, &None)).unwrap_err();
-        assert!(err.to_string().contains("different versions"), "{err}");
-    });
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path())),
+            ("MISE_INSTALLS_DIR", Some(installs.as_path())),
+        ],
+        || {
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let out = block_on(prepare(&config, "jq", &child, &None, Audience::Human)).unwrap();
+            assert!(out.env.contains_key("PATH"), "{out:?}");
+        },
+    );
 }

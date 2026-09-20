@@ -1,6 +1,6 @@
 use crate::common;
 use crate::k3d::{
-    ensure_cluster_context, extract_lade_t, is_pid_running, is_ready_for_k3d_test,
+    ensure_cluster_context, extract_lade_t, is_pid_running, is_ready_for_k3d_test, manifests_path,
     normalize_authority, run_capture, run_ok, ticket_network_pid, write_cluster_config,
 };
 use predicates::prelude::PredicateBooleanExt;
@@ -24,6 +24,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
     let port_remote = "8080";
     let payload_arg = r#"'{"ping":"pong"}'"#;
 
+    let manifests = manifests_path().display().to_string();
     run_ok(
         "kubectl",
         &kubeconfig,
@@ -33,7 +34,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
             "--request-timeout=15s",
             "apply",
             "-f",
-            "k3d-manifests.yaml",
+            &manifests,
         ],
     );
     run_ok(
@@ -72,10 +73,14 @@ fn network_k3d_kubectl_provider_lifecycle() {
         "\"^curl .*http://127.0.0.1:{port_local}/$\":\n  \"{port_local}\": kubectl://{authority}/{context}/{namespace}/service/{service}/{port_remote}\n"
     );
     fs::write(dir.path().join("lade.yml"), rule).expect("write lade.yml");
+    let installs = tempdir().expect("mise installs");
+    let kubectl = crate::common::command_path("kubectl").expect("kubectl on PATH");
+    crate::common::seed_store_cli(installs.path(), "kubectl", "1.31.4", &kubectl);
 
     common::lade(home.path())
         .current_dir(dir.path())
         .env("KUBECONFIG", &kubeconfig)
+        .env("MISE_INSTALLS_DIR", installs.path())
         .args([
             "inject",
             "--no-mask",
@@ -100,6 +105,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
     let set_output = common::lade(home.path())
         .current_dir(dir.path())
         .env("KUBECONFIG", &kubeconfig)
+        .env("MISE_INSTALLS_DIR", installs.path())
         .env("LADE_TICKET_DIR", tickets.path())
         .args(["set", &format!("curl http://127.0.0.1:{port_local}/")])
         .assert()
@@ -118,6 +124,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
     common::lade(home.path())
         .current_dir(dir.path())
         .env("KUBECONFIG", &kubeconfig)
+        .env("MISE_INSTALLS_DIR", installs.path())
         .env("LADE_TICKET_DIR", tickets.path())
         .env("LADE_T", &id)
         .args(["unset", &format!("curl http://127.0.0.1:{port_local}/")])

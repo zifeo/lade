@@ -5,7 +5,7 @@
 > lade printenv TOKEN
 ⠋ File: TOKEN
 
-✔︎ File: TOKEN                                                            1 ms
+✔︎ File: TOKEN                                                            0 ms
 
 ${TOKEN:-REDACTED}
 

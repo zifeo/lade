@@ -5,21 +5,17 @@
   Authorization: 'sh://printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr -d "\n")"'
 
 > printenv Authorization user
-⠋ Raw: user
-
 ⠋ Vault 127.0.0.1:8200: .password
 
 ⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
 
 -d "\n")": Authorization
 
-✔︎ Raw: user                                                            135 ms
-
-✔︎ Vault 127.0.0.1:8200: .password                                      135 ms
+✔︎ Vault 127.0.0.1:8200: .password                                       13 ms
 
 ✔︎ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
 
--d "\n")": Authorization 135 ms
+-d "\n")": Authorization 13 ms
 
 Basic ZGVtby11c2VyOml0c2FzZWNyZXQ=
 

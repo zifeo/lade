@@ -6,7 +6,7 @@ mod source;
 mod tests;
 
 pub use share::share;
-pub use source::query_sources;
+pub use source::{query_sources, verify_sources};
 
 fn basename_or_self(path: &str) -> String {
     Path::new(path)

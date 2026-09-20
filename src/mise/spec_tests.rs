@@ -98,6 +98,44 @@ fn bare_version_detection() {
 }
 
 #[test]
+fn parse_query_setup_teardown() {
+    let spec = parse("mise://aqua/j178/prek@0.2.0?setup=install&teardown=uninstall").unwrap();
+    assert_eq!(spec.version, "0.2.0");
+    assert_eq!(spec.options.get("setup").unwrap(), "install");
+    assert_eq!(spec.options.get("teardown").unwrap(), "uninstall");
+}
+
+#[test]
+fn range_install_arg_omits_at() {
+    let spec = parse("mise://aqua/kubernetes/kubectl@>=1.27.0").unwrap();
+    assert!(spec.is_range());
+    assert_eq!(spec.install_arg(), "aqua:kubernetes/kubectl");
+    let exact = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
+    assert!(!exact.is_range());
+    assert_eq!(exact.install_arg(), "aqua:jqlang/jq@1.7.1");
+}
+
+#[test]
+fn latest_is_a_range_until_pinned() {
+    let spec = parse("mise://aqua/jqlang/jq@latest").unwrap();
+    assert!(spec.is_range());
+    assert!(version_is_floating(&spec.version));
+    assert_eq!(spec.install_arg(), "aqua:jqlang/jq");
+}
+
+#[test]
+fn replace_version_keeps_query() {
+    assert_eq!(
+        replace_version("mise://aqua/jqlang/jq@latest", "1.7.1"),
+        "mise://aqua/jqlang/jq@1.7.1"
+    );
+    assert_eq!(
+        replace_version("mise://github/owner/repo@latest?setup=install", "0.6.6"),
+        "mise://github/owner/repo@0.6.6?setup=install"
+    );
+}
+
+#[test]
 fn argv0_uses_basename() {
     assert_eq!(argv0("tofu plan"), "tofu");
     assert_eq!(argv0("/usr/bin/tofu plan"), "tofu");

@@ -1,6 +1,6 @@
 use super::*;
 use crate::args::{
-    DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookHarness, HookScope, HookScopeCommand,
+    DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookAgent, HookScope, HookToggleCommand,
     InjectCommand,
 };
 use crate::shell::LADE_VIA;
@@ -162,14 +162,15 @@ fn hook_is_pretool_agent_quiet() {
 }
 
 #[test]
-fn hook_install_is_not_pretool() {
+fn hook_enable_is_not_pretool() {
     temp_env::with_vars(cleared_signals(), || {
         let d = detect(
             &Command::Hook {
                 harness: None,
-                action: Some(HookAction::Install(HookScopeCommand {
+                action: Some(HookAction::Enable(HookToggleCommand {
+                    shell: false,
+                    agent: Some(HookAgent::Cursor),
                     scope: HookScope::User,
-                    harness: HookHarness::Cursor,
                 })),
             },
             false,

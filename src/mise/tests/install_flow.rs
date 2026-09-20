@@ -97,10 +97,17 @@ fn intercept_mise_composes_project_and_pin_not_home_java() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let out = block_on(prepare(&config, "mise ls", dir.path(), &None)).unwrap();
+            let out = block_on(prepare(
+                &config,
+                "mise ls",
+                dir.path(),
+                &None,
+                Audience::Human,
+            ))
+            .unwrap();
             let composed_path = out.env.get("MISE_GLOBAL_CONFIG_FILE").unwrap();
             let composed = std::fs::read_to_string(composed_path).unwrap();
-            assert!(composed.contains("node = \"24.16.0\""), "{composed}");
+            assert!(!composed.contains("node = \"24.16.0\""), "{composed}");
             assert!(composed.contains("aqua:jqlang/jq"), "{composed}");
             assert!(composed.contains("1.7.1"), "{composed}");
             assert!(!composed.contains("java"), "{composed}");
@@ -161,7 +168,14 @@ fn stale_sidecar_is_ignored_and_refreshed() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let out = block_on(prepare(&config, "cargo test", dir.path(), &None)).unwrap();
+            let out = block_on(prepare(
+                &config,
+                "cargo test",
+                dir.path(),
+                &None,
+                Audience::Human,
+            ))
+            .unwrap();
             assert_eq!(out.env.get("RUSTUP_TOOLCHAIN").unwrap(), "1.96.0");
             assert!(!out.env.contains_key("JAVA_HOME"));
             let spec = parse("mise://core/rust@1.96.0").unwrap();
@@ -179,7 +193,14 @@ fn intercept_mise_without_pins_is_noop() {
     std::fs::write(dir.path().join("lade.yml"), "\"^echo\":\n  SECRET: val\n").unwrap();
     temp_env::with_var("HOME", Some(home.path()), || {
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let out = block_on(prepare(&config, "mise ls", dir.path(), &None)).unwrap();
+        let out = block_on(prepare(
+            &config,
+            "mise ls",
+            dir.path(),
+            &None,
+            Audience::Human,
+        ))
+        .unwrap();
         assert!(out.is_empty());
         assert!(!out.env.contains_key("MISE_GLOBAL_CONFIG_FILE"));
     });
@@ -196,7 +217,14 @@ fn legacy_cli_in_lade_yml_is_an_error() {
     .unwrap();
     temp_env::with_var("HOME", Some(home.path()), || {
         let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let err = block_on(prepare(&config, "cargo test", dir.path(), &None)).unwrap_err();
+        let err = block_on(prepare(
+            &config,
+            "cargo test",
+            dir.path(),
+            &None,
+            Audience::Human,
+        ))
+        .unwrap_err();
         assert!(err.to_string().contains("mise://core/rust@1.96.0"), "{err}");
     });
 }
@@ -233,7 +261,14 @@ fn rust_toolchain_file_does_not_override_pin() {
         ],
         || {
             let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let out = block_on(prepare(&config, "cargo test", dir.path(), &None)).unwrap();
+            let out = block_on(prepare(
+                &config,
+                "cargo test",
+                dir.path(),
+                &None,
+                Audience::Human,
+            ))
+            .unwrap();
             assert_eq!(out.env.get("RUSTUP_TOOLCHAIN").unwrap(), "1.96.0");
         },
     );

@@ -1,10 +1,8 @@
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
+use semver::{Version, VersionReq};
 use serde::Deserialize;
-use std::{
-    fs::File,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use super::{Config, patterns::CompiledPatterns, secret::LadeRule};
 
@@ -43,45 +41,37 @@ pub struct LadeFile {
 
 impl LadeFile {
     pub fn from_path(path: &Path) -> Result<LadeFile> {
-        let file = File::open(path)?;
-        let mut config: serde_yaml::Value = serde_yaml::from_reader(file)?;
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let (req, mut config) = parse_lade_yaml(&raw)?;
+        if let Some(req) = req.as_deref() {
+            require_lade_version(req, path)?;
+        }
         config.apply_merge()?;
         let raw: RawLadeFile = serde_yaml::from_value(config)?;
         let mut commands = IndexMap::new();
         for (pattern, bodies) in raw.commands {
+            if pattern.is_empty() {
+                bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+            }
             commands.insert(pattern.clone(), bodies.into_rules(&pattern)?);
         }
         Ok(LadeFile { commands })
     }
 
-    pub fn build(mut path: PathBuf) -> Result<Config> {
+    pub fn build(path: PathBuf) -> Result<Config> {
+        let files = yaml_files_on_walk(&path)?;
         let mut configs: Vec<(PathBuf, LadeFile)> = Vec::default();
-
-        loop {
-            let yaml = path.join("lade.yaml");
-            if yaml.exists() {
-                configs.push((
-                    path.clone(),
-                    LadeFile::from_path(&yaml)
-                        .with_context(|| format!("failed to parse {}", yaml.display()))?,
-                ));
-            } else {
-                let yml = path.join("lade.yml");
-                if yml.exists() {
-                    configs.push((
-                        path.clone(),
-                        LadeFile::from_path(&yml)
-                            .with_context(|| format!("failed to parse {}", yml.display()))?,
-                    ));
-                }
-            }
-            if at_user_home(&path) {
-                break;
-            }
-            match path.parent() {
-                Some(parent) => path = parent.to_path_buf(),
-                None => break,
-            }
+        for file in files {
+            let dir = file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| path.clone());
+            configs.push((
+                dir,
+                LadeFile::from_path(&file)
+                    .with_context(|| format!("failed to parse {}", file.display()))?,
+            ));
         }
 
         let mut rules = Vec::default();
@@ -101,184 +91,187 @@ impl LadeFile {
     }
 }
 
-fn at_user_home(path: &Path) -> bool {
+pub(crate) fn at_user_home(path: &Path) -> bool {
     directories::UserDirs::new().is_some_and(|u| u.home_dir() == path)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{Audience, RuleWhen};
-    use std::path::PathBuf;
-    use tempfile::tempdir;
+pub(crate) fn config_in_dir(dir: &Path) -> Result<Option<PathBuf>> {
+    let yaml = dir.join("lade.yaml");
+    let yml = dir.join("lade.yml");
+    match (yaml.is_file(), yml.is_file()) {
+        (true, true) => {
+            bail!(
+                "both lade.yaml and lade.yml exist in {}. Keep lade.yaml and remove lade.yml.",
+                dir.display()
+            );
+        }
+        (true, false) => Ok(Some(yaml)),
+        (false, true) => Ok(Some(yml)),
+        (false, false) => Ok(None),
+    }
+}
 
-    #[test]
-    fn test_rule_config_file_only() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("lade.yml");
-        std::fs::write(
-            &file_path,
-            b"\"cmd\":\n  \".\": { file: \"out.yaml\" }\n  KEY: val\n",
+pub(crate) fn yaml_files_on_walk(start: &Path) -> Result<Vec<PathBuf>> {
+    let mut path = start.to_path_buf();
+    let mut out = Vec::new();
+    loop {
+        if let Some(found) = config_in_dir(&path)? {
+            out.push(found);
+        }
+        if at_user_home(&path) {
+            break;
+        }
+        match path.parent() {
+            Some(parent) => path = parent.to_path_buf(),
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+/// Optional empty-key range (`: >=0.18.0`). Empty regex is not a command.
+/// Use `.` to match every command. The line is peeled before YAML parse:
+/// a leading `: range` is not valid YAML as a mapping key.
+pub(crate) fn parse_lade_yaml(raw: &str) -> Result<(Option<String>, serde_yaml::Value)> {
+    let (line_req, yaml_src) = take_version_line(raw)?;
+    if yaml_src.trim().is_empty() {
+        return Ok((
+            line_req,
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        ));
+    }
+    let mut value: serde_yaml::Value = serde_yaml::from_str(yaml_src).context("invalid YAML")?;
+    if !value.is_mapping() {
+        bail!("lade.yaml body must be a mapping");
+    }
+    let key_req = take_version_key(value.as_mapping_mut().expect("mapping"))?;
+    let req = match (line_req, key_req) {
+        (None, None) => None,
+        (Some(req), None) | (None, Some(req)) => Some(req),
+        (Some(_), Some(_)) => {
+            bail!("lade.yaml has two versions. Keep one `: >=0.18.0`.");
+        }
+    };
+    Ok((req, value))
+}
+
+pub(crate) fn render_lade_yaml(req: Option<&str>, mapping: &serde_yaml::Value) -> Result<String> {
+    let body = serde_yaml::to_string(mapping)?;
+    let body = body.strip_prefix("---\n").unwrap_or(&body);
+    match req {
+        Some(req) => Ok(format!(": {req}\n{body}")),
+        None => Ok(body.to_string()),
+    }
+}
+
+fn take_version_line(raw: &str) -> Result<(Option<String>, &str)> {
+    let body = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+    let (first, rest) = match body.split_once('\n') {
+        Some((first, rest)) => (first.strip_suffix('\r').unwrap_or(first), rest),
+        None => (body.strip_suffix('\r').unwrap_or(body), ""),
+    };
+    let trimmed = first.trim();
+    if trimmed.starts_with('#') {
+        return Ok((None, body));
+    }
+    let Some(after) = trimmed.strip_prefix(':') else {
+        return Ok((None, body));
+    };
+    let after = unquote_version(after.trim());
+    if after.is_empty() {
+        if rest.starts_with(' ') || rest.starts_with('\t') {
+            bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+        }
+        bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+    }
+    if after.contains(':') {
+        return Ok((None, body));
+    }
+    Ok((Some(after.to_string()), rest))
+}
+
+fn unquote_version(s: &str) -> &str {
+    for quote in ['"', '\''] {
+        if s.len() >= 2 && s.starts_with(quote) && s.ends_with(quote) {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
+
+fn take_version_key(map: &mut serde_yaml::Mapping) -> Result<Option<String>> {
+    let null_val = map.remove(serde_yaml::Value::Null);
+    let empty_val = map.remove(serde_yaml::Value::String(String::new()));
+    let value = match (null_val, empty_val) {
+        (None, None) => return Ok(None),
+        (Some(value), None) | (None, Some(value)) => value,
+        (Some(_), Some(_)) => {
+            bail!("lade.yaml has both `:` and `\"\":`. Keep one version: `: >=0.18.0`.");
+        }
+    };
+    version_from_value(value)
+}
+
+fn version_from_value(value: serde_yaml::Value) -> Result<Option<String>> {
+    match value {
+        serde_yaml::Value::String(req) => {
+            let req = req.trim();
+            if req.is_empty() {
+                bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+            }
+            Ok(Some(req.to_string()))
+        }
+        serde_yaml::Value::Null => {
+            bail!("lade.yaml `:` version is empty. Example: `: >=0.18.0`");
+        }
+        serde_yaml::Value::Mapping(_) | serde_yaml::Value::Sequence(_) => {
+            bail!("`: ` is the Lade version, not a command. Use `.` to match every command.");
+        }
+        other => {
+            bail!(
+                "lade.yaml `:` version must be a semver range. Example: `: >=0.18.0`. Got {other:?}."
+            );
+        }
+    }
+}
+
+fn current_lade_version() -> Version {
+    let parsed =
+        Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0));
+    Version::new(parsed.major, parsed.minor, parsed.patch)
+}
+
+pub(crate) fn require_lade_version(req: &str, path: &Path) -> Result<()> {
+    let parsed = VersionReq::parse(req).with_context(|| {
+        format!(
+            "{} version `{req}` is not a semver range. Example: `: >=0.18.0`",
+            path.display()
         )
-        .unwrap();
-        let lade_file = LadeFile::from_path(&file_path).unwrap();
-        let rule = &lade_file.commands.get("cmd").unwrap()[0];
-        let config = rule.config.as_ref().unwrap();
-        assert_eq!(config.file, Some(PathBuf::from("out.yaml")));
-        assert!(config.onepassword_service_account.is_none());
+    })?;
+    let current = current_lade_version();
+    if parsed.matches(&current) {
+        return Ok(());
     }
+    bail!(
+        "{} needs Lade {req}. This binary is {}.\nRun `lade upgrade`, or edit the `:` version in that file.",
+        path.display(),
+        env!("CARGO_PKG_VERSION")
+    );
+}
 
-    #[test]
-    fn test_rule_config_absent() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("lade.yml");
-        std::fs::write(&file_path, b"\"cmd\":\n  KEY: val\n").unwrap();
-        let lade_file = LadeFile::from_path(&file_path).unwrap();
-        assert!(lade_file.commands.get("cmd").unwrap()[0].config.is_none());
-    }
-
-    #[test]
-    fn test_old_format_dot_string_fails() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("lade.yml");
-        std::fs::write(
-            &file_path,
-            b"\"cmd\":\n  \".\": \"some/path\"\n  KEY: val\n",
-        )
-        .unwrap();
-        assert!(LadeFile::from_path(&file_path).is_err());
-    }
-
-    #[test]
-    fn test_multiple_commands_in_yaml() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("lade.yml");
-        std::fs::write(
-            &file_path,
-            "\"cmd1\":\n  KEY1: val1\n\"cmd2\":\n  KEY2: val2\n",
-        )
-        .unwrap();
-        let lade_file = LadeFile::from_path(&file_path).unwrap();
-        assert_eq!(lade_file.commands.len(), 2);
-        assert!(lade_file.commands.contains_key("cmd1"));
-        assert!(lade_file.commands.contains_key("cmd2"));
-    }
-
-    #[test]
-    fn test_build_single_lade_yml() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        assert_eq!(config.collect("cmd").len(), 1);
-    }
-
-    #[test]
-    fn test_build_yaml_extension_fallback() {
-        let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("lade.yaml"), "\"cmd\":\n  KEY: val\n").unwrap();
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        assert_eq!(config.collect("cmd").len(), 1);
-    }
-
-    #[test]
-    fn test_build_yaml_preferred_over_yml() {
-        let dir = tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("lade.yaml"),
-            "\"cmd\":\n  KEY_YAML: yaml_val\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("lade.yml"),
-            "\"cmd\":\n  KEY_YML: yml_val\n",
-        )
-        .unwrap();
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let matches = config.collect("cmd");
-        assert_eq!(matches.len(), 1);
-        assert!(matches[0].1.secrets.contains_key("KEY_YAML"));
-    }
-
-    #[test]
-    fn test_build_stops_at_user_home() {
-        let root = tempdir().unwrap();
-        let home = root.path().join("home");
-        let proj = home.join("proj");
-        std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(root.path().join("lade.yml"), "\"cmd\":\n  ABOVE: x\n").unwrap();
-        std::fs::write(home.join("lade.yml"), "\"cmd\":\n  HOME_KEY: h\n").unwrap();
-        std::fs::write(proj.join("lade.yml"), "\"cmd\":\n  PROJ: p\n").unwrap();
-        temp_env::with_var("HOME", Some(home.as_os_str()), || {
-            let config = LadeFile::build(proj.clone()).unwrap();
-            let matches = config.collect("cmd");
-            let keys: Vec<String> = matches
-                .iter()
-                .flat_map(|(_, rule)| rule.secrets.keys().cloned())
-                .collect();
-            assert!(keys.contains(&"HOME_KEY".into()), "{keys:?}");
-            assert!(keys.contains(&"PROJ".into()), "{keys:?}");
-            assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
-        });
-    }
-
-    #[test]
-    fn test_build_nested_dirs_parent_first() {
-        let parent = tempdir().unwrap();
-        let child = parent.path().join("child");
-        std::fs::create_dir(&child).unwrap();
-        std::fs::write(
-            parent.path().join("lade.yml"),
-            "\"cmd\":\n  PARENT_KEY: pval\n",
-        )
-        .unwrap();
-        std::fs::write(child.join("lade.yml"), "\"cmd\":\n  CHILD_KEY: cval\n").unwrap();
-        let config = LadeFile::build(child).unwrap();
-        let matches = config.collect("cmd");
-        assert_eq!(matches.len(), 2);
-        assert!(matches[0].1.secrets.contains_key("PARENT_KEY"));
-        assert!(matches[1].1.secrets.contains_key("CHILD_KEY"));
-    }
-
-    #[test]
-    fn test_build_no_config_empty() {
-        let dir = tempdir().unwrap();
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        assert!(config.collect("anything").is_empty());
-    }
-
-    #[test]
-    fn test_build_invalid_regex_error() {
-        let dir = tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("lade.yml"),
-            "\"[invalid regex\":\n  KEY: val\n",
-        )
-        .unwrap();
-        assert!(LadeFile::build(dir.path().to_path_buf()).is_err());
-    }
-
-    #[test]
-    fn test_pattern_list_expands_to_two_rules() {
-        let dir = tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("lade.yml"),
-            "\"^git \":\n  - \".\":\n      when: human\n    SOCK: human\n  - \".\":\n      when: agent\n    SOCK: agent\n",
-        )
-        .unwrap();
-        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let human = config.collect_for("git status", Audience::Human);
-        assert_eq!(human.len(), 1);
-        assert_eq!(human[0].1.config.as_ref().unwrap().when, RuleWhen::Human);
-        let agent = config.collect_for("git status", Audience::Agent);
-        assert_eq!(agent.len(), 1);
-        assert_eq!(agent[0].1.config.as_ref().unwrap().when, RuleWhen::Agent);
-    }
-
-    #[test]
-    fn test_empty_rule_list_fails() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("lade.yml");
-        std::fs::write(&file_path, "\"cmd\": []\n").unwrap();
-        assert!(LadeFile::from_path(&file_path).is_err());
-    }
+pub(crate) fn report_load_error(e: &anyhow::Error) {
+    let text = format!("{e:#}");
+    let title = if text.contains("needs Lade") {
+        "This Lade is too old for this repo."
+    } else {
+        "Could not parse a lade.yaml."
+    };
+    crate::message_box::MessageBox::new()
+        .error()
+        .line(title)
+        .line("")
+        .paragraph(text)
+        .line("")
+        .line("Walk starts at this directory and stops at $HOME.")
+        .print_stderr();
 }

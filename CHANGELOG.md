@@ -11,14 +11,29 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Added
 
+- **Diary chain**: each events.db row is HMAC-SHA256 of the
+  previous hash plus the payload. The salt is compiled into this
+  Lade version. `lade log verify` walks the chain. A raw SQL
+  edit fails. Parallel writes append under an Immediate
+  transaction. `lade log share` reseals the redacted snapshot.
+  `lade log` and `lade usage` warn if a row was tampered and
+  still print. The warning says how many rows verify before and
+  after that row. `lade log verify` exits non-zero.
+  `lade log prune` starts a new epoch over the rows that remain.
+  Tamper-evident, not tamper-proof.
 - **Bitwarden**: `bw://ITEM/FIELD` uses the Bitwarden CLI and one
   `bw list items` per resolve. `password` is the default field.
+- **lade.yaml version**: optional empty key `: >=0.18.0`. An
+  empty command regex is not a rule. Use `.` to match every
+  command. Below the range, Lade refuses and shows the box.
+  Edit `:` by hand. No pin command. `lade upgrade` does not
+  load yaml.
 - **mise pins**: A `mise://` URI on a matched rule
   (`tofu: mise://aqua/opentofu/opentofu@1.8.2`) prepends that
   install's bin directory for the command. A miss runs `mise
   install` (or `--locked`) in a temp dir whose only config is
   this pin, then refuses if the binary is still missing.
-  `lade.yml` stays the config. The repo is not written. Typing
+  `lade.yaml` stays the config. The repo is not written. Typing
   `mise` hands a composed project-plus-pins view. The user mise
   config tree (`~/.config/mise`, `$XDG_CONFIG_HOME/mise`,
   `conf.d`) and `MISE_ENV` are ignored on install, env dump,
@@ -29,26 +44,71 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   secrets. A `mise.lock` keyed by backend id
   (`[[tools."aqua:jqlang/jq"]]`) is found. A miss after install
   refuses. Homebrew is not used. No rust-only table.
-- **age plugin**: Cargo builds `lade` and `age-plugin-lade` from the
-  same `main`. The release tarball, installer, image, and
-  `cargo install` ship both files. `lade upgrade` copies the new
-  `lade` over the plugin name because self_update extracts one
-  binary. age and rage resolve a Lade URI the same way `lade eval`
-  does, then wrap or unwrap with the age crate (X25519, SSH, tagged,
+- **age plugin**: `age-plugin-lade` is its own crate
+  (`crates/age-plugin-lade`). It speaks C2SP and execs `lade eval`
+  (sibling, `PATH`, or `LADE_BIN`). It does not link the `lade`
+  crate. `lade-sdk` lives at `crates/lade-sdk`. The release
+  tarball, installer, and image still ship both files.
+  `cargo install` is two crates. `lade upgrade` extracts the
+  plugin from the same GitHub release, not a copy of `lade`.
+  age and rage resolve a Lade URI the same way `lade eval` does,
+  then wrap or unwrap with the age crate (X25519, SSH, tagged,
   and post-quantum `age1tagpq1` recipients). `lade eval` and the
   plugin write an `access` diary row (URI only, never the value).
+  `lade status` reports whether `age-plugin-lade` is next to `lade`
+  or on `PATH`. A miss does not flip `ok`.
 
 ### Changed
 
+- **`lade setup` / `lade teardown`**: replace `install` / `uninstall`.
+  Setup is this git repo. The shell wrap is written only the first
+  time this machine has no pre-exec, then reload this shell. Later
+  a missing wrap is `lade hook enable --shell`. Teardown does not
+  remove the wrap. Agent hooks stay in the repo. Home hooks are
+  flagged, never stacked. `--harness` is the only hook flag.
+  `lade add` / `lade remove` write the nearest
+  `lade.yaml` and add runs setup. One walk toward `$HOME` picks
+  the pin plane. A committed `mise.toml` / `mise.lock` (not
+  `$HOME` unless the yaml is there) is the Mise plane: setup
+  extends both. Otherwise one `lade.lock` at the git root. A git
+  repo in `$HOME` is not that root. `mise.local.toml` is not a
+  plane. The third family is `package` (`lade add package`), not
+  `bin`. Diary bindings use `package`. Package URIs may set
+  `?setup=` / `?teardown=`. Diary prune uses the same repo filter
+  plus `--global`. Both `lade.yaml` and `lade.yml` in one dir is
+  an error. No skill files. `lade setup` does not sweep leftover
+  `SKILL.md`. The README blockquote is the agent
+  prompt. There is no `agent-setup.sh`.
+  `mise://…@latest` is resolved to the current version and written
+  as that exact pin.   `CI` set skips the shell wrap. `lade add` warns once when a
+  secret is raw. Inject does not. Generated project hooks emit
+  `--harness`. `lade setup` installs the lock. `lade update`
+  re-resolves implied and ranged pins. `lade setup --unlock`
+  ignores the lock this once.
+  Secret and tunnel CLIs share one spec table. User-facing tunnel
+  errors say tunnel.
 - Azure Key Vault URIs use `azurekv://`.
 - Infisical hydrates through the Infisical CLI again, so a desktop
   `infisical login` is enough. A token still works when the CLI sees it.
 - Vault hydrate is HTTP KV v2. Resolve does not run the Vault CLI.
   `VAULT_TOKEN` / `LADE_VAULT_TOKEN` or `~/.vault-token` from
   `vault login`. Docker tests seed with `curl`, not a host `vault`.
+  `vault://` implies a mise pin (`aqua/hashicorp/vault`). Hydrate is still HTTP.
+- **mise binary**: `lade setup` writes the official mise path
+  (`$MISE_DATA_DIR/bin/mise`, else `~/.local/share/mise/bin/mise`).
+  PATH mise in range is used as-is. No second copy under Lade's
+  data dir.
+
+### Removed
+
+- APM package (`apm.yml`, `.apm/skills/lade`). Hooks are written by the
+  binary. `agent-setup.sh` is gone. The README blockquote is the
+  agent prompt.
 
 ### Fixed
 
+- **`lade upgrade`**: if `age-plugin-lade` is missing beside `lade`,
+  the next upgrade installs it even when Lade is already current.
 - **Installer during a release**: GitHub `latest` stays on the previous
   tag until the binary assets are uploaded, so `curl|bash` and
   installer-e2e do not hit an empty vX.Y.Z.
@@ -57,6 +117,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   retries while the peer is still migrating. Busy wait stays 250ms.
 - **Vault login file**: HTTP Vault reads `~/.vault-token` when
   `VAULT_TOKEN` and `LADE_VAULT_TOKEN` are unset.
+- **Inject with a store hit**: a pinned CLI already in
+  `$MISE_INSTALLS_DIR` still dumps `mise env` when mise is there.
+  When it is not, extra env stays empty and the command still
+  starts. Inject does not fetch mise.
 
 ## [0.18.0] - 2026-09-07
 

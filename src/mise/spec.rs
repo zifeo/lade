@@ -34,6 +34,17 @@ impl Spec {
         format!("{}-{}", self.prefix, self.package.replace(['/', ':'], "-"))
     }
 
+    pub fn is_range(&self) -> bool {
+        version_is_range(&self.version) || version_is_floating(&self.version)
+    }
+
+    pub fn install_arg(&self) -> String {
+        if self.is_range() {
+            return self.backend_id();
+        }
+        self.cli_spec()
+    }
+
     pub fn cli_spec(&self) -> String {
         if self.options.is_empty() {
             return format!("{}:{}@{}", self.prefix, self.package, self.version);
@@ -58,6 +69,28 @@ pub fn looks_like_spec(value: &str) -> bool {
     is_mise_uri(value) || is_legacy_cli_spec(value)
 }
 
+pub fn version_is_range(version: &str) -> bool {
+    version.starts_with(['>', '<', '~', '^', '=']) || version.contains(',') || version.contains('*')
+}
+
+pub fn version_is_floating(version: &str) -> bool {
+    matches!(version, "latest" | "lts")
+}
+
+pub fn replace_version(uri: &str, version: &str) -> String {
+    let (body, query) = match uri.split_once('?') {
+        Some((body, query)) => (body, Some(query)),
+        None => (uri, None),
+    };
+    let Some((head, _)) = body.rsplit_once('@') else {
+        return uri.to_string();
+    };
+    match query {
+        Some(query) => format!("{head}@{version}?{query}"),
+        None => format!("{head}@{version}"),
+    }
+}
+
 pub fn looks_like_bare_version(value: &str) -> bool {
     if value.is_empty() || value.contains(':') || value.contains('/') {
         return false;
@@ -75,7 +108,7 @@ pub fn looks_like_bare_version(value: &str) -> bool {
 pub fn parse(value: &str) -> Result<Spec, String> {
     if is_legacy_cli_spec(value) {
         return Err(format!(
-            "`{value}` is the mise CLI form. In lade.yml use {}.",
+            "`{value}` is the mise CLI form. In lade.yaml use {}.",
             legacy_to_uri(value)
         ));
     }
@@ -99,8 +132,12 @@ pub fn parse(value: &str) -> Result<Spec, String> {
     if after.is_empty() {
         return Err(format!("pin '{value}' is missing a package name"));
     }
-    let (package, options, version) = split_package_opts_version(after)
+    let (after, query) = split_query(after);
+    let (package, mut options, version) = split_package_opts_version(after)
         .map_err(|e| format!("{e}. Example: mise://aqua/owner/repo@1.2.3"))?;
+    for (key, val) in query {
+        options.insert(key, val);
+    }
     if package.is_empty() {
         return Err(format!("pin '{value}' is missing a package name"));
     }
@@ -138,6 +175,25 @@ fn legacy_to_uri(value: &str) -> String {
         return format!("{SCHEME}{value}");
     };
     format!("{SCHEME}{prefix}/{rest}")
+}
+
+fn split_query(rest: &str) -> (&str, BTreeMap<String, String>) {
+    let Some((body, raw)) = rest.split_once('?') else {
+        return (rest, BTreeMap::new());
+    };
+    let mut out = BTreeMap::new();
+    for part in raw.split('&') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = part.split_once('=') {
+            out.insert(k.trim().to_string(), v.trim().to_string());
+        } else {
+            out.insert(part.to_string(), String::new());
+        }
+    }
+    (body, out)
 }
 
 fn split_package_opts_version(

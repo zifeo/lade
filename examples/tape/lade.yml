@@ -1,3 +1,8 @@
+# tape: pins
+"^__tape$":
+  vault: "mise://aqua/hashicorp/vault@1.15.0"
+  kubectl: "mise://aqua:kubernetes/kubectl@1.31.4"
+
 # tape: main
 ^echo hello:
   GREETING: "world"

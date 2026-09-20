@@ -105,10 +105,10 @@ pub(crate) fn public_hydrate(
 }
 
 pub(super) async fn handle_provider_failure(ctx: &InvocationContext, e: &anyhow::Error) {
-    if e.to_string().contains("network provider") {
+    if e.to_string().contains("tunnel") || e.to_string().contains("network provider") {
         let mut mb = message_box::MessageBox::new()
             .error()
-            .line("Could not start network providers:")
+            .line("Could not start tunnels:")
             .line("")
             .paragraph(e.to_string());
         if ctx.stderr_is_terminal {
@@ -168,7 +168,7 @@ pub(super) fn merge_env_with_conflicts(
         match env.get(&key) {
             Some(existing) if existing != &value => {
                 anyhow::bail!(
-                    "conflicting env '{}' between secret/network providers: '{}' vs '{}'",
+                    "conflicting env '{}' between secret/tunnel providers: '{}' vs '{}'",
                     key,
                     existing,
                     value

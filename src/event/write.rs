@@ -1,5 +1,5 @@
 use chrono::{SecondsFormat, Utc};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -7,7 +7,7 @@ use crate::audience::Via;
 use crate::config::Audience;
 use crate::scrub;
 
-use super::{Emit, Event, git_stamp, open};
+use super::{Emit, Event, chain, git_stamp, open};
 
 pub fn emit(e: Emit) {
     if let Err(err) = emit_inner(e) {
@@ -46,36 +46,50 @@ fn emit_verb_inner(hook: Option<&str>, tool_use_id: Option<&str>, e: Emit) -> ru
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
-    match existing {
-        Some((event_id, _, raw, _)) if hook == Some("beforeMCPExecution") => {
-            let agent = merge_launch(raw, e.agent.as_ref());
-            let encoded = serde_json::to_string(&agent).unwrap_or_else(|_| "null".into());
-            tx.execute(
-                "UPDATE events SET agent = jsonb(?2) WHERE id = ?1",
-                rusqlite::params![event_id, encoded],
-            )?;
-            tx.commit()?;
+    let Some((event_id, command, raw, argv)) = existing else {
+        chain::insert_sealed(&tx, &event_from_emit(e))?;
+        return tx.commit();
+    };
+    match hook {
+        Some("beforeMCPExecution") => {
+            let mut event = event_by_id(&tx, &event_id)?;
+            event.agent = Some(merge_launch(raw, e.agent.as_ref())).filter(|v| !v.is_null());
+            write_updated(tx, &event_id, event)
         }
-        Some((event_id, command, raw, argv)) if hook == Some("preToolUse") => {
-            if command.is_empty() || json_missing(&argv) {
-                fill_verb_row(
-                    &tx,
-                    &event_id,
-                    raw,
-                    command.is_empty(),
-                    json_missing(&argv),
-                    e,
-                )?;
-                tx.commit()?;
+        Some("preToolUse") => {
+            let fill_argv = json_missing(&argv);
+            if command.is_empty() || fill_argv {
+                let event = fill_verb_event(&tx, &event_id, raw, command.is_empty(), fill_argv, e)?;
+                write_updated(tx, &event_id, event)
+            } else {
+                Ok(())
             }
         }
-        Some(_) => {}
-        None => {
-            drop(tx);
-            emit_inner(e)?;
-        }
+        _ => Ok(()),
     }
-    Ok(())
+}
+
+fn write_updated(
+    tx: rusqlite::Transaction<'_>,
+    event_id: &str,
+    mut event: Event,
+) -> rusqlite::Result<()> {
+    if chain::is_head(&tx, event_id)? {
+        chain::reseal_head(&tx, &event)?;
+    } else {
+        event.id = Uuid::now_v7().to_string();
+        event.ts = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        chain::insert_sealed(&tx, &event)?;
+    }
+    tx.commit()
+}
+
+fn event_by_id(tx: &rusqlite::Transaction<'_>, id: &str) -> rusqlite::Result<Event> {
+    tx.query_row(
+        &format!("SELECT {} FROM events WHERE id = ?1", super::EVENT_COLS),
+        rusqlite::params![id],
+        super::event_from_row,
+    )
 }
 
 fn json_missing(raw: &Option<String>) -> bool {
@@ -105,14 +119,15 @@ fn merge_launch(raw: Option<String>, patch: Option<&Value>) -> Value {
     agent
 }
 
-fn fill_verb_row(
+fn fill_verb_event(
     tx: &rusqlite::Transaction<'_>,
     event_id: &str,
     raw_agent: Option<String>,
     fill_command: bool,
     fill_argv: bool,
     e: Emit,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<Event> {
+    let mut event = event_by_id(tx, event_id)?;
     let redacted = scrub::redact_command(&e.command, None);
     let (command, truncated) = scrub::cap_text(redacted.command);
     let argv = scrub::redact_argv(e.argv, None);
@@ -130,43 +145,19 @@ fn fill_verb_row(
             obj.insert(key.clone(), value.clone());
         }
     }
-    let encoded_agent = serde_json::to_string(&agent).unwrap_or_else(|_| "null".into());
-    let encoded_argv = argv
-        .as_ref()
-        .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
-    let matches = serde_json::to_string(&e.matches).unwrap_or_else(|_| "[]".into());
-    if fill_command && fill_argv {
-        tx.execute(
-            "UPDATE events SET command = ?2, command_truncated = ?3, argv = jsonb(?4),
-                matches = jsonb(?5), agent = jsonb(?6)
-             WHERE id = ?1",
-            rusqlite::params![
-                event_id,
-                command,
-                truncated as i64,
-                encoded_argv,
-                matches,
-                encoded_agent
-            ],
-        )?;
-    } else if fill_command {
-        tx.execute(
-            "UPDATE events SET command = ?2, command_truncated = ?3, matches = jsonb(?4),
-                agent = jsonb(?5)
-             WHERE id = ?1",
-            rusqlite::params![event_id, command, truncated as i64, matches, encoded_agent],
-        )?;
-    } else {
-        tx.execute(
-            "UPDATE events SET argv = jsonb(?2), matches = jsonb(?3), agent = jsonb(?4)
-             WHERE id = ?1",
-            rusqlite::params![event_id, encoded_argv, matches, encoded_agent],
-        )?;
+    event.agent = Some(agent).filter(|value| !value.is_null());
+    event.matches = e.matches;
+    if fill_command {
+        event.command = command;
+        event.command_truncated = truncated;
     }
-    Ok(())
+    if fill_argv {
+        event.argv = argv;
+    }
+    Ok(event)
 }
 
-fn emit_inner(e: Emit) -> rusqlite::Result<()> {
+fn event_from_emit(e: Emit) -> Event {
     let redacted = scrub::redact_command(&e.command, e.hydrated.as_ref());
     let (command, argv) = if e.argv.is_none() {
         scrub::peel_command(&redacted.command)
@@ -175,7 +166,7 @@ fn emit_inner(e: Emit) -> rusqlite::Result<()> {
     };
     let (command, truncated) = scrub::cap_text(command);
     let (repo, git_commit) = git_stamp(&e.cwd);
-    let event = Event {
+    Event {
         id: Uuid::now_v7().to_string(),
         ts: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         kind: e.kind.as_str().to_string(),
@@ -205,39 +196,13 @@ fn emit_inner(e: Emit) -> rusqlite::Result<()> {
         hydrate_ms: e.hydrate_ms,
         matches: e.matches,
         agent: e.agent.filter(|value| !value.is_null()),
-    };
+    }
+}
+
+fn emit_inner(e: Emit) -> rusqlite::Result<()> {
+    let event = event_from_emit(e);
     let mut conn = open()?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let matches = serde_json::to_string(&event.matches).unwrap_or_else(|_| "[]".into());
-    let agent = event
-        .agent
-        .as_ref()
-        .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
-    let argv = event
-        .argv
-        .as_ref()
-        .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()));
-    tx.execute(
-        "INSERT INTO events (
-            id, ts, kind, via, audience, actor, repo, git_commit,
-            command, command_truncated, hydrate_ms, matches, agent, argv
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, jsonb(?12), jsonb(?13), jsonb(?14))",
-        params![
-            event.id,
-            event.ts,
-            event.kind,
-            event.via,
-            event.audience,
-            event.actor,
-            event.repo,
-            event.git_commit,
-            event.command,
-            event.command_truncated as i64,
-            event.hydrate_ms,
-            matches,
-            agent,
-            argv,
-        ],
-    )?;
+    chain::insert_sealed(&tx, &event)?;
     tx.commit()
 }

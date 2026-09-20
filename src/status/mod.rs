@@ -22,6 +22,12 @@ struct VersionInfo {
 }
 
 #[derive(Serialize)]
+struct AgePluginInfo {
+    present: bool,
+    path: Option<PathBuf>,
+}
+
+#[derive(Serialize)]
 struct GlobalConfigInfo {
     path: PathBuf,
     user: Option<String>,
@@ -75,13 +81,30 @@ struct ProjectConfig {
 }
 
 #[derive(Serialize)]
+struct LockedTool {
+    name: String,
+    version: Option<String>,
+    present: bool,
+}
+
+#[derive(Serialize)]
+struct MiseInfo {
+    needed: bool,
+    version: Option<String>,
+    in_range: bool,
+    range: String,
+    tools: Vec<LockedTool>,
+}
+
+#[derive(Serialize)]
 struct StatusReport {
     version: VersionInfo,
+    age_plugin: AgePluginInfo,
     global_config: GlobalConfigInfo,
     hooks: HooksInfo,
-    skills: crate::pretool::install::SkillsStatus,
     project_config: ProjectConfig,
     log: event::LogInfo,
+    mise: MiseInfo,
     ok: bool,
 }
 

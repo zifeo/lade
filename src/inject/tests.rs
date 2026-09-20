@@ -47,8 +47,7 @@ async fn provider_race_fails_fast_and_does_not_deadlock_progress_renderer() {
                 Vec::new(),
             ))
         };
-        let network_task =
-            async { Err::<(), _>(anyhow::anyhow!("network provider error: fast failure")) };
+        let network_task = async { Err::<(), _>(anyhow::anyhow!("tunnel error: fast failure")) };
 
         race_provider_tasks(secret_task, network_task).await
     };
