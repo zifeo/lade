@@ -220,4 +220,22 @@ mod tests {
         let out = redact(&[("K", "s3cr3t")], b"s3cr3t foo s3cr3t");
         assert_eq!(out, b"${K:-REDACTED} foo ${K:-REDACTED}");
     }
+
+    #[test]
+    fn no_match_megabyte_stays_under_a_second() {
+        let secrets: HashMap<String, String> = (0..50)
+            .map(|i| (format!("SECRET_{i:02}"), format!("deadbeef{i:024x}")))
+            .collect();
+        let redactor = Redactor::new(&secrets, DEFAULT_FMT).unwrap();
+        let payload = vec![b'a'; 1024 * 1024];
+        let started = std::time::Instant::now();
+        let mut sink = Vec::with_capacity(payload.len());
+        redactor.stream(Cursor::new(payload), &mut sink).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(sink.len(), 1024 * 1024);
+        assert!(
+            elapsed.as_millis() < 1000,
+            "redact no-match 1MiB took {elapsed:?}"
+        );
+    }
 }

@@ -10,6 +10,8 @@ use crate::config::{Audience, Config, LadeRule};
 mod chain;
 mod db;
 mod git;
+pub(crate) mod log_cmd;
+pub(crate) mod pack;
 #[cfg(test)]
 mod tests;
 mod write;

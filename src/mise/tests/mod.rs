@@ -99,5 +99,6 @@ mod lock_parse;
 mod prepare;
 mod prepare_implied;
 mod prepare_refresh;
+mod repo_lock;
 mod setup;
 mod setup_toml;

@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 use crate::event;
-use crate::log_pack;
+use crate::event::pack;
 use crate::message_box;
 use crate::window;
 
@@ -18,7 +18,7 @@ fn chain_reports(sources: &[String]) -> Result<Vec<(PathBuf, event::ChainStatus)
     if sources.is_empty() {
         Ok(vec![(event::db_path(), event::verify_live()?)])
     } else {
-        log_pack::verify_sources(sources)
+        pack::verify_sources(sources)
     }
 }
 
@@ -62,7 +62,7 @@ fn fetch_events(
     let result = if sources.is_empty() {
         event::query(since, until, limit, audience, kind, repo).map_err(Into::into)
     } else {
-        log_pack::query_sources(sources, since, until, limit, audience, kind, repo)
+        pack::query_sources(sources, since, until, limit, audience, kind, repo)
     };
     match result {
         Ok(rows) => Ok(rows),

@@ -1,7 +1,7 @@
-mod preexec;
+mod hook;
 mod profile;
 
-pub use preexec::{
+pub use hook::{
     SetupShell, ci_job, enable_current_preexec, maybe_bootstrap_setup_shell, preexec_installed,
     uninstall_current_preexec,
 };

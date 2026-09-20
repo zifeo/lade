@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
+use crate::preexec::Shell;
 use crate::redact::Redactor;
-use crate::shell::Shell;
 use anyhow::Result;
 use std::{
     fs::File,

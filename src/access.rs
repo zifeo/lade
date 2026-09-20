@@ -22,7 +22,7 @@ pub struct AttachedAccess {
 
 impl AttachedAccess {
     pub fn public_hydrate(&self) -> HashMap<String, String> {
-        crate::inject::public_hydrate(&self.env, &self.files)
+        crate::wrap::public_hydrate(&self.env, &self.files)
     }
 
     pub fn cleanup(&mut self) -> Result<()> {

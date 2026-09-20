@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use url::Url;
 
 use crate::{
-    args::McpCommand, config::Config, context::InvocationContext, event, inject,
-    message_box::MessageBox, prompt,
+    args::McpCommand, config::Config, context::InvocationContext, event, message_box::MessageBox,
+    prompt, wrap,
 };
 
 mod stdio;
@@ -91,7 +91,7 @@ pub async fn run(
                 agent: crate::agent_meta::merge(serde_json::Value::Null),
             },
         ),
-        None => inject::emit_seen_if_walk_log(config, ctx, &stored, current_dir, &saved_user, argv),
+        None => wrap::emit_seen_if_walk_log(config, ctx, &stored, current_dir, &saved_user, argv),
     }
     for warning in &access.warnings {
         MessageBox::new().warning().line(warning).print_stderr();
@@ -104,7 +104,7 @@ pub async fn run(
         None => {
             info!("mcp started transport=stdio");
             let mut env = access.env.clone();
-            for key in crate::shell::CHILD_UNSET {
+            for key in crate::preexec::CHILD_UNSET {
                 env.remove(key);
             }
             stdio::run_stdio(command.argv, env, current_dir.to_path_buf()).await

@@ -1,0 +1,29 @@
+lockfile_version = 1
+
+[[tools.rust]]
+version = "1.96.0"
+backend = "core:rust"
+
+[[tools.op]]
+version = "2.39.0"
+backend = "aqua:1password/op"
+
+[[tools.fish]]
+version = "4.9.3"
+backend = "aqua:fish-shell/fish-shell"
+
+[[tools.zsh]]
+version = "6.1.1"
+backend = "github:romkatv/zsh-bin"
+
+[[tools.kubectl]]
+version = "1.37.0"
+backend = "aqua:kubernetes/kubectl"
+
+[[tools.k3d]]
+version = "5.9.0"
+backend = "aqua:k3d-io/k3d"
+
+[[tools.vault]]
+version = "1.21.4"
+backend = "aqua:hashicorp/vault"

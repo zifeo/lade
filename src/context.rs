@@ -75,7 +75,7 @@ mod tests {
 
     fn cleared() -> Vec<(&'static str, Option<&'static str>)> {
         vec![
-            (crate::shell::LADE_VIA, None),
+            (crate::preexec::LADE_VIA, None),
             ("AI_AGENT", None),
             ("AGENT", None),
             ("CLAUDECODE", None),

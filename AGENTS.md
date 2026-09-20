@@ -45,14 +45,14 @@ bash tests/installer_test.sh
 
 ## Project layout
 
-- `src/` — CLI crate. Key modules: `pretool/` (`lade hook` preToolUse / MCP verb
+- `src/` — CLI crate. `command/` is the clap verb entry points.
+  Thematic engines: `pretool/` (`lade hook` preToolUse / MCP verb
   handler plus `lade hook enable --scope user|project` into
-  Cursor/Claude/Codex/OpenCode configs), `audience.rs`
-  (`detect()` for Via, Audience, UI), `prompt.rs` (disclaimer flow),
-  `inject.rs`/`exec/` (PTY execution + masking), `network/` (acquire and
-  process groups), `mise/` (command-scoped pins via mise.lock and
-  `$MISE_INSTALLS_DIR`), `status.rs`, `shell/` (preexec integration),
-  `config/`, `message_box/`.
+  Cursor/Claude/Codex/OpenCode configs), `preexec/` (shell wrap),
+  `wrap/` (inject + PTY exec + masking), `mcp/`, `mise/` (command-scoped
+  pins via lade.lock / mise.lock and `$MISE_INSTALLS_DIR`), `network/`
+  (acquire and process groups), `event/` (diary, `log`, `usage`, packs),
+  `config/`, `audience.rs`, `prompt.rs`, `message_box/`.
 - `crates/lade-sdk` — providers: vault hydrate, network URI parse, tunnel
   command builders, CLI version tables. MCP HTTP byte bridge.
 - `crates/age-plugin-lade` — C2SP `age-plugin-lade` binary. Execs

@@ -3,7 +3,7 @@ use crate::args::{
     DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookAgent, HookScope, HookToggleCommand,
     InjectCommand,
 };
-use crate::shell::LADE_VIA;
+use crate::preexec::LADE_VIA;
 
 const SIGNALS: [&str; 14] = [
     "AI_AGENT",

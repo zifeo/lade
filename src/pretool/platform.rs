@@ -199,7 +199,7 @@ pub(super) fn is_already_injected(command: &str) -> bool {
 pub(super) fn has_pretool_stamp(env_prefix: &str, command: &str) -> bool {
     let stamp = format!(
         "{}={}",
-        crate::shell::LADE_VIA,
+        crate::preexec::LADE_VIA,
         crate::audience::Via::PRETOOL
     );
     if env_prefix.split_whitespace().any(|part| part == stamp) {

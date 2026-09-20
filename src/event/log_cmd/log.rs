@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use super::{fetch_events, filter_opt, query_window, repo_filter};
 use crate::args::{LogAction, LogCommand};
 use crate::catalog;
+use crate::event::pack;
 use crate::event::{self, Event};
-use crate::log_pack;
 use crate::message_box;
 use crate::window;
 
@@ -143,7 +143,7 @@ fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<
     let kind = filter_opt(&opts.kind);
     let cwd = std::env::current_dir()?;
     let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
-    match log_pack::share(
+    match pack::share(
         since.as_ref(),
         until.as_ref(),
         limit,

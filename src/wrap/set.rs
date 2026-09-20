@@ -6,8 +6,8 @@ use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
 use crate::network;
+use crate::preexec::Shell;
 use crate::prompt;
-use crate::shell::Shell;
 use crate::ticket;
 
 use super::acquire::acquire_secrets_and_network;
@@ -26,7 +26,7 @@ pub async fn handle_set(
 ) -> Result<()> {
     println!(
         "{}",
-        shell.unset(vec![crate::shell::LADE_RESTORE.to_string()])
+        shell.unset(vec![crate::preexec::LADE_RESTORE.to_string()])
     );
     let command = commands.join(" ");
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
@@ -121,7 +121,7 @@ pub async fn handle_set(
             ticket::replace(&id, &pre)?;
             println!(
                 "{}",
-                shell.set(HashMap::from([(crate::shell::LADE_T.to_string(), id)]))
+                shell.set(HashMap::from([(crate::preexec::LADE_T.to_string(), id)]))
             );
             std::process::exit(crate::exit_codes::DISCLAIMER_WITHHELD);
         }
@@ -202,7 +202,7 @@ fn stamp_preexec(
     ticket_id: &str,
     original_path: Option<String>,
 ) -> Result<String> {
-    env.insert(crate::shell::LADE_T.to_string(), ticket_id.to_string());
+    env.insert(crate::preexec::LADE_T.to_string(), ticket_id.to_string());
     let mut previous = env
         .keys()
         .map(|key| {
@@ -220,8 +220,8 @@ fn stamp_preexec(
         std::env::var("MISE_SETTINGS").ok(),
     );
     env.insert(
-        crate::shell::LADE_RESTORE.to_string(),
-        crate::shell::RestorePayload { env: previous }.encode()?,
+        crate::preexec::LADE_RESTORE.to_string(),
+        crate::preexec::RestorePayload { env: previous }.encode()?,
     );
     let set = shell.set(env);
     let clear = shell.unset(vec!["MISE_ENV".to_string(), "MISE_SETTINGS".to_string()]);

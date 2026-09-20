@@ -1,17 +1,27 @@
+pub(crate) mod add;
+mod bench;
+mod eval;
+mod status;
+mod upgrade;
+mod user;
+
 use anyhow::Result;
 use std::io::Read;
 use std::time::Duration;
 
+use crate::args;
 use crate::args::{Command, EvalCommand, HookAction, HookTarget};
 use crate::config::Config;
 use crate::context::InvocationContext;
+use crate::event;
+use crate::event::log_cmd;
 use crate::exit_codes;
-use crate::inject::{handle_approve, handle_set, handle_unset, run_inject};
+use crate::mcp;
 use crate::message_box::MessageBox;
+use crate::preexec::Shell;
 use crate::pretool;
 use crate::prompt;
-use crate::shell::Shell;
-use crate::{args, bench, event, log_cmd, mcp, status, upgrade, user};
+use crate::wrap::{handle_approve, handle_set, handle_unset, run_inject};
 
 pub(crate) async fn run_standalone(
     command: Command,
@@ -51,12 +61,12 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Add(opts) => {
-            crate::add::run_add(opts, ctx)?;
+            add::run_add(opts, ctx)?;
             run_setup(ctx, &[], crate::mise::PinMode::Locked).await?;
             Ok(None)
         }
         Command::Remove(opts) => {
-            crate::add::run_remove(opts, ctx)?;
+            add::run_remove(opts, ctx)?;
             Ok(None)
         }
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
@@ -70,8 +80,7 @@ pub(crate) async fn run_standalone(
             let command = access_command.unwrap_or_else(|| "eval".to_string());
             let current_dir = std::env::current_dir()?;
             let value =
-                crate::eval::resolve_uri(uri, &current_dir, &command, ctx.via, ctx.audience)
-                    .await?;
+                eval::resolve_uri(uri, &current_dir, &command, ctx.via, ctx.audience).await?;
             println!("{value}");
             Ok(None)
         }
@@ -82,7 +91,7 @@ pub(crate) async fn run_standalone(
             match action {
                 HookAction::Enable(opts) => match opts.target()? {
                     HookTarget::Shell => {
-                        let (pre, reload) = crate::shell::enable_current_preexec()?;
+                        let (pre, reload) = crate::preexec::enable_current_preexec()?;
                         pretool::install::print_shell_hook(
                             &pre.found,
                             pre.verb,
@@ -96,7 +105,7 @@ pub(crate) async fn run_standalone(
                 },
                 HookAction::Disable(opts) => match opts.target()? {
                     HookTarget::Shell => {
-                        let pre = crate::shell::uninstall_current_preexec()?;
+                        let pre = crate::preexec::uninstall_current_preexec()?;
                         pretool::install::print_shell_hook(&pre.found, pre.verb, &pre.path, None);
                     }
                     HookTarget::Agent(agent) => {
@@ -217,7 +226,7 @@ async fn run_setup(
     slugs: &[&str],
     mode: crate::mise::PinMode,
 ) -> Result<()> {
-    let shell = crate::shell::maybe_bootstrap_setup_shell()?;
+    let shell = crate::preexec::maybe_bootstrap_setup_shell()?;
     let may_prompt = ctx.stdin_is_terminal
         && ctx.stderr_is_terminal
         && ctx.audience == crate::config::Audience::Human;
@@ -227,7 +236,7 @@ async fn run_setup(
         let mut mb = MessageBox::new()
             .info()
             .line("This folder is not a git repo.");
-        if crate::shell::ci_job() {
+        if crate::preexec::ci_job() {
             mb = mb.line("CI. No shell wrap. Repo bins, locks, and agent hooks are skipped.");
         } else {
             mb = mb

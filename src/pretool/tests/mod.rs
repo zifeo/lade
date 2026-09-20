@@ -3,6 +3,7 @@ use tempfile::{TempDir, tempdir};
 
 mod already;
 mod detect;
+mod perf;
 mod when;
 mod wrap;
 

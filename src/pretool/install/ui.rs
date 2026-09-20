@@ -92,11 +92,11 @@ pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
     }
 }
 
-pub(crate) fn print_setup(shell: &crate::shell::SetupShell, pretool: &PretoolReport) {
+pub(crate) fn print_setup(shell: &crate::preexec::SetupShell, pretool: &PretoolReport) {
     let mut mb = MessageBox::new().info().line("pre-exec  this shell");
     mb = mb.line("Wraps commands you type.").line("");
     match shell {
-        crate::shell::SetupShell::Bootstrapped {
+        crate::preexec::SetupShell::Bootstrapped {
             found,
             path,
             reload,
@@ -106,16 +106,16 @@ pub(crate) fn print_setup(shell: &crate::shell::SetupShell, pretool: &PretoolRep
                 .line(format!("  {:<9}  {path}", "installed"))
                 .line(reload);
         }
-        crate::shell::SetupShell::Current { found, path } => {
+        crate::preexec::SetupShell::Current { found, path } => {
             mb = mb.line(found).line(format!("  {:<9}  {path}", "current"));
         }
-        crate::shell::SetupShell::Missing { found } => {
+        crate::preexec::SetupShell::Missing { found } => {
             mb = mb
                 .line(found)
                 .line("  missing   this profile")
                 .line("Run `lade hook enable --shell`, then reload this shell.");
         }
-        crate::shell::SetupShell::SkippedCi { found } => {
+        crate::preexec::SetupShell::SkippedCi { found } => {
             mb = mb.line(found).line("  skipped   CI. No shell wrap.");
         }
     }
