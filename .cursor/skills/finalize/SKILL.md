@@ -2,16 +2,15 @@
 name: finalize
 description: >-
   Finalize a merge request: rebase onto main, run bugs, simplify,
-  and specs in parallel, apply, then refactor last, then rerun
-  until the pageant is clean. Use when the user asks to finalize,
-  close a PR, or run the review pageant.
+  and specs in parallel, apply, then refactor last. Use when the
+  user asks to finalize, close a PR, or run the review pageant.
 disable-model-invocation: true
 ---
 
 # Finalize
 
 A pageant, not a swarm. Reviewers are read-only. The parent waits,
-edits, then launches the next seat.
+edits, then launches the next seat. One pass.
 
 ## When
 
@@ -101,49 +100,24 @@ Keep public API and test names.
 
 Narrowest check again.
 
-## 3. Converge
-
-After those corrections, rerun from step 1 (rebase is already
-done unless `main` moved). Stop when a full pass applies nothing:
-no real bug, no cited spec gap, no existing helper to reuse,
-no useful hard split.
-
-Cap: 3 full loops. If the fourth would start, stop. A leftover
-is only a still-real failure or a named existing helper the
-diff still misses. "The reviewer mentioned it" is not a leftover.
-
-## 4. Do not
+## 3. Do not
 
 - Commit, push, merge, or enable auto-merge
 - Request `all` for a compile
-- Package this for Claude, Codex, APM, or a Cursor marketplace
 - Launch refactor next to bugs
 - Let specs invent a contract
 - Mention source control unless the user asked
 
-## 5. Report
+## 4. Report
 
-One short status per loop. Then leftovers as a table, only
-rows where `Useful?` is `yes`:
+One short status. Then leftovers as a table, only rows where
+`Useful?` is `yes`:
 
 | Item | Useful? | Why |
 | --- | --- | --- |
 
 `Useful?` is `yes` only for a real failure or an existing
 helper to call. Skip taste, new helpers, and `wc -l` moves.
-
-## 6. Self-test the leftover gate
-
-No user. One readonly child. Plants only, never gold.
-
-1. Paste `.cursor/agents/simplify.md` rules for Useful?, then
-   `.cursor/skills/finalize/self-test.md`.
-2. Do **not** attach `self-test-gold.md`.
-3. Wait for the table.
-4. Score against `self-test-gold.md`. Pass = every `Id` matches
-   `yes`/`no`. Fail = mismatch or a missing id.
-5. Report `self-test: pass` or `self-test: fail` plus the
-   mismatched ids. Do not ask. Do not apply plants.
-
-Run this when writing or changing the leftover rule, or when
-the user asks to test finalize without driving a loop.
+A leftover is only a still-real failure or a named existing
+helper the diff still misses. "The reviewer mentioned it" is
+not a leftover.

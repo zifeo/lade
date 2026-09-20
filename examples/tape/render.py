@@ -51,9 +51,10 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             "MISE_DATA_DIR": os.path.join(home_dir, ".local/share/mise"),
             "MISE_INSTALLS_DIR": os.path.join(home_dir, ".local/share/mise/installs"),
         }
-        seed_kubectl_store(home_dir, tape_dir)
-        seed_vault_store(home_dir)
-        work_dir = seed_work_dir(home_dir, tape_dir)
+        pins = tape_pins(tape_dir)
+        seed_kubectl_store(home_dir, tape_dir, pins["kubectl"])
+        seed_vault_store(home_dir, pins["vault"])
+        work_dir = seed_work_dir(home_dir, tape_dir, pins)
 
         with open(os.path.join(home_dir, ".zshrc"), "w") as f:
             f.write("unsetopt PROMPT_SP\n")
@@ -239,8 +240,10 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             pass
 
 
-def seed_work_dir(home_dir, tape_dir):
-    work_dir = os.path.join(home_dir, "proj")
+def seed_work_dir(home_dir, tape_dir, pins):
+    work_dir = "/tmp/lade-tape"
+    if os.path.exists(work_dir):
+        shutil.rmtree(work_dir)
     os.makedirs(work_dir, exist_ok=True)
     for name in ("lade.yml", "show-example"):
         src = os.path.join(tape_dir, name)
@@ -249,11 +252,33 @@ def seed_work_dir(home_dir, tape_dir):
             shutil.copy2(src, dest)
             if name == "show-example":
                 os.chmod(dest, 0o755)
+    write_tape_lock(work_dir, pins)
+    subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=work_dir,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     sources_src = os.path.abspath(os.path.join(tape_dir, "..", "sources"))
-    sources_dest = os.path.join(home_dir, "sources")
+    sources_dest = "/tmp/sources"
     if os.path.isdir(sources_src):
+        if os.path.exists(sources_dest):
+            shutil.rmtree(sources_dest)
         shutil.copytree(sources_src, sources_dest)
     return work_dir
+
+
+def write_tape_lock(work_dir, pins):
+    path = os.path.join(work_dir, "lade.lock")
+    with open(path, "w") as f:
+        f.write("lockfile_version = 1\n\n")
+        f.write("[[tools.vault]]\n")
+        f.write(f'version = "{pins["vault"]}"\n')
+        f.write('backend = "aqua:hashicorp/vault"\n\n')
+        f.write("[[tools.kubectl]]\n")
+        f.write(f'version = "{pins["kubectl"]}"\n')
+        f.write('backend = "aqua:kubernetes/kubectl"\n')
 
 
 def seed_mise_stub(home_dir):
@@ -261,13 +286,33 @@ def seed_mise_stub(home_dir):
     os.makedirs(stub_dir, exist_ok=True)
     dest = os.path.join(stub_dir, "mise")
     with open(dest, "w") as f:
-        f.write("#!/bin/sh\nexit 0\n")
+        f.write("#!/bin/sh\n")
+        f.write('if [ "$1" = "--version" ]; then\n')
+        f.write("  echo 2025.8.11\n")
+        f.write("  exit 0\n")
+        f.write("fi\n")
+        f.write("exit 0\n")
     os.chmod(dest, 0o755)
     return stub_dir
 
 
-def seed_vault_store(home_dir):
-    version = "1.15.0"
+def tape_pins(tape_dir):
+    path = os.path.join(tape_dir, "lade.yml")
+    with open(path, "r") as f:
+        text = f.read()
+    pins = {}
+    for key in ("vault", "kubectl"):
+        match = re.search(
+            rf'(?:^|\n)\s*{re.escape(key)}:\s*["\']?mise://[^\s"\']+@([^\s"\']+)',
+            text,
+        )
+        if not match:
+            raise SystemExit(f"lade.yml is missing a mise pin for {key}")
+        pins[key] = match.group(1)
+    return pins
+
+
+def seed_vault_store(home_dir, version):
     dest_dir = os.path.join(
         home_dir, ".local", "share", "mise", "installs", "vault", version
     )
@@ -278,11 +323,10 @@ def seed_vault_store(home_dir):
     os.chmod(dest, 0o755)
 
 
-def seed_kubectl_store(home_dir, tape_dir):
+def seed_kubectl_store(home_dir, tape_dir, version):
     kubectl = shutil.which("kubectl")
     if not kubectl:
         return
-    version = "1.31.4"
     dest_dir = os.path.join(
         home_dir, ".local", "share", "mise", "installs", "kubectl", version
     )
@@ -301,6 +345,26 @@ def seed_kubectl_store(home_dir, tape_dir):
             )
 
 
+def scrub_tape_paths(text):
+    text = text.replace("/private/tmp/lade-tape", ".")
+    text = text.replace("/tmp/lade-tape", ".")
+    text = re.sub(r"/private/var/folders/\S+/lade-tape-\S+", ".", text)
+    return re.sub(r"/var/folders/\S+/lade-tape-\S+", ".", text)
+
+
+def scrub_cast(cast_file):
+    with open(cast_file, "r") as f:
+        lines = f.readlines()
+    out = [lines[0]]
+    for line in lines[1:]:
+        event = json.loads(line)
+        if event[1] == "o":
+            event[2] = scrub_tape_paths(event[2])
+        out.append(json.dumps(event) + "\n")
+    with open(cast_file, "w") as f:
+        f.writelines(out)
+
+
 def sanitize_text(text):
     text = re.sub(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])", "", text)
     text = text.replace("\r\n", "\n")
@@ -314,6 +378,7 @@ def sanitize_text(text):
     text = "".join(chars)
     text = text.replace("\r", "\n")
     text = text.replace("[?2004h", "").replace("[?2004l", "")
+    text = scrub_tape_paths(text)
     text = re.sub(r"^unset LADE_NOT_FIRST; clear\n?", "", text, flags=re.M)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.lstrip("\n")
@@ -379,6 +444,7 @@ def generate_outputs(name):
 
     print(f"Recording {name}...")
     record(cast_file, exp_file, width=width, height=height)
+    scrub_cast(cast_file)
 
     full_text = ""
     with open(cast_file, "r") as f:

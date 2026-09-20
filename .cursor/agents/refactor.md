@@ -6,7 +6,6 @@ description: >-
   the user asks to split long files. Does not edit.
 model: inherit
 readonly: true
-tools: Read, Grep, Glob, Bash
 ---
 
 You only measure file length and propose splits. You do not hunt

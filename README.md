@@ -2,13 +2,13 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
-**Why.** A command needs secrets or a private network. That access
-should exist for the process, then be gone.
+Temporary access to secrets and private networks for one command,
+then gone. Same wrap for humans and agents. See which access was used.
 
-**What.** One `lade.yaml`. Three families: secret, tunnel, package. The
-same wrap for humans and agents. See which access was used.
-
-**How.** Install, `lade setup`, type the command.
+A command needs secrets or a private network. That access should
+exist for the process, then disappear. One `lade.yaml`. Three
+families: secret, tunnel, package. Install, `lade setup`, type
+the command.
 
 <p align="center">
   <img src="./examples/tape/main.gif" alt="Demo" />
@@ -38,6 +38,8 @@ You do not prefix the command. Without a wrap: `lade -- tofu apply`.
 
 `lade on` / `lade off` pause this shell.
 `lade hook enable --shell` wraps another profile.
+`lade teardown` removes this repo's pre-tool hooks and runs
+`?teardown=` commands. The shell wrap stays.
 
 Or from GitHub:
 
@@ -110,6 +112,32 @@ without hooks.
 <td width="50%">
 
 ![One command](./examples/tape/inject.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Human approval.** A `disclaimer` withholds access until you
+review it and run `lade approve <code>`.
+
+</td>
+<td width="50%">
+
+![Human approval](./examples/tape/disclaimer.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Intermediate bindings.** `.NAME` builds another value in the
+same rule and is not exported.
+
+</td>
+<td width="50%">
+
+![Intermediate bindings](./examples/tape/intermediate.gif)
 
 </td>
 </tr>
@@ -233,11 +261,17 @@ manager is addressed. A Homebrew binary on PATH is not the pin.
 or `mise.lock` in the repo is the plane: setup extends both.
 `$HOME` itself counts only for `~/lade.yaml`. Otherwise one
 `lade.lock` at the git root. A git repo in `$HOME` is not that
-root. Missing slots are resolved once and written. `lade update`
-re-resolves implied and ranged pins, rewrites the lock (and
-`mise.toml` on the Mise plane), and installs.
-Exact yaml pins stay. `lade setup --unlock` ignores the lock this
-once. `lade upgrade` is the Lade binary.
+root. Missing slots are resolved once and written.
+
+| Command | Lock | Yaml |
+| --- | --- | --- |
+| `lade setup` | Install this version | Exact pins stay. A range may heal from `mise.toml` |
+| `lade setup --unlock` | Ignore it this once, then rewrite | Resolve and install what yaml says now |
+| `lade update` | Rewrite after a new resolve | Exact pins stay. Implied and ranged pins move to the latest match |
+| `lade upgrade` | Untouched | Untouched. This is the Lade binary |
+
+`lade teardown` is this repo only: pre-tool hooks and `?teardown=`
+on setup packages. It does not remove the shell wrap.
 
 Optional `?setup=` / `?teardown=` run on `lade setup` /
 `lade teardown` in this repo.
@@ -326,7 +360,6 @@ Build time only. Same yaml. Not production runtime.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1 bash
 lade setup
-lade -- tofu apply
 ```
 
 GitHub Action: `zifeo/lade`. Image: `ghcr.io/zifeo/lade`.

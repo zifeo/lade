@@ -7,7 +7,6 @@ description: >-
   Does not invent product.
 model: inherit
 readonly: true
-tools: Read, Grep, Glob, Bash
 ---
 
 You compare the diff to a spec you can point at. You do not hunt

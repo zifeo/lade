@@ -2,19 +2,25 @@
 hello
 
 > lade setup
-pre-exec  this shell
-First wrap for this profile. Reload: source ~/.zshrc
-  installed  ~/.zshrc
-pre-tool  this repo
-  …
+╭ Info ───────────────────────────────────────────────────────────────────────────╮
+│                                                                                 │
+│   pre-exec  this shell                                                          │
+│   Wraps commands you type.                                                      │
+│                                                                                 │
+│   Found Zsh. This shell: Zsh.                                                   │
+│     installed  ~/.zshrc                                                         │
+│   Reload this shell: source ~/.zshrc                                            │
+│                                                                                 │
+│   pre-tool  this repo  .                                   │
+│   Wraps commands agents run.                                                    │
+│                                                                                 │
+│   nothing here.                                                                 │
+│                                                                                 │
+╰─────────────────────────────────────────────────────────────────────────────────╯
 
 > source ~/.zshrc
 
 > echo hello $GREETING
-⠋ Raw: GREETING
-
-✔︎ Raw: GREETING                                                             0 ms
-
 hello world
 
 >

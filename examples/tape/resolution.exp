@@ -1,5 +1,4 @@
-lade setup
-source ~/.zshrc
+eval "$(lade on)"
 clear
 ./show-example token
 echo token $TOKEN

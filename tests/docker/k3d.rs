@@ -95,12 +95,18 @@ fn start_cluster(cluster: &str) {
     );
 }
 
+pub fn fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/k3d")
+}
+
+pub fn manifests_path() -> PathBuf {
+    fixture_dir().join("k3d-manifests.yaml")
+}
+
 pub fn write_cluster_config(dir: &Path) -> PathBuf {
-    let manifest = std::env::current_dir()
-        .expect("current dir")
-        .join("k3d-manifests.yaml");
-    let config = fs::read_to_string("k3d.yaml")
-        .expect("read k3d.yaml")
+    let manifest = manifests_path();
+    let config = fs::read_to_string(fixture_dir().join("k3d.yaml"))
+        .expect("read examples/k3d/k3d.yaml")
         .replace("./k3d-manifests.yaml", &manifest.display().to_string());
     let path = dir.join("k3d.yaml");
     fs::write(&path, config).expect("write generated k3d config");

@@ -6,7 +6,6 @@ description: >-
   simplify. Does not hunt bugs, match a spec, or split files.
 model: inherit
 readonly: true
-tools: Read, Grep, Glob, Bash
 ---
 
 You review a git diff for a smaller form. You do not hunt bugs,

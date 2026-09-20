@@ -15,8 +15,8 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-lade}"
 K3D_CLUSTER="lade-k3d-shared"
 K3D_CONTEXT="k3d-$K3D_CLUSTER"
 K3D_API_SERVER="https://127.0.0.1:6445"
-K3D_CONFIG_FILE="$repo_root/k3d.yaml"
-K3D_MANIFESTS_FILE="$repo_root/k3d-manifests.yaml"
+K3D_CONFIG_FILE="$repo_root/examples/k3d/k3d.yaml"
+K3D_MANIFESTS_FILE="$repo_root/examples/k3d/k3d-manifests.yaml"
 
 cleanup() {
   echo "Cleaning up..."
@@ -55,7 +55,7 @@ prepare_vault() {
 
 create_k3d() {
   k3d cluster create --config "$K3D_CONFIG_FILE" \
-    --volume "$repo_root/k3d-manifests.yaml:/var/lib/rancher/k3s/server/manifests/k3d-manifests.yaml@server:0" \
+    --volume "$K3D_MANIFESTS_FILE:/var/lib/rancher/k3s/server/manifests/k3d-manifests.yaml@server:0" \
     --wait >/dev/null
 }
 

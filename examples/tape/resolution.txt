@@ -5,7 +5,7 @@
 > echo token $TOKEN
 ⠋ Vault 127.0.0.1:8200: TOKEN
 
-✔︎ Vault 127.0.0.1:8200: TOKEN                                           10 ms
+✔︎ Vault 127.0.0.1:8200: TOKEN                                            5 ms
 
 token itsasecret
 

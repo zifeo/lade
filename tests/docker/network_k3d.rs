@@ -1,6 +1,6 @@
 use crate::common;
 use crate::k3d::{
-    ensure_cluster_context, extract_lade_t, is_pid_running, is_ready_for_k3d_test,
+    ensure_cluster_context, extract_lade_t, is_pid_running, is_ready_for_k3d_test, manifests_path,
     normalize_authority, run_capture, run_ok, ticket_network_pid, write_cluster_config,
 };
 use predicates::prelude::PredicateBooleanExt;
@@ -24,6 +24,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
     let port_remote = "8080";
     let payload_arg = r#"'{"ping":"pong"}'"#;
 
+    let manifests = manifests_path().display().to_string();
     run_ok(
         "kubectl",
         &kubeconfig,
@@ -33,7 +34,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
             "--request-timeout=15s",
             "apply",
             "-f",
-            "k3d-manifests.yaml",
+            &manifests,
         ],
     );
     run_ok(

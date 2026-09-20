@@ -10,7 +10,7 @@
 
 ✔︎ File: TF_VAR_demo_token                                                0 ms
 
-✔︎ http-echo:8080 on 18080 pid=24469                                   1132 ms
+✔︎ http-echo:8080 on 18080 pid=85415                                    748 ms
 
 ping=pong
 
