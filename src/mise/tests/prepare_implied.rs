@@ -9,7 +9,7 @@ fn implied_op_prepends_store() {
     let bin = installs.join("op/2.31.1");
     std::fs::create_dir_all(&bin).unwrap();
     write_exec(&bin.join("op"), "echo OP");
-    write_cached_env(home.path(), "mise://aqua/1password/op@2.31.1", "{}");
+    write_cached_env(home.path(), "mise://aqua/1password/cli@2.31.1", "{}");
     std::fs::write(
         dir.path().join("lade.yml"),
         "^terraform:\n  TF_VAR_FOO: op://v/i/f\n",
@@ -17,7 +17,7 @@ fn implied_op_prepends_store() {
     .unwrap();
     std::fs::write(
         dir.path().join("lade.lock"),
-        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/op\"\n",
+        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/cli\"\n",
     )
     .unwrap();
     temp_env::with_vars(
@@ -50,15 +50,15 @@ fn yaml_pin_still_applies_when_sources_need_the_cli() {
     let bin = installs.join("op/2.31.1");
     std::fs::create_dir_all(&bin).unwrap();
     write_exec(&bin.join("op"), "echo OP");
-    write_cached_env(home.path(), "mise://aqua/1password/op@2.31.1", "{}");
+    write_cached_env(home.path(), "mise://aqua/1password/cli@2.31.1", "{}");
     std::fs::write(
         dir.path().join("lade.yml"),
-        ".:\n  op: mise://aqua/1password/op@2.31.1\n^terraform:\n  TF_VAR_FOO: op://v/i/f\n",
+        ".:\n  op: mise://aqua/1password/cli@2.31.1\n^terraform:\n  TF_VAR_FOO: op://v/i/f\n",
     )
     .unwrap();
     std::fs::write(
         dir.path().join("lade.lock"),
-        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/op\"\n",
+        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/cli\"\n",
     )
     .unwrap();
     temp_env::with_vars(

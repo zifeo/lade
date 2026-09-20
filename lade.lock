@@ -6,7 +6,7 @@ backend = "core:rust"
 
 [[tools.op]]
 version = "2.39.0"
-backend = "aqua:1password/op"
+backend = "aqua:1password/cli"
 
 [[tools.fish]]
 version = "4.9.3"

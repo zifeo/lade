@@ -3,7 +3,7 @@
     silence: true
   cargo: mise://core/rust@1.96.0
   rustc: mise://core/rust@1.96.0
-  op: mise://aqua/1password/op@>=2.18.0
+  op: mise://aqua/1password/cli@>=2.18.0
   fish: mise://aqua/fish-shell/fish-shell@>=4.0.0,<5
   zsh: mise://github/romkatv/zsh-bin@>=6.0.0,<7
   kubectl: mise://aqua/kubernetes/kubectl@>=1.27.0

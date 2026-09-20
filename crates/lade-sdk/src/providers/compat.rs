@@ -16,7 +16,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "op",
         min_version: "2.18.0",
         max_version: None,
-        mise: Some("aqua/1password/op"),
+        mise: Some("aqua/1password/cli"),
         tunnel: false,
         docs: Some("https://developer.1password.com/docs/cli/get-started/"),
     },

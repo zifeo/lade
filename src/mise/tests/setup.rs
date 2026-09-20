@@ -286,7 +286,7 @@ exit 0
     .unwrap();
     std::fs::write(
         dir.path().join("lade.lock"),
-        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/op\"\n",
+        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/cli\"\n",
     )
     .unwrap();
     let path = format!("{}:/usr/bin:/bin", stub.display());

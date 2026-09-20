@@ -101,13 +101,13 @@ fn agrees_when_lock_satisfies_range() {
     let slot = LockSlot {
         name: "op".to_string(),
         version: "2.31.0".to_string(),
-        backend: Some("aqua:1password/op".to_string()),
+        backend: Some("aqua:1password/cli".to_string()),
         checksum: None,
     };
-    assert!(agrees(&slot, ">=2.18.0", "aqua:1password/op"));
-    assert!(!agrees(&slot, ">=3.0.0", "aqua:1password/op"));
+    assert!(agrees(&slot, ">=2.18.0", "aqua:1password/cli"));
+    assert!(!agrees(&slot, ">=3.0.0", "aqua:1password/cli"));
     assert!(!agrees(&slot, "2.31.0", "aqua:other/op"));
-    assert!(agrees(&slot, "latest", "aqua:1password/op"));
+    assert!(agrees(&slot, "latest", "aqua:1password/cli"));
 }
 
 #[test]
