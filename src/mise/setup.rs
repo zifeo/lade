@@ -82,7 +82,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
                 next
             }
             PinMode::Unlock => spec.clone(),
-            PinMode::Locked => heal_from_toml(&snap, mode, key, spec),
+            PinMode::Locked => heal_from_toml(&snap, key, spec),
         };
         let lock_ok = mode != PinMode::Unlock
             && existing.as_ref().is_some_and(|(_, slot)| {
@@ -93,7 +93,11 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
             });
         if lock_ok && let Some((path, slot)) = existing.as_ref() {
             install::install_locked(&slot.name, path, &spec, &installs, &cwd).await?;
-            lookup::upsert_pin(&mut accumulated, key.clone(), spec_at_slot(&spec, slot));
+            lookup::upsert_pin(
+                &mut accumulated,
+                key.clone(),
+                spec_at_version(&spec, &slot.version),
+            );
             slots.push(slot.clone());
             continue;
         }
@@ -108,7 +112,11 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
                     .map_err(|e| Error::install(e.to_string()))?;
             }
         }
-        lookup::upsert_pin(&mut accumulated, key.clone(), spec_at_slot(&spec, &slot));
+        lookup::upsert_pin(
+            &mut accumulated,
+            key.clone(),
+            spec_at_version(&spec, &slot.version),
+        );
         slots.push(slot);
     }
     if let Some(lock_path) = lock_path {
@@ -127,10 +135,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn heal_from_toml(snap: &Snapshot, mode: PinMode, key: &str, spec: &Spec) -> Spec {
-    if mode == PinMode::Unlock {
-        return spec.clone();
-    }
+fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
     let Plane::Mise {
         toml, toml_write, ..
     } = &snap.plane
@@ -161,10 +166,6 @@ fn heal_from_toml(snap: &Snapshot, mode: PinMode, key: &str, spec: &Spec) -> Spe
         return spec.clone();
     }
     spec_at_version(spec, &version)
-}
-
-fn spec_at_slot(spec: &Spec, slot: &LockSlot) -> Spec {
-    spec_at_version(spec, &slot.version)
 }
 
 fn spec_at_version(spec: &Spec, version: &str) -> Spec {

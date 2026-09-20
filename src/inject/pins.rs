@@ -20,8 +20,9 @@ pub(super) async fn apply_pins(
     command: &str,
     cwd: &std::path::Path,
     saved_user: &Option<String>,
+    audience: crate::config::Audience,
 ) -> Result<PinOutcome> {
-    match mise::prepare(config, command, cwd, saved_user).await {
+    match mise::prepare(config, command, cwd, saved_user, audience).await {
         Ok(out) => {
             if let Some(path) = out.env.get("PATH") {
                 // Hydrate CLIs and tunnel children inherit process PATH.

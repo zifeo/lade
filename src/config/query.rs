@@ -1,5 +1,5 @@
 use super::resolve::{ResolvedEntry, resolve_entry, rule_sources};
-use super::{Config, LadeRule, NetworkBinding};
+use super::{Audience, Config, LadeRule, NetworkBinding};
 
 impl Config {
     pub fn all_secret_sources(&self, saved_user: &Option<String>) -> Vec<String> {
@@ -10,41 +10,61 @@ impl Config {
             .collect()
     }
 
-    pub fn sources_for_command(&self, command: &str, saved_user: &Option<String>) -> Vec<String> {
-        let mut out = Vec::new();
-        for (_, rule) in self.collect(command) {
-            if let Ok(sources) = rule_sources(&rule, saved_user) {
-                out.extend(sources.into_values());
-            }
+    pub fn sources_for_command(
+        &self,
+        command: &str,
+        saved_user: &Option<String>,
+        audience: Audience,
+    ) -> Vec<String> {
+        let mut by_key = indexmap::IndexMap::<String, String>::new();
+        for (_, rule) in self.collect_for(command, audience) {
             for (key, secret) in &rule.secrets {
-                if let Some(ResolvedEntry::Tunnel { uri, .. }) =
-                    resolve_entry(key, secret, saved_user)
-                {
-                    out.push(uri);
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Secret { key, value }) => {
+                        by_key.insert(key, value);
+                    }
+                    Some(ResolvedEntry::Tunnel { key, uri }) => {
+                        by_key.insert(key, uri);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Pin { key, .. })
+                    | Some(ResolvedEntry::Package { key, .. }) => {
+                        by_key.shift_remove(&key);
+                    }
+                    _ => {}
                 }
             }
         }
-        out
+        by_key.into_values().collect()
     }
 
     pub fn command_package_uri(
         &self,
         command: &str,
         saved_user: &Option<String>,
+        audience: Audience,
     ) -> Option<String> {
-        for i in self.compiled.matching_indices(command) {
-            if self.patterns[i] == "." {
+        let mut by_key = indexmap::IndexMap::<String, String>::new();
+        for (_, pattern, rule) in self.collect_for_with_pattern(command, audience) {
+            if pattern == "." {
                 continue;
             }
-            for (key, secret) in &self.rules[i].1.secrets {
-                if let Some(ResolvedEntry::Package { uri, .. }) =
-                    resolve_entry(key, secret, saved_user)
-                {
-                    return Some(uri);
+            for (key, secret) in &rule.secrets {
+                match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Package { key, uri }) => {
+                        by_key.insert(key, uri);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Secret { key, .. })
+                    | Some(ResolvedEntry::Pin { key, .. })
+                    | Some(ResolvedEntry::Tunnel { key, .. }) => {
+                        by_key.shift_remove(&key);
+                    }
+                    _ => {}
                 }
             }
         }
-        None
+        by_key.into_values().next()
     }
 
     pub fn sources_in_dir(
@@ -148,6 +168,20 @@ impl Config {
         self.pins_from_rules(self.rules.iter().map(|(_, rule)| rule), saved_user)
     }
 
+    pub(crate) fn pins_for_command(
+        &self,
+        command: &str,
+        saved_user: &Option<String>,
+        audience: Audience,
+    ) -> Vec<(String, String)> {
+        self.pins_from_rules(
+            self.collect_for(command, audience)
+                .iter()
+                .map(|(_, rule)| rule),
+            saved_user,
+        )
+    }
+
     pub(crate) fn pins_in_dir(
         &self,
         dir: &std::path::Path,
@@ -193,26 +227,32 @@ impl Config {
         saved_user: &Option<String>,
     ) -> bool {
         let argv0 = crate::mise::argv0(command);
-        let mut has_pin = false;
+        let mut by_key = indexmap::IndexMap::<String, bool>::new();
         for rule in rules {
             for (key, secret) in &rule.secrets {
                 match resolve_entry(key, secret, saved_user) {
                     Some(ResolvedEntry::Pin { key, .. }) => {
-                        has_pin = true;
-                        if key == argv0 {
-                            return true;
-                        }
+                        by_key.insert(key, true);
                     }
                     Some(ResolvedEntry::Secret { key, value })
-                        if key == argv0 && crate::mise::looks_like_bare_version(&value) =>
+                        if crate::mise::looks_like_bare_version(&value) =>
                     {
-                        return true;
+                        by_key.insert(key, false);
+                    }
+                    Some(ResolvedEntry::Unset { key })
+                    | Some(ResolvedEntry::Secret { key, .. })
+                    | Some(ResolvedEntry::Tunnel { key, .. })
+                    | Some(ResolvedEntry::Package { key, .. }) => {
+                        by_key.shift_remove(&key);
                     }
                     _ => {}
                 }
             }
         }
-        has_pin && crate::mise::is_mise_argv0(argv0)
+        match by_key.get(argv0) {
+            Some(_) => true,
+            None => by_key.values().any(|is_pin| *is_pin) && crate::mise::is_mise_argv0(argv0),
+        }
     }
 
     pub(crate) fn bare_version_for(
@@ -220,19 +260,30 @@ impl Config {
         command: &str,
         argv0: &str,
         saved_user: &Option<String>,
+        audience: Audience,
     ) -> Option<String> {
-        for (_, rule) in self.collect(command) {
+        let mut found = None;
+        for (_, rule) in self.collect_for(command, audience) {
             let Some(secret) = rule.secrets.get(argv0) else {
                 continue;
             };
-            if let Some(ResolvedEntry::Secret { value, .. }) =
-                resolve_entry(argv0, secret, saved_user)
-                && crate::mise::looks_like_bare_version(&value)
-            {
-                return Some(value);
+            match resolve_entry(argv0, secret, saved_user) {
+                Some(ResolvedEntry::Secret { value, .. })
+                    if crate::mise::looks_like_bare_version(&value) =>
+                {
+                    found = Some(value);
+                }
+                Some(ResolvedEntry::Unset { .. })
+                | Some(ResolvedEntry::Pin { .. })
+                | Some(ResolvedEntry::Tunnel { .. })
+                | Some(ResolvedEntry::Package { .. })
+                | Some(ResolvedEntry::Secret { .. }) => {
+                    found = None;
+                }
+                _ => {}
             }
         }
-        None
+        found
     }
 
     #[cfg(test)]

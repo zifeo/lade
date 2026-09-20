@@ -319,3 +319,23 @@ fn test_secret_and_disclaimer_and_pin_need_wrap() {
         );
     }
 }
+
+#[test]
+fn test_later_cancel_does_not_need_wrap() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  jq: mise://aqua/jqlang/jq@1.7.1\n\"^jq\":\n  jq: ~\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let patterned = config.collect_for_with_pattern("jq .", Audience::Human);
+    let work = Config::pre_event_work(&patterned, &None).unwrap();
+    assert!(!work.needs_inject());
+    assert!(!Config::needs_wrap(
+        &work,
+        "jq .",
+        patterned.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+}

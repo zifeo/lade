@@ -21,7 +21,7 @@ pub(super) enum ResolvedEntry {
         key: String,
         value: String,
     },
-    /// Family bin. `apm://` and `skills://`, not a `mise://` pin.
+    /// Family package. `apm://` and `skills://`, not a `mise://` pin.
     Package {
         key: String,
         uri: String,

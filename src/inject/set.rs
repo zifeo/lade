@@ -32,7 +32,7 @@ pub async fn handle_set(
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
     let saved_user = crate::config::saved_user().await?;
     let original_path = std::env::var("PATH").ok();
-    let pins = apply_pins(config, &command, &current_dir, &saved_user).await?;
+    let pins = apply_pins(config, &command, &current_dir, &saved_user, ctx.audience).await?;
     let work = resolve_provider_work(
         config,
         &command,

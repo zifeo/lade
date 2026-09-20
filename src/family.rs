@@ -15,14 +15,6 @@ impl Family {
         }
     }
 
-    pub fn spoken(self) -> &'static str {
-        match self {
-            Family::Secret => "secret",
-            Family::Tunnel => "tunnel",
-            Family::Package => "package",
-        }
-    }
-
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "secret" | "env" => Some(Family::Secret),

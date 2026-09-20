@@ -30,11 +30,16 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
     host_kubeconfig = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
 
     with tempfile.TemporaryDirectory(prefix=f"lade-tape-{name}-") as home_dir:
+        stub_dir = seed_mise_stub(home_dir)
         env = {
             "HOME": home_dir,
             "ZDOTDIR": home_dir,
             "TERM": "xterm-256color",
-            "PATH": os.path.dirname(lade_bin) + ":" + os.environ.get("PATH", ""),
+            "PATH": stub_dir
+            + ":"
+            + os.path.dirname(lade_bin)
+            + ":"
+            + os.environ.get("PATH", ""),
             "KUBECONFIG": host_kubeconfig,
             "VAULT_ADDR": "http://127.0.0.1:8200",
             "VAULT_TOKEN": "token",
@@ -43,8 +48,12 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             "LADE_SHELL": "zsh",
             "USER": "bob",
             "USERNAME": "bob",
+            "MISE_DATA_DIR": os.path.join(home_dir, ".local/share/mise"),
+            "MISE_INSTALLS_DIR": os.path.join(home_dir, ".local/share/mise/installs"),
         }
         seed_kubectl_store(home_dir, tape_dir)
+        seed_vault_store(home_dir)
+        work_dir = seed_work_dir(home_dir, tape_dir)
 
         with open(os.path.join(home_dir, ".zshrc"), "w") as f:
             f.write("unsetopt PROMPT_SP\n")
@@ -79,6 +88,7 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
 
         if pid == 0:
             os.close(fd)
+            os.chdir(work_dir)
             os.dup2(child_fd, 0)
             os.dup2(child_fd, 1)
             os.dup2(child_fd, 2)
@@ -94,27 +104,37 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             virtual_time += delay
             events.append([round(virtual_time, 3), "o", text])
 
+        def drain(until_prompt=False, quiet=2.0):
+            last_output = time.time()
+            buf = ""
+            while True:
+                r, _, _ = select.select([fd], [], [], 0.3)
+                if r:
+                    chunk = os.read(fd, 8192)
+                    if not chunk:
+                        break
+                    buf += chunk.decode("utf-8", errors="replace")
+                    last_output = time.time()
+                    if until_prompt:
+                        visible = re.sub(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])", "", buf)
+                        visible = visible.replace("\r", "\n")
+                        if re.search(r">\s*$", visible):
+                            break
+                elif time.time() - last_output >= quiet:
+                    break
+            return buf
+
         # 1. Setup (silent)
         time.sleep(1.0)
         for cmd in setup_commands:
             os.write(fd, (cmd + "\r").encode())
             time.sleep(0.1)
-            if cmd.startswith("lade setup") or cmd.startswith("source "):
-                time.sleep(2.0)
+            drain(until_prompt=True)
 
         # Reset screen without typing an echoed command.
         os.write(fd, b"\x1bc")
         time.sleep(0.3)
-
-        # Flush all initial/setup output and wait for a quiet terminal.
-        last_output = time.time()
-        while True:
-            r, _, _ = select.select([fd], [], [], 0.3)
-            if r:
-                os.read(fd, 8192)
-                last_output = time.time()
-            elif time.time() - last_output >= 2.0:
-                break
+        drain(until_prompt=True, quiet=2.0)
 
         # 2. Start recording
         # Trigger first prompt
@@ -217,6 +237,45 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             os.waitpid(pid, 0)
         except OSError:
             pass
+
+
+def seed_work_dir(home_dir, tape_dir):
+    work_dir = os.path.join(home_dir, "proj")
+    os.makedirs(work_dir, exist_ok=True)
+    for name in ("lade.yml", "show-example"):
+        src = os.path.join(tape_dir, name)
+        if os.path.exists(src):
+            dest = os.path.join(work_dir, name)
+            shutil.copy2(src, dest)
+            if name == "show-example":
+                os.chmod(dest, 0o755)
+    sources_src = os.path.abspath(os.path.join(tape_dir, "..", "sources"))
+    sources_dest = os.path.join(home_dir, "sources")
+    if os.path.isdir(sources_src):
+        shutil.copytree(sources_src, sources_dest)
+    return work_dir
+
+
+def seed_mise_stub(home_dir):
+    stub_dir = os.path.join(home_dir, "bin")
+    os.makedirs(stub_dir, exist_ok=True)
+    dest = os.path.join(stub_dir, "mise")
+    with open(dest, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(dest, 0o755)
+    return stub_dir
+
+
+def seed_vault_store(home_dir):
+    version = "1.15.0"
+    dest_dir = os.path.join(
+        home_dir, ".local", "share", "mise", "installs", "vault", version
+    )
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "vault")
+    with open(dest, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(dest, 0o755)
 
 
 def seed_kubectl_store(home_dir, tape_dir):

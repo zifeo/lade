@@ -1,4 +1,5 @@
 use super::*;
+pub(crate) use crate::config::Audience;
 use crate::config::LadeFile;
 use crate::mise::spec::parse;
 use tempfile::tempdir;
@@ -94,5 +95,9 @@ pub(super) fn assert_isolated_pin_only(
 mod ensure_flow;
 mod install_flow;
 mod lock;
+mod lock_parse;
 mod prepare;
+mod prepare_implied;
+mod prepare_refresh;
 mod setup;
+mod setup_toml;

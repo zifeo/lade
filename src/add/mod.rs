@@ -27,8 +27,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
                 tty.then(|| ask("Key (env name, default argv0): ").ok())
                     .flatten()
                     .filter(|s| !s.is_empty())
-            })
-            .or_else(|| package::key_from_query_or_uri(query.as_deref(), opts.uri.as_deref())),
+            }),
         _ => Some(require_or_ask(
             opts.key.as_deref(),
             "Key (env or port): ",
@@ -67,7 +66,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
     yaml::upsert_binding(&path, &rule, &key, &uri)?;
     MessageBox::new()
         .info()
-        .line(format!("Wrote {} `{key}` on `{rule}`.", family.spoken()))
+        .line(format!("Wrote {} `{key}` on `{rule}`.", family.token()))
         .line(path.display().to_string())
         .line("Running `lade setup` for this repo.")
         .print_stderr();
@@ -77,8 +76,8 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
 pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
     let tty = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
     let (family, query) = match (opts.family.as_deref(), opts.query.as_deref()) {
-        (Some(first), rest) if Family::parse(first).is_some() => {
-            (Family::parse(first).unwrap(), rest.map(str::to_string))
+        (Some(first), rest) if let Some(family) = Family::parse(first) => {
+            (family, rest.map(str::to_string))
         }
         (Some(first), None) => (Family::Secret, Some(first.to_string())),
         (Some(first), Some(second)) => (Family::Secret, Some(format!("{first} {second}"))),
@@ -103,7 +102,7 @@ pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
     };
     let mut mb = MessageBox::new()
         .info()
-        .line(format!("Removed {} `{key}` on `{rule}`.", family.spoken()))
+        .line(format!("Removed {} `{key}` on `{rule}`.", family.token()))
         .line(path.display().to_string());
     if uri.contains("teardown=") {
         mb = mb.line("Teardown commands run on `lade teardown`.");
@@ -120,8 +119,8 @@ fn resolve_family(
     match first {
         None if tty => Ok((ask_family()?, second.map(str::to_string))),
         None => bail!("pass a family: secret, package, or tunnel"),
-        Some(token) if Family::parse(token).is_some() => {
-            Ok((Family::parse(token).unwrap(), second.map(str::to_string)))
+        Some(token) if let Some(family) = Family::parse(token) => {
+            Ok((family, second.map(str::to_string)))
         }
         Some(query) => Ok((Family::Package, Some(query.to_string()))),
     }

@@ -98,7 +98,6 @@ pub fn repo_needs_mise(config: &Config, saved: &Option<String>) -> bool {
     }
     let mut sources = config.all_secret_sources(saved);
     sources.extend(config.all_network_sources(saved));
-    sources.extend(config.package_uris(saved).into_iter().map(|(_, uri)| uri));
     any_from_sources(&sources)
 }
 

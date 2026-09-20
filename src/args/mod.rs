@@ -80,7 +80,7 @@ pub enum Command {
     Log(LogCommand),
     /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--global` / `--path` change the tree.
     Usage(UsageCommand),
-    /// Shortcut for `lade inject <command...>`.
+    /// Run a command with matching access. Same as `lade -- <command...>`.
     #[command(external_subcommand)]
     InjectAlias(Vec<String>),
 }
