@@ -15,11 +15,11 @@ fn local_at(now: DateTime<Local>, days_ago: u64, hour: u32, minute: u32) -> Date
 }
 
 #[test]
-fn pretool_flag_marks_stale() {
-    assert_eq!(pretool_flag(true, true), "yes");
-    assert_eq!(pretool_flag(true, false), "yes (stale)");
-    assert_eq!(pretool_flag(false, false), "no");
-    assert_eq!(pretool_flag(false, true), "no");
+fn pretool_flag_marks_drift() {
+    assert_eq!(pretool_flag(true, true), "current");
+    assert_eq!(pretool_flag(true, false), "not current");
+    assert_eq!(pretool_flag(false, false), "missing");
+    assert_eq!(pretool_flag(false, true), "missing");
 }
 
 #[test]

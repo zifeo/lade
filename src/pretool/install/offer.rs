@@ -7,10 +7,10 @@ use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
 use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short_path};
-use super::ui::{PretoolReport, PretoolRow, ask_agents, where_line};
+use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
 use super::write::{Scope, hook_path, write_hook};
 
-/// Wrap this repo's agents. No git: no agent writes. Never writes home hooks.
+/// Wrap this repo's harnesses. No git: no pre-tool writes. Never writes home hooks.
 pub fn setup(may_prompt: bool, only: &[&str]) -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
@@ -26,7 +26,7 @@ pub(super) fn setup_at(
     let git_root = crate::catalog::git_root(cwd);
     let Some(dest) = git_root else {
         return Ok(PretoolReport {
-            where_line: "not a git repo, agents skipped".to_string(),
+            where_line: "not a git repo, pre-tool skipped".to_string(),
             rows: Vec::new(),
         });
     };
@@ -39,7 +39,7 @@ pub(super) fn setup_at(
         if pending.is_empty() {
             detected
         } else {
-            ask_agents(&pending)?
+            ask_harnesses(&pending)?
         }
     } else {
         detected
@@ -110,7 +110,7 @@ fn refuse_double_plane(agents: &[Agent], home: &Path, dest: &Path) -> Result<()>
     }
     let mut mb = MessageBox::new()
         .error()
-        .line("These agents have Lade hooks in this repo and under the home directory:");
+        .line("These harnesses have Lade hooks in this repo and under the home directory:");
     for name in &stacked {
         mb = mb.line(format!("- {name}"));
     }

@@ -35,7 +35,7 @@ impl GlobalConfig {
             return PathBuf::from(p);
         }
         let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("cannot get directory for projet");
+            .expect("cannot get directory for project");
         let config_path = project.config_local_dir().join("config.json");
         debug!("config_path: {:?}", config_path);
         config_path

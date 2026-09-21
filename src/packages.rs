@@ -29,7 +29,7 @@ pub async fn run(verb: &str) -> Result<()> {
     if !ran.is_empty() {
         let mut mb = MessageBox::new()
             .info()
-            .line(format!("{verb} agent packages"));
+            .line(format!("{verb} setup packages"));
         for line in ran {
             mb = mb.line(format!("  {line}"));
         }

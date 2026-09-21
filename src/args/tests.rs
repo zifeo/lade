@@ -153,7 +153,8 @@ fn default_help_hides_internal_commands() {
     assert!(help.contains("Internal commands: lade --help -v"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));
-    assert!(help.contains("\n  hook "));
+    assert!(!help.contains("\n  hook "));
+    assert!(!help.contains("\n  inject "));
     assert!(!help.contains("--pretool"));
 }
 
@@ -165,6 +166,7 @@ fn verbose_help_lists_internal_commands() {
     assert!(help.contains("  set "));
     assert!(help.contains("  unset "));
     assert!(help.contains("  hook "));
+    assert!(help.contains("  inject "));
     assert!(help.contains("--pretool"));
     assert!(!help.contains("Internal commands: lade --help -v"));
 }
@@ -264,7 +266,7 @@ fn setup_help_names_preexec_and_pretool() {
 }
 
 #[test]
-fn setup_agent_flags_select_slugs() {
+fn setup_harness_flags_select_slugs() {
     let bare = Args::try_parse_from(["lade", "setup"]).unwrap();
     match bare.command {
         Some(Command::Setup(opts)) => {
@@ -273,7 +275,15 @@ fn setup_agent_flags_select_slugs() {
         }
         other => panic!("{other:?}"),
     }
-    let args = Args::try_parse_from(["lade", "setup", "--cursor", "--opencode"]).unwrap();
+    let args = Args::try_parse_from([
+        "lade",
+        "setup",
+        "--harness",
+        "cursor",
+        "--harness",
+        "opencode",
+    ])
+    .unwrap();
     match args.command {
         Some(Command::Setup(opts)) => {
             assert_eq!(opts.slugs(), vec!["cursor", "opencode"]);

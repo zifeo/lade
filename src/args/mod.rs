@@ -55,6 +55,7 @@ pub enum Command {
         uri: String,
     },
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
+    #[command(hide = true)]
     Hook {
         /// Harness that installed this hook. Unknown values are ignored.
         #[clap(long = "harness")]
@@ -184,7 +185,7 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
 }
 
 pub(super) fn reveal_internal(cmd: &mut clap::Command) {
-    for name in ["set", "unset"] {
+    for name in ["set", "unset", "inject", "hook"] {
         if let Some(sub) = cmd.find_subcommand_mut(name) {
             *sub = std::mem::take(sub).hide(false);
         }

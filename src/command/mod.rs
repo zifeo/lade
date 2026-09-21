@@ -152,7 +152,7 @@ pub(crate) async fn run_config_verbs(
                 MessageBox::new()
                     .error()
                     .line("`lade hook` reads pre-tool JSON on stdin.")
-                    .line("Pipe a payload, or let an agent invoke it.")
+                    .line("Pipe a payload, or let a harness invoke it.")
                     .print_stderr();
                 std::process::exit(exit_codes::FAILURE);
             }
@@ -237,10 +237,10 @@ async fn run_setup(
             .info()
             .line("This folder is not a git repo.");
         if crate::preexec::ci_job() {
-            mb = mb.line("CI. No shell wrap. Repo bins, locks, and agent hooks are skipped.");
+            mb = mb.line("CI. No shell wrap. Packages, locks, and pre-tool hooks are skipped.");
         } else {
             mb = mb
-                .line("Shell wrap only. Repo bins, locks, and agent hooks are skipped.")
+                .line("Shell wrap only. Packages, locks, and pre-tool hooks are skipped.")
                 .line("cd into a repo and run `lade setup`.");
         }
         mb.print_stderr();

@@ -36,6 +36,9 @@ bash tests/installer_test.sh
   `age_plugin` is extra (`present`, `path`). `mise` and `log` are extra.
   Spoken stderr, README, and clap say pre-exec / pre-tool. JSON stays
   `preexec` / `pretool`. `--scope user` and JSON `global` stay.
+- User-facing copy for Cursor/Claude/Codex/OpenCode says **harness**,
+  not agent. CLI: `--harness`. JSON diary field `agent` is hook metadata.
+  Spoken **pre-exec** / **pre-tool** map to JSON `preexec` / `pretool`.
 - **`lade status` latest**: a successful daily GitHub check must persist
   the tag (`latest_version` in the global config) so status can show it after
   shell use. If the fetch failed, print when we last tried (`tried today at

@@ -42,7 +42,8 @@ pub(crate) fn write_scoped(
     cwd: &Path,
     install: bool,
 ) -> Result<String> {
-    let agent = Agent::from_slug(harness).with_context(|| format!("unknown agent '{harness}'"))?;
+    let agent =
+        Agent::from_slug(harness).with_context(|| format!("unknown harness '{harness}'"))?;
     let path = match scope {
         Scope::User => agent.config_path(home),
         Scope::Project => canonical_project_path(agent, cwd),
@@ -133,7 +134,7 @@ pub(super) fn hook_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) ->
     }
 }
 
-/// Remove Lade project hooks in this repo. No git: no agent writes.
+/// Remove Lade project hooks in this repo. No git: no pre-tool writes.
 /// Home hooks stay until `lade hook disable --scope user`.
 pub fn teardown() -> Result<PretoolReport> {
     let home = home_dir()?;
@@ -141,7 +142,7 @@ pub fn teardown() -> Result<PretoolReport> {
     let git_root = crate::catalog::git_root(&cwd);
     let Some(dest) = git_root else {
         return Ok(PretoolReport {
-            where_line: "not a git repo, agents skipped".to_string(),
+            where_line: "not a git repo, pre-tool skipped".to_string(),
             rows: Vec::new(),
         });
     };

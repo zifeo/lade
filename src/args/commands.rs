@@ -4,6 +4,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use super::HookAgent;
+
 /// This git repo: install locked packages, first-time pre-exec, repo
 /// pre-tool. The lock is the version. `lade update` re-resolves.
 /// `--unlock` ignores the lock this once.
@@ -12,36 +14,15 @@ pub struct SetupCommand {
     /// Ignore the lock, resolve from yaml, rewrite, and install.
     #[clap(long, default_value_t = false)]
     pub unlock: bool,
-    /// Write or refresh the Cursor hook.
-    #[clap(long, default_value_t = false)]
-    pub cursor: bool,
-    /// Write or refresh the Claude Code hook.
-    #[clap(long, default_value_t = false)]
-    pub claude: bool,
-    /// Write or refresh the Codex hook.
-    #[clap(long, default_value_t = false)]
-    pub codex: bool,
-    /// Write or refresh the OpenCode hook.
-    #[clap(long, default_value_t = false)]
-    pub opencode: bool,
+    /// Limit pre-tool installs to these harnesses (`cursor`, `claude`,
+    /// `codex`, `opencode`). Repeat for several. Skips the harness prompt.
+    #[clap(long = "harness", action = clap::ArgAction::Append)]
+    pub harness: Vec<HookAgent>,
 }
 
 impl SetupCommand {
     pub fn slugs(&self) -> Vec<&'static str> {
-        let mut slugs = Vec::new();
-        if self.cursor {
-            slugs.push("cursor");
-        }
-        if self.claude {
-            slugs.push("claude");
-        }
-        if self.codex {
-            slugs.push("codex");
-        }
-        if self.opencode {
-            slugs.push("opencode");
-        }
-        slugs
+        self.harness.iter().map(|agent| agent.slug()).collect()
     }
 }
 
@@ -102,6 +83,7 @@ pub struct EvalCommand {
 pub const DEFAULT_MASK_FORMAT: &str = "${{}:-REDACTED}";
 
 #[derive(Parser, Debug)]
+#[command(hide = true)]
 pub struct InjectCommand {
     /// Do not mask secret values in the subprocess output.
     #[clap(long, default_value_t = false)]

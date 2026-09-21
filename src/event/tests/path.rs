@@ -13,7 +13,7 @@ fn db_path_override_and_project_dirs() {
     );
     temp_env::with_var("LADE_EVENTS_PATH", None::<&str>, || {
         let expected = directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("cannot get directory for projet")
+            .expect("cannot get directory for project")
             .data_local_dir()
             .join("events.db");
         assert_eq!(db_path(), expected);

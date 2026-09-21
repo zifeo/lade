@@ -3,7 +3,7 @@
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
 Temporary access to secrets and private networks for one command,
-then gone. Same wrap for humans and agents. See which access was used.
+then gone. Same wrap for humans and harnesses. See which access was used.
 
 A command needs secrets or a private network. That access should
 exist for the process, then disappear. One `lade.yaml`. Three
@@ -29,17 +29,20 @@ cd your-repo
 lade setup
 ```
 
-Setup installs a global shell hook once, in your profile, so every
-command you type can match. The rest stays in the repo: the pre-tool
-hook for Cursor, Claude Code, Codex, and OpenCode, and the lock for
-pinned packages. The wrap is yours. The access is this repo's.
+Setup installs a **shell hook** (pre-exec) once, in your profile, so
+every command you type can match. The rest stays in the repo: pre-tool
+hooks for Cursor, Claude Code, Codex, and OpenCode harnesses, and the
+lock for pinned packages. The wrap is yours. The access is this repo's.
+
+Humans use the shell hook (pre-exec). Harnesses use pre-tool hooks in
+the repo. Same `lade.yaml`, same resolve.
 
 You do not prefix the command. Without a wrap: `lade -- tofu apply`.
 
-`lade on` / `lade off` pause this shell.
-`lade hook enable --shell` wraps another profile.
+`lade on` / `lade off` pause pre-exec in this shell.
+`lade hook enable --shell` installs pre-exec in this shell's profile.
 `lade teardown` removes this repo's pre-tool hooks and runs
-`?teardown=` commands. The shell wrap stays.
+`?teardown=` commands. The shell hook stays.
 
 Or from GitHub:
 
@@ -177,7 +180,11 @@ tofu apply
 | `package` | A pinned CLI or setup package (`mise://`, `apm://`, `skills://`) |
 
 `lade add secret` / `lade add tunnel` / `lade add package` write the
-nearest yaml, then run `lade setup`. `env` is an alias of `secret`.
+nearest yaml, then run `lade setup`. `lade remove` drops a binding and
+does not run setup.
+
+Family aliases (CLI only): `env` → `secret`; `net` / `network` / `fwd`
+→ `tunnel`; `pkg` / `cli` / `tool` / `apm` / `skill` → `package`.
 
 ### Secret
 
@@ -239,7 +246,7 @@ local port unless `local=` sets one. A numeric key is a fixed port.
 | --- | --- | --- |
 | `kubectl` | `kubectl://<host>:<port>/<context>/<ns>/<kind>/<name>/<remote-port>` | `local=HOST:PORT`, `pod-running-timeout=` |
 | `kubefwd` | `kubefwd://<host>:<port>/<context>/<ns>/<kind>/<name>/<service-port>` | `local=`, `domain=`, `selector=` |
-| `tsh` | `tsh://<proxy>:<port>/<kind>/<resource-path>` | `local=` |
+| `tsh` | `tsh://<proxy>:<port>/app/<app-name>[/<target-port>]` or `.../kube_cluster/<cluster>/<ns>/<kind>/<name>/<remote-port>` | `local=` |
 | `ssh` | `ssh://<jump>:<port>/<remote-host>/<remote-port>` | `local=` |
 
 ### Package
@@ -284,8 +291,8 @@ Optional `?setup=` / `?teardown=` run on `lade setup` /
 | Scheme | URI | What |
 | --- | --- | --- |
 | `mise` | `mise://<backend>/<package>@<version>` | A CLI pin. `lade add package` writes this. |
-| `apm` | `apm://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
-| `skills` | `skills://<owner>/<repo>` | Setup-rule package only. Not a command pin. |
+| `apm` | `apm://<registry-path>` | Setup-rule package only. Not a command pin. |
+| `skills` | `skills://<registry-path>` | Setup-rule package only. Not a command pin. |
 
 ## Hierarchy
 
@@ -320,11 +327,16 @@ lade status
 Queries stay on this git root. `--all` / `--global` reads wider.
 Details: [docs/observability.md](docs/observability.md).
 
-## Humans and agents
+## Shell and harnesses
 
-Same yaml. Same resolve. The agent types the command. There is
-no Lade skill. `lade setup` writes the pre-tool hook. Enable one
-harness by hand with `lade hook enable --harness cursor`.
+Same yaml. Same resolve. Humans type commands in a wrapped shell
+(pre-exec). Harnesses run commands through pre-tool hooks.
+`lade setup` writes both when needed. Limit harness installs with
+`lade setup --harness cursor` (repeat for several). If pre-exec is
+missing later, `lade status` and setup point at
+`lade hook enable --shell`. Harness hooks:
+`lade hook enable --harness <slug>` (recovery; hidden from default
+`--help`, see [docs/protocol.md](docs/protocol.md)).
 
 ## When, users, approval
 
@@ -353,6 +365,50 @@ lade user alice
 
 A `disclaimer` withholds access. Review, then `lade approve <code>`.
 
+## Commands
+
+User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
+`hook` on stdin) stay out of `lade --help`; see
+[docs/protocol.md](docs/protocol.md).
+
+| Command | Role |
+| --- | --- |
+| `lade setup` | This repo: packages, lock, first-time pre-exec, pre-tool. `--unlock`, `--harness`. |
+| `lade update` | Re-resolve implied and ranged pins; rewrite lock. |
+| `lade teardown` | Remove repo pre-tool hooks; run `?teardown=`. |
+| `lade add` / `lade remove` | Edit nearest `lade.yaml`. `add` runs setup. Flags: `--rule`, `--key`, `--uri`. |
+| `lade on` / `lade off` | Toggle pre-exec snippets for this shell. |
+| `lade user` | Set per-user secret map key. `--reset` for OS default. |
+| `lade approve <code>` | After a `disclaimer`, or prefix `LADE_APPROVE=<code>`. Exit `3` when withheld. |
+| `lade eval <uri>` | Resolve one secret URI to stdout. |
+| `lade bench` | Time parse, match, hydrate. `--json`, `--timeout`. |
+| `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
+| `lade status` | Version, hooks, mise, providers. `--json`, `--all`. |
+| `lade log` / `lade usage` | Diary queries. See [docs/observability.md](docs/observability.md). |
+| `lade mcp` | MCP bridge (below). |
+| `lade -- <cmd>` | One-shot wrap (same as documented inject path). |
+
+`silence: true` on a rule skips secret progress lines for that rule.
+Provider URIs can **imply** a locked CLI on setup (`op://` → `op`,
+`vault://` → `vault`, …) even when the yaml has no `mise://` pin.
+`lade status` reports min CLI versions and `sdk` vs `cli` transport.
+
+## MCP
+
+When a harness needs MCP rather than shell rewrite:
+
+```bash
+# stdio server
+lade mcp -- npx -y @modelcontextprotocol/server-everything
+
+# remote Streamable HTTP
+lade mcp https://example.com/mcp
+```
+
+Bindings become upstream headers (HTTP) or env for the child (stdio).
+Same rule matching, disclaimers, and diary as `lade -- <cmd>`. Details:
+[docs/architecture.md](docs/architecture.md).
+
 ## CI build
 
 Build time only. Same yaml. Not production runtime.
@@ -362,7 +418,14 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1
 lade setup
 ```
 
-GitHub Action: `zifeo/lade`. Image: `ghcr.io/zifeo/lade`.
+Installer env: `OUT_DIR`, `VERSION`, `PLATFORM`, `ASSUME_YES`, `CI`,
+`DOWNLOADER` ([docs/env.md](docs/env.md)).
+
+GitHub Action `zifeo/lade` (`setup-lade`): inputs `version` (default
+`latest`), `out-dir` (default `${{ github.workspace }}/.lade-bin`).
+Installs `lade` and `age-plugin-lade` with cache.
+
+Image: `ghcr.io/zifeo/lade` (`linux` musl, `ENTRYPOINT` is `lade`).
 
 ## age plugin
 
@@ -383,17 +446,18 @@ cargo install --path crates/age-plugin-lade --locked
 ## More
 
 A command can build one value from another (`${NAME}`), run a
-shell snippet (`sh://`), or pull a field from age or SOPS. The
-why and the flags are in
-[docs/architecture.md](docs/architecture.md).
+shell snippet (`sh://`), or pull a field from age or SOPS. Blueprint:
+[docs/architecture.md](docs/architecture.md). T tickets and internal
+env: [docs/protocol.md](docs/protocol.md),
+[docs/env.md](docs/env.md). Provider examples:
+[examples/providers/lade.yml](examples/providers/lade.yml).
 
 `lade log` and `lade usage` flags:
 [docs/observability.md](docs/observability.md).
 
 CI that talks to 1Password without a person: set
-`1password_service_account` on `.`.
-
-`lade mcp` wraps one MCP server when a hook is not enough.
+`1password_service_account` on `.` (per-user map supported; see
+examples).
 
 ## Development
 

@@ -111,7 +111,7 @@ pub fn db_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-        .expect("cannot get directory for projet");
+        .expect("cannot get directory for project");
     project.data_local_dir().join("events.db")
 }
 
