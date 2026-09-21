@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 
 use super::Shell;
-use super::preexec::{MARKER, profile_config_file};
+use super::hook::{MARKER, profile_config_file};
 
 pub(super) fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
     let bin = crate::pretool::invoked_lade_bin();

@@ -50,26 +50,26 @@ pub(super) fn parse_yes_no(answer: &str, default_yes: bool) -> Result<bool> {
     bail!("type Y or n");
 }
 
-pub(super) fn parse_agents(answer: &str) -> Result<Vec<Agent>> {
-    let mut agents = Vec::new();
+pub(super) fn parse_harnesses(answer: &str) -> Result<Vec<Agent>> {
+    let mut harnesses = Vec::new();
     for token in answer.split(|c: char| c == ',' || c.is_whitespace()) {
         if token.is_empty() {
             continue;
         }
-        let Some(agent) = Agent::from_slug(token) else {
-            bail!("unknown agent '{token}'. Use cursor, claude, codex, or opencode");
+        let Some(harness) = Agent::from_slug(token) else {
+            bail!("unknown harness '{token}'. Use cursor, claude, codex, or opencode");
         };
-        if !agents.contains(&agent) {
-            agents.push(agent);
+        if !harnesses.contains(&harness) {
+            harnesses.push(harness);
         }
     }
-    if agents.is_empty() {
-        bail!("name at least one agent: cursor, claude, codex, opencode");
+    if harnesses.is_empty() {
+        bail!("name at least one harness: cursor, claude, codex, opencode");
     }
-    Ok(agents)
+    Ok(harnesses)
 }
 
-pub(super) fn ask_agents(detected: &[Agent]) -> Result<Vec<Agent>> {
+pub(super) fn ask_harnesses(detected: &[Agent]) -> Result<Vec<Agent>> {
     if detected.is_empty() {
         return Ok(Vec::new());
     }
@@ -79,10 +79,10 @@ pub(super) fn ask_agents(detected: &[Agent]) -> Result<Vec<Agent>> {
         .map(Agent::name)
         .collect::<Vec<_>>()
         .join(", ");
-    if confirm_default_yes(&format!("Wrap agents for {names}?"))? {
+    if confirm_default_yes(&format!("Wrap harnesses for {names}?"))? {
         return Ok(detected.to_vec());
     }
-    parse_agents(&read_line("Agents (cursor, claude, codex, opencode): ")?)
+    parse_harnesses(&read_line("Harnesses (cursor, claude, codex, opencode): ")?)
 }
 
 pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
@@ -92,11 +92,11 @@ pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
     }
 }
 
-pub(crate) fn print_setup(shell: &crate::shell::SetupShell, pretool: &PretoolReport) {
+pub(crate) fn print_setup(shell: &crate::preexec::SetupShell, pretool: &PretoolReport) {
     let mut mb = MessageBox::new().info().line("pre-exec  this shell");
     mb = mb.line("Wraps commands you type.").line("");
     match shell {
-        crate::shell::SetupShell::Bootstrapped {
+        crate::preexec::SetupShell::Bootstrapped {
             found,
             path,
             reload,
@@ -106,23 +106,23 @@ pub(crate) fn print_setup(shell: &crate::shell::SetupShell, pretool: &PretoolRep
                 .line(format!("  {:<9}  {path}", "installed"))
                 .line(reload);
         }
-        crate::shell::SetupShell::Current { found, path } => {
+        crate::preexec::SetupShell::Current { found, path } => {
             mb = mb.line(found).line(format!("  {:<9}  {path}", "current"));
         }
-        crate::shell::SetupShell::Missing { found } => {
+        crate::preexec::SetupShell::Missing { found } => {
             mb = mb
                 .line(found)
                 .line("  missing   this profile")
                 .line("Run `lade hook enable --shell`, then reload this shell.");
         }
-        crate::shell::SetupShell::SkippedCi { found } => {
+        crate::preexec::SetupShell::SkippedCi { found } => {
             mb = mb.line(found).line("  skipped   CI. No shell wrap.");
         }
     }
     mb = mb
         .line("")
         .line(format!("pre-tool  {}", pretool.where_line))
-        .line("Wraps commands agents run.")
+        .line("Wraps commands harnesses run.")
         .line("");
     if pretool.rows.is_empty() {
         mb = mb.line("nothing here.");
@@ -156,7 +156,7 @@ pub(crate) fn print_teardown(pretool: &PretoolReport) {
         .line("Wrap stays. `lade hook disable --shell` removes it.")
         .line("")
         .line(format!("pre-tool  {}", pretool.where_line))
-        .line("Wraps commands agents run.")
+        .line("Wraps commands harnesses run.")
         .line("");
     if pretool.rows.is_empty() {
         mb = mb.line("nothing here.");

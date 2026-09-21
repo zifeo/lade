@@ -10,6 +10,8 @@ use crate::config::{Audience, Config, LadeRule};
 mod chain;
 mod db;
 mod git;
+pub(crate) mod log_cmd;
+pub(crate) mod pack;
 #[cfg(test)]
 mod tests;
 mod write;
@@ -109,7 +111,7 @@ pub fn db_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let project = directories::ProjectDirs::from("com", "zifeo", "lade")
-        .expect("cannot get directory for projet");
+        .expect("cannot get directory for project");
     project.data_local_dir().join("events.db")
 }
 

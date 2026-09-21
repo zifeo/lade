@@ -2,50 +2,41 @@ use anyhow::Result;
 use std::env;
 
 mod access;
-mod add;
 mod agent_meta;
 mod args;
 mod audience;
-mod bench;
 mod catalog;
 mod child_signals;
+mod command;
 mod compat;
 mod config;
 mod context;
-mod dispatch;
-mod eval;
 mod event;
-mod exec;
 mod exit_codes;
 mod family;
 mod files;
 mod global_config;
-mod inject;
-mod log_cmd;
-mod log_pack;
 mod masking;
 mod mcp;
 mod message_box;
 mod mise;
 mod network;
 mod packages;
+mod preexec;
 mod pretool;
 mod prompt;
 mod provider_progress;
 mod redact;
 mod scrub;
-mod shell;
-mod status;
 mod ticket;
-mod upgrade;
-mod user;
 mod window;
+mod wrap;
 
 use args::{Args, Command, DEFAULT_MASK_FORMAT, InjectCommand};
 use clap::Parser;
+use command::{run_config_verbs, run_standalone};
 use config::LadeFile;
 use context::InvocationContext;
-use dispatch::{run_config_verbs, run_standalone};
 
 pub fn cli_main() -> Result<()> {
     #[cfg(target_family = "unix")]
@@ -110,7 +101,7 @@ async fn run() -> Result<()> {
             command,
             Command::Set(_) | Command::Unset(_) | Command::Approve { .. }
         ) {
-            std::env::var(shell::LADE_T)
+            std::env::var(preexec::LADE_T)
                 .ok()
                 .filter(|value| ticket::is_id(value))
         } else {

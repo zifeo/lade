@@ -60,6 +60,14 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
+- **`lade setup --harness`**: `--cursor` / `--claude` / `--codex` /
+  `--opencode` are replaced by repeatable `--harness`. User-facing
+  copy says harness, not agent. `lade status` pretool lines use
+  `current` / `not current` / `missing`. `inject`, `hook`, `set`, and
+  `unset` stay hidden from default `--help`. `docs/env.md` lists
+  protocol env vars and harness detection signals. Integration tests in
+  `tests/lifecycle.rs` cover setup, teardown, add/remove, on/off,
+  update, and `hook enable --shell`.
 - **`lade setup` / `lade teardown`**: replace `install` / `uninstall`.
   Setup is this git repo. The shell wrap is written only the first
   time this machine has no pre-exec, then reload this shell. Later

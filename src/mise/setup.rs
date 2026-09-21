@@ -108,7 +108,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
             if let Some(dir) = key_dir.get(key)
                 && let Some(path) = lookup::yaml_file_in(dir)?
             {
-                crate::add::replace_binding_uri(&path, key, &uri)
+                crate::command::add::replace_binding_uri(&path, key, &uri)
                     .map_err(|e| Error::install(e.to_string()))?;
             }
         }

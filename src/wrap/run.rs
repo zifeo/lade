@@ -7,13 +7,13 @@ use crate::audience::Via;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
-use crate::exec;
 use crate::files::remove_files;
 use crate::masking;
 use crate::network;
+use crate::preexec::Shell;
 use crate::prompt;
 use crate::redact::Redactor;
-use crate::shell::Shell;
+use crate::wrap::exec;
 
 use super::acquire::acquire_secrets_and_network;
 use super::pins::{PinCleanup, apply_pins, select_tool_env};

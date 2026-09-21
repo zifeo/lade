@@ -53,7 +53,7 @@ pub(super) fn print_human(report: &StatusReport) {
         None => println!("  inject wrap: skips startup files (bashrc, zshenv, fish config)"),
     }
 
-    println!("pre-tool (agents)");
+    println!("pre-tool (harnesses)");
     print_pretool_line("Cursor this machine", &report.hooks.pretool.cursor.global);
     print_pretool_line("Cursor this repo", &report.hooks.pretool.cursor.project);
     print_pretool_line(
@@ -73,7 +73,7 @@ pub(super) fn print_human(report: &StatusReport) {
     print_pretool_line("OpenCode this repo", &report.hooks.pretool.opencode.project);
 
     if has_stale_pretool(report) {
-        println!("  drift: run `lade setup` to refresh stale hooks");
+        println!("  drift: run `lade setup` to refresh hooks that are not current");
     }
 
     let pc = &report.project_config;
@@ -143,18 +143,21 @@ fn has_stale_pretool(report: &StatusReport) -> bool {
     fn stale(location: &pretool::install::HookLocation) -> bool {
         location.installed && !location.current
     }
-    fn agent(status: &pretool::install::PretoolAgentStatus) -> bool {
+    fn harness(status: &pretool::install::PretoolAgentStatus) -> bool {
         stale(&status.global) || stale(&status.project)
     }
     let hooks = &report.hooks.pretool;
-    agent(&hooks.cursor) || agent(&hooks.claude) || agent(&hooks.codex) || agent(&hooks.opencode)
+    harness(&hooks.cursor)
+        || harness(&hooks.claude)
+        || harness(&hooks.codex)
+        || harness(&hooks.opencode)
 }
 
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {
     match (installed, current) {
-        (true, true) => "yes",
-        (true, false) => "yes (stale)",
-        (false, _) => "no",
+        (true, true) => "current",
+        (true, false) => "not current",
+        (false, _) => "missing",
     }
 }
 

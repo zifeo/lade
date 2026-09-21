@@ -162,7 +162,7 @@ fn spawn_stdio(
         .args(&argv[1..])
         .current_dir(current_dir)
         .envs(std::env::vars());
-    crate::shell::strip_child_protocol_tokio(&mut command);
+    crate::preexec::strip_child_protocol_tokio(&mut command);
     command
         .envs(env.clone())
         .stdin(Stdio::piped())

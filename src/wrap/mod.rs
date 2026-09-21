@@ -1,5 +1,6 @@
 mod acquire;
 mod approve;
+pub(crate) mod exec;
 mod pins;
 mod run;
 mod set;
@@ -92,9 +93,9 @@ pub(crate) fn public_hydrate(
     }
     for (key, value) in env {
         if key.starts_with('.')
-            || key == crate::shell::LADE_VIA
-            || key == crate::shell::LADE_RESTORE
-            || key == crate::shell::LADE_T
+            || key == crate::preexec::LADE_VIA
+            || key == crate::preexec::LADE_RESTORE
+            || key == crate::preexec::LADE_T
             || key == crate::mise::LADE_MISE_CONFIG
         {
             continue;

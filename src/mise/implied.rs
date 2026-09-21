@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(pins.len(), 1);
         assert_eq!(pins[0].0, "op");
         assert_eq!(pins[0].1.prefix, "aqua");
-        assert_eq!(pins[0].1.package, "1password/op");
+        assert_eq!(pins[0].1.package, "1password/cli");
         assert!(pins[0].1.is_range());
         assert_eq!(pins[0].1.version, ">=2.18.0");
     }
@@ -126,7 +126,7 @@ mod tests {
     fn yaml_pin_wins() {
         let existing = vec![(
             "op".to_string(),
-            spec::parse("mise://aqua/1password/op@2.31.0").unwrap(),
+            spec::parse("mise://aqua/1password/cli@2.31.0").unwrap(),
         )];
         let pins = pins_for(&["op://v/i/f".to_string()], &existing);
         assert!(pins.is_empty());

@@ -1,8 +1,8 @@
-//! Optional installation of the `lade hook` interceptor into the agents that
+//! Optional installation of the `lade hook` interceptor into harnesses that
 //! support `preToolUse` shell hooks (Cursor, Claude Code, Codex, OpenCode).
 //!
-//! `lade setup` is this git repo. First-time shell wrap only. `--cursor`
-//! and friends skip the agent confirm.
+//! `lade setup` is this git repo. First-time shell wrap only. `--harness`
+//! skips the harness confirm.
 
 mod agent;
 mod inspect;

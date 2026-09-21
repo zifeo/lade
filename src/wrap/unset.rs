@@ -7,7 +7,7 @@ use crate::context::InvocationContext;
 use crate::files::{remove_files, split_env_files};
 use crate::message_box;
 use crate::network;
-use crate::shell::Shell;
+use crate::preexec::Shell;
 use crate::ticket;
 
 async fn unset_output_files(
@@ -54,9 +54,9 @@ pub async fn handle_unset(
     if let Ok(path) = std::env::var(crate::mise::LADE_MISE_CONFIG) {
         crate::mise::unlink_config(std::path::Path::new(&path));
     }
-    let restore = match std::env::var(crate::shell::LADE_RESTORE) {
+    let restore = match std::env::var(crate::preexec::LADE_RESTORE) {
         Err(_) => None,
-        Ok(raw) => match crate::shell::RestorePayload::decode(&raw) {
+        Ok(raw) => match crate::preexec::RestorePayload::decode(&raw) {
             Ok(payload) => Some(payload),
             Err(_) => {
                 message_box::MessageBox::new()
@@ -71,8 +71,8 @@ pub async fn handle_unset(
         .map(|payload| shell.restore(payload.env))
         .unwrap_or_default();
     let unset_keys = vec![
-        crate::shell::LADE_RESTORE.to_string(),
-        crate::shell::LADE_T.to_string(),
+        crate::preexec::LADE_RESTORE.to_string(),
+        crate::preexec::LADE_T.to_string(),
         crate::mise::LADE_MISE_CONFIG.to_string(),
     ];
     let meta = shell.unset(unset_keys);

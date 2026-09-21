@@ -1,7 +1,7 @@
 use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan, setup_at};
 use super::super::paths::short_path;
-use super::super::ui::{parse_agents, parse_yes_no};
+use super::super::ui::{parse_harnesses, parse_yes_no};
 use super::super::write::Scope;
 
 #[test]
@@ -19,18 +19,18 @@ fn short_path_is_repo_relative_then_home() {
 }
 
 #[test]
-fn parse_agents_accepts_slugs_and_rejects_unknown() {
+fn parse_harnesses_accepts_slugs_and_rejects_unknown() {
     assert_eq!(
-        parse_agents("cursor, claude").unwrap(),
+        parse_harnesses("cursor, claude").unwrap(),
         vec![Agent::Cursor, Agent::Claude]
     );
     assert_eq!(
-        parse_agents("codex opencode").unwrap(),
+        parse_harnesses("codex opencode").unwrap(),
         vec![Agent::Codex, Agent::OpenCode]
     );
-    assert!(parse_agents("cursor cursor").unwrap() == vec![Agent::Cursor]);
-    assert!(parse_agents("").is_err());
-    assert!(parse_agents("vim").is_err());
+    assert!(parse_harnesses("cursor cursor").unwrap() == vec![Agent::Cursor]);
+    assert!(parse_harnesses("").is_err());
+    assert!(parse_harnesses("vim").is_err());
 }
 
 #[test]
@@ -47,12 +47,12 @@ fn git_dir(path: &std::path::Path) {
 }
 
 #[test]
-fn setup_outside_git_writes_no_agent_files() {
+fn setup_outside_git_writes_no_pretool_files() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
     let report = setup_at(false, &[], home.path(), cwd.path()).unwrap();
-    assert_eq!(report.where_line, "not a git repo, agents skipped");
+    assert_eq!(report.where_line, "not a git repo, pre-tool skipped");
     assert!(report.rows.is_empty());
     assert!(!home.path().join(".cursor").join("hooks.json").exists());
     assert!(!cwd.path().join(".cursor").join("hooks.json").exists());

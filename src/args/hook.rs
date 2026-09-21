@@ -41,7 +41,7 @@ pub struct HookToggleCommand {
     /// `claude`, `cursor`, `codex`, or `opencode`.
     #[clap(long = "harness", conflicts_with = "shell")]
     pub agent: Option<HookAgent>,
-    /// `project` is this repo (default). `user` is leftover home agent hooks.
+    /// `project` is this repo (default). `user` is leftover home pre-tool hooks.
     #[clap(long, default_value = "project")]
     pub scope: HookScope,
 }

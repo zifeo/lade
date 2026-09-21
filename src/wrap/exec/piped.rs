@@ -1,5 +1,5 @@
+use crate::preexec::Shell;
 use crate::redact::Redactor;
-use crate::shell::Shell;
 use anyhow::Result;
 use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc};
 

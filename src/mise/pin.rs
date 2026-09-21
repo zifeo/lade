@@ -89,7 +89,8 @@ fn rewrite_floating_yaml(
         return Ok(());
     };
     let uri = spec::replace_version(&spec.uri, resolved);
-    crate::add::replace_binding_uri(&path, key, &uri).map_err(|e| Error::install(e.to_string()))?;
+    crate::command::add::replace_binding_uri(&path, key, &uri)
+        .map_err(|e| Error::install(e.to_string()))?;
     Ok(())
 }
 

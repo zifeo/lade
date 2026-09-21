@@ -6,7 +6,7 @@ use tokio::{io::AsyncBufReadExt, select, signal};
 
 use crate::context::InvocationContext;
 use crate::message_box::MessageBox;
-use crate::shell::LADE_APPROVE;
+use crate::preexec::LADE_APPROVE;
 
 /// Marker error: a disclaimer-protected command was invoked without approval,
 /// so secrets were withheld (fail-closed). The user-facing message has already

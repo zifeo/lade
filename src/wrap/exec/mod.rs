@@ -1,5 +1,5 @@
+use crate::preexec::Shell;
 use crate::redact::Redactor;
-use crate::shell::Shell;
 use anyhow::Result;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
@@ -33,7 +33,7 @@ pub fn run(
     cwd: &Path,
     redactor: Option<Redactor>,
 ) -> Result<i32> {
-    for key in crate::shell::CHILD_UNSET {
+    for key in crate::preexec::CHILD_UNSET {
         env.remove(key);
     }
     let mode = select_mode(
@@ -67,7 +67,7 @@ fn prepare_child(
     let mut cmd = shell.prepare_command(command);
     cmd.current_dir(cwd);
     cmd.envs(std::env::vars());
-    crate::shell::strip_child_protocol(&mut cmd);
+    crate::preexec::strip_child_protocol(&mut cmd);
     cmd.env_remove("BASH_ENV");
     cmd.env_remove("MISE_ENV");
     cmd.env_remove("MISE_SETTINGS");

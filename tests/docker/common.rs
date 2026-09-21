@@ -10,6 +10,24 @@ pub fn seed_store_cli(installs: &Path, name: &str, version: &str, src: &Path) {
     std::os::unix::fs::symlink(src, dest).unwrap();
 }
 
+pub fn lock_tool_version(name: &str) -> String {
+    let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("lade.lock"))
+        .expect("lade.lock");
+    let header = format!("[[tools.{name}]]");
+    let rest = body
+        .split(&header)
+        .nth(1)
+        .unwrap_or_else(|| panic!("{name} missing from lade.lock"));
+    rest.lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("version = \"")
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .unwrap_or_else(|| panic!("version for {name} missing from lade.lock"))
+        .to_string()
+}
+
 pub fn seed_stub_cli(installs: &Path, name: &str, version: &str) {
     let dest_dir = installs.join(name).join(version);
     std::fs::create_dir_all(&dest_dir).unwrap();

@@ -133,9 +133,9 @@ fn test_status_reports_project_pretool_hook() {
         .arg("status")
         .assert()
         .stdout(predicates::str::contains("pre-exec (this shell)"))
-        .stdout(predicates::str::contains("pre-tool (agents)"))
+        .stdout(predicates::str::contains("pre-tool (harnesses)"))
         .stdout(predicates::str::contains(
-            "drift: run `lade setup` to refresh stale hooks",
+            "drift: run `lade setup` to refresh hooks that are not current",
         ));
     let output = common::lade(home.path())
         .current_dir(dir.path())

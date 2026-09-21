@@ -1,0 +1,74 @@
+^echo a:
+  .:
+    disclaimer: "This is a disclaimer"
+  A1: "1"
+
+^echo a.+# production:
+  A1: "2"
+
+^echo b:
+  B1: doppler://api.doppler.com/lade/dev/DOPPLER_A
+  B2: doppler://api.doppler.com/lade/dev/DOPPLER_B
+  B3: doppler://api.doppler.com/lade/prd/DOPPLER_B
+  B4: doppler://api.doppler.com/lade/dev/MULTILINE
+
+^echo c:
+  C1: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_A
+  C2: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/INFISICAL_B
+  C3: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/prod/INFISICAL_B
+  C4: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/MULTILINE
+  C5: infisical://app.infisical.com/63a2290a0edf8bf1f65e3784/dev/Nested/INFISICAL_C
+
+^echo d:
+  D1: op://my.1password.eu/Personal/Lade/username
+  D2: op://my.1password.eu/Personal/Lade/password
+  D3: op://my.1password.eu/Personal/Lade/with space
+  D4: op://my.1password.eu/Personal/Lade/file
+  D5: op://my.1password.eu/Personal/Lade/json
+
+^echo f:
+  F1: file://../lade/examples/sources/config.ini?query=.format
+  F2: file://./examples/sources/config.json?query=.format
+  F3: file://~/Documents/github/lade/examples/sources/config.toml?query=.format
+  F4: file://$HOME/Documents/github/lade/examples/sources/config.yaml?query=.format
+  F5: file://Cargo.toml?query=.package.version
+
+^echo g:
+  G1: passbolt://127.0.0.1:8000/5a4b9cd0-5880-4f90-b0ce-e757980cb150/password
+
+^echo \$TIME:
+  TIME: sh://date
+
+^ls:
+  .:
+    file: a.yaml
+  A1: "1"
+
+^printenv$:
+  SHELL: "overriden"
+
+^echo z:
+  DEBUG: "true"
+
+^echo "test:
+  TEST: "test-value"
+
+^echo user:
+  SAME_SECRET_FOR_EVERYONE: everyone
+  SECRET_FOR_THE_USER:
+    alex: a
+    zifeo: b
+  SECRET_WITH_DEFAULT:
+    zifeo: a
+    .: default
+
+^echo DD1:
+  .:
+    1password_service_account:
+      zifeo: op://my.1password.eu/Lade/service_account
+  DD1: op://my.1password.eu/Personal/Lade/username
+
+^echo DD2:
+  .:
+    1password_service_account: op://my.1password.eu/Lade/service_account/credential
+  DD2: op://my.1password.eu/Lade/service_account/credential

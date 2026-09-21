@@ -5,8 +5,8 @@ use crate::args::{DEFAULT_MASK_FORMAT, InjectCommand};
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::message_box;
+use crate::preexec::Shell;
 use crate::prompt;
-use crate::shell::Shell;
 use crate::ticket;
 
 use super::run_inject;
@@ -75,7 +75,7 @@ pub async fn handle_approve(
     };
     // The code is verified, so let resolve_disclaimers through for this command.
     unsafe {
-        std::env::set_var(crate::shell::LADE_APPROVE, code);
+        std::env::set_var(crate::preexec::LADE_APPROVE, code);
     }
     run_inject(pre.command, opts, ctx, config, shell, &current_dir).await
 }

@@ -12,7 +12,7 @@ hello
 │   Reload this shell: source ~/.zshrc                                            │
 │                                                                                 │
 │   pre-tool  this repo  .                                   │
-│   Wraps commands agents run.                                                    │
+│   Wraps commands harnesses run.                                                 │
 │                                                                                 │
 │   nothing here.                                                                 │
 │                                                                                 │

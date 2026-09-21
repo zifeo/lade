@@ -1,13 +1,13 @@
 use anyhow::Result;
 
 use crate::args::StatusCommand;
+use crate::command::upgrade;
 use crate::compat::{all_supported_schemes, known_schemes};
 use crate::config::LadeFile;
 use crate::event;
 use crate::global_config::GlobalConfig;
+use crate::preexec::{Shell, preexec_installed};
 use crate::pretool;
-use crate::shell::{self, preexec_installed};
-use crate::upgrade;
 use lade_sdk::Transport;
 use lade_sdk::compat::spec_for;
 
@@ -55,7 +55,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         user: global.user.clone(),
     };
 
-    let shell = shell::Shell::detect()?;
+    let shell = Shell::detect()?;
     let (profile, installed) = preexec_installed(&shell);
     let hooks = HooksInfo {
         preexec: PreexecHooks {
@@ -222,8 +222,8 @@ fn provider_info(schemes: &[String]) -> Vec<ProviderInfo> {
     out
 }
 
-fn inject_startup_skipped(shell: &shell::Shell) -> Option<String> {
-    if matches!(shell, shell::Shell::Bash) && std::env::var_os("BASH_ENV").is_some() {
+fn inject_startup_skipped(shell: &Shell) -> Option<String> {
+    if matches!(shell, Shell::Bash) && std::env::var_os("BASH_ENV").is_some() {
         return Some("BASH_ENV".to_string());
     }
     let path = shell.wrap_startup_file()?;

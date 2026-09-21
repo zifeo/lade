@@ -40,32 +40,21 @@ jobs:
         with:
           key: ${{ runner.os }}-native
 
+      - name: Mise toml from lade.lock
+        id: lock
+        run: |
+          {
+            echo 'toml<<EOF'
+            bash scripts/lade_lock_to_mise.sh
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: jdx/mise-action@v3
-        if: runner.os == 'Linux'
         with:
           install: true
           cache: true
           experimental: true
-          mise_toml: |
-            [tools]
-            op = "2"
-            "aqua:fish-shell/fish-shell" = "4"
-            "github:romkatv/zsh-bin" = "6"
-
-      - uses: jdx/mise-action@v3
-        if: runner.os == 'macOS'
-        with:
-          install: true
-          cache: true
-          experimental: true
-          mise_toml: |
-            [tools]
-            op = "2"
-            "github:romkatv/zsh-bin" = "6"
-
-      - name: Install fish on macOS
-        if: runner.os == 'macOS'
-        run: brew install fish
+          mise_toml: ${{ steps.lock.outputs.toml }}
 
       - name: Tool versions
         run: |
@@ -92,17 +81,21 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-docker-action@v5
 
+      - name: Mise toml from lade.lock
+        id: lock
+        run: |
+          {
+            echo 'toml<<EOF'
+            bash scripts/lade_lock_to_mise.sh
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: jdx/mise-action@v3
         with:
           install: true
           cache: true
           experimental: true
-          mise_toml: |
-            [tools]
-            "aqua:fish-shell/fish-shell" = "4"
-            "github:romkatv/zsh-bin" = "6"
-            "aqua:kubernetes/kubectl" = "1"
-            "aqua:k3d-io/k3d" = "5"
+          mise_toml: ${{ steps.lock.outputs.toml }}
 
       - name: Install curl
         run: sudo apt-get update && sudo apt-get install -y curl

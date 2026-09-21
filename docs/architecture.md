@@ -2,6 +2,7 @@
 
 Match tickets (T) are specified in [protocol.md](protocol.md).
 Observability is specified in [observability.md](observability.md).
+Environment variables are listed in [env.md](env.md).
 
 ## 1. High-Level Flow (Shell Hooks)
 
@@ -30,7 +31,7 @@ sequenceDiagram
     end
 
     Shell->>Shell: Executes `my-command`
-    Shell->>Lade: Post-exec hook: `lade unset my-command`
+    Shell->>Lade: Cleanup: `lade unset my-command`
     Lade-->>Shell: Stops detached network providers and returns `unset VAR`
     Shell->>Shell: Cleans up environment
 ```
@@ -292,7 +293,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, agent hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's agent hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory agent hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. An agent that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
+The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
 
 ### Direct path
 
