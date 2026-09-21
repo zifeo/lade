@@ -1,11 +1,14 @@
 use owo_colors::{OwoColorize, Style};
 use std::io::{IsTerminal, stderr};
 
+mod report;
 mod terminal;
 #[cfg(test)]
 mod tests;
 
+pub use report::Report;
 use terminal::*;
+pub(crate) use terminal::{columns_env, terminal_columns};
 
 #[derive(Debug, Clone)]
 enum Entry {
@@ -74,9 +77,8 @@ impl MessageBox {
         self
     }
 
-    /// Render the entries as bare stderr lines: no border, no colour. For
-    /// passive confirmations like `Lade loaded` where a full box adds visual
-    /// fatigue and there is nothing to act on.
+    /// Render the entries as bare stderr lines: no border, no colour. Used
+    /// when stderr is not a terminal. Prefer [`Report`] for command results.
     pub fn print_plain_stderr(&self) {
         for entry in &self.entries {
             match entry {

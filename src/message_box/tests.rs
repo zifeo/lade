@@ -42,6 +42,21 @@ mod tests {
     }
 
     #[test]
+    fn report_prints_headings_and_lines() {
+        Report::new()
+            .heading("pre-exec  this shell")
+            .dim("Wraps commands you type.")
+            .line("  installed  ~/.zshrc")
+            .blank()
+            .print();
+    }
+
+    #[test]
+    fn report_progress_prints_a_line() {
+        Report::progress("Checking mise.");
+    }
+
+    #[test]
     fn warning_box() {
         MessageBox::new()
             .warning()

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::LadeFile;
-use crate::message_box::MessageBox;
+use crate::message_box::Report;
 
 use super::ask;
 
@@ -22,11 +22,11 @@ pub fn target_yaml(tty: bool) -> Result<PathBuf> {
         [] => Ok(std::env::current_dir()?.join("lade.yaml")),
         [one] => Ok(one.clone()),
         many if tty => {
-            let mut mb = MessageBox::new().info().line("lade.yaml on the walk");
+            let mut report = Report::new().heading("lade.yaml on the walk");
             for (i, path) in many.iter().enumerate() {
-                mb = mb.line(format!("  {}. {}", i + 1, path.display()));
+                report = report.line(format!("  {}. {}", i + 1, path.display()));
             }
-            mb.print_stderr();
+            report.print();
             let answer = ask("Which (number, 1 is nearest): ")?;
             let index: usize = answer.parse().context("pick a number from the list")?;
             many.get(index.saturating_sub(1))

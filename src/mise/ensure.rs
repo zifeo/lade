@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use crate::message_box::MessageBox;
-
 use super::error::Error;
 use super::fetch;
 use super::implied;
@@ -152,31 +150,35 @@ pub async fn ensure_for_setup() -> Result<(), Error> {
     }
     let status = path_status().await;
     if status.in_range {
+        crate::live_progress::done(
+            "mise",
+            crate::live_progress::named_version("mise", &status.version.unwrap_or_default()),
+        );
         return Ok(());
     }
     match fetch::fetch_official(managed_bin()).await {
         Ok(()) => {
             let again = path_status().await;
             if again.in_range {
-                MessageBox::new()
-                    .info()
-                    .line(format!(
-                        "Using mise {} ({}).",
-                        again.version.unwrap_or_default(),
-                        range::MISE_RANGE
-                    ))
-                    .print_stderr();
+                crate::live_progress::done(
+                    "mise",
+                    crate::live_progress::named_version("mise", &again.version.unwrap_or_default()),
+                );
                 return Ok(());
             }
+            crate::live_progress::failed("mise", "mise");
             Err(Error::missing_mise(format!(
                 "{}. Fetched mise is still outside the range.",
                 mise_gap(&again)
             )))
         }
-        Err(detail) => Err(Error::missing_mise(format!(
-            "{}. {detail}",
-            mise_gap(&status)
-        ))),
+        Err(detail) => {
+            crate::live_progress::failed("mise", "mise");
+            Err(Error::missing_mise(format!(
+                "{}. {detail}",
+                mise_gap(&status)
+            )))
+        }
     }
 }
 

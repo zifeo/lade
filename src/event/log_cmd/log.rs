@@ -112,21 +112,20 @@ fn run_verify(opts: &LogCommand) -> Result<()> {
         }
         lines.extend(status.report_lines(path.display()));
     }
-    let mut box_ = if ok {
-        message_box::MessageBox::new().info()
-    } else {
-        message_box::MessageBox::new().error()
-    };
+    if ok {
+        let mut report = message_box::Report::new();
+        for line in lines {
+            report = report.line(line);
+        }
+        report.print();
+        return Ok(());
+    }
+    let mut box_ = message_box::MessageBox::new().error();
     for line in lines {
         box_ = box_.line(line);
     }
-    if ok {
-        box_.print_plain_stderr();
-        Ok(())
-    } else {
-        box_.print_stderr();
-        std::process::exit(crate::exit_codes::FAILURE);
-    }
+    box_.print_stderr();
+    std::process::exit(crate::exit_codes::FAILURE);
 }
 
 fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<()> {
@@ -193,9 +192,8 @@ fn run_prune(opts: &LogCommand, keep: Option<&str>) -> Result<()> {
             std::process::exit(crate::exit_codes::FAILURE);
         }
     };
-    message_box::MessageBox::new()
-        .info()
+    message_box::Report::new()
         .line(format!("deleted {n} rows older than {keep}"))
-        .print_plain_stderr();
+        .print();
     Ok(())
 }

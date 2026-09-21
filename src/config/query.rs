@@ -231,6 +231,8 @@ impl Config {
         for rule in rules {
             for (key, secret) in &rule.secrets {
                 match resolve_entry(key, secret, saved_user) {
+                    Some(ResolvedEntry::Pin { key, .. })
+                        if crate::mise::is_user_shell(&key) && key != argv0 => {}
                     Some(ResolvedEntry::Pin { key, .. }) => {
                         by_key.insert(key, true);
                     }
@@ -249,10 +251,7 @@ impl Config {
                 }
             }
         }
-        match by_key.get(argv0) {
-            Some(_) => true,
-            None => by_key.values().any(|is_pin| *is_pin) && crate::mise::is_mise_argv0(argv0),
-        }
+        by_key.contains_key(argv0) || by_key.values().any(|is_pin| *is_pin)
     }
 
     pub(crate) fn bare_version_for(

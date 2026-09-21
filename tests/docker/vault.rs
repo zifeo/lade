@@ -1,4 +1,4 @@
-use crate::common::{lock_tool_version, seed_stub_cli};
+use crate::common::seed_workspace_pins;
 use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
@@ -62,7 +62,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
     assert!(docker_ready(), "docker daemon is required");
 
     let installs = tempdir().expect("mise installs");
-    seed_stub_cli(installs.path(), "vault", &lock_tool_version("vault"));
+    seed_workspace_pins(installs.path());
     let path = path_env();
     let installs_env = format!("MISE_INSTALLS_DIR={}", installs.path().display());
     run_cmd(

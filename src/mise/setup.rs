@@ -8,6 +8,7 @@ use super::install;
 use super::lock::{self, LockSlot};
 use super::lookup;
 use super::plane::{self, Plane, Snapshot};
+use super::project;
 use super::spec::{self, Spec};
 use super::store;
 use super::toml_merge;
@@ -19,20 +20,29 @@ pub enum PinMode {
     Update,
 }
 
-pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
+#[derive(Clone, Debug, Default)]
+pub struct PinReport {
+    pub mise: Option<String>,
+    pub tools: Vec<(String, String)>,
+    pub bumped: Vec<(String, String, String)>,
+}
+
+impl PinReport {
+    pub fn is_empty(&self) -> bool {
+        self.mise.is_none() && self.tools.is_empty()
+    }
+}
+
+pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
     let cwd = std::env::current_dir().map_err(|e| Error::install(e.to_string()))?;
     let config = crate::config::LadeFile::build(cwd.clone())?;
     let saved = crate::global_config::GlobalConfig::user_from_disk();
     if !implied::repo_needs_mise(&config, &saved) {
-        if mode == PinMode::Update {
-            crate::message_box::MessageBox::new()
-                .info()
-                .line("No pins in this repo.")
-                .print_stderr();
-        }
-        return Ok(());
+        return Ok(PinReport::default());
     }
+    crate::live_progress::running("mise", "mise");
     ensure::ensure_for_setup().await.inspect_err(|e| {
+        crate::live_progress::failed("mise", "mise");
         e.emit();
     })?;
     let snap = plane::scan(&cwd);
@@ -55,11 +65,14 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
         }
     }
     if accumulated.is_empty() {
-        return Ok(());
+        return Ok(PinReport {
+            mise: ensure::path_status().await.version,
+            tools: Vec::new(),
+            bumped: Vec::new(),
+        });
     }
-    let lock_path = snap.lock_path().map(Path::to_path_buf);
     let mut bumped = Vec::new();
-    let mut slots = Vec::new();
+    let lock_path = snap.lock_path().map(Path::to_path_buf);
     let pending = accumulated.clone();
     for (key, spec) in &pending {
         let names = store::tool_names(spec, key, None);
@@ -91,46 +104,112 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<()> {
                         || spec::version_is_floating(&spec.version)
                         || spec.version == slot.version)
             });
-        if lock_ok && let Some((path, slot)) = existing.as_ref() {
-            install::install_locked(&slot.name, path, &spec, &installs, &cwd).await?;
-            lookup::upsert_pin(
-                &mut accumulated,
-                key.clone(),
-                spec_at_version(&spec, &slot.version),
-            );
-            slots.push(slot.clone());
-            continue;
-        }
-        install::install_from_url(&spec, &installs, &cwd).await?;
-        let slot = lookup::slot_after_install(key, &spec, &installs);
-        if spec::version_is_floating(&spec.version) && slot.version != spec.version {
-            let uri = spec::replace_version(&spec.uri, &slot.version);
-            if let Some(dir) = key_dir.get(key)
-                && let Some(path) = lookup::yaml_file_in(dir)?
-            {
-                crate::command::add::replace_binding_uri(&path, key, &uri)
-                    .map_err(|e| Error::install(e.to_string()))?;
+        let spec = if lock_ok && let Some((_, slot)) = existing.as_ref() {
+            spec::at_version(&spec, &slot.version)
+        } else if spec.is_range() {
+            let label = pin_label(key, &spec.version);
+            crate::live_progress::running(key, &label);
+            match super::latest_matching(&spec) {
+                Ok(version) if !version.is_empty() => {
+                    rewrite_floating_pin(&key_dir, key, &spec, &version)?;
+                    crate::live_progress::done(key, pin_label(key, &version));
+                    spec::at_version(&spec, &version)
+                }
+                _ => {
+                    if let Err(e) = install::install_from_url(&spec, &installs, &cwd).await {
+                        crate::live_progress::failed(key, &label);
+                        return Err(e.into());
+                    }
+                    let slot = lookup::slot_after_install(key, &spec, &installs);
+                    rewrite_floating_pin(&key_dir, key, &spec, &slot.version)?;
+                    crate::live_progress::done(key, pin_label(key, &slot.version));
+                    spec::at_version(&spec, &slot.version)
+                }
             }
-        }
-        lookup::upsert_pin(
-            &mut accumulated,
-            key.clone(),
-            spec_at_version(&spec, &slot.version),
-        );
-        slots.push(slot);
+        } else {
+            spec.clone()
+        };
+        lookup::upsert_pin(&mut accumulated, key.clone(), spec);
     }
     if let Some(lock_path) = lock_path {
-        lock::write_tools(&lock_path, &slots).map_err(|e| Error::install(e.to_string()))?;
+        let theirs = match &snap.plane {
+            Plane::Mise {
+                toml, toml_write, ..
+            } => {
+                let path = toml.as_ref().unwrap_or(toml_write);
+                project::project_tools(path)
+            }
+            Plane::Lade { .. } | Plane::None => Vec::new(),
+        };
+        crate::live_progress::running("lock", "mise lock --upgrade");
+        if let Err(e) = install::refresh_lock(
+            &project::compose_toml(&theirs, &accumulated),
+            &lock_path,
+            &installs,
+            &cwd,
+        )
+        .await
+        {
+            crate::live_progress::failed("lock", "mise lock --upgrade");
+            return Err(e.into());
+        }
+        crate::live_progress::done("lock", "mise lock --upgrade");
+        for (key, spec) in &accumulated {
+            let label = pin_label(key, &spec.version);
+            crate::live_progress::running(key, &label);
+            if let Err(e) = install::install_locked(&lock_path, spec, &installs, &cwd).await {
+                crate::live_progress::failed(key, &label);
+                return Err(e.into());
+            }
+            crate::live_progress::done(key, &label);
+        }
+        if let Plane::Mise { toml_write, .. } = &snap.plane {
+            let entries: Vec<(String, String)> = accumulated
+                .iter()
+                .map(|(key, spec)| (key.clone(), spec.version.clone()))
+                .collect();
+            toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
+        }
+    } else {
+        for (key, spec) in &accumulated {
+            let label = pin_label(key, &spec.version);
+            crate::live_progress::running(key, &label);
+            if let Err(e) = install::install_from_url(spec, &installs, &cwd).await {
+                crate::live_progress::failed(key, &label);
+                return Err(e.into());
+            }
+            crate::live_progress::done(key, &label);
+        }
     }
-    if let Plane::Mise { toml_write, .. } = &snap.plane {
-        let entries: Vec<(String, String)> = slots
+    Ok(PinReport {
+        mise: ensure::path_status().await.version,
+        tools: accumulated
             .iter()
-            .map(|slot| (slot.name.clone(), slot.version.clone()))
-            .collect();
-        toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
+            .map(|(key, spec)| (key.clone(), spec.version.clone()))
+            .collect(),
+        bumped,
+    })
+}
+
+fn pin_label(key: &str, version: &str) -> String {
+    crate::live_progress::named_version(key, version)
+}
+
+fn rewrite_floating_pin(
+    key_dir: &HashMap<String, PathBuf>,
+    key: &str,
+    spec: &Spec,
+    resolved: &str,
+) -> Result<(), Error> {
+    if !spec::version_is_floating(&spec.version) || resolved == spec.version {
+        return Ok(());
     }
-    if mode == PinMode::Update {
-        print_update(&bumped);
+    let uri = spec::replace_version(&spec.uri, resolved);
+    if let Some(dir) = key_dir.get(key)
+        && let Some(path) = lookup::yaml_file_in(dir)?
+    {
+        crate::command::add::replace_binding_uri(&path, key, &uri)
+            .map_err(|e| Error::install(e.to_string()))?;
     }
     Ok(())
 }
@@ -165,17 +244,7 @@ fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
     if !lock::agrees(&probe, &spec.version, &spec.backend_id()) {
         return spec.clone();
     }
-    spec_at_version(spec, &version)
-}
-
-fn spec_at_version(spec: &Spec, version: &str) -> Spec {
-    Spec {
-        prefix: spec.prefix.clone(),
-        package: spec.package.clone(),
-        options: spec.options.clone(),
-        version: version.to_string(),
-        uri: spec::replace_version(&spec.uri, version),
-    }
+    spec::at_version(spec, &version)
 }
 
 fn resolve_for_update(key: &str, spec: &Spec) -> Result<Spec, Error> {
@@ -183,13 +252,15 @@ fn resolve_for_update(key: &str, spec: &Spec) -> Result<Spec, Error> {
     if !implied && !spec.is_range() {
         return Ok(spec.clone());
     }
+    crate::live_progress::running(key, pin_label(key, &spec.version));
     let Ok(version) = super::latest_matching(spec) else {
         return Ok(spec.clone());
     };
     if version.is_empty() {
         return Ok(spec.clone());
     }
-    Ok(spec_at_version(spec, &version))
+    crate::live_progress::done(key, pin_label(key, &version));
+    Ok(spec::at_version(spec, &version))
 }
 
 fn warn_plane(snap: &Snapshot) {
@@ -213,19 +284,23 @@ fn warn_plane(snap: &Snapshot) {
     mb.print_stderr();
 }
 
-fn print_update(bumped: &[(String, String, String)]) {
-    let mut mb = crate::message_box::MessageBox::new().info();
+pub fn print_pin_update(bumped: &[(String, String, String)]) {
+    let mut report = crate::message_box::Report::new();
     if bumped.is_empty() {
-        mb = mb.line("Lock already at the latest matching packages.");
+        report = report
+            .line("Lock already at the latest matching packages.")
+            .dim("Exact pins stay. Implied and ranged pins already match.");
     } else {
-        mb = mb.line("Updated the lock and installed the new packages.");
+        report = report
+            .heading("Updated the lock and installed the new packages.")
+            .dim("Exact pins stay. Implied and ranged pins moved.");
         for (key, from, to) in bumped {
             if from.is_empty() {
-                mb = mb.line(format!("  {key}  {to}"));
+                report = report.line(format!("  {key} {to}"));
             } else {
-                mb = mb.line(format!("  {key}  {from} -> {to}"));
+                report = report.line(format!("  {key} {from} -> {to}"));
             }
         }
     }
-    mb.print_stderr();
+    report.print();
 }

@@ -28,10 +28,7 @@ pub fn run_usage(opts: UsageCommand) -> Result<()> {
         if opts.json {
             println!("[]");
         } else {
-            message_box::MessageBox::new()
-                .info()
-                .line("no events")
-                .print_plain_stderr();
+            message_box::Report::new().line("no events").print();
         }
         return Ok(());
     }

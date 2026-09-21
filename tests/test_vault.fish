@@ -4,9 +4,10 @@ set -e
 
 set -x LADE_VAULT_HTTP 1
 bash tests/test_vault_setup.bash
+set lade_bin (cd (dirname (status filename))/.. && pwd)/target/debug/lade
 
 echo e $E1 $E2 $E3 $E4
-eval "$(cargo run -- on)"
+eval "$($lade_bin on)"
 echo e $E1 $E2 $E3 $E4
 
 preexec_lade 'echo e $E1 $E2 $E3 $E4'
@@ -14,7 +15,7 @@ set out $(echo e $E1 $E2 $E3 $E4)
 precmd_lade 'echo e $E1 $E2 $E3 $E4'
 
 echo e $E1 $E2 $E3 $E4
-eval "$(cargo run -- off)"
+eval "$($lade_bin off)"
 echo e $E1 $E2 $E3 $E4
 
 set expected "e itsasecret itsanotsecret secret a\nb"

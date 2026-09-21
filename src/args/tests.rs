@@ -32,23 +32,30 @@ fn parse_timeout_rejects_zero_and_bare_number() {
 
 #[test]
 fn pretool_with_ticket_id_space_form() {
-    std::fs::create_dir_all(crate::ticket::dir()).unwrap();
-    std::fs::write(crate::ticket::path("x7Km"), "{}").unwrap();
-    let (ticket_id, argv) = crate::ticket::peel_pretool(vec![
-        OsString::from("lade"),
-        OsString::from("--pretool"),
-        OsString::from("x7Km"),
-        OsString::from("inject"),
-        OsString::from("echo"),
-    ]);
-    let _ = crate::ticket::unlink("x7Km");
-    assert_eq!(ticket_id.as_deref(), Some("x7Km"));
-    let args = Args::try_parse_from(&argv).unwrap();
-    assert!(args.pretool);
-    match args.command {
-        Some(Command::Inject(inject)) => assert_eq!(inject.commands, vec!["echo"]),
-        other => panic!("{other:?}"),
-    }
+    let dir = tempfile::tempdir().unwrap();
+    temp_env::with_var(
+        "LADE_TICKET_DIR",
+        Some(dir.path().to_str().unwrap()),
+        || {
+            std::fs::create_dir_all(crate::ticket::dir()).unwrap();
+            std::fs::write(crate::ticket::path("x7Km"), "{}").unwrap();
+            let (ticket_id, argv) = crate::ticket::peel_pretool(vec![
+                OsString::from("lade"),
+                OsString::from("--pretool"),
+                OsString::from("x7Km"),
+                OsString::from("inject"),
+                OsString::from("echo"),
+            ]);
+            let _ = crate::ticket::unlink("x7Km");
+            assert_eq!(ticket_id.as_deref(), Some("x7Km"));
+            let args = Args::try_parse_from(&argv).unwrap();
+            assert!(args.pretool);
+            match args.command {
+                Some(Command::Inject(inject)) => assert_eq!(inject.commands, vec!["echo"]),
+                other => panic!("{other:?}"),
+            }
+        },
+    );
 }
 
 #[test]
@@ -299,6 +306,20 @@ fn update_is_a_top_level_command() {
     let unlock = Args::try_parse_from(["lade", "setup", "--unlock"]).unwrap();
     match unlock.command {
         Some(Command::Setup(opts)) => assert!(opts.unlock),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn teardown_global_parses() {
+    let bare = Args::try_parse_from(["lade", "teardown"]).unwrap();
+    match bare.command {
+        Some(Command::Teardown(opts)) => assert!(!opts.global),
+        other => panic!("{other:?}"),
+    }
+    let args = Args::try_parse_from(["lade", "teardown", "--global"]).unwrap();
+    match args.command {
+        Some(Command::Teardown(opts)) => assert!(opts.global),
         other => panic!("{other:?}"),
     }
 }

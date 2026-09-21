@@ -22,7 +22,13 @@ pub fn install_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, true)?;
-    report("pre-tool:", vec![line]);
+    report(
+        "pre-tool",
+        &format!(
+            "Wraps commands this harness runs. `lade hook disable --harness {harness}` removes it."
+        ),
+        vec![line],
+    );
     Ok(())
 }
 
@@ -31,7 +37,11 @@ pub fn uninstall_scoped(scope: Scope, harness: &str) -> Result<()> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let line = write_scoped(scope, harness, &home, &cwd, false)?;
-    report("pre-tool:", vec![line]);
+    report(
+        "pre-tool",
+        &format!("Removed. `lade hook enable --harness {harness}` puts it back."),
+        vec![line],
+    );
     Ok(())
 }
 

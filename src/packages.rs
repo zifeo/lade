@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::LadeFile;
-use crate::message_box::MessageBox;
+use crate::message_box::Report;
 use crate::mise;
 
 pub async fn run(verb: &str) -> Result<()> {
@@ -23,17 +23,29 @@ pub async fn run(verb: &str) -> Result<()> {
             "teardown" => teardown_args(cli, reference),
             _ => continue,
         };
-        run_package_cli(&git, cli, &args).await?;
+        let label = match verb {
+            "teardown" => format!("Removing {cli} {reference}."),
+            _ => format!("Installing {cli} {reference}."),
+        };
+        if crate::live_progress::is_active() {
+            crate::live_progress::running(format!("pkg-{key}"), &label);
+            run_package_cli(&git, cli, &args).await?;
+            crate::live_progress::done(format!("pkg-{key}"), &label);
+        } else {
+            Report::progress(label);
+            run_package_cli(&git, cli, &args).await?;
+        }
         ran.push(format!("{key} {cli} {reference}"));
     }
+    if crate::live_progress::is_active() {
+        return Ok(());
+    }
     if !ran.is_empty() {
-        let mut mb = MessageBox::new()
-            .info()
-            .line(format!("{verb} setup packages"));
+        let mut report = Report::new().heading(format!("{verb} setup packages"));
         for line in ran {
-            mb = mb.line(format!("  {line}"));
+            report = report.line(format!("  {line}"));
         }
-        mb.print_stderr();
+        report.print();
     }
     Ok(())
 }

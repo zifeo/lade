@@ -188,7 +188,16 @@ exit 0
     .unwrap();
     fs::write(
         dir.path().join("mise.lock"),
-        "[[tools.\"aqua:jqlang/jq\"]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+        r#"# @generated
+lockfile_version = 2
+
+[[tools."aqua:jqlang/jq"]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+
+[tools."aqua:jqlang/jq"."platforms.macos-arm64"]
+url = "https://example.com/jq"
+"#,
     )
     .unwrap();
     common::lade(home.path())
@@ -205,31 +214,46 @@ exit 0
 
 #[cfg(unix)]
 #[test]
-fn inject_catch_all_pins_cargo_not_echo() {
+fn inject_catch_all_pin_is_on_which_path() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
-    fs::create_dir_all(installs.join("rust/1.96.0")).unwrap();
-    write_exec(&installs.join("rust/1.96.0/cargo"), "echo PINNED");
+    let bin = installs.join("kubectl/1.37.0");
+    fs::create_dir_all(&bin).unwrap();
+    write_exec(&bin.join("kubectl"), "echo PINNED");
     write_cached_env(
         home.path(),
-        "core:rust",
-        "core-rust",
-        "1.96.0",
-        r#"{"RUSTUP_TOOLCHAIN":"1.96.0"}"#,
+        "aqua:kubernetes/kubectl",
+        "aqua-kubernetes-kubectl",
+        "1.37.0",
+        "{}",
     );
     fs::write(
         dir.path().join("lade.yml"),
-        ".:\n  cargo: mise://core/rust@1.96.0\n",
+        ".:\n  kubectl: mise://aqua/kubernetes/kubectl@1.37.0\n",
     )
     .unwrap();
     common::lade(home.path())
         .current_dir(dir.path())
         .env("MISE_INSTALLS_DIR", &installs)
-        .args(["inject", "--", "cargo", "test"])
+        .args(["inject", "--", "kubectl", "version"])
         .assert()
         .success()
         .stdout(predicates::str::contains("PINNED"));
+    let which = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("MISE_INSTALLS_DIR", &installs)
+        .args(["inject", "--", "which", "kubectl"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let which = String::from_utf8_lossy(&which);
+    assert!(
+        which.contains(&bin.join("kubectl").display().to_string()),
+        "{which}"
+    );
     common::lade(home.path())
         .current_dir(dir.path())
         .env("MISE_INSTALLS_DIR", &installs)
@@ -237,4 +261,50 @@ fn inject_catch_all_pins_cargo_not_echo() {
         .assert()
         .success()
         .stdout(predicates::str::contains("hi"));
+}
+
+#[cfg(unix)]
+#[test]
+fn inject_command_pin_does_not_apply_to_which() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let bin = installs.join("kubectl/1.37.0");
+    let brew = dir.path().join("brew");
+    fs::create_dir_all(&bin).unwrap();
+    fs::create_dir_all(&brew).unwrap();
+    write_exec(&bin.join("kubectl"), "echo PINNED");
+    write_exec(&brew.join("kubectl"), "echo BREW");
+    write_cached_env(
+        home.path(),
+        "aqua:kubernetes/kubectl",
+        "aqua-kubernetes-kubectl",
+        "1.37.0",
+        "{}",
+    );
+    fs::write(
+        dir.path().join("lade.yml"),
+        "^kubectl:\n  kubectl: mise://aqua/kubernetes/kubectl@1.37.0\n",
+    )
+    .unwrap();
+    let path = format!("{}:{}", brew.display(), prepend_path(&bin));
+    let which = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("MISE_INSTALLS_DIR", &installs)
+        .env("PATH", &path)
+        .args(["inject", "--", "which", "kubectl"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let which = String::from_utf8_lossy(&which);
+    assert!(
+        which.contains(&brew.join("kubectl").display().to_string()),
+        "{which}"
+    );
+    assert!(
+        !which.contains(&bin.join("kubectl").display().to_string()),
+        "{which}"
+    );
 }

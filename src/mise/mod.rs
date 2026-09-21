@@ -24,14 +24,15 @@ mod tests;
 
 pub use ensure::{ensure_for_setup, managed_mise_in_play, mise_program, status_info};
 pub use error::Error;
+pub use implied::repo_needs_mise;
 pub use lifecycle::run_lifecycle_commands;
 pub use pin::{locked_bin, locked_cli_bin};
 pub use plane::scan;
 pub use prepare::{implied_package, locked_tools, prepare};
 pub use run::run_in_repo;
-pub use setup::{PinMode, setup_pins};
+pub use setup::{PinMode, print_pin_update, setup_pins};
 pub use spec::{
-    argv0, is_mise_argv0, looks_like_bare_version, looks_like_spec, parse as parse_spec,
+    argv0, is_user_shell, looks_like_bare_version, looks_like_spec, parse as parse_spec,
 };
 
 use std::collections::HashMap;
@@ -106,6 +107,9 @@ impl Outcome {
 }
 
 pub fn unlink_config(path: &Path) {
+    if crate::cache::is_persistent_mise_config(path) {
+        return;
+    }
     if path.is_file() {
         let _ = std::fs::remove_file(path);
     }

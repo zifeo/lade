@@ -173,6 +173,7 @@ pub fn lade_std(home: &Path) -> StdCommand {
     // the temp lade.yml the test just wrote.
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
+        .env("LADE_CACHE_DIR", home.join("lade-cache"))
         .env("LADE_CONFIG_PATH", config_path)
         .env("LADE_EVENTS_PATH", home.join("events.db"))
         .env_remove("LADE_VIA")

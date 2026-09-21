@@ -51,7 +51,16 @@ exit 0
     .unwrap();
     fs::write(
         dir.path().join("mise.lock"),
-        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+        r#"# @generated
+lockfile_version = 2
+
+[[tools.jq]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+
+[tools.jq."platforms.macos-arm64"]
+url = "https://example.com/jq"
+"#,
     )
     .unwrap();
     common::lade(home.path())

@@ -77,6 +77,16 @@ pub fn version_is_floating(version: &str) -> bool {
     matches!(version, "latest" | "lts")
 }
 
+pub fn at_version(spec: &Spec, version: &str) -> Spec {
+    Spec {
+        prefix: spec.prefix.clone(),
+        package: spec.package.clone(),
+        options: spec.options.clone(),
+        version: version.to_string(),
+        uri: replace_version(&spec.uri, version),
+    }
+}
+
 pub fn replace_version(uri: &str, version: &str) -> String {
     let (body, query) = match uri.split_once('?') {
         Some((body, query)) => (body, Some(query)),
@@ -250,6 +260,11 @@ pub fn argv0(command: &str) -> &str {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(token)
+}
+
+/// Login shells stay the OS binary unless the wrapped command *is* that shell.
+pub fn is_user_shell(name: &str) -> bool {
+    matches!(name, "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh")
 }
 
 pub fn is_mise_argv0(argv0: &str) -> bool {

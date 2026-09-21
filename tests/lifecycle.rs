@@ -15,11 +15,33 @@ fn setup_writes_project_pretool_hook() {
     git_repo(dir.path());
     common::write_yml_raw(dir.path(), "\"^echo\":\n  KEY: raw://hello\n");
 
-    common::lade(home.path())
+    let setup = common::lade(home.path())
         .current_dir(dir.path())
         .args(["setup", "--harness", "cursor"])
         .assert()
-        .success();
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&setup);
+    assert!(stderr.contains("pre-exec"), "{stderr}");
+    assert!(stderr.contains("pre-tool"), "{stderr}");
+    assert!(
+        stderr.contains("lade hook disable --shell"),
+        "setup should say how to remove pre-exec: {stderr}"
+    );
+    assert!(
+        stderr.contains("lade teardown"),
+        "setup should say how to remove pre-tool: {stderr}"
+    );
+    assert!(
+        !stderr.contains("packages"),
+        "no mise pins in this fixture: {stderr}"
+    );
+    assert!(
+        !stderr.contains('╭'),
+        "setup success is a report, not a box: {stderr}"
+    );
 
     let hook = dir.path().join(".cursor").join("hooks.json");
     let body = fs::read_to_string(&hook).unwrap();
@@ -60,11 +82,20 @@ fn teardown_removes_project_pretool_hook() {
         .success();
     assert!(dir.path().join(".cursor").join("hooks.json").is_file());
 
-    common::lade(home.path())
+    let teardown = common::lade(home.path())
         .current_dir(dir.path())
         .arg("teardown")
         .assert()
-        .success();
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&teardown);
+    assert!(stderr.contains("removed"), "{stderr}");
+    assert!(
+        stderr.contains("lade setup"),
+        "teardown should say how to put pre-tool back: {stderr}"
+    );
 
     let hook = dir.path().join(".cursor").join("hooks.json");
     if hook.is_file() {
@@ -74,6 +105,25 @@ fn teardown_removes_project_pretool_hook() {
             "teardown should remove the pretool hook: {body}"
         );
     }
+}
+
+#[test]
+fn teardown_global_clears_cache_without_lade_yaml() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let cache = home.path().join("lade-cache");
+    fs::create_dir_all(cache.join("tickets")).unwrap();
+    fs::write(cache.join("tickets/ab12.json"), "{}").unwrap();
+    fs::create_dir_all(cache.join("mise-env")).unwrap();
+    fs::write(cache.join("mise-env/marker"), "x").unwrap();
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["teardown", "--global"])
+        .assert()
+        .success();
+
+    assert!(!cache.exists());
 }
 
 #[test]

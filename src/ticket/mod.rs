@@ -81,7 +81,7 @@ pub fn dir() -> PathBuf {
     {
         return PathBuf::from(path);
     }
-    std::env::temp_dir().join("lade-t")
+    crate::cache::tickets()
 }
 
 pub fn path(id: &str) -> PathBuf {

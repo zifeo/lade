@@ -75,31 +75,25 @@ fn set_then_unset_leaves_repo_without_mise_files() {
         .stdout
         .clone();
     let stdout = String::from_utf8_lossy(&set);
+    let config_path = export_value(&stdout, "LADE_MISE_CONFIG")
+        .or_else(|| export_value(&stdout, "MISE_GLOBAL_CONFIG_FILE"))
+        .expect("composed mise config");
     assert!(
-        stdout.contains("MISE_GLOBAL_CONFIG_FILE") || stdout.contains("LADE_MISE_CONFIG"),
-        "{stdout}"
+        config_path.contains("lade-cache"),
+        "isolate config stays in cache: {config_path}"
     );
     assert!(!dir.path().join("mise.toml").exists());
     common::lade(home.path())
         .current_dir(dir.path())
         .env("LADE_TICKET_DIR", &tickets)
-        .env(
-            "LADE_MISE_CONFIG",
-            tickets
-                .read_dir()
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .find(|p| {
-                    p.file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with("lade-mise-") && n.ends_with(".toml"))
-                })
-                .expect("temp mise file"),
-        )
+        .env("LADE_MISE_CONFIG", &config_path)
         .args(["unset", "mise", "ls"])
         .assert()
         .success();
+    assert!(
+        std::path::Path::new(&config_path).is_file(),
+        "hashed isolate toml is reused, unset does not delete it"
+    );
     let leftovers: Vec<_> = tickets
         .read_dir()
         .unwrap()

@@ -86,7 +86,8 @@ pub fn present_shells() -> Vec<Shell> {
         .collect()
 }
 
-pub fn found_shells_line(found: &[Shell], current: Shell) -> String {
+#[cfg(test)]
+fn found_shells_line(found: &[Shell], current: Shell) -> String {
     let mut names: Vec<&str> = found.iter().map(|shell| shell.display_name()).collect();
     if !found.contains(&current) && !matches!(current, Shell::Sh) {
         names.push(current.display_name());
@@ -102,27 +103,15 @@ pub fn found_shells_line(found: &[Shell], current: Shell) -> String {
 }
 
 pub struct PreexecReport {
-    pub found: String,
     pub verb: &'static str,
     pub path: String,
 }
 
 pub enum SetupShell {
-    Bootstrapped {
-        found: String,
-        path: String,
-        reload: String,
-    },
-    Current {
-        found: String,
-        path: String,
-    },
-    Missing {
-        found: String,
-    },
-    SkippedCi {
-        found: String,
-    },
+    Bootstrapped { path: String, reload: String },
+    Current { path: String },
+    Missing,
+    SkippedCi,
 }
 
 pub fn ci_job() -> bool {
@@ -175,16 +164,14 @@ pub fn any_profile_wrapped() -> bool {
 pub fn maybe_bootstrap_setup_shell() -> Result<SetupShell> {
     let current = Shell::detect()?;
     let (path_buf, installed) = preexec_installed(&current);
-    let found = found_shells_line(&present_shells(), current);
     let path = super::profile::path_for_display(&path_buf);
     match bootstrap_decision(installed, any_profile_wrapped(), ci_job()) {
-        BootstrapDecision::Current => Ok(SetupShell::Current { found, path }),
-        BootstrapDecision::Missing => Ok(SetupShell::Missing { found }),
-        BootstrapDecision::SkipCi => Ok(SetupShell::SkippedCi { found }),
+        BootstrapDecision::Current => Ok(SetupShell::Current { path }),
+        BootstrapDecision::Missing => Ok(SetupShell::Missing),
+        BootstrapDecision::SkipCi => Ok(SetupShell::SkippedCi),
         BootstrapDecision::Write => {
             let path = current.install()?;
             Ok(SetupShell::Bootstrapped {
-                found: found_shells_line(&present_shells(), current),
                 path: path.clone(),
                 reload: reload_hint(current, &path),
             })
@@ -199,7 +186,6 @@ pub fn enable_current_preexec() -> Result<(PreexecReport, Option<String>)> {
     let reload = (!already).then(|| reload_hint(current, &path));
     Ok((
         PreexecReport {
-            found: found_shells_line(&present_shells(), current),
             verb: if already { "current" } else { "installed" },
             path,
         },
@@ -211,7 +197,6 @@ pub fn uninstall_current_preexec() -> Result<PreexecReport> {
     let current = Shell::detect()?;
     let path = current.uninstall()?;
     Ok(PreexecReport {
-        found: found_shells_line(&present_shells(), current),
         verb: "removed",
         path,
     })

@@ -39,17 +39,11 @@ pub fn path_in(dir: &Path) -> PathBuf {
     }
 }
 
-pub fn file_checksum(path: &Path) -> Option<String> {
-    use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(path).ok()?;
-    let digest = Sha256::digest(bytes);
-    Some(format!(
-        "sha256:{}",
-        digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    ))
+pub fn is_generated(path: &Path) -> bool {
+    let Ok(body) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    body.contains("url = ") || body.contains("@generated") || body.contains("lockfile_version = 2")
 }
 
 #[cfg(test)]
@@ -85,50 +79,6 @@ pub fn slot_for_walk(start: &Path, names: &[&str]) -> Option<LockSlot> {
     slot_and_path(start, names).map(|(_, slot)| slot)
 }
 
-pub fn write_tools(path: &Path, slots: &[LockSlot]) -> std::io::Result<()> {
-    let merge = path.file_name().is_some_and(|name| name == "mise.lock") && path.is_file();
-    if merge {
-        let mut all = read_tools(path).unwrap_or_default();
-        for slot in slots {
-            upsert(&mut all, slot.clone());
-        }
-        write_lock_body(path, &all)
-    } else {
-        write_lock_body(path, slots)
-    }
-}
-
-fn write_lock_body(path: &Path, slots: &[LockSlot]) -> std::io::Result<()> {
-    let mut body = String::from("lockfile_version = 1\n\n");
-    for slot in slots {
-        let key = if slot
-            .name
-            .chars()
-            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
-        {
-            format!("\"{}\"", slot.name.replace('"', "\\\""))
-        } else {
-            slot.name.clone()
-        };
-        body.push_str(&format!("[[tools.{key}]]\n"));
-        body.push_str(&format!(
-            "version = \"{}\"\n",
-            slot.version.replace('"', "\\\"")
-        ));
-        if let Some(backend) = &slot.backend {
-            body.push_str(&format!("backend = \"{}\"\n", backend.replace('"', "\\\"")));
-        }
-        if let Some(checksum) = &slot.checksum {
-            body.push_str(&format!(
-                "checksum = \"{}\"\n",
-                checksum.replace('"', "\\\"")
-            ));
-        }
-        body.push('\n');
-    }
-    std::fs::write(path, body)
-}
-
 pub fn slot_for(path: &Path, names: &[&str]) -> Option<LockSlot> {
     let parsed = parse(path)?;
     for name in names {
@@ -149,6 +99,7 @@ fn parse(path: &Path) -> Option<LockFile> {
     toml::from_str(&bytes).ok()
 }
 
+#[cfg(test)]
 pub fn read_tools(path: &Path) -> Option<Vec<LockSlot>> {
     let parsed = parse(path)?;
     Some(
@@ -166,14 +117,6 @@ pub fn read_tools(path: &Path) -> Option<Vec<LockSlot>> {
             })
             .collect(),
     )
-}
-
-pub fn upsert(slots: &mut Vec<LockSlot>, slot: LockSlot) {
-    if let Some(existing) = slots.iter_mut().find(|s| s.name == slot.name) {
-        *existing = slot;
-    } else {
-        slots.push(slot);
-    }
 }
 
 pub fn agrees(slot: &LockSlot, version: &str, backend_id: &str) -> bool {

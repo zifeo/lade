@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 
-use crate::message_box::MessageBox;
+use crate::message_box::{MessageBox, Report};
 use lade_sdk::compat::spec_for_bin;
 use std::collections::HashMap;
 
@@ -49,11 +49,11 @@ pub fn pick_from_lines(title: &str, lines: &[String]) -> Result<String> {
     if lines.is_empty() {
         bail!("no {title}");
     }
-    let mut mb = MessageBox::new().info().line(title);
+    let mut report = Report::new().heading(title);
     for (i, line) in lines.iter().take(20).enumerate() {
-        mb = mb.line(format!("  {}. {line}", i + 1));
+        report = report.line(format!("  {}. {line}", i + 1));
     }
-    mb.print_stderr();
+    report.print();
     let answer = ask("Which (number): ")?;
     let index: usize = answer.parse().context("pick a number from the list")?;
     lines

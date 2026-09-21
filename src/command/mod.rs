@@ -17,7 +17,7 @@ use crate::event;
 use crate::event::log_cmd;
 use crate::exit_codes;
 use crate::mcp;
-use crate::message_box::MessageBox;
+use crate::message_box::{MessageBox, Report};
 use crate::preexec::Shell;
 use crate::pretool;
 use crate::prompt;
@@ -49,10 +49,23 @@ pub(crate) async fn run_standalone(
         }
         Command::Update => {
             require_lade_yaml()?;
-            crate::mise::setup_pins(crate::mise::PinMode::Update).await?;
+            let bumped;
+            {
+                let _progress = crate::live_progress::begin(ctx.stderr_is_terminal);
+                bumped = crate::mise::setup_pins(crate::mise::PinMode::Update).await?;
+            }
+            match bumped {
+                report if report.is_empty() => Report::new().line("No pins in this repo.").print(),
+                report => crate::mise::print_pin_update(&report.bumped),
+            }
+            upgrade::nudge_if_available().await;
             Ok(None)
         }
-        Command::Teardown => {
+        Command::Teardown(opts) => {
+            if opts.global {
+                crate::cache::clear_and_report()?;
+                return Ok(None);
+            }
             require_lade_yaml()?;
             let tool = pretool::install::teardown()?;
             crate::mise::run_lifecycle_commands("teardown").await?;
@@ -93,10 +106,10 @@ pub(crate) async fn run_standalone(
                     HookTarget::Shell => {
                         let (pre, reload) = crate::preexec::enable_current_preexec()?;
                         pretool::install::print_shell_hook(
-                            &pre.found,
                             pre.verb,
                             &pre.path,
                             reload.as_deref(),
+                            pretool::install::PREEXEC_SETUP_DIM,
                         );
                     }
                     HookTarget::Agent(agent) => {
@@ -106,7 +119,12 @@ pub(crate) async fn run_standalone(
                 HookAction::Disable(opts) => match opts.target()? {
                     HookTarget::Shell => {
                         let pre = crate::preexec::uninstall_current_preexec()?;
-                        pretool::install::print_shell_hook(&pre.found, pre.verb, &pre.path, None);
+                        pretool::install::print_shell_hook(
+                            pre.verb,
+                            &pre.path,
+                            None,
+                            pretool::install::PREEXEC_DISABLE_DIM,
+                        );
                     }
                     HookTarget::Agent(agent) => {
                         pretool::install::uninstall_scoped(hook_scope(opts.scope), agent.slug())?;
@@ -233,31 +251,66 @@ async fn run_setup(
     let cwd = std::env::current_dir()?;
     let snap = crate::mise::scan(&cwd);
     if snap.project_git_root.is_none() {
-        let mut mb = MessageBox::new()
-            .info()
-            .line("This folder is not a git repo.");
+        let mut report = Report::new().heading("This folder is not a git repo.");
         if crate::preexec::ci_job() {
-            mb = mb.line("CI. No shell wrap. Packages, locks, and pre-tool hooks are skipped.");
+            report =
+                report.dim("CI. No shell wrap. Packages, locks, and pre-tool hooks are skipped.");
         } else {
-            mb = mb
-                .line("Shell wrap only. Packages, locks, and pre-tool hooks are skipped.")
-                .line("cd into a repo and run `lade setup`.");
+            report = report
+                .dim("Shell wrap only. Packages, locks, and pre-tool hooks are skipped.")
+                .dim("cd into a repo and run `lade setup`.");
         }
-        mb.print_stderr();
+        report.print();
         if snap.is_mise() {
             require_lade_yaml()?;
             crate::mise::setup_pins(mode).await?;
         }
         let tool = pretool::install::setup(may_prompt, slugs)?;
         pretool::install::print_setup(&shell, &tool);
+        upgrade::nudge_if_available().await;
         return Ok(());
     }
     require_lade_yaml()?;
-    crate::mise::setup_pins(mode).await?;
-    let tool = pretool::install::setup(may_prompt, slugs)?;
-    crate::mise::run_lifecycle_commands("setup").await?;
-    crate::packages::run("setup").await?;
-    pretool::install::print_setup(&shell, &tool);
+    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let config = crate::config::LadeFile::build(cwd.clone())?;
+    let show_packages = crate::mise::repo_needs_mise(&config, &saved);
+    if show_packages {
+        Report::new()
+            .heading("packages")
+            .dim("CLIs this repo wraps. Leave the folder and your usual ones come back.")
+            .blank()
+            .print();
+    }
+    {
+        let _progress = if show_packages {
+            crate::live_progress::begin_keep(ctx.stderr_is_terminal)
+        } else {
+            crate::live_progress::begin(ctx.stderr_is_terminal)
+        };
+        crate::mise::setup_pins(mode).await?;
+        crate::mise::run_lifecycle_commands("setup").await?;
+        crate::packages::run("setup").await?;
+    }
+    pretool::install::print_preexec(&shell);
+    match pretool::install::plan(false, slugs)? {
+        None => {
+            pretool::install::print_pretool_intro(
+                "not a git repo, pre-tool skipped",
+                pretool::install::PRETOOL_SETUP_DIM,
+            );
+            pretool::install::print_pretool_rows(&pretool::install::setup(false, slugs)?, false);
+        }
+        Some(mut planned) => {
+            pretool::install::print_pretool_intro(
+                &planned.where_line(),
+                pretool::install::PRETOOL_SETUP_DIM,
+            );
+            pretool::install::confirm_plan(&mut planned, may_prompt, slugs)?;
+            let tool = pretool::install::commit(&planned)?;
+            pretool::install::print_pretool_rows(&tool, false);
+        }
+    }
+    upgrade::nudge_if_available().await;
     Ok(())
 }
 

@@ -44,6 +44,11 @@ pub(super) fn write_foreign_home_mise(home: &std::path::Path) {
 #[cfg(unix)]
 pub(super) fn isolation_record_stub() -> &'static str {
     r#"
+cd_dir="."
+if [ "$1" = "--cd" ]; then
+  cd_dir="$2"
+  shift 2
+fi
 if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
@@ -60,6 +65,48 @@ if [ -n "$MISE_GLOBAL_CONFIG_FILE" ]; then
 fi
 printf '%s\n' "$MISE_IGNORED_CONFIG_PATHS" > "$MISE_INSTALLS_DIR/ignored"
 printf '%s\n' "$MISE_CONFIG_DIR" > "$MISE_INSTALLS_DIR/config-dir"
+printf '%s\n' "$MISE_SHIMS_DIR" > "$MISE_INSTALLS_DIR/shims-dir"
+if [ "$1" = "lock" ]; then
+  toml="$cd_dir/mise.toml"
+  lock="$cd_dir/mise.lock"
+  if [ -f "$toml" ]; then
+    {
+      printf '%s\n' '# @generated'
+      printf '%s\n' ''
+      printf '%s\n' 'lockfile_version = 2'
+      printf '%s\n' ''
+      awk '
+        BEGIN { in_tools=0 }
+        /^\[tools\]/ { in_tools=1; next }
+        /^\[/ { in_tools=0 }
+        in_tools && /=/ {
+          line=$0
+          sub(/^[[:space:]]+/, "", line)
+          split(line, parts, "=")
+          key=parts[1]
+          ver=parts[2]
+          sub(/^[[:space:]]+/, "", key)
+          sub(/[[:space:]]+$/, "", key)
+          sub(/^[[:space:]]+/, "", ver)
+          sub(/[[:space:]]+$/, "", ver)
+          gsub(/^"/, "", key)
+          gsub(/"$/, "", key)
+          gsub(/^"/, "", ver)
+          gsub(/"$/, "", ver)
+          printf "[[tools.\"%s\"]]\n", key
+          printf "version = \"%s\"\n", ver
+          printf "backend = \"%s\"\n", key
+          printf "checksum = \"sha256:deadbeef\"\n"
+          printf "\n"
+          printf "[tools.\"%s\".\"platforms.macos-arm64\"]\n", key
+          printf "url = \"https://example.com/%s\"\n", ver
+          printf "\n"
+        }
+      ' "$toml"
+    } > "$lock"
+  fi
+  exit 0
+fi
 if printf '%s' "$*" | grep -q -- '--json-extended'; then
   printf '%s\n' '{}'
   exit 0
@@ -89,6 +136,12 @@ pub(super) fn assert_isolated_pin_only(
     assert!(
         ignored.contains(&home.join("mise.toml").display().to_string()),
         "{ignored}"
+    );
+    let shims = std::fs::read_to_string(installs.join("shims-dir")).unwrap();
+    assert!(shims.contains("mise-shims"), "{shims}");
+    assert!(
+        !shims.contains(&home.join(".local/share/mise/shims").display().to_string()),
+        "{shims}"
     );
 }
 

@@ -1,7 +1,7 @@
 use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan, setup_at};
 use super::super::paths::short_path;
-use super::super::ui::{parse_harnesses, parse_yes_no};
+use super::super::ui::{parse_harnesses, parse_which_harnesses, parse_yes_no};
 use super::super::write::Scope;
 
 #[test]
@@ -31,6 +31,34 @@ fn parse_harnesses_accepts_slugs_and_rejects_unknown() {
     assert!(parse_harnesses("cursor cursor").unwrap() == vec![Agent::Cursor]);
     assert!(parse_harnesses("").is_err());
     assert!(parse_harnesses("vim").is_err());
+}
+
+#[test]
+fn parse_which_harnesses_defaults_to_detected() {
+    let detected = [Agent::Cursor, Agent::Claude];
+    assert_eq!(
+        parse_which_harnesses("", &detected).unwrap(),
+        vec![Agent::Cursor, Agent::Claude]
+    );
+    assert_eq!(
+        parse_which_harnesses("all", &detected).unwrap(),
+        vec![Agent::Cursor, Agent::Claude]
+    );
+    assert_eq!(
+        parse_which_harnesses("cursor", &detected).unwrap(),
+        vec![Agent::Cursor]
+    );
+}
+
+#[test]
+fn parse_which_harnesses_rejects_yes_no() {
+    let detected = [Agent::Cursor];
+    let err = parse_which_harnesses("no", &detected)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("name slugs"), "{err}");
+    assert!(parse_which_harnesses("n", &detected).is_err());
+    assert!(parse_which_harnesses("yes", &detected).is_err());
 }
 
 #[test]

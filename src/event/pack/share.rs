@@ -48,9 +48,7 @@ pub fn share(
     if out_path.exists() {
         anyhow::bail!("refusing to overwrite {}", out_path.display());
     }
-    let work = tempfile::Builder::new()
-        .prefix("lade-log-share-")
-        .tempdir()?;
+    let work = crate::cache::scratch_tempdir()?;
     let snapshot_path = work.path().join("events.db");
     let head = write_snapshot_db(&redacted, &snapshot_path)?;
     let manifest = json!({
@@ -74,10 +72,9 @@ pub fn share(
     let manifest_path = work.path().join("manifest.json");
     fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
     write_tar_gz(&out_path, &manifest_path, &snapshot_path)?;
-    message_box::MessageBox::new()
-        .info()
+    message_box::Report::new()
         .line(out_path.display().to_string())
-        .print_plain_stderr();
+        .print();
     Ok(())
 }
 

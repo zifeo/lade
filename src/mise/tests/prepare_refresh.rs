@@ -45,7 +45,7 @@ fn rust_pin_sets_toolchain_without_mise_spawn() {
 
 #[cfg(unix)]
 #[test]
-fn catch_all_rule_pins_by_argv0() {
+fn catch_all_rule_pins_every_matched_command() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
@@ -79,15 +79,17 @@ fn catch_all_rule_pins_by_argv0() {
             ))
             .unwrap();
             assert_eq!(cargo.env.get("RUSTUP_TOOLCHAIN").unwrap(), "1.96.0");
-            let echo = block_on(prepare(
+            let which = block_on(prepare(
                 &config,
-                "echo hi",
+                "which cargo",
                 dir.path(),
                 &None,
                 Audience::Human,
             ))
             .unwrap();
-            assert!(echo.is_empty());
+            let path = which.env.get("PATH").unwrap();
+            assert!(path.starts_with(&format!("{}:", bin.display())), "{path}");
+            assert_eq!(which.env.get("RUSTUP_TOOLCHAIN").unwrap(), "1.96.0");
         },
     );
 }

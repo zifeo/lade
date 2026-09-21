@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 
-use crate::message_box::MessageBox;
+use crate::message_box::{MessageBox, Report};
 
 use super::ask;
 use super::cli::{family_program, login_stop, pick_from_lines};
@@ -78,13 +78,11 @@ fn search_mise(query: &str) -> Result<String> {
     if hits.is_empty() {
         bail!("mise search found nothing for `{query}`. Pass --uri if you know the pin.");
     }
-    let mut mb = MessageBox::new()
-        .info()
-        .line(format!("mise search `{query}`"));
+    let mut report = Report::new().heading(format!("mise search `{query}`"));
     for (i, (name, spec)) in hits.iter().enumerate() {
-        mb = mb.line(format!("  {}. {name}  {spec}", i + 1));
+        report = report.line(format!("  {}. {name}  {spec}", i + 1));
     }
-    mb.print_stderr();
+    report.print();
     let chosen = if hits.len() == 1 {
         let answer = ask(&format!("Use {}? [Y/n] ", hits[0].1))?;
         if answer.eq_ignore_ascii_case("n") || answer.eq_ignore_ascii_case("no") {

@@ -2,9 +2,10 @@
 set -e
 
 source tests/test_vault_setup.bash
+LADE_BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/lade"
 
 echo e $E1 $E2 $E3 $E4
-eval "$(cargo run -- on)"
+eval "$("$LADE_BIN" on)"
 echo e $E1 $E2 $E3 $E4
 
 preexec_lade 'echo e $E1 $E2 $E3 $E4'
@@ -12,7 +13,7 @@ out=$(echo e $E1 $E2 $E3 $E4)
 precmd_lade 'echo e $E1 $E2 $E3 $E4'
 
 echo e $E1 $E2 $E3 $E4
-eval "$(cargo run -- off)"
+eval "$("$LADE_BIN" off)"
 echo e $E1 $E2 $E3 $E4
 
 expected="e itsasecret itsanotsecret secret a\nb"

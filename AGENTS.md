@@ -24,10 +24,12 @@ bash tests/installer_test.sh
 
 ## House rules
 
-- **All user-facing stderr goes through `message_box::MessageBox`** — never
-  `eprintln!`. The box is always emitted; only interactive parts (prompts,
-  countdowns, sleeps) are gated on `UiMode` (`Quiet` vs `Interactive`). See
-  `.cursor/rules/message-box.mdc`.
+- **stderr: `MessageBox` for attention, `Report` for command results** —
+  never `eprintln!` from command code. Box errors, warnings, disclaimers,
+  pre-exec failures, and a new Lade release. `lade setup` / `lade update`
+  success is a `Report` (bold headings, no border). See
+  `.cursor/rules/message-box.mdc`. Interactive parts (prompts, countdowns,
+  sleeps) stay gated on `UiMode`.
 - Never rely on default values; be explicit. Prefer the simplest solution that
   compiles. Comment only non-obvious intent, not what the code does.
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor

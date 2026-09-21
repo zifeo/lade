@@ -46,12 +46,12 @@ pub(super) fn ticket_id_from_wrap(command: &str) -> String {
     command[start..].chars().take(4).collect()
 }
 
-pub(super) fn ticket_path(tmp: &Path, id: &str) -> PathBuf {
-    tmp.join("lade-t").join(format!("{id}.json"))
+pub(super) fn ticket_path(home: &Path, id: &str) -> PathBuf {
+    tickets_dir(home).join(format!("{id}.json"))
 }
 
-pub(super) fn ticket_ids(tmp: &Path) -> Vec<String> {
-    let dir = tmp.join("lade-t");
+pub(super) fn ticket_ids(home: &Path) -> Vec<String> {
+    let dir = tickets_dir(home);
     let Ok(entries) = fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -65,6 +65,10 @@ pub(super) fn ticket_ids(tmp: &Path) -> Vec<String> {
         .collect();
     ids.sort();
     ids
+}
+
+fn tickets_dir(home: &Path) -> PathBuf {
+    home.join("lade-cache").join("tickets")
 }
 
 pub(super) fn log_rows(home: &Path, dir: &Path) -> Value {

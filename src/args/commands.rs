@@ -26,6 +26,16 @@ impl SetupCommand {
     }
 }
 
+/// Remove this repo's Lade pre-tool hooks and run teardown commands.
+/// `--global` wipes this machine's cache. Home hooks stay.
+#[derive(Parser, Debug)]
+pub struct TeardownCommand {
+    /// Wipe this machine's Lade cache (mise isolation, env sidecars, tickets).
+    /// Home hooks stay until `lade hook disable --scope user`.
+    #[clap(long, default_value_t = false)]
+    pub global: bool,
+}
+
 #[derive(Parser, Debug)]
 pub struct AddCommand {
     /// Family (`secret`, `package`, `tunnel`) or a package search (`ghjk`).

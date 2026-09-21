@@ -3,7 +3,7 @@ mod profile;
 
 pub use hook::{
     SetupShell, ci_job, enable_current_preexec, maybe_bootstrap_setup_shell, preexec_installed,
-    uninstall_current_preexec,
+    present_shells, uninstall_current_preexec,
 };
 
 use anyhow::{Context, Result, bail};

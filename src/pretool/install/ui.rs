@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
-use crate::message_box::MessageBox;
+use crate::message_box::Report;
 
 use super::agent::Agent;
 use super::paths::{ItemVerb, tilde};
@@ -69,6 +69,18 @@ pub(super) fn parse_harnesses(answer: &str) -> Result<Vec<Agent>> {
     Ok(harnesses)
 }
 
+pub(super) fn parse_which_harnesses(answer: &str, detected: &[Agent]) -> Result<Vec<Agent>> {
+    let answer = answer.trim();
+    if answer.is_empty() || answer.eq_ignore_ascii_case("all") {
+        return Ok(detected.to_vec());
+    }
+    let lower = answer.to_ascii_lowercase();
+    if lower == "n" || lower == "no" || lower == "y" || lower == "yes" {
+        bail!("name slugs, or press enter for all. Use cursor, claude, codex, or opencode");
+    }
+    parse_harnesses(answer)
+}
+
 pub(super) fn ask_harnesses(detected: &[Agent]) -> Result<Vec<Agent>> {
     if detected.is_empty() {
         return Ok(Vec::new());
@@ -79,10 +91,16 @@ pub(super) fn ask_harnesses(detected: &[Agent]) -> Result<Vec<Agent>> {
         .map(Agent::name)
         .collect::<Vec<_>>()
         .join(", ");
-    if confirm_default_yes(&format!("Wrap harnesses for {names}?"))? {
-        return Ok(detected.to_vec());
+    if !confirm_default_yes(&format!("Wrap harnesses for {names}?"))? {
+        return Ok(Vec::new());
     }
-    parse_harnesses(&read_line("Harnesses (cursor, claude, codex, opencode): ")?)
+    let slugs = detected
+        .iter()
+        .copied()
+        .map(Agent::slug)
+        .collect::<Vec<_>>()
+        .join(", ");
+    parse_which_harnesses(&read_line(&format!("Which ({slugs}) [all]: "))?, detected)
 }
 
 pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
@@ -92,111 +110,140 @@ pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
     }
 }
 
+pub(crate) const PREEXEC_SETUP_DIM: &str =
+    "Wraps commands you type. `lade hook disable --shell` removes it.";
+pub(crate) const PREEXEC_TEARDOWN_DIM: &str = "Wrap stays. `lade hook disable --shell` removes it.";
+pub(crate) const PRETOOL_SETUP_DIM: &str =
+    "Wraps commands harnesses run. `lade teardown` removes them from this repo.";
+pub(crate) const PRETOOL_TEARDOWN_DIM: &str =
+    "Removed from this repo. `lade setup` puts them back.";
+pub(crate) const PREEXEC_DISABLE_DIM: &str =
+    "Removed from this shell. `lade hook enable --shell` puts it back.";
+
 pub(crate) fn print_setup(shell: &crate::preexec::SetupShell, pretool: &PretoolReport) {
-    let mut mb = MessageBox::new().info().line("pre-exec  this shell");
-    mb = mb.line("Wraps commands you type.").line("");
-    match shell {
-        crate::preexec::SetupShell::Bootstrapped {
-            found,
-            path,
-            reload,
-        } => {
-            mb = mb
-                .line(found)
-                .line(format!("  {:<9}  {path}", "installed"))
-                .line(reload);
-        }
-        crate::preexec::SetupShell::Current { found, path } => {
-            mb = mb.line(found).line(format!("  {:<9}  {path}", "current"));
-        }
-        crate::preexec::SetupShell::Missing { found } => {
-            mb = mb
-                .line(found)
-                .line("  missing   this profile")
-                .line("Run `lade hook enable --shell`, then reload this shell.");
-        }
-        crate::preexec::SetupShell::SkippedCi { found } => {
-            mb = mb.line(found).line("  skipped   CI. No shell wrap.");
-        }
-    }
-    mb = mb
-        .line("")
-        .line(format!("pre-tool  {}", pretool.where_line))
-        .line("Wraps commands harnesses run.")
-        .line("");
-    if pretool.rows.is_empty() {
-        mb = mb.line("nothing here.");
-    } else {
-        let mut last = None;
-        for row in &pretool.rows {
-            if last != Some(row.agent) {
-                mb = mb.line(row.agent);
-                last = Some(row.agent);
-            }
-            let note = if !row.note.is_empty() {
-                row.note
-            } else if row.verb == ItemVerb::Flagged {
-                "home leftover"
-            } else {
-                ""
-            };
-            mb = mb.line(format!("  {:<9}  {}", row.verb.label(), row.path));
-            if !note.is_empty() {
-                mb = mb.line(format!("            {note}"));
-            }
-        }
-    }
-    mb.print_stderr();
+    print_preexec(shell);
+    print_pretool_intro(&pretool.where_line, PRETOOL_SETUP_DIM);
+    print_pretool_rows(pretool, false);
+}
+
+pub(crate) fn print_preexec(shell: &crate::preexec::SetupShell) {
+    let mut report = Report::new()
+        .blank()
+        .heading("pre-exec  this shell")
+        .dim(PREEXEC_SETUP_DIM)
+        .blank();
+    report = append_preexec(report, shell);
+    report.print();
+}
+
+pub(crate) fn print_pretool_intro(where_line: &str, dim: &str) {
+    Report::new()
+        .blank()
+        .heading(format!("pre-tool  {where_line}"))
+        .dim(dim)
+        .blank()
+        .print();
+}
+
+pub(crate) fn print_pretool_rows(pretool: &PretoolReport, show_verb: bool) {
+    let mut report = Report::new();
+    report = append_pretool_rows(report, pretool, show_verb);
+    report.print();
 }
 
 pub(crate) fn print_teardown(pretool: &PretoolReport) {
-    let mut mb = MessageBox::new()
-        .info()
-        .line("pre-exec  this shell")
-        .line("Wrap stays. `lade hook disable --shell` removes it.")
-        .line("")
-        .line(format!("pre-tool  {}", pretool.where_line))
-        .line("Wraps commands harnesses run.")
-        .line("");
+    let mut report = Report::new()
+        .heading("pre-exec  this shell")
+        .dim(PREEXEC_TEARDOWN_DIM)
+        .blank()
+        .heading(format!("pre-tool  {}", pretool.where_line))
+        .dim(PRETOOL_TEARDOWN_DIM)
+        .blank();
+    report = append_pretool_rows(report, pretool, true);
+    report.print();
+}
+
+pub(crate) fn print_shell_hook(verb: &str, path: &str, reload: Option<&str>, dim: &str) {
+    let mut report = Report::new()
+        .heading("pre-exec  this shell")
+        .dim(dim)
+        .blank()
+        .line(row(verb, path));
+    if let Some(reload) = reload {
+        report = report.dim(reload);
+    }
+    report.print();
+}
+
+fn append_preexec(mut report: Report, shell: &crate::preexec::SetupShell) -> Report {
+    let home = super::paths::home_dir().ok();
+    let listed = crate::preexec::present_shells();
+    if listed.is_empty() {
+        return match shell {
+            crate::preexec::SetupShell::Bootstrapped { path, reload } => {
+                report.line(row("installed", path)).dim(reload)
+            }
+            crate::preexec::SetupShell::Current { path } => report.line(row("current", path)),
+            crate::preexec::SetupShell::Missing => report
+                .line(row("missing", "this profile"))
+                .dim("Run `lade hook enable --shell`, then reload this shell."),
+            crate::preexec::SetupShell::SkippedCi => report.dim("CI. No shell wrap."),
+        };
+    }
+    for sh in &listed {
+        let (path, _) = crate::preexec::preexec_installed(sh);
+        let shown = match &home {
+            Some(home) => tilde(&path, home),
+            None => path.display().to_string(),
+        };
+        report = report.line(row(sh.display_name(), &shown));
+    }
+    match shell {
+        crate::preexec::SetupShell::Bootstrapped { reload, .. } => report.dim(reload),
+        crate::preexec::SetupShell::Missing => {
+            report.dim("Run `lade hook enable --shell`, then reload this shell.")
+        }
+        crate::preexec::SetupShell::SkippedCi => report.dim("CI. No shell wrap."),
+        crate::preexec::SetupShell::Current { .. } => report,
+    }
+}
+
+fn append_pretool_rows(mut report: Report, pretool: &PretoolReport, show_verb: bool) -> Report {
     if pretool.rows.is_empty() {
-        mb = mb.line("nothing here.");
-    } else {
-        let mut last = None;
-        for row in &pretool.rows {
-            if last != Some(row.agent) {
-                mb = mb.line(row.agent);
-                last = Some(row.agent);
-            }
-            mb = mb.line(format!("  {:<9}  {}", row.verb.label(), row.path));
-            if !row.note.is_empty() {
-                mb = mb.line(format!("            {}", row.note));
-            }
+        return report.dim("nothing here.");
+    }
+    for item in &pretool.rows {
+        let note = if !item.note.is_empty() {
+            item.note
+        } else if item.verb == ItemVerb::Flagged {
+            "home leftover"
+        } else {
+            ""
+        };
+        let value = if show_verb {
+            format!("{} {}", item.verb.label(), item.path)
+        } else {
+            item.path.clone()
+        };
+        report = report.line(row(item.agent, &value));
+        if !note.is_empty() {
+            report = report.dim(format!("               {note}"));
         }
     }
-    mb.print_stderr();
+    report
 }
 
-pub(crate) fn print_shell_hook(found: &str, verb: &str, path: &str, reload: Option<&str>) {
-    let mut mb = MessageBox::new()
-        .info()
-        .line("pre-exec  this shell")
-        .line("Wraps commands you type.")
-        .line("")
-        .line(found)
-        .line(format!("  {verb:<9}  {path}"));
-    if let Some(reload) = reload {
-        mb = mb.line(reload);
-    }
-    mb.print_stderr();
+fn row(name: &str, value: &str) -> String {
+    format!("  {name:<12}{value}")
 }
 
-pub(super) fn report(title: &str, results: Vec<String>) {
+pub(super) fn report(title: &str, dim: &str, results: Vec<String>) {
     if results.is_empty() {
         return;
     }
-    let mut mb = MessageBox::new().info().line(title);
+    let mut out = Report::new().heading(title).dim(dim);
     for result in results {
-        mb = mb.line(format!("- {result}"));
+        out = out.line(format!("  {result}"));
     }
-    mb.print_plain_stderr();
+    out.print();
 }

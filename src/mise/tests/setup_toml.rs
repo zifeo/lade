@@ -37,7 +37,10 @@ fn setup_extends_mise_toml_and_lock() {
             result.unwrap();
             assert!(!dir.path().join("lade.lock").exists());
             let lock = std::fs::read_to_string(dir.path().join("mise.lock")).unwrap();
-            assert!(lock.contains("[[tools.jq]]"), "{lock}");
+            assert!(
+                lock.contains("[[tools.jq]]") || lock.contains("jqlang/jq"),
+                "{lock}"
+            );
             let toml = std::fs::read_to_string(dir.path().join("mise.toml")).unwrap();
             assert!(toml.contains("jq = \"1.7.1\""), "{toml}");
             assert!(toml.contains("node = \"24\""), "{toml}");

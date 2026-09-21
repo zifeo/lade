@@ -18,9 +18,7 @@ struct Sidecar {
 }
 
 pub fn cache_dir() -> PathBuf {
-    directories::ProjectDirs::from("com", "zifeo", "lade")
-        .map(|project| project.cache_dir().join("mise-env"))
-        .unwrap_or_else(|| PathBuf::from(".lade-mise-env"))
+    crate::cache::mise_env()
 }
 
 pub fn sidecar_path(spec: &Spec) -> PathBuf {
@@ -57,17 +55,16 @@ pub async fn refresh(
     installs: &Path,
     cwd: &Path,
 ) -> Result<HashMap<String, String>, Error> {
-    let tmp = tempfile::tempdir().map_err(|e| Error::env(e.to_string()))?;
-    let config = tmp.path().join("lade.toml");
-    std::fs::write(&config, project::pin_only_toml(spec)).map_err(|e| Error::env(e.to_string()))?;
+    let root = crate::cache::prepare_mise_project(cwd, &project::pin_only_toml(spec), None)
+        .map_err(|e| Error::env(e.to_string()))?;
+    let config = root.join("mise.toml");
     let ignored = project::isolate_config_paths(cwd);
     let args = vec![
         "env".to_string(),
         "--json-extended".to_string(),
         spec.cli_spec(),
     ];
-    let output =
-        install::run_mise(installs, tmp.path(), args.clone(), Some(config), &ignored).await?;
+    let output = install::run_mise(installs, &root, args.clone(), Some(config), &ignored).await?;
     if !output.status.success() {
         return Err(Error::env(install::failure_detail(&output, &args)));
     }

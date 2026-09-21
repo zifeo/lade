@@ -3,13 +3,7 @@ use std::path::Path;
 
 #[cfg(unix)]
 pub(super) fn write_cached_env(home: &Path, tool: &str, slug: &str, version: &str, env_json: &str) {
-    let dir = temp_env::with_var("HOME", Some(home), || {
-        directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("project dirs")
-            .cache_dir()
-            .join("mise-env")
-            .join(slug)
-    });
+    let dir = home.join("lade-cache").join("mise-env").join(slug);
     fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join(format!("{version}.json")),

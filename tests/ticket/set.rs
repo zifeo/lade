@@ -42,7 +42,7 @@ fn hook_writes_agent_onto_ticket() {
     let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "echo hi");
     let id = ticket_id_from_wrap(&wrap_command(&stdout));
     let pre: Value =
-        serde_json::from_slice(&fs::read(ticket_path(tmp.path(), &id)).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(ticket_path(home.path(), &id)).unwrap()).unwrap();
     assert_eq!(pre["agent"]["harness"], "cursor");
     assert_eq!(pre["agent"]["session"], "conv_1");
     assert!(pre["log"].as_bool().unwrap());
