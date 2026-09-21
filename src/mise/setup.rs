@@ -142,7 +142,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             Plane::Lade { .. } | Plane::None => Vec::new(),
         };
         let upgrade = mode == PinMode::Update;
-        let rewrite_lock = upgrade || !lock_path.is_file();
+        let rewrite_lock = upgrade || !lock_matches_pins(&lock_path, &accumulated);
         if rewrite_lock {
             let label = if upgrade {
                 "mise lock --upgrade"
@@ -255,6 +255,17 @@ fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
         return spec.clone();
     }
     spec::at_version(spec, &version)
+}
+
+fn lock_matches_pins(lock_path: &Path, pins: &[(String, Spec)]) -> bool {
+    if !lock_path.is_file() {
+        return false;
+    }
+    pins.iter().all(|(key, spec)| {
+        let names = store::tool_names(spec, key, None);
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        lock::slot_for(lock_path, &name_refs).is_some_and(|slot| slot.version == spec.version)
+    })
 }
 
 fn resolve_for_update(key: &str, spec: &Spec) -> Result<Spec, Error> {
