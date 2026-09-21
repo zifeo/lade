@@ -65,7 +65,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   to every matching command, so `which kubectl` sees the lock.
   Setup prints packages, then checkmarks, then pre-exec / pre-tool.
   The harness prompt sits under pre-tool. Teardown labels pre-tool
-  rows `removed`. Results use Report, not a box.
+  rows `removed`. Results use Report, not a box. `mise lock --upgrade`
+  is `lade update`, not every setup.
 - **`lade setup --harness`**: `--cursor` / `--claude` / `--codex` /
   `--opencode` are replaced by repeatable `--harness`. User-facing
   copy says harness, not agent. `lade status` pretool lines use

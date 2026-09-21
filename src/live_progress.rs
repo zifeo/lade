@@ -73,7 +73,11 @@ pub fn begin_keep(rich_tty: bool) -> Guard {
 }
 
 pub fn named_version(name: &str, version: &str) -> String {
-    format!("{name:<12}{version}")
+    if version.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} {version}")
+    }
 }
 
 fn start_guard(rich_tty: bool, clear_on_stop: bool) -> Guard {
@@ -228,9 +232,12 @@ pub fn redraw(
             current_lines += 1;
         }
     }
-    while current_lines < previous_lines {
-        let _ = writeln!(stderr, "\x1b[2K\r");
-        current_lines += 1;
+    if previous_lines > current_lines {
+        let extra = previous_lines - current_lines;
+        for _ in 0..extra {
+            let _ = writeln!(stderr, "\x1b[2K\r");
+        }
+        let _ = write!(stderr, "\x1b[{extra}A");
     }
     let _ = stderr.flush();
     current_lines
@@ -310,9 +317,8 @@ mod tests {
     }
 
     #[test]
-    fn named_version_pads_once() {
-        let line = named_version("mise", "2026.9.11");
-        assert_eq!(line, format!("{:12}{}", "mise", "2026.9.11"));
-        assert_eq!(line.find('2'), Some(12));
+    fn named_version_is_one_space() {
+        assert_eq!(named_version("mise", "2026.9.11"), "mise 2026.9.11");
+        assert_eq!(named_version("mise", ""), "mise");
     }
 }

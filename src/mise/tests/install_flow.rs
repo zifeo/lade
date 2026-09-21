@@ -138,6 +138,7 @@ fn refresh_lock_writes_mise_output_to_lade_lock() {
                 &dest,
                 &installs,
                 dir.path(),
+                true,
             ))
             .unwrap();
             let lock = std::fs::read_to_string(&dest).unwrap();

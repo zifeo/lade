@@ -278,7 +278,6 @@ async fn run_setup(
         Report::new()
             .heading("packages")
             .dim("CLIs this repo wraps. Leave the folder and your usual ones come back.")
-            .blank()
             .print();
     }
     {

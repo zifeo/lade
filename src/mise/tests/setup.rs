@@ -39,6 +39,7 @@ fn setup_pins_installs_and_writes_lock() {
             assert!(lock.contains("url = "), "{lock}");
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("lock"), "{args}");
+            assert!(!args.contains("--upgrade"), "{args}");
             assert!(args.contains("install"), "{args}");
             assert!(args.contains("--locked"), "{args}");
             assert!(installs.join("jq/1.7.1/jq").is_file());
@@ -338,6 +339,7 @@ fn setup_locked_installs_lock_not_a_newer_store() {
             assert!(!lock.contains("1.8.0"), "{lock}");
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("--locked"), "{args}");
+            assert!(!args.contains("--upgrade"), "{args}");
         },
     );
 }

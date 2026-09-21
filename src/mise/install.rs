@@ -42,11 +42,16 @@ pub async fn refresh_lock(
     dest: &Path,
     installs: &Path,
     cwd: &Path,
+    upgrade: bool,
 ) -> Result<(), Error> {
     let root = crate::cache::prepare_mise_project(cwd, toml, Some(dest))
         .map_err(|e| Error::install(e.to_string()))?;
     let lock = root.join("mise.lock");
-    let args = vec!["lock".to_string(), "--upgrade".to_string()];
+    let args = if upgrade {
+        vec!["lock".to_string(), "--upgrade".to_string()]
+    } else {
+        vec!["lock".to_string()]
+    };
     let ignored = project::isolate_config_paths(cwd);
     let output = run_mise_progress(installs, &root, args.clone(), None, &ignored).await?;
     require_ok(output, &args)?;

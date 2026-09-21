@@ -141,19 +141,29 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             }
             Plane::Lade { .. } | Plane::None => Vec::new(),
         };
-        crate::live_progress::running("lock", "mise lock --upgrade");
-        if let Err(e) = install::refresh_lock(
-            &project::compose_toml(&theirs, &accumulated),
-            &lock_path,
-            &installs,
-            &cwd,
-        )
-        .await
-        {
-            crate::live_progress::failed("lock", "mise lock --upgrade");
-            return Err(e.into());
+        let upgrade = mode == PinMode::Update;
+        let rewrite_lock = upgrade || !lock_path.is_file();
+        if rewrite_lock {
+            let label = if upgrade {
+                "mise lock --upgrade"
+            } else {
+                "mise lock"
+            };
+            crate::live_progress::running("lock", label);
+            if let Err(e) = install::refresh_lock(
+                &project::compose_toml(&theirs, &accumulated),
+                &lock_path,
+                &installs,
+                &cwd,
+                upgrade,
+            )
+            .await
+            {
+                crate::live_progress::failed("lock", label);
+                return Err(e.into());
+            }
+            crate::live_progress::done("lock", label);
         }
-        crate::live_progress::done("lock", "mise lock --upgrade");
         for (key, spec) in &accumulated {
             let label = pin_label(key, &spec.version);
             crate::live_progress::running(key, &label);
