@@ -15,35 +15,36 @@ another seat.
 ## Scope
 
 The parent prompt gives the repo path and the pinned range.
-Start from the changed lines, then search the crate for the
+Start from the changed lines, then search the project for the
 function that already does the job. A leftover is a call site
 that should have used that function. Extracting a new helper
 is not a leftover.
 
-Read `AGENTS.md` for house style. Simplest solution that compiles.
-Comment only a non-obvious why.
+If the project has a house-style note, read it. Simplest solution
+that builds. Comment only a non-obvious why.
 
 ## Hunt
 
-- A helper, type, or pattern that already exists in this crate
+- A helper, type, or pattern that already exists in this project
   (quote `file:line`, not a helper you would invent)
+- The same rule written twice and not the same way. For example
+  a name chosen one way when saving and another way when reading
 - Duplicate walks, persist paths, or leftover "also try" branches
 - A wrapper that adds no behavior
 - Nested `if` that an early return would flatten
-- A comment that restates the code
-- A field on a production struct that only a test reads, or that
-  is parsed and never read (`allow(dead_code)`, `#[cfg(test)]` on
-  the field, a copied `Option` nobody checks). Assert what the
-  caller can see. A `#[cfg(test)]` function is fine
-- A fetch, path, or shell in production code that names macOS and
-  has no Linux path, or a hardcoded Darwin location
-  (`/opt/homebrew`, `launchctl`)
-- Speculative flexibility (extra enum, flag, or alias) with one caller
+- A comment that restates the code, or that apologizes for a
+  value nobody reads
+- A production value kept only so a test can read it, or stored
+  and never used. For example a counter on the result, or a lint
+  waiver on a field no caller reads. Assert what a caller can
+  see. A test-only helper is fine
+- Speculative flexibility (extra variant, flag, or alias) with
+  one caller
 
 Do not churn names for taste. Do not collapse two concerns into one
-unclear unit. Do not remove a `MessageBox`, a version check, or a
-test that pins a contract. Do not propose a new overlay generic
-because four matches look alike.
+unclear unit. Do not remove an error presentation, a version check,
+or a test that pins a contract. Do not invent a new abstraction
+because a few call sites look alike.
 
 ## Output
 
@@ -53,4 +54,4 @@ Markdown table, confidence first (high, medium):
 | --- | --- | --- | --- |
 
 `Existing helper` is `file:line` or `none` (dead wrapper only).
-If the crate is already the small form, say so in one line.
+If the project is already the small form, say so in one line.

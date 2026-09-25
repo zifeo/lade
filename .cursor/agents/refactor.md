@@ -19,8 +19,7 @@ and simplify are already applied.
 - Soft: 300 lines. Report and propose a split.
 - Hard: 350 lines. The parent must split before merge.
 - Count every text file in scope, including `.md`.
-- Skip generated or lock noise: `target/`, `Cargo.lock`, `*.cast`,
-  `*.gif`, `vendor/`, and anything under a build dir.
+- Skip generated files, lockfiles, vendored trees, and build output.
 
 ## Scope
 
@@ -33,10 +32,9 @@ Use `wc -l` (or equivalent) on real files. Do not guess.
 
 ## Split plan
 
-Prefer the existing lade shape: a `mod.rs` plus focused children
-(`src/event/tests/`, `src/config/tests/`, `src/mise/`). Keep public
-API and test names stable. One concern per file. Sentence-case
-module names are not required; file names stay snake_case.
+Prefer the layout the project already uses. One concern per file.
+Keep the public API and test names stable. For example a parent
+module plus focused children, not a new naming scheme.
 
 ## Output
 
