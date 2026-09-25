@@ -102,6 +102,15 @@ pub fn pin_only_toml(spec: &Spec) -> String {
     compose_toml(&[], &[("_".to_string(), spec.clone())])
 }
 
+/// `jq` stays `jq`. `op` is the binary, so the tool id is `aqua:1password/cli`.
+pub fn tool_key(key: &str, spec: &Spec) -> String {
+    if key == spec.short_name() {
+        key.to_string()
+    } else {
+        spec.backend_id()
+    }
+}
+
 pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
     let mut out = ignored_config_paths(cwd);
     if let Some(home) = directories::UserDirs::new().map(|user| user.home_dir().to_path_buf()) {
@@ -141,19 +150,14 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
     }
     for (key, spec) in pins {
         let backend = spec.backend_id();
-        let short = spec.short_name();
-        // A bin name such as `op` is not the mise tool id. Keeping it hides
-        // `aqua:1password/cli` on the next lock rewrite.
-        let covered = tools.iter().any(|(their_key, ver)| {
-            ver == &spec.version && (their_key == &backend || (their_key == key && key == short))
-        });
-        if key != short
-            && key != &backend
-            && tools.get(key).map(String::as_str) == Some(spec.version.as_str())
-        {
+        let written = tool_key(key, spec);
+        if written != *key && tools.get(key).map(String::as_str) == Some(spec.version.as_str()) {
             tools.remove(key);
         }
-        if covered {
+        let already = [backend.as_str(), written.as_str()]
+            .iter()
+            .any(|name| tools.get(*name).map(String::as_str) == Some(spec.version.as_str()));
+        if already {
             continue;
         }
         tools.insert(backend, spec.version.clone());

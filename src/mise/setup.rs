@@ -174,20 +174,13 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
         if let Plane::Mise { toml_write, .. } = &snap.plane {
             let stale: Vec<String> = accumulated
                 .iter()
-                .filter(|(key, spec)| key.as_str() != spec.short_name())
+                .filter(|(key, spec)| *key != project::tool_key(key, spec))
                 .map(|(key, _)| key.clone())
                 .collect();
             toml_merge::remove_tool_keys(toml_write, &stale).map_err(Error::install)?;
             let entries: Vec<(String, String)> = accumulated
                 .iter()
-                .map(|(key, spec)| {
-                    let name = if key == spec.short_name() {
-                        key.clone()
-                    } else {
-                        spec.backend_id()
-                    };
-                    (name, spec.version.clone())
-                })
+                .map(|(key, spec)| (project::tool_key(key, spec), spec.version.clone()))
                 .collect();
             toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
         }
