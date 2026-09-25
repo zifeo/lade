@@ -255,7 +255,6 @@ fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
         name: key.to_string(),
         version: version.clone(),
         backend: Some(spec.backend_id()),
-        checksum: None,
     };
     if !lock::agrees(&probe, &spec.version, &spec.backend_id()) {
         return spec.clone();

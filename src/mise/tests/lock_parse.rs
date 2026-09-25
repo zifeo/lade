@@ -116,7 +116,6 @@ fn agrees_when_lock_omits_backend() {
         name: "jq".to_string(),
         version: "1.7.1".to_string(),
         backend: None,
-        checksum: None,
     };
     assert!(agrees(&slot, "1.7.1", "aqua:jqlang/jq"));
     assert!(!agrees(&slot, "1.6.0", "aqua:jqlang/jq"));
@@ -128,7 +127,6 @@ fn agrees_when_lock_satisfies_range() {
         name: "op".to_string(),
         version: "2.31.0".to_string(),
         backend: Some("aqua:1password/cli".to_string()),
-        checksum: None,
     };
     assert!(agrees(&slot, ">=2.18.0", "aqua:1password/cli"));
     assert!(!agrees(&slot, ">=3.0.0", "aqua:1password/cli"));

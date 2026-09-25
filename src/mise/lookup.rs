@@ -35,12 +35,10 @@ pub fn slot_after_install(key: &str, spec: &spec::Spec, installs: &Path) -> lock
     } else {
         spec.version.clone()
     };
-    let checksum = None;
     lock::LockSlot {
         name: key.to_string(),
         version,
         backend: Some(spec.backend_id()),
-        checksum,
     }
 }
 
