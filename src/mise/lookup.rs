@@ -8,7 +8,7 @@ use super::store;
 pub fn upsert_pin(pins: &mut Vec<(String, spec::Spec)>, key: String, spec: spec::Spec) {
     if let Some((existing_key, existing)) = pins
         .iter_mut()
-        .find(|(k, s)| k == &key || s.short_name() == spec.short_name())
+        .find(|(k, s)| k == &key || s.backend_id() == spec.backend_id())
     {
         *existing_key = key;
         *existing = spec;
@@ -89,4 +89,33 @@ pub fn yaml_dirs(start: &Path) -> Result<Vec<PathBuf>, Error> {
                 .filter_map(|file| file.parent().map(Path::to_path_buf))
                 .collect()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_suffix_does_not_collapse_two_pins() {
+        let op = spec::parse("mise://aqua/1password/cli@2.30.0").unwrap();
+        let doppler = spec::parse("mise://aqua/DopplerHQ/cli@3.75.1").unwrap();
+        let mut pins = Vec::new();
+        upsert_pin(&mut pins, "op".to_string(), op);
+        upsert_pin(&mut pins, "doppler".to_string(), doppler);
+        assert_eq!(pins.len(), 2);
+        assert_eq!(pins[0].1.backend_id(), "aqua:1password/cli");
+        assert_eq!(pins[1].1.backend_id(), "aqua:DopplerHQ/cli");
+    }
+
+    #[test]
+    fn same_backend_replaces() {
+        let first = spec::parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
+        let second = spec::parse("mise://aqua/jqlang/jq@1.8.0").unwrap();
+        let mut pins = Vec::new();
+        upsert_pin(&mut pins, "jq".to_string(), first);
+        upsert_pin(&mut pins, "json".to_string(), second);
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].0, "json");
+        assert_eq!(pins[0].1.version, "1.8.0");
+    }
 }

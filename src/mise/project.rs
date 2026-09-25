@@ -87,6 +87,7 @@ pub fn conflict<'a>(
         .find(|tool| same_tool(&tool.key, spec, pin_key) && tool.version != spec.version)
 }
 
+#[cfg(test)]
 fn same_tool(their_key: &str, spec: &Spec, pin_key: &str) -> bool {
     their_key == pin_key
         || their_key == spec.short_name()
@@ -139,14 +140,23 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
         tools.insert(tool.key.clone(), tool.version.clone());
     }
     for (key, spec) in pins {
-        if let Some(existing) = tools
-            .iter()
-            .find(|(their_key, _)| same_tool(their_key, spec, key))
-            && existing.1 == &spec.version
+        let backend = spec.backend_id();
+        let short = spec.short_name();
+        // A bin name such as `op` is not the mise tool id. Keeping it hides
+        // `aqua:1password/cli` on the next lock rewrite.
+        let covered = tools.iter().any(|(their_key, ver)| {
+            ver == &spec.version && (their_key == &backend || (their_key == key && key == short))
+        });
+        if key != short
+            && key != &backend
+            && tools.get(key).map(String::as_str) == Some(spec.version.as_str())
         {
+            tools.remove(key);
+        }
+        if covered {
             continue;
         }
-        tools.insert(spec.backend_id(), spec.version.clone());
+        tools.insert(backend, spec.version.clone());
     }
     let mut out = String::from("[tools]\n");
     for (key, version) in tools {

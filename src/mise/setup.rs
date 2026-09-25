@@ -12,6 +12,7 @@ use super::project;
 use super::spec::{self, Spec};
 use super::store;
 use super::toml_merge;
+use crate::live_progress::named_version;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PinMode {
@@ -98,21 +99,18 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             PinMode::Locked => heal_from_toml(&snap, key, spec),
         };
         let lock_ok = mode != PinMode::Unlock
-            && existing.as_ref().is_some_and(|(_, slot)| {
-                lock::agrees(slot, &spec.version, &spec.backend_id())
-                    && (spec.is_range()
-                        || spec::version_is_floating(&spec.version)
-                        || spec.version == slot.version)
-            });
+            && existing
+                .as_ref()
+                .is_some_and(|(_, slot)| lock::agrees(slot, &spec.version, &spec.backend_id()));
         let spec = if lock_ok && let Some((_, slot)) = existing.as_ref() {
             spec::at_version(&spec, &slot.version)
         } else if spec.is_range() {
-            let label = pin_label(key, &spec.version);
+            let label = named_version(key, &spec.version);
             crate::live_progress::running(key, &label);
             match super::latest_matching(&spec) {
                 Ok(version) if !version.is_empty() => {
                     rewrite_floating_pin(&key_dir, key, &spec, &version)?;
-                    crate::live_progress::done(key, pin_label(key, &version));
+                    crate::live_progress::done(key, named_version(key, &version));
                     spec::at_version(&spec, &version)
                 }
                 _ => {
@@ -122,7 +120,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
                     }
                     let slot = lookup::slot_after_install(key, &spec, &installs);
                     rewrite_floating_pin(&key_dir, key, &spec, &slot.version)?;
-                    crate::live_progress::done(key, pin_label(key, &slot.version));
+                    crate::live_progress::done(key, named_version(key, &slot.version));
                     spec::at_version(&spec, &slot.version)
                 }
             }
@@ -165,7 +163,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             crate::live_progress::done("lock", label);
         }
         for (key, spec) in &accumulated {
-            let label = pin_label(key, &spec.version);
+            let label = named_version(key, &spec.version);
             crate::live_progress::running(key, &label);
             if let Err(e) = install::install_locked(&lock_path, spec, &installs, &cwd).await {
                 crate::live_progress::failed(key, &label);
@@ -174,15 +172,28 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             crate::live_progress::done(key, &label);
         }
         if let Plane::Mise { toml_write, .. } = &snap.plane {
+            let stale: Vec<String> = accumulated
+                .iter()
+                .filter(|(key, spec)| key.as_str() != spec.short_name())
+                .map(|(key, _)| key.clone())
+                .collect();
+            toml_merge::remove_tool_keys(toml_write, &stale).map_err(Error::install)?;
             let entries: Vec<(String, String)> = accumulated
                 .iter()
-                .map(|(key, spec)| (key.clone(), spec.version.clone()))
+                .map(|(key, spec)| {
+                    let name = if key == spec.short_name() {
+                        key.clone()
+                    } else {
+                        spec.backend_id()
+                    };
+                    (name, spec.version.clone())
+                })
                 .collect();
             toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
         }
     } else {
         for (key, spec) in &accumulated {
-            let label = pin_label(key, &spec.version);
+            let label = named_version(key, &spec.version);
             crate::live_progress::running(key, &label);
             if let Err(e) = install::install_from_url(spec, &installs, &cwd).await {
                 crate::live_progress::failed(key, &label);
@@ -199,10 +210,6 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             .collect(),
         bumped,
     })
-}
-
-fn pin_label(key: &str, version: &str) -> String {
-    crate::live_progress::named_version(key, version)
 }
 
 fn rewrite_floating_pin(
@@ -241,7 +248,6 @@ fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
     }
     let Some(version) = toml_merge::tool_version(path, key)
         .or_else(|| toml_merge::tool_version(path, &spec.backend_id()))
-        .or_else(|| toml_merge::tool_version(path, spec.short_name()))
     else {
         return spec.clone();
     };
@@ -273,14 +279,14 @@ fn resolve_for_update(key: &str, spec: &Spec) -> Result<Spec, Error> {
     if !implied && !spec.is_range() {
         return Ok(spec.clone());
     }
-    crate::live_progress::running(key, pin_label(key, &spec.version));
+    crate::live_progress::running(key, named_version(key, &spec.version));
     let Ok(version) = super::latest_matching(spec) else {
         return Ok(spec.clone());
     };
     if version.is_empty() {
         return Ok(spec.clone());
     }
-    crate::live_progress::done(key, pin_label(key, &version));
+    crate::live_progress::done(key, named_version(key, &version));
     Ok(spec::at_version(spec, &version))
 }
 

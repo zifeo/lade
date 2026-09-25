@@ -120,6 +120,22 @@ fn invalid_toml_is_error_and_file_unchanged() {
 }
 
 #[test]
+fn removes_only_named_tools() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(
+        &path,
+        "[env]\nFOO = \"bar\"\n\n[tools]\nnode = \"24\"\nop = \"2.30.0\"\n",
+    )
+    .unwrap();
+    remove_tool_keys(&path, &["op".to_string()]).unwrap();
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert!(body.contains("FOO = \"bar\""), "{body}");
+    assert!(body.contains("node = \"24\""), "{body}");
+    assert!(!body.contains("op = "), "{body}");
+}
+
+#[test]
 fn path_is_directory_is_error() {
     let dir = tempdir().unwrap();
     let err = upsert_tools(dir.path(), &entries(&[("jq", "1.7.1")])).unwrap_err();
