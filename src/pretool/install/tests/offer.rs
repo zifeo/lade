@@ -1,7 +1,7 @@
 use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan, setup_at};
 use super::super::paths::short_path;
-use super::super::ui::{parse_harnesses, parse_which_harnesses, parse_yes_no};
+use super::super::ui::{parse_harnesses, parse_which_harnesses, parse_yes_no, which_prompt};
 use super::super::write::Scope;
 
 #[test]
@@ -42,11 +42,27 @@ fn parse_which_harnesses_defaults_to_detected() {
     );
     assert_eq!(
         parse_which_harnesses("all", &detected).unwrap(),
-        vec![Agent::Cursor, Agent::Claude]
+        vec![Agent::Cursor, Agent::Claude, Agent::Codex, Agent::OpenCode]
     );
     assert_eq!(
         parse_which_harnesses("cursor", &detected).unwrap(),
         vec![Agent::Cursor]
+    );
+    assert_eq!(
+        parse_which_harnesses("opencode", &[Agent::Cursor]).unwrap(),
+        vec![Agent::OpenCode]
+    );
+}
+
+#[test]
+fn which_prompt_offers_every_harness_and_defaults_to_detected() {
+    assert_eq!(
+        which_prompt(&[Agent::Cursor, Agent::OpenCode]),
+        "Which (cursor, claude, codex, opencode, or all) [cursor, opencode]: "
+    );
+    assert_eq!(
+        which_prompt(&[Agent::Cursor]),
+        "Which (cursor, claude, codex, opencode, or all) [cursor]: "
     );
 }
 

@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 
 use crate::message_box::Report;
 
-use super::agent::Agent;
+use super::agent::{AGENTS, Agent};
 use super::paths::{ItemVerb, tilde};
 use super::write::Scope;
 
@@ -50,6 +50,17 @@ pub(super) fn parse_yes_no(answer: &str, default_yes: bool) -> Result<bool> {
     bail!("type Y or n");
 }
 
+fn supported_harness_list() -> String {
+    let slugs: Vec<&str> = AGENTS.iter().copied().map(Agent::slug).collect();
+    let Some((last, rest)) = slugs.split_last() else {
+        return String::new();
+    };
+    if rest.is_empty() {
+        return (*last).to_string();
+    }
+    format!("{}, or {last}", rest.join(", "))
+}
+
 pub(super) fn parse_harnesses(answer: &str) -> Result<Vec<Agent>> {
     let mut harnesses = Vec::new();
     for token in answer.split(|c: char| c == ',' || c.is_whitespace()) {
@@ -57,28 +68,71 @@ pub(super) fn parse_harnesses(answer: &str) -> Result<Vec<Agent>> {
             continue;
         }
         let Some(harness) = Agent::from_slug(token) else {
-            bail!("unknown harness '{token}'. Use cursor, claude, codex, or opencode");
+            bail!(
+                "unknown harness '{token}'. Use {}",
+                supported_harness_list()
+            );
         };
         if !harnesses.contains(&harness) {
             harnesses.push(harness);
         }
     }
     if harnesses.is_empty() {
-        bail!("name at least one harness: cursor, claude, codex, opencode");
+        bail!(
+            "name at least one harness: {}",
+            AGENTS
+                .iter()
+                .copied()
+                .map(Agent::slug)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
     Ok(harnesses)
 }
 
+/// Empty installs `detected`. `all` installs every supported harness.
 pub(super) fn parse_which_harnesses(answer: &str, detected: &[Agent]) -> Result<Vec<Agent>> {
     let answer = answer.trim();
-    if answer.is_empty() || answer.eq_ignore_ascii_case("all") {
+    if answer.is_empty() {
         return Ok(detected.to_vec());
+    }
+    if answer.eq_ignore_ascii_case("all") {
+        return Ok(AGENTS.to_vec());
     }
     let lower = answer.to_ascii_lowercase();
     if lower == "n" || lower == "no" || lower == "y" || lower == "yes" {
-        bail!("name slugs, or press enter for all. Use cursor, claude, codex, or opencode");
+        let local = if detected.len() == 1 {
+            "harness"
+        } else {
+            "harnesses"
+        };
+        bail!(
+            "name slugs, or press enter for the local {local}. Use {}",
+            supported_harness_list()
+        );
     }
     parse_harnesses(answer)
+}
+
+pub(super) fn which_prompt(detected: &[Agent]) -> String {
+    let offered = AGENTS
+        .iter()
+        .copied()
+        .map(Agent::slug)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let default = detected
+        .iter()
+        .copied()
+        .map(Agent::slug)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if default.is_empty() {
+        format!("Which ({offered}, or all): ")
+    } else {
+        format!("Which ({offered}, or all) [{default}]: ")
+    }
 }
 
 pub(super) fn ask_harnesses(detected: &[Agent]) -> Result<Vec<Agent>> {
@@ -94,13 +148,7 @@ pub(super) fn ask_harnesses(detected: &[Agent]) -> Result<Vec<Agent>> {
     if !confirm_default_yes(&format!("Wrap harnesses for {names}?"))? {
         return Ok(Vec::new());
     }
-    let slugs = detected
-        .iter()
-        .copied()
-        .map(Agent::slug)
-        .collect::<Vec<_>>()
-        .join(", ");
-    parse_which_harnesses(&read_line(&format!("Which ({slugs}) [all]: "))?, detected)
+    parse_which_harnesses(&read_line(&which_prompt(detected))?, detected)
 }
 
 pub(super) fn where_line(scope: Scope, home: &Path, dest: &Path) -> String {
