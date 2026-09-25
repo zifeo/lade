@@ -12,16 +12,10 @@ const COMMITTED_TOML: &[&str] = &[
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
-    #[allow(dead_code)]
-    pub start: PathBuf,
-    #[allow(dead_code)]
-    pub home: Option<PathBuf>,
     pub yaml_files: Vec<PathBuf>,
     pub project_git_root: Option<PathBuf>,
     pub plane: Plane,
     pub leftover_lade_locks: Vec<PathBuf>,
-    #[allow(dead_code)]
-    pub dirs_visited: usize,
     pub split_warning: bool,
 }
 
@@ -77,7 +71,6 @@ struct Hit {
 }
 
 pub fn scan(start: &Path) -> Snapshot {
-    let home = directories::UserDirs::new().map(|user| user.home_dir().to_path_buf());
     let start_is_home = at_user_home(start);
 
     let mut path = start.to_path_buf();
@@ -138,13 +131,10 @@ pub fn scan(start: &Path) -> Snapshot {
     let leftover_lade_locks = leftover_of(lade_locks, &plane);
 
     Snapshot {
-        start: start.to_path_buf(),
-        home,
         yaml_files,
         project_git_root,
         plane,
         leftover_lade_locks,
-        dirs_visited,
         split_warning,
     }
 }

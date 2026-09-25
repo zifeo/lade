@@ -20,8 +20,8 @@ No finding without a reference. A reference is one of:
 2. A spec that is obvious in the parent prompt / current turn
 3. A path the parent named (issue, PR body, PRD, note)
 
-Repo files (`AGENTS.md`, README, clap, changelog) count only when
-you quote the line and it is clearly the contract for this change.
+Project docs and the public interface count only when you quote
+the line and it is clearly the contract for this change.
 
 If you have no reference, do not invent gaps. Ask the parent, then
 stop.

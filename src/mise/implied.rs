@@ -66,17 +66,17 @@ pub fn pins_for(sources: &[String], existing: &[(String, Spec)]) -> Vec<(String,
         let Some(row) = by_scheme(scheme) else {
             continue;
         };
+        let Ok(parsed) = spec::parse(&row.uri) else {
+            continue;
+        };
         if existing
             .iter()
             .chain(out.iter())
-            .any(|(key, spec)| key == row.key || spec.short_name() == row.key)
+            .any(|(key, spec)| key == row.key || spec.backend_id() == parsed.backend_id())
         {
             continue;
         }
-        match spec::parse(&row.uri) {
-            Ok(parsed) => out.push((row.key.to_string(), parsed)),
-            Err(_) => continue,
-        }
+        out.push((row.key.to_string(), parsed));
     }
     out
 }
@@ -130,6 +130,15 @@ mod tests {
         )];
         let pins = pins_for(&["op://v/i/f".to_string()], &existing);
         assert!(pins.is_empty());
+    }
+
+    #[test]
+    fn same_backend_is_not_implied_again() {
+        let existing = vec![(
+            "cli".to_string(),
+            spec::parse("mise://aqua/1password/cli@2.31.0").unwrap(),
+        )];
+        assert!(pins_for(&["op://v/i/f".to_string()], &existing).is_empty());
     }
 
     #[test]

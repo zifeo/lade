@@ -10,7 +10,6 @@ pub struct LockSlot {
     pub name: String,
     pub version: String,
     pub backend: Option<String>,
-    pub checksum: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,8 +23,6 @@ struct LockTool {
     version: String,
     #[serde(default)]
     backend: Option<String>,
-    #[serde(default)]
-    checksum: Option<String>,
 }
 
 const LOCK_NAMES: &[&str] = &["mise.lock", "lade.lock"];
@@ -87,7 +84,6 @@ pub fn slot_for(path: &Path, names: &[&str]) -> Option<LockSlot> {
                 name: (*name).to_string(),
                 version: slot.version.clone(),
                 backend: slot.backend.clone(),
-                checksum: slot.checksum.clone(),
             });
         }
     }
@@ -112,7 +108,6 @@ pub fn read_tools(path: &Path) -> Option<Vec<LockSlot>> {
                     name,
                     version: slot.version,
                     backend: slot.backend,
-                    checksum: slot.checksum,
                 })
             })
             .collect(),

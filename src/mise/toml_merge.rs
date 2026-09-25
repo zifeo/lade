@@ -22,6 +22,29 @@ pub fn upsert_tools(path: &Path, entries: &[(String, String)]) -> Result<(), Str
     write_atomic(path, &doc.to_string())
 }
 
+pub fn remove_tool_keys(path: &Path, keys: &[String]) -> Result<(), String> {
+    if keys.is_empty() || !path.is_file() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut doc = raw
+        .parse::<DocumentMut>()
+        .map_err(|e| format!("invalid TOML at {}: {e}", path.display()))?;
+    let Some(tools) = doc.get_mut("tools").and_then(Item::as_table_mut) else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for key in keys {
+        if tools.remove(key).is_some() {
+            changed = true;
+        }
+    }
+    if !changed {
+        return Ok(());
+    }
+    write_atomic(path, &doc.to_string())
+}
+
 pub fn tool_version(path: &Path, key: &str) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let doc = raw.parse::<DocumentMut>().ok()?;

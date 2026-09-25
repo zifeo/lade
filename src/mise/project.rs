@@ -87,6 +87,7 @@ pub fn conflict<'a>(
         .find(|tool| same_tool(&tool.key, spec, pin_key) && tool.version != spec.version)
 }
 
+#[cfg(test)]
 fn same_tool(their_key: &str, spec: &Spec, pin_key: &str) -> bool {
     their_key == pin_key
         || their_key == spec.short_name()
@@ -99,6 +100,15 @@ fn same_tool(their_key: &str, spec: &Spec, pin_key: &str) -> bool {
 
 pub fn pin_only_toml(spec: &Spec) -> String {
     compose_toml(&[], &[("_".to_string(), spec.clone())])
+}
+
+/// `jq` stays `jq`. `op` is the binary, so the tool id is `aqua:1password/cli`.
+pub fn tool_key(key: &str, spec: &Spec) -> String {
+    if key == spec.short_name() {
+        key.to_string()
+    } else {
+        spec.backend_id()
+    }
 }
 
 pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
@@ -139,14 +149,18 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
         tools.insert(tool.key.clone(), tool.version.clone());
     }
     for (key, spec) in pins {
-        if let Some(existing) = tools
+        let backend = spec.backend_id();
+        let written = tool_key(key, spec);
+        if written != *key && tools.get(key).map(String::as_str) == Some(spec.version.as_str()) {
+            tools.remove(key);
+        }
+        let already = [backend.as_str(), written.as_str()]
             .iter()
-            .find(|(their_key, _)| same_tool(their_key, spec, key))
-            && existing.1 == &spec.version
-        {
+            .any(|name| tools.get(*name).map(String::as_str) == Some(spec.version.as_str()));
+        if already {
             continue;
         }
-        tools.insert(spec.backend_id(), spec.version.clone());
+        tools.insert(backend, spec.version.clone());
     }
     let mut out = String::from("[tools]\n");
     for (key, version) in tools {

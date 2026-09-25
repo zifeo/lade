@@ -102,13 +102,7 @@ fn spec_for_env(spec: &spec::Spec, resolved: &str) -> spec::Spec {
     if !spec.is_range() || resolved == spec.version {
         return spec.clone();
     }
-    spec::Spec {
-        prefix: spec.prefix.clone(),
-        package: spec.package.clone(),
-        options: spec.options.clone(),
-        version: resolved.to_string(),
-        uri: spec::replace_version(&spec.uri, resolved),
-    }
+    spec::at_version(spec, resolved)
 }
 
 async fn activate(

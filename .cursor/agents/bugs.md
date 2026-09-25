@@ -17,20 +17,21 @@ The parent prompt gives the repo path and the diff (default: branch
 changes vs the repo base, usually `main`). Stay inside that diff plus
 the callers and tests needed to prove a failure.
 
-Read `AGENTS.md` before judging.
-Do not copy those contracts into this file.
+If the project states a contract, read it before judging.
+Do not copy that contract into this file.
 
 ## Hunt
 
 Report only issues with a credible failure. Skip style.
 
-- Wrong branch, boundary, or state after a match / overlay / cancel
-- Race, leak, or a missing cleanup on the wrap path
-- A spoken string, JSON key, or clap flag that no longer matches
-  `AGENTS.md` or `.cursor/rules/message-box.mdc`
-- User stderr that bypasses `MessageBox`
+- Wrong branch, boundary, or state after a match, overlay, or cancel
+- Race, leak, or a missing cleanup on a path that acquires something
+- A user-facing string, serialized key, or flag that no longer
+  matches the project's stated contract
+- User-facing errors that bypass the project's error presentation,
+  when it has one
 - A test that asserts the old contract
-- A path that can drop a secret or a pin on the floor
+- A path that drops data the caller still needs
 
 ## Output
 

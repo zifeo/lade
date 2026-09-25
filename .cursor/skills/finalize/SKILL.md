@@ -79,10 +79,10 @@ move that does not change how a human reads production code.
 2. **specs** `wrong` / `missing` that cite a reference.
 3. **simplify** reuse of a named existing helper, or a
    dead wrapper with one caller. Do not extract a new helper
-   as a leftover. Hunt the crate, not only the hunk.
+   as a leftover. Hunt the project, not only the hunk.
 
-Narrowest check that proves the edit. Stay in the Cursor sandbox
-for cargo.
+Narrowest check that proves the edit. Use the project's usual
+check. Do not widen permissions to make a build pass.
 
 ## 2. Last: refactor
 
@@ -93,10 +93,10 @@ Only after step 1 is applied. Launch `refactor` alone.
 | `refactor` | Files over 300 (soft) / 350 (hard), including markdown | no |
 
 Apply a `hard` file only if the split is two jobs a human
-can hold (production code). Relocating `#[test]` fns or a
-`#[cfg(test)]` block to beat 350 is not useful. Soft (301–350)
+can hold (production code). Moving tests to another file only
+to get under the line limit is not useful. Soft (301–350)
 is a proposal; apply only if the split is obvious and local.
-Keep public API and test names.
+Keep the public API and test names.
 
 Narrowest check again.
 

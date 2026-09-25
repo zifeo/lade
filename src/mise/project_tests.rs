@@ -54,6 +54,40 @@ fn pin_only_toml_is_just_this_spec() {
 }
 
 #[test]
+fn compose_keeps_matching_short_name() {
+    let spec = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
+    let theirs = vec![ProjectTool {
+        key: "jq".to_string(),
+        version: "1.7.1".to_string(),
+    }];
+    let body = compose_toml(&theirs, &[("jq".to_string(), spec)]);
+    assert!(body.contains("jq = \"1.7.1\""), "{body}");
+    assert!(!body.contains("aqua:jqlang/jq"), "{body}");
+}
+
+#[test]
+fn compose_replaces_bin_alias_with_backend() {
+    let spec = parse("mise://aqua/1password/cli@2.30.0").unwrap();
+    let theirs = vec![
+        ProjectTool {
+            key: "node".to_string(),
+            version: "24.16.0".to_string(),
+        },
+        ProjectTool {
+            key: "op".to_string(),
+            version: "2.30.0".to_string(),
+        },
+    ];
+    let body = compose_toml(&theirs, &[("op".to_string(), spec)]);
+    assert!(body.contains("node = \"24.16.0\""), "{body}");
+    assert!(
+        body.contains("\"aqua:1password/cli\" = \"2.30.0\""),
+        "{body}"
+    );
+    assert!(!body.contains("op = "), "{body}");
+}
+
+#[test]
 fn compose_keeps_theirs_and_adds_pin() {
     let spec = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
     let theirs = vec![ProjectTool {
