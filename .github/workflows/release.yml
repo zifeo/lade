@@ -4,17 +4,13 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to rebuild, for example v0.19.0
-        required: true
-        type: string
 
 jobs:
   check-bump:
     runs-on: ubuntu-24.04
     if: github.ref_type == 'tag'
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v7
@@ -31,11 +27,24 @@ jobs:
             exit 1
           fi
           echo "Releasing v$VERSION"
-      - uses: ncipollo/release-action@v1
+      - uses: taiki-e/install-action@v2
         with:
-          tag: ${{ github.ref_name }}
-          makeLatest: false
-          generateReleaseNotes: true
+          tool: parse-changelog@0.6.16
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Leaving title and notes unchanged."
+            exit 0
+          fi
+          parse-changelog CHANGELOG.md "$version" > release-notes.md
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes-file release-notes.md \
+            --latest=false
 
   crates:
     needs:
@@ -55,11 +64,9 @@ jobs:
   binaries:
     needs:
       - check-bump
-    # A manual run rebuilds a tag that already exists. check-bump is skipped then.
-    if: ${{ !cancelled() && (needs.check-bump.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ${{ matrix.os }}
-    env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -84,15 +91,6 @@ jobs:
             build_cmd: cross
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
-      - name: Check dispatch tag
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          case "$RELEASE_TAG" in
-            v*) ;;
-            *) echo "Tag must look like vX.Y.Z" >&2; exit 1 ;;
-          esac
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -109,7 +107,7 @@ jobs:
         run: |
           mv "target/${{ matrix.target }}/release/lade" .
           mv "target/${{ matrix.target }}/release/age-plugin-lade" .
-          asset="lade-${RELEASE_TAG}-${{ matrix.target }}.tar.gz"
+          asset="lade-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
           tar czvf "$asset" lade age-plugin-lade
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$asset" > "$asset.sha256"
@@ -117,29 +115,32 @@ jobs:
             shasum -a 256 "$asset" > "$asset.sha256"
           fi
       - name: Upload
-        uses: svenstaro/upload-release-action@v2
-        with:
-          tag: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
-          file: lade-${{ env.RELEASE_TAG }}-${{ matrix.target }}.tar.gz*
-          file_glob: true
-          overwrite: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          asset="lade-${tag}-${{ matrix.target }}.tar.gz"
+          published="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+          for file in "$asset" "$asset.sha256"; do
+            if printf '%s\n' "$published" | grep -Fxq "$file"; then
+              echo "$file is already on $tag. Leaving it unchanged."
+              continue
+            fi
+            gh release upload "$tag" "$file"
+          done
 
   mark-latest:
     needs:
       - binaries
     runs-on: ubuntu-24.04
-    if: ${{ !cancelled() && needs.binaries.result == 'success' && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
+    if: github.ref_type == 'tag'
     permissions:
       contents: write
     steps:
-      - uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          allowUpdates: true
-          makeLatest: true
-          omitBodyDuringUpdate: true
-          omitNameDuringUpdate: true
-          omitDraftDuringUpdate: true
+      - name: Mark release as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --latest
 
   bump:
     needs:

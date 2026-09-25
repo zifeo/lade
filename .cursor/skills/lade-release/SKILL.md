@@ -59,7 +59,7 @@ If `cargo set-version` is missing: `cargo install cargo-edit`. CI beta bumps use
 
 ## GitHub release notes
 
-Copy the new `CHANGELOG.md` section body (without the heading date) into the release description, or link to the compare URL.
+The tag workflow publishes the matching `CHANGELOG.md` section with [parse-changelog](https://github.com/taiki-e/parse-changelog). Write that section before tagging. If the GitHub release already exists, its title and notes stay as first published. A crashed job is recovered by re-running that job. An asset already on the release is left in place.
 
 ## Checklist
 
