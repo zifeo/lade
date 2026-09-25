@@ -32,6 +32,47 @@ fn install_from_url_isolates_pin_only_config() {
 
 #[cfg(unix)]
 #[test]
+fn live_install_keeps_mise_stderr_on_failure() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(
+        &stub.join("mise"),
+        r#"
+if [ "$1" = "--cd" ]; then
+  shift 2
+fi
+if [ "$1" = "--version" ]; then
+  printf '%s\n' "mise 2024.8.12"
+  exit 0
+fi
+printf '%s\n' "STREAMED_MISE_FAIL" >&2
+exit 1
+"#,
+    );
+    let spec = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+        ],
+        || {
+            let err =
+                block_on(install::install_from_url(&spec, &installs, dir.path())).unwrap_err();
+            let text = err.to_string();
+            assert!(text.contains("STREAMED_MISE_FAIL"), "{text}");
+            assert!(text.contains("mise install failed"), "{text}");
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn install_locked_isolates_pin_only_config() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
@@ -56,7 +97,6 @@ fn install_locked_isolates_pin_only_config() {
         ],
         || {
             block_on(install::install_locked(
-                "jq",
                 &dir.path().join("mise.lock"),
                 &spec,
                 &installs,
@@ -68,6 +108,48 @@ fn install_locked_isolates_pin_only_config() {
             assert!(args.contains("--locked"), "{args}");
             assert_isolated_pin_only(&installs, home.path(), "1.7.1");
             assert!(installs.join("jq/1.7.1/jq").is_file());
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn refresh_lock_writes_mise_output_to_lade_lock() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), isolation_record_stub());
+    git_init(dir.path());
+    let spec = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
+    let dest = dir.path().join("lade.lock");
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+        ],
+        || {
+            block_on(install::refresh_lock(
+                &crate::mise::project::compose_toml(&[], &[("jq".to_string(), spec)]),
+                &dest,
+                &installs,
+                dir.path(),
+                true,
+            ))
+            .unwrap();
+            let lock = std::fs::read_to_string(&dest).unwrap();
+            assert!(lock.contains("@generated"), "{lock}");
+            assert!(lock.contains("url = "), "{lock}");
+            assert!(lock.contains("1.7.1"), "{lock}");
+            let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
+            assert!(args.contains("lock"), "{args}");
+            assert!(args.contains("--upgrade"), "{args}");
+            let isolate_lock = crate::cache::mise_isolate(dir.path()).join("mise.lock");
+            assert_eq!(std::fs::read_link(&isolate_lock).unwrap(), dest);
         },
     );
 }
@@ -121,10 +203,14 @@ fn intercept_mise_composes_project_and_pin_not_home_java() {
                 ignored.contains(&home.path().join("mise.toml").display().to_string()),
                 "{ignored}"
             );
+            let isolate = crate::cache::mise_isolate(dir.path());
             assert_eq!(
                 out.env.get("MISE_CONFIG_DIR").unwrap(),
-                &tickets.to_string_lossy().into_owned()
+                &isolate.to_string_lossy().into_owned()
             );
+            let shims = out.env.get("MISE_SHIMS_DIR").unwrap();
+            assert!(shims.contains("mise-shims"), "{shims}");
+            assert!(out.cleanup.is_empty());
         },
     );
 }

@@ -1,42 +1,39 @@
 ---
-description: All stderr/bail user-facing messages must go through MessageBox
+description: MessageBox is for attention. Command results use Report.
 alwaysApply: false
 ---
 
-# stderr output must always use `MessageBox`
+# stderr: box for attention, report for results
 
-Never use `eprintln!` for user-facing messages. Every message shown to the user — error, warning, or info — must go through `message_box::MessageBox`.
+Never use `eprintln!` from command code. User-facing stderr goes through
+`message_box`.
 
-`eprintln!` silently bypasses the box, producing bare unformatted output regardless of context (Quiet mode, interactive mode, etc.).
+- **`MessageBox`** when the user must notice: errors, warnings, disclaimers,
+  pre-exec / pre-tool access failures, a new Lade release. The bordered
+  box is the point.
+- **`Report`** for the result of a verb (`lade setup`, `lade update`,
+  `lade teardown`, `lade hook enable`, add/remove, upgrade already
+  current). Bold headings and colour when the terminal allows it. No
+  border.
 
-## The pattern that broke this
-
-The `is_interactive()` / `UiMode::Quiet` flag controls **interactive behaviour** (countdowns, prompts, sleeps). It must **never** suppress the `MessageBox` itself — not for errors, not for warnings.
+`UiMode` / `is_interactive()` gates prompts, countdowns, and sleeps. It
+must never suppress a `MessageBox`.
 
 ```rust
-// ❌ BAD — Quiet mode skips the box entirely
-if ctx.is_interactive() {
-    message_box::MessageBox::new().error()...print_stderr();
-    sleep_or_cancel(5).await;
-} else {
-    eprintln!("lade: {e}");  // bare, no box
-}
+// ❌ BAD — setup success in a box
+MessageBox::new().info().line("pre-exec  this shell").print_stderr();
 
-// ❌ BAD — same mistake for warnings
-if ctx.is_interactive() && !warnings.is_empty() {
-    message_box::MessageBox::new().warning()...print_stderr();
-    sleep_or_cancel(5).await;
-}
+// ✅ GOOD — command result
+Report::new().heading("pre-exec  this shell").dim("Wraps commands you type.").print();
 
-// ✅ GOOD — box always; only the interactive parts are gated
-let mut mb = message_box::MessageBox::new()
-    .error()  // or .warning()
-    .paragraph(e.to_string());
-if ctx.is_interactive() {
-    mb = mb.line("Waiting 5 seconds before continuing... (2x Ctrl-C to cancel)");
-}
-mb.print_stderr();
-if ctx.is_interactive() {
-    sleep_or_cancel(5).await;
-}
+// ✅ GOOD — attention (pre-exec failure, or a new Lade release)
+MessageBox::new().error().paragraph(e.to_string()).print_stderr();
 ```
+
+Do not box `lade setup` / `lade update` success. After that report, if a
+newer Lade binary is available, emit a `MessageBox` (`upgrade::nudge_if_available`).
+Do not nag on `lade set`: stdout is the shell protocol.
+
+Live setup / update: one tracker row per step (spinner, then ✔︎), same
+machinery as provider resolve. Mise logs update the current row. Never
+inherit the child stdio. `mise env --json-extended` stays captured and quiet.

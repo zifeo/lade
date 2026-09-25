@@ -34,24 +34,25 @@ pub async fn prepare(
         return intercept_mise(cwd, &pins);
     }
     let mut out = Outcome::default();
-    let mut applied_argv0 = false;
-    if let Some((key, spec)) = pins.iter().find(|(key, _)| key == argv0) {
-        out = super::pin::pin_command(cwd, key, spec.clone(), true).await?;
-        applied_argv0 = true;
-    } else if let Some(value) = config.bare_version_for(command, argv0, saved_user, audience) {
+    for (key, spec) in &pins {
+        if spec::is_user_shell(key) && key != argv0 {
+            continue;
+        }
+        let allow_install = key == argv0;
+        match super::pin::pin_command(cwd, key, spec.clone(), allow_install).await {
+            Ok(extra) => merge_outcome(&mut out, extra),
+            Err(_) if key != argv0 => {}
+            Err(err) => return Err(err),
+        }
+    }
+    if !pins.iter().any(|(key, _)| key == argv0)
+        && let Some(value) = config.bare_version_for(command, argv0, saved_user, audience)
+    {
         return Err(Error::bare_version(argv0, &value));
     }
     let sources = config.sources_for_command(command, saved_user, audience);
-    for (key, spec) in implied::pins_for(&sources, &[]) {
-        if applied_argv0 && key == argv0 {
-            continue;
-        }
-        let (spec, allow_install) = pins
-            .iter()
-            .find(|(pin_key, _)| pin_key == &key)
-            .map(|(_, yaml)| (yaml.clone(), true))
-            .unwrap_or((spec, false));
-        let extra = super::pin::pin_command(cwd, &key, spec, allow_install).await?;
+    for (key, spec) in implied::pins_for(&sources, &pins) {
+        let extra = super::pin::pin_command(cwd, &key, spec, false).await?;
         merge_outcome(&mut out, extra);
     }
     Ok(out)
@@ -152,9 +153,11 @@ fn intercept_mise(cwd: &Path, pins: &[(String, spec::Spec)]) -> Result<Outcome, 
         return Ok(Outcome::default());
     }
     let body = project::compose_toml(&[], pins);
-    std::fs::create_dir_all(crate::ticket::dir()).map_err(|e| Error::install(e.to_string()))?;
-    let path = crate::ticket::dir().join(format!("lade-mise-{}.toml", crate::ticket::new_id()));
-    std::fs::write(&path, body).map_err(|e| Error::install(e.to_string()))?;
+    let lock = super::lock_path_in(cwd);
+    let lock_src = lock.is_file().then_some(lock.as_path());
+    let root = crate::cache::prepare_mise_project(cwd, &body, lock_src)
+        .map_err(|e| Error::install(e.to_string()))?;
+    let path = root.join("mise.toml");
     let ignored = project::isolate_config_paths(cwd);
     let mut env = HashMap::new();
     env.insert(
@@ -163,11 +166,15 @@ fn intercept_mise(cwd: &Path, pins: &[(String, spec::Spec)]) -> Result<Outcome, 
     );
     env.insert(
         "MISE_CONFIG_DIR".to_string(),
-        crate::ticket::dir().to_string_lossy().to_string(),
+        root.to_string_lossy().to_string(),
     );
     env.insert(
         "MISE_TRUSTED_CONFIG_PATHS".to_string(),
-        crate::ticket::dir().to_string_lossy().to_string(),
+        root.to_string_lossy().to_string(),
+    );
+    env.insert(
+        "MISE_SHIMS_DIR".to_string(),
+        crate::cache::mise_shims().to_string_lossy().to_string(),
     );
     if !ignored.is_empty() {
         let joined = std::env::join_paths(&ignored).unwrap_or_default();
@@ -182,6 +189,6 @@ fn intercept_mise(cwd: &Path, pins: &[(String, spec::Spec)]) -> Result<Outcome, 
     );
     Ok(Outcome {
         env,
-        cleanup: vec![path],
+        cleanup: Vec::new(),
     })
 }

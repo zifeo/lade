@@ -142,4 +142,7 @@ fn argv0_uses_basename() {
     assert_eq!(argv0("mise ls"), "mise");
     assert!(is_mise_argv0("mise"));
     assert!(!is_mise_argv0("tofu"));
+    assert!(is_user_shell("zsh"));
+    assert!(is_user_shell("fish"));
+    assert!(!is_user_shell("kubectl"));
 }

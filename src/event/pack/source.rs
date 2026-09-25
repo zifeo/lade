@@ -12,8 +12,6 @@ use crate::event::{ChainStatus, Event, db_path, event_from_row, unsigned_pack, v
 
 use super::basename_or_self;
 
-const PACK_PREFIX: &str = "lade-log-src-";
-
 pub fn query_sources(
     sources: &[String],
     since: Option<&DateTime<Utc>>,
@@ -49,7 +47,7 @@ fn expand_sources(sources: &[String], cwd: &Path) -> Result<ExpandedSources> {
         if path.is_dir() {
             let packs = list_packs_in_dir(&path)?;
             for pack in packs {
-                let temp = tempfile::Builder::new().prefix(PACK_PREFIX).tempdir()?;
+                let temp = crate::cache::scratch_tempdir()?;
                 extract_pack_db(&pack, temp.path())?;
                 paths.push(temp.path().join("events.db"));
                 temp_dirs.push(temp);
@@ -62,7 +60,7 @@ fn expand_sources(sources: &[String], cwd: &Path) -> Result<ExpandedSources> {
         if !path.is_file() {
             anyhow::bail!("pack not found: {}", path.display());
         }
-        let temp = tempfile::Builder::new().prefix(PACK_PREFIX).tempdir()?;
+        let temp = crate::cache::scratch_tempdir()?;
         extract_pack_db(&path, temp.path())?;
         paths.push(temp.path().join("events.db"));
         temp_dirs.push(temp);

@@ -13,31 +13,65 @@ pub fn seed_store_cli(installs: &Path, name: &str, version: &str, src: &Path) {
 pub fn lock_tool_version(name: &str) -> String {
     let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("lade.lock"))
         .expect("lade.lock");
-    let header = format!("[[tools.{name}]]");
-    let rest = body
-        .split(&header)
-        .nth(1)
-        .unwrap_or_else(|| panic!("{name} missing from lade.lock"));
-    rest.lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("version = \"")
-                .and_then(|value| value.strip_suffix('"'))
-        })
-        .unwrap_or_else(|| panic!("version for {name} missing from lade.lock"))
-        .to_string()
+    let headers = [format!("[[tools.{name}]]"), format!("[[tools.\"{name}\"]]")];
+    for header in headers {
+        if let Some(rest) = body.split(&header).nth(1)
+            && let Some(version) = version_in_block(rest)
+        {
+            return version;
+        }
+    }
+    for chunk in body.split("[[tools.") {
+        if chunk.contains(name)
+            && let Some(version) = version_in_block(chunk)
+        {
+            return version;
+        }
+    }
+    panic!("{name} missing from lade.lock");
+}
+
+fn version_in_block(rest: &str) -> Option<String> {
+    rest.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("version = \"")
+            .and_then(|value| value.strip_suffix('"'))
+            .map(str::to_string)
+    })
 }
 
 pub fn seed_stub_cli(installs: &Path, name: &str, version: &str) {
-    let dest_dir = installs.join(name).join(version);
+    seed_stub_bin(installs, name, version, name);
+}
+
+pub fn seed_stub_bin(installs: &Path, tool: &str, version: &str, bin: &str) {
+    let dest_dir = installs.join(tool).join(version);
     std::fs::create_dir_all(&dest_dir).unwrap();
-    let dest = dest_dir.join(name);
+    let dest = dest_dir.join(bin);
     std::fs::write(&dest, "#!/bin/sh\nexit 0\n").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
+}
+
+/// kubectl on `.` still wraps every command. Shell pins do not.
+pub fn seed_workspace_pins(installs: &Path) {
+    let pins = [
+        ("op", "1password/cli"),
+        ("fish", "fish-shell"),
+        ("zsh", "zsh-bin"),
+        ("kubectl", "kubectl"),
+        ("k3d", "k3d"),
+        ("vault", "vault"),
+    ];
+    for (bin, lock_name) in pins {
+        seed_stub_cli(installs, bin, &lock_tool_version(lock_name));
+    }
+    let rust = lock_tool_version("rust");
+    seed_stub_bin(installs, "rust", &rust, "cargo");
+    seed_stub_bin(installs, "rust", &rust, "rustc");
 }
 
 pub fn command_path(name: &str) -> Option<PathBuf> {

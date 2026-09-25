@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use chrono::{DateTime, TimeDelta, Utc};
 use self_update::{backends::github::Update, cargo_crate_version, update::ReleaseStatus};
 use semver::Version;
@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::args::UpgradeCommand;
 use crate::global_config::GlobalConfig;
-use crate::message_box::MessageBox;
+use crate::message_box::{MessageBox, Report};
 
 const CHECK_INTERVAL: TimeDelta = match TimeDelta::try_days(1) {
     Some(delta) => delta,
@@ -128,12 +128,28 @@ pub async fn check_message() -> Result<Option<String>> {
     let status = fetch_version_status().await?;
     if status.update_available {
         return Ok(Some(format!(
-            "New lade update available: {} → {}",
+            "New Lade release: {} → {}.",
             status.current,
             status.latest.unwrap_or_default()
         )));
     }
     Ok(None)
+}
+
+pub async fn nudge_if_available() {
+    let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(2), fetch_version_status()).await
+    else {
+        return;
+    };
+    if !status.update_available {
+        return;
+    }
+    let latest = status.latest.unwrap_or_default();
+    MessageBox::new()
+        .info()
+        .line(format!("New Lade release: {} → {latest}.", status.current))
+        .line("Run `lade upgrade` to install it.")
+        .print_stderr();
 }
 
 fn configure_github(bin_name: &str, yes: bool, version: Option<&str>) -> Result<Update> {
@@ -181,32 +197,36 @@ fn install_plugin_binary(yes: bool, version: Option<&str>) -> Result<()> {
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {
     let yes = opts.yes;
     let version = opts.version.clone();
+    if version.is_none() {
+        match tokio::time::timeout(Duration::from_secs(2), fetch_version_status()).await {
+            Ok(Ok(status)) if status.update_available => {
+                let latest = status.latest.unwrap_or_default();
+                MessageBox::new()
+                    .info()
+                    .line(format!("New Lade release: {} → {latest}.", status.current))
+                    .print_stderr();
+            }
+            _ => {}
+        }
+    }
     let updated = tokio::task::spawn_blocking(move || {
         let updated = match configure_github("lade", yes, version.as_deref())?.update_extended()? {
             ReleaseStatus::UpToDate => {
-                MessageBox::new()
-                    .info()
-                    .line("Already up to date.")
-                    .print_plain_stderr();
+                Report::new().line("Already up to date.").print();
                 false
             }
             ReleaseStatus::Updated(release) => {
-                MessageBox::new()
-                    .info()
-                    .line(format!("Updated to {}.", release.version()))
-                    .line("")
+                Report::new()
+                    .heading(format!("Updated to {}.", release.version()))
                     .line(format!(
                         "Release notes: https://github.com/zifeo/lade/releases/tag/{}",
                         release.name()
                     ))
-                    .print_plain_stderr();
+                    .print();
                 true
             }
             _ => {
-                MessageBox::new()
-                    .info()
-                    .line("Already up to date.")
-                    .print_plain_stderr();
+                Report::new().line("Already up to date.").print();
                 false
             }
         };
@@ -214,7 +234,7 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
         if should_install_plugin(updated, exe.as_deref()) {
             install_plugin_binary(yes, version.as_deref())?;
         }
-        Ok(updated)
+        Ok::<bool, anyhow::Error>(updated)
     })
     .await??;
     if updated {

@@ -24,6 +24,32 @@ backend = "aqua:jqlang/jq"
 }
 
 #[test]
+fn reads_mise_lock_v2_with_platforms() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        r#"
+# @generated
+lockfile_version = 2
+
+[[tools."aqua:jqlang/jq"]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+specifiers = ["1.7.1"]
+
+[tools."aqua:jqlang/jq"."platforms.macos-arm64"]
+checksum = "sha256:abc"
+url = "https://example.com/jq"
+"#,
+    )
+    .unwrap();
+    let slot = slot_for(&dir.path().join("lade.lock"), &["jq", "aqua:jqlang/jq"]).unwrap();
+    assert_eq!(slot.version, "1.7.1");
+    assert_eq!(slot.backend.as_deref(), Some("aqua:jqlang/jq"));
+    assert!(is_generated(&dir.path().join("lade.lock")));
+}
+
+#[test]
 fn walk_finds_parent_lock() {
     let root = tempdir().unwrap();
     let child = root.path().join("child");
@@ -111,23 +137,21 @@ fn agrees_when_lock_satisfies_range() {
 }
 
 #[test]
-fn write_tools_includes_checksum() {
+fn generated_lock_detects_mise_output() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("lade.lock");
-    write_tools(
+    std::fs::write(
         &path,
-        &[LockSlot {
-            name: "jq".to_string(),
-            version: "1.7.1".to_string(),
-            backend: Some("aqua:jqlang/jq".to_string()),
-            checksum: Some("sha256:abc".to_string()),
-        }],
+        "[[tools.fish]]\nversion = \"4.9.3\"\nbackend = \"aqua:fish-shell/fish-shell\"\n",
     )
     .unwrap();
-    let body = std::fs::read_to_string(&path).unwrap();
-    assert!(body.contains("checksum = \"sha256:abc\""), "{body}");
-    let slot = slot_for(&path, &["jq"]).unwrap();
-    assert_eq!(slot.checksum.as_deref(), Some("sha256:abc"));
+    assert!(!is_generated(&path));
+    std::fs::write(
+        &path,
+        "# @generated\nlockfile_version = 2\n\n[[tools.fish]]\nversion = \"4.9.3\"\nbackend = \"aqua:fish-shell/fish-shell\"\n\n[tools.fish.\"platforms.macos-arm64\"]\nurl = \"https://example.com/fish.pkg\"\n",
+    )
+    .unwrap();
+    assert!(is_generated(&path));
 }
 
 #[test]
@@ -165,37 +189,4 @@ fn path_in_keeps_native_mise_lock() {
     assert_eq!(path_in(dir.path()), dir.path().join("mise.lock"));
     let empty = tempdir().unwrap();
     assert_eq!(path_in(empty.path()), empty.path().join("lade.lock"));
-}
-
-#[test]
-fn write_tools_merges_into_existing_mise_lock() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("mise.lock");
-    write_tools(
-        &path,
-        &[LockSlot {
-            name: "node".to_string(),
-            version: "24.16.0".to_string(),
-            backend: None,
-            checksum: None,
-        }],
-    )
-    .unwrap();
-    write_tools(
-        &path,
-        &[LockSlot {
-            name: "jq".to_string(),
-            version: "1.7.1".to_string(),
-            backend: Some("aqua:jqlang/jq".to_string()),
-            checksum: None,
-        }],
-    )
-    .unwrap();
-    let slots = read_tools(&path).unwrap();
-    assert!(slots.iter().any(|slot| slot.name == "node"));
-    assert!(
-        slots
-            .iter()
-            .any(|slot| slot.name == "jq" && slot.version == "1.7.1")
-    );
 }

@@ -45,8 +45,7 @@ impl ChildOutputFiles {
 }
 
 fn create_log_file(stream: &str) -> Result<(PathBuf, File)> {
-    // macOS TMPDIR is under /var/folders and is not created until first use.
-    let dir = std::env::temp_dir();
+    let dir = crate::cache::network_logs();
     fs::create_dir_all(&dir)?;
     for _ in 0..16 {
         let idx = LOG_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);

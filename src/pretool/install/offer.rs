@@ -10,11 +10,50 @@ use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short
 use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
 use super::write::{Scope, hook_path, write_hook};
 
+pub(crate) struct PlannedSetup {
+    home: std::path::PathBuf,
+    dest: std::path::PathBuf,
+    agents: Vec<Agent>,
+}
+
 /// Wrap this repo's harnesses. No git: no pre-tool writes. Never writes home hooks.
 pub fn setup(may_prompt: bool, only: &[&str]) -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     setup_at(may_prompt, only, &home, &cwd)
+}
+
+pub(crate) fn plan(may_prompt: bool, only: &[&str]) -> Result<Option<PlannedSetup>> {
+    let home = home_dir()?;
+    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    plan_at(may_prompt, only, &home, &cwd)
+}
+
+pub(crate) fn commit(planned: &PlannedSetup) -> Result<PretoolReport> {
+    apply_project(&planned.agents, &planned.home, &planned.dest)
+}
+
+impl PlannedSetup {
+    pub(crate) fn where_line(&self) -> String {
+        where_line(Scope::Project, &self.home, &self.dest)
+    }
+}
+
+/// Ask which harnesses to wrap. Call after packages so the prompt sits under pre-tool.
+pub(crate) fn confirm_plan(
+    planned: &mut PlannedSetup,
+    may_prompt: bool,
+    only: &[&str],
+) -> Result<()> {
+    if !only.is_empty() || !may_prompt {
+        return Ok(());
+    }
+    let pending = pending_project(&planned.agents, &planned.home, &planned.dest);
+    if pending.is_empty() {
+        return Ok(());
+    }
+    planned.agents = ask_harnesses(&pending)?;
+    refuse_double_plane(&planned.agents, &planned.home, &planned.dest)
 }
 
 pub(super) fn setup_at(
@@ -23,12 +62,24 @@ pub(super) fn setup_at(
     home: &Path,
     cwd: &Path,
 ) -> Result<PretoolReport> {
-    let git_root = crate::catalog::git_root(cwd);
-    let Some(dest) = git_root else {
-        return Ok(PretoolReport {
+    match plan_at(may_prompt, only, home, cwd)? {
+        None => Ok(PretoolReport {
             where_line: "not a git repo, pre-tool skipped".to_string(),
             rows: Vec::new(),
-        });
+        }),
+        Some(planned) => commit(&planned),
+    }
+}
+
+fn plan_at(
+    may_prompt: bool,
+    only: &[&str],
+    home: &Path,
+    cwd: &Path,
+) -> Result<Option<PlannedSetup>> {
+    let git_root = crate::catalog::git_root(cwd);
+    let Some(dest) = git_root else {
+        return Ok(None);
     };
     let flagged = !only.is_empty();
     let detected = candidates(home, &[]);
@@ -45,7 +96,11 @@ pub(super) fn setup_at(
         detected
     };
     refuse_double_plane(&agents, home, &dest)?;
-    apply_project(&agents, home, &dest)
+    Ok(Some(PlannedSetup {
+        home: home.to_path_buf(),
+        dest: dest.to_path_buf(),
+        agents,
+    }))
 }
 
 pub(super) struct Plan {

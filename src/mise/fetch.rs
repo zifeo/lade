@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::message_box::MessageBox;
-
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Deserialize)]
@@ -45,10 +43,7 @@ pub async fn fetch_official(dest: PathBuf) -> Result<(), String> {
                 .to_string(),
         );
     }
-    MessageBox::new()
-        .info()
-        .line("Fetching the official mise release.")
-        .print_stderr();
+    crate::live_progress::note("fetching the official release");
     tokio::task::spawn_blocking(move || download_and_install(&dest))
         .await
         .map_err(|e| e.to_string())?

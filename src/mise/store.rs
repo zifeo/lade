@@ -44,9 +44,48 @@ pub fn tool_names(spec: &Spec, pin_key: &str, lock_name: Option<&str>) -> Vec<St
 
 pub fn find_bin_dir(installs: &Path, tool: &str, version: &str, argv0: &str) -> Option<PathBuf> {
     let root = installs.join(tool).join(version);
-    [root.join("bin"), root.clone(), root.join(".mise-bins")]
-        .into_iter()
-        .find(|dir| bin_exists(dir, argv0))
+    if !root.is_dir() {
+        return None;
+    }
+    for dir in [root.join("bin"), root.clone(), root.join(".mise-bins")] {
+        if bin_exists(&dir, argv0) {
+            return Some(dir);
+        }
+    }
+    find_bin_dir_walk(&root, argv0, 8)
+}
+
+fn find_bin_dir_walk(dir: &Path, argv0: &str, depth: usize) -> Option<PathBuf> {
+    if depth == 0 {
+        return None;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return None;
+    };
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_symlink() || !kind.is_dir() {
+            continue;
+        }
+        dirs.push(entry.path());
+    }
+    dirs.sort_by(|left, right| {
+        let left_bin = left.file_name().and_then(|name| name.to_str()) == Some("bin");
+        let right_bin = right.file_name().and_then(|name| name.to_str()) == Some("bin");
+        right_bin.cmp(&left_bin).then_with(|| left.cmp(right))
+    });
+    for path in dirs {
+        if bin_exists(&path, argv0) {
+            return Some(path);
+        }
+        if let Some(found) = find_bin_dir_walk(&path, argv0, depth - 1) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn bin_exists(dir: &Path, argv0: &str) -> bool {
@@ -215,6 +254,20 @@ mod tests {
                 assert_eq!(data_dir(), dir.path());
             },
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finds_nested_pkg_payload_bin() {
+        let dir = tempdir().unwrap();
+        let bin = dir
+            .path()
+            .join("aqua-fish-shell-fish-shell/4.9.3/fish.pkg/Payload/usr/local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        write_exec(&bin.join("fish"));
+        let found =
+            find_bin_dir(dir.path(), "aqua-fish-shell-fish-shell", "4.9.3", "fish").unwrap();
+        assert_eq!(found, bin);
     }
 
     #[cfg(unix)]

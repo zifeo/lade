@@ -339,3 +339,81 @@ fn test_later_cancel_does_not_need_wrap() {
         &None,
     ));
 }
+
+#[test]
+fn test_catch_all_pin_wraps_every_command() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  kubectl: mise://aqua/kubernetes/kubectl@1.37.0\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    for command in ["which kubectl", "echo hi", "kubectl get pods"] {
+        let patterned = config.collect_for_with_pattern(command, Audience::Human);
+        let work = Config::pre_event_work(&patterned, &None).unwrap();
+        assert!(
+            Config::needs_wrap(
+                &work,
+                command,
+                patterned.iter().map(|(_, _, rule)| rule),
+                &None,
+            ),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn test_command_pin_does_not_wrap_which() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^kubectl:\n  kubectl: mise://aqua/kubernetes/kubectl@1.37.0\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let which = config.collect_for_with_pattern("which kubectl", Audience::Human);
+    let which_work = Config::pre_event_work(&which, &None).unwrap();
+    assert!(!Config::needs_wrap(
+        &which_work,
+        "which kubectl",
+        which.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+    let kubectl = config.collect_for_with_pattern("kubectl get pods", Audience::Human);
+    let kubectl_work = Config::pre_event_work(&kubectl, &None).unwrap();
+    assert!(Config::needs_wrap(
+        &kubectl_work,
+        "kubectl get pods",
+        kubectl.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+}
+
+#[test]
+fn test_catch_all_shell_pin_does_not_wrap_echo() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  zsh: mise://github/romkatv/zsh-bin@6.1.1\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let echo = config.collect_for_with_pattern("echo hi", Audience::Human);
+    let echo_work = Config::pre_event_work(&echo, &None).unwrap();
+    assert!(!Config::needs_wrap(
+        &echo_work,
+        "echo hi",
+        echo.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+    let zsh = config.collect_for_with_pattern("zsh -c echo", Audience::Human);
+    let zsh_work = Config::pre_event_work(&zsh, &None).unwrap();
+    assert!(Config::needs_wrap(
+        &zsh_work,
+        "zsh -c echo",
+        zsh.iter().map(|(_, _, rule)| rule),
+        &None,
+    ));
+}

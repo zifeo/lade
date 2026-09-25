@@ -17,12 +17,7 @@ fn inject_stale_sidecar_does_not_export_java_home() {
         &installs.join("rust/1.96.0/cargo"),
         r#"printf '%s\n' "JAVA=${JAVA_HOME-}""#,
     );
-    let sidecar_dir = temp_env::with_var("HOME", Some(home.path()), || {
-        directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("project dirs")
-            .cache_dir()
-            .join("mise-env/core-rust")
-    });
+    let sidecar_dir = home.path().join("lade-cache/mise-env/core-rust");
     fs::create_dir_all(&sidecar_dir).unwrap();
     fs::write(
         sidecar_dir.join("1.96.0.json"),

@@ -55,7 +55,16 @@ fn lock_backend_id_key_uses_locked_install() {
     .unwrap();
     std::fs::write(
         dir.path().join("mise.lock"),
-        "[[tools.\"aqua:jqlang/jq\"]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+        r#"# @generated
+lockfile_version = 2
+
+[[tools."aqua:jqlang/jq"]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+
+[tools."aqua:jqlang/jq"."platforms.macos-arm64"]
+url = "https://example.com/jq"
+"#,
     )
     .unwrap();
     let path = format!("{}:/usr/bin:/bin", stub.display());
@@ -192,7 +201,16 @@ fn parent_lock_triggers_locked_install() {
     .unwrap();
     std::fs::write(
         dir.path().join("mise.lock"),
-        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+        r#"# @generated
+lockfile_version = 2
+
+[[tools.jq]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+
+[tools.jq."platforms.macos-arm64"]
+url = "https://example.com/jq"
+"#,
     )
     .unwrap();
     let path = format!("{}:/usr/bin:/bin", stub.display());
@@ -230,7 +248,16 @@ fn child_lock_walks_parent_for_missing_tool() {
     .unwrap();
     std::fs::write(
         dir.path().join("mise.lock"),
-        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+        r#"# @generated
+lockfile_version = 2
+
+[[tools.jq]]
+version = "1.7.1"
+backend = "aqua:jqlang/jq"
+
+[tools.jq."platforms.macos-arm64"]
+url = "https://example.com/jq"
+"#,
     )
     .unwrap();
     std::fs::write(

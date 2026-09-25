@@ -11,7 +11,7 @@ fn wrap_hydrates_from_ticket_without_rematch() {
     write_yml(dir.path(), "\"^echo\":\n  SECRET: from_ticket\n");
     let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "echo hi");
     let id = ticket_id_from_wrap(&wrap_command(&stdout));
-    assert!(ticket_path(tmp.path(), &id).exists());
+    assert!(ticket_path(home.path(), &id).exists());
     write_yml(dir.path(), "\"^echo\":\n  SECRET: from_walk\n");
     common::lade(home.path())
         .current_dir(dir.path())
@@ -29,7 +29,7 @@ fn wrap_hydrates_from_ticket_without_rematch() {
         .success()
         .stdout(predicates::str::contains("from_ticket"))
         .stdout(predicates::str::contains("from_walk").not());
-    assert!(!ticket_path(tmp.path(), &id).exists());
+    assert!(!ticket_path(home.path(), &id).exists());
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn missing_ticket_walks_yaml() {
         .assert()
         .success()
         .stdout(predicates::str::contains("from_walk"));
-    assert!(!ticket_path(tmp.path(), "Zz9Q").exists());
+    assert!(!ticket_path(home.path(), "Zz9Q").exists());
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn direct_inject_ignores_leftover_lade_t() {
         .success()
         .stdout(predicates::str::contains("from_walk"))
         .stdout(predicates::str::contains("from_ticket").not());
-    assert!(ticket_path(tmp.path(), &id).exists());
+    assert!(ticket_path(home.path(), &id).exists());
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn ticket_unlinked_after_disclaimer_deny() {
     assert_eq!(out.status.code(), Some(3));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("Danger!"), "{stderr}");
-    assert!(!ticket_path(tmp.path(), &id).exists());
+    assert!(!ticket_path(home.path(), &id).exists());
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn ticket_unlinked_after_child_fail() {
         .assert()
         .failure()
         .code(1);
-    assert!(!ticket_path(tmp.path(), &id).exists());
+    assert!(!ticket_path(home.path(), &id).exists());
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn hydrate_failure_unlinks_ticket_and_leaves_no_output_file() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("Could not load secrets"), "{stderr}");
-    assert!(!ticket_path(tmp.path(), &id).exists());
+    assert!(!ticket_path(home.path(), &id).exists());
     assert!(!output.exists());
-    assert!(ticket_ids(tmp.path()).is_empty());
+    assert!(ticket_ids(home.path()).is_empty());
 }

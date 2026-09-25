@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use super::spec::{self, Spec};
 use super::walk::walk_up_all;
-#[allow(unused_imports)]
 use serde::Deserialize;
 const IGNORE_FILES: &[&str] = &[
     "mise.toml",
@@ -23,7 +22,6 @@ pub struct ProjectTool {
     pub version: String,
 }
 
-#[cfg(test)]
 #[derive(Deserialize)]
 struct MiseToml {
     #[serde(default)]
@@ -47,7 +45,6 @@ pub fn ignored_config_paths(start: &Path) -> Vec<PathBuf> {
     })
 }
 
-#[cfg(test)]
 pub fn project_tools(path: &Path) -> Vec<ProjectTool> {
     let Ok(bytes) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -62,7 +59,6 @@ pub fn project_tools(path: &Path) -> Vec<ProjectTool> {
         .collect()
 }
 
-#[cfg(test)]
 fn version_of(value: &toml::Value) -> Option<String> {
     match value {
         toml::Value::String(raw) => {

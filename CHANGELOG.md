@@ -60,6 +60,13 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
+- **mise isolate and setup report**: pins install under Lade's cache
+  (`MISE_SHIMS_DIR` is not the interactive PATH). A `.` pin applies
+  to every matching command, so `which kubectl` sees the lock.
+  Setup prints packages, then checkmarks, then pre-exec / pre-tool.
+  The harness prompt sits under pre-tool. Teardown labels pre-tool
+  rows `removed`. Results use Report, not a box. `mise lock --upgrade`
+  is `lade update`, not every setup.
 - **`lade setup --harness`**: `--cursor` / `--claude` / `--codex` /
   `--opencode` are replaced by repeatable `--harness`. User-facing
   copy says harness, not agent. `lade status` pretool lines use
@@ -115,6 +122,9 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
+- **Login shells**: `zsh`, `fish`, and `bash` on a catch-all rule
+  do not replace `/bin/zsh`. They inject only when the wrapped
+  command is that shell.
 - **`lade upgrade`**: if `age-plugin-lade` is missing beside `lade`,
   the next upgrade installs it even when Lade is already current.
 - **Installer during a release**: GitHub `latest` stays on the previous

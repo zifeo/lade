@@ -33,13 +33,15 @@ fn setup_pins_installs_and_writes_lock() {
             std::env::set_current_dir(prev).unwrap();
             result.unwrap();
             let lock = std::fs::read_to_string(dir.path().join("lade.lock")).unwrap();
-            assert!(lock.contains("[[tools.jq]]"), "{lock}");
             assert!(lock.contains("1.7.1"), "{lock}");
             assert!(!lock.contains("1.8.0"), "{lock}");
             assert!(lock.contains("checksum = \"sha256:"), "{lock}");
+            assert!(lock.contains("url = "), "{lock}");
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
+            assert!(args.contains("lock"), "{args}");
+            assert!(!args.contains("--upgrade"), "{args}");
             assert!(args.contains("install"), "{args}");
-            assert!(!args.contains("--locked"), "{args}");
+            assert!(args.contains("--locked"), "{args}");
             assert!(installs.join("jq/1.7.1/jq").is_file());
         },
     );
@@ -57,11 +59,57 @@ fn setup_pins_implies_op() {
     write_exec(
         &stub.join("mise"),
         r#"
+cd_dir="."
+if [ "$1" = "--cd" ]; then
+  cd_dir="$2"
+  shift 2
+fi
 if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
 fi
 printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
+if [ "$1" = "lock" ]; then
+  toml="$cd_dir/mise.toml"
+  lock="$cd_dir/mise.lock"
+  if [ -f "$toml" ]; then
+    {
+      printf '%s\n' '# @generated'
+      printf '%s\n' ''
+      printf '%s\n' 'lockfile_version = 2'
+      printf '%s\n' ''
+      awk '
+        BEGIN { in_tools=0 }
+        /^\[tools\]/ { in_tools=1; next }
+        /^\[/ { in_tools=0 }
+        in_tools && /=/ {
+          line=$0
+          sub(/^[[:space:]]+/, "", line)
+          split(line, parts, "=")
+          key=parts[1]
+          ver=parts[2]
+          sub(/^[[:space:]]+/, "", key)
+          sub(/[[:space:]]+$/, "", key)
+          sub(/^[[:space:]]+/, "", ver)
+          sub(/[[:space:]]+$/, "", ver)
+          gsub(/^"/, "", key)
+          gsub(/"$/, "", key)
+          gsub(/^"/, "", ver)
+          gsub(/"$/, "", ver)
+          printf "[[tools.\"%s\"]]\n", key
+          printf "version = \"%s\"\n", ver
+          printf "backend = \"%s\"\n", key
+          printf "checksum = \"sha256:deadbeef\"\n"
+          printf "\n"
+          printf "[tools.\"%s\".\"platforms.macos-arm64\"]\n", key
+          printf "url = \"https://example.com/%s\"\n", ver
+          printf "\n"
+        }
+      ' "$toml"
+    } > "$lock"
+  fi
+  exit 0
+fi
 mkdir -p "$MISE_INSTALLS_DIR/op/2.31.1"
 printf '#!/bin/sh\necho OP\n' > "$MISE_INSTALLS_DIR/op/2.31.1/op"
 chmod 755 "$MISE_INSTALLS_DIR/op/2.31.1/op"
@@ -89,9 +137,9 @@ exit 0
             std::env::set_current_dir(prev).unwrap();
             result.unwrap();
             let lock = std::fs::read_to_string(dir.path().join("lade.lock")).unwrap();
-            assert!(lock.contains("[[tools.op]]"), "{lock}");
             assert!(lock.contains("2.31.1"), "{lock}");
             assert!(lock.contains("checksum = \"sha256:"), "{lock}");
+            assert!(lock.contains("url = "), "{lock}");
         },
     );
 }
@@ -151,11 +199,57 @@ fn setup_writes_one_lock_at_git_root() {
     write_exec(
         &stub.join("mise"),
         r#"
+cd_dir="."
+if [ "$1" = "--cd" ]; then
+  cd_dir="$2"
+  shift 2
+fi
 if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
 fi
 printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
+if [ "$1" = "lock" ]; then
+  toml="$cd_dir/mise.toml"
+  lock="$cd_dir/mise.lock"
+  if [ -f "$toml" ]; then
+    {
+      printf '%s\n' '# @generated'
+      printf '%s\n' ''
+      printf '%s\n' 'lockfile_version = 2'
+      printf '%s\n' ''
+      awk '
+        BEGIN { in_tools=0 }
+        /^\[tools\]/ { in_tools=1; next }
+        /^\[/ { in_tools=0 }
+        in_tools && /=/ {
+          line=$0
+          sub(/^[[:space:]]+/, "", line)
+          split(line, parts, "=")
+          key=parts[1]
+          ver=parts[2]
+          sub(/^[[:space:]]+/, "", key)
+          sub(/[[:space:]]+$/, "", key)
+          sub(/^[[:space:]]+/, "", ver)
+          sub(/[[:space:]]+$/, "", ver)
+          gsub(/^"/, "", key)
+          gsub(/"$/, "", key)
+          gsub(/^"/, "", ver)
+          gsub(/"$/, "", ver)
+          printf "[[tools.\"%s\"]]\n", key
+          printf "version = \"%s\"\n", ver
+          printf "backend = \"%s\"\n", key
+          printf "checksum = \"sha256:deadbeef\"\n"
+          printf "\n"
+          printf "[tools.\"%s\".\"platforms.macos-arm64\"]\n", key
+          printf "url = \"https://example.com/%s\"\n", ver
+          printf "\n"
+        }
+      ' "$toml"
+    } > "$lock"
+  fi
+  exit 0
+fi
 if printf '%s' "$*" | grep -q jq; then
   mkdir -p "$MISE_INSTALLS_DIR/jq/1.7.1"
   printf '#!/bin/sh\necho PINNED\n' > "$MISE_INSTALLS_DIR/jq/1.7.1/jq"
@@ -194,8 +288,8 @@ exit 0
             std::env::set_current_dir(prev).unwrap();
             result.unwrap();
             let lock = std::fs::read_to_string(root.path().join("lade.lock")).unwrap();
-            assert!(lock.contains("[[tools.op]]"), "{lock}");
-            assert!(lock.contains("[[tools.jq]]"), "{lock}");
+            assert!(lock.contains("op") || lock.contains("1password"), "{lock}");
+            assert!(lock.contains("jq"), "{lock}");
             assert!(!child.join("lade.lock").exists());
         },
     );
@@ -245,6 +339,7 @@ fn setup_locked_installs_lock_not_a_newer_store() {
             assert!(!lock.contains("1.8.0"), "{lock}");
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("--locked"), "{args}");
+            assert!(!args.contains("--upgrade"), "{args}");
         },
     );
 }
@@ -263,6 +358,11 @@ fn update_bumps_implied_to_latest() {
     write_exec(
         &stub.join("mise"),
         r#"
+cd_dir="."
+if [ "$1" = "--cd" ]; then
+  cd_dir="$2"
+  shift 2
+fi
 if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
@@ -272,6 +372,47 @@ if [ "$1" = "latest" ]; then
   exit 0
 fi
 printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
+if [ "$1" = "lock" ]; then
+  toml="$cd_dir/mise.toml"
+  lock="$cd_dir/mise.lock"
+  if [ -f "$toml" ]; then
+    {
+      printf '%s\n' '# @generated'
+      printf '%s\n' ''
+      printf '%s\n' 'lockfile_version = 2'
+      printf '%s\n' ''
+      awk '
+        BEGIN { in_tools=0 }
+        /^\[tools\]/ { in_tools=1; next }
+        /^\[/ { in_tools=0 }
+        in_tools && /=/ {
+          line=$0
+          sub(/^[[:space:]]+/, "", line)
+          split(line, parts, "=")
+          key=parts[1]
+          ver=parts[2]
+          sub(/^[[:space:]]+/, "", key)
+          sub(/[[:space:]]+$/, "", key)
+          sub(/^[[:space:]]+/, "", ver)
+          sub(/[[:space:]]+$/, "", ver)
+          gsub(/^"/, "", key)
+          gsub(/"$/, "", key)
+          gsub(/^"/, "", ver)
+          gsub(/"$/, "", ver)
+          printf "[[tools.\"%s\"]]\n", key
+          printf "version = \"%s\"\n", ver
+          printf "backend = \"%s\"\n", key
+          printf "checksum = \"sha256:deadbeef\"\n"
+          printf "\n"
+          printf "[tools.\"%s\".\"platforms.macos-arm64\"]\n", key
+          printf "url = \"https://example.com/%s\"\n", ver
+          printf "\n"
+        }
+      ' "$toml"
+    } > "$lock"
+  fi
+  exit 0
+fi
 mkdir -p "$MISE_INSTALLS_DIR/op/2.40.0"
 printf '#!/bin/sh\necho NEW\n' > "$MISE_INSTALLS_DIR/op/2.40.0/op"
 chmod 755 "$MISE_INSTALLS_DIR/op/2.40.0/op"

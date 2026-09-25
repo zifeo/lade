@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use crate::args::{AddCommand, RemoveCommand};
 use crate::context::InvocationContext;
 use crate::family::Family;
-use crate::message_box::MessageBox;
+use crate::message_box::{MessageBox, Report};
 
 mod cli;
 mod package;
@@ -64,12 +64,11 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
     };
     let path = yaml::target_yaml(tty)?;
     yaml::upsert_binding(&path, &rule, &key, &uri)?;
-    MessageBox::new()
-        .info()
-        .line(format!("Wrote {} `{key}` on `{rule}`.", family.token()))
+    Report::new()
+        .heading(format!("Wrote {} `{key}` on `{rule}`.", family.token()))
         .line(path.display().to_string())
-        .line("Running `lade setup` for this repo.")
-        .print_stderr();
+        .dim("Running `lade setup` for this repo.")
+        .print();
     Ok(())
 }
 
@@ -100,14 +99,13 @@ pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
     let Some(uri) = yaml::drop_binding(&path, &rule, &key)? else {
         bail!("no `{key}` on `{rule}` in {}", path.display());
     };
-    let mut mb = MessageBox::new()
-        .info()
-        .line(format!("Removed {} `{key}` on `{rule}`.", family.token()))
+    let mut report = Report::new()
+        .heading(format!("Removed {} `{key}` on `{rule}`.", family.token()))
         .line(path.display().to_string());
     if uri.contains("teardown=") {
-        mb = mb.line("Teardown commands run on `lade teardown`.");
+        report = report.dim("Teardown commands run on `lade teardown`.");
     }
-    mb.print_stderr();
+    report.print();
     Ok(())
 }
 

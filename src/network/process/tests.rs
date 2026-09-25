@@ -18,12 +18,13 @@ fn sh_command(script: &str) -> Command {
 
 #[test]
 #[cfg(unix)]
-fn child_output_files_creates_missing_tmpdir() {
+fn child_output_files_creates_missing_cache_dir() {
     let root = tempfile::tempdir().unwrap();
-    let gone = root.path().join("gone");
-    temp_env::with_var("TMPDIR", Some(gone.to_str().unwrap()), || {
+    let gone = root.path().join("cache");
+    temp_env::with_var("LADE_CACHE_DIR", Some(gone.to_str().unwrap()), || {
         let mut command = sh_command("true");
         let logs = ChildOutputFiles::capture(&mut command).unwrap();
+        assert!(gone.join("network").is_dir());
         logs.cleanup();
     });
 }
@@ -31,16 +32,23 @@ fn child_output_files_creates_missing_tmpdir() {
 #[test]
 #[cfg(unix)]
 fn child_output_files_capture_stdout_and_stderr() {
-    let mut command = sh_command("printf 'out\nout'; printf 'err\nerr' >&2");
-    let logs = ChildOutputFiles::capture(&mut command).unwrap();
-    let status = command.spawn().unwrap().wait().unwrap();
-    assert!(status.success());
-    let text = logs.read_text();
-    logs.cleanup();
-    assert!(text.contains("stdout:\nout"));
-    assert!(text.contains("stderr:\nerr"));
-    assert!(!text.contains("out\nout"));
-    assert!(!text.contains("err\nerr"));
+    let cache = tempfile::tempdir().unwrap();
+    temp_env::with_var(
+        "LADE_CACHE_DIR",
+        Some(cache.path().to_str().unwrap()),
+        || {
+            let mut command = sh_command("printf 'out\nout'; printf 'err\nerr' >&2");
+            let logs = ChildOutputFiles::capture(&mut command).unwrap();
+            let status = command.spawn().unwrap().wait().unwrap();
+            assert!(status.success());
+            let text = logs.read_text();
+            logs.cleanup();
+            assert!(text.contains("stdout:\nout"));
+            assert!(text.contains("stderr:\nerr"));
+            assert!(!text.contains("out\nout"));
+            assert!(!text.contains("err\nerr"));
+        },
+    );
 }
 
 #[test]

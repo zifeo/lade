@@ -35,8 +35,7 @@ pub fn slot_after_install(key: &str, spec: &spec::Spec, installs: &Path) -> lock
     } else {
         spec.version.clone()
     };
-    let checksum = find_cli_file(installs, &names, &version, key, spec)
-        .and_then(|bin| lock::file_checksum(&bin));
+    let checksum = None;
     lock::LockSlot {
         name: key.to_string(),
         version,

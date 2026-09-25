@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::LadeFile;
-use crate::message_box::MessageBox;
+use crate::message_box::Report;
 
 use super::spec;
 
@@ -25,15 +25,26 @@ pub async fn run_lifecycle_commands(verb: &str) -> Result<()> {
         if command.is_empty() {
             continue;
         }
-        run_bin_command(&git, &key, &spec, command).await?;
+        let label = format!("{key} {command}");
+        if crate::live_progress::is_active() {
+            crate::live_progress::running(format!("cmd-{key}"), &label);
+            run_bin_command(&git, &key, &spec, command).await?;
+            crate::live_progress::done(format!("cmd-{key}"), &label);
+        } else {
+            Report::progress(format!("Running {key} {command}."));
+            run_bin_command(&git, &key, &spec, command).await?;
+        }
         ran.push(format!("{key} {command}"));
     }
+    if crate::live_progress::is_active() {
+        return Ok(());
+    }
     if !ran.is_empty() {
-        let mut mb = MessageBox::new().info().line(format!("{verb} commands"));
+        let mut report = Report::new().heading(format!("{verb} commands"));
         for line in ran {
-            mb = mb.line(format!("  {line}"));
+            report = report.line(format!("  {line}"));
         }
-        mb.print_stderr();
+        report.print();
     }
     Ok(())
 }

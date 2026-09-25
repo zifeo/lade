@@ -31,7 +31,8 @@ pub enum Command {
     /// `lade upgrade` is the Lade binary.
     Update,
     /// Remove this repo's Lade pre-tool hooks and run teardown commands.
-    Teardown,
+    /// `--global` wipes this machine's cache.
+    Teardown(TeardownCommand),
     /// Write a secret, package, or tunnel into the nearest lade.yaml.
     Add(AddCommand),
     /// Remove a binding from the nearest lade.yaml.
@@ -155,7 +156,7 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
             }
             return Ok(());
         }
-        Some(Command::Teardown) => {
+        Some(Command::Teardown(_)) => {
             if let Some(sub) = cmd.find_subcommand_mut("teardown") {
                 sub.print_help()?;
             }

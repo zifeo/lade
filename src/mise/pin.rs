@@ -58,10 +58,14 @@ pub(super) async fn pin_command(
     }
     ensure::require_for_inject().await?;
     if let (true, Some((path, slot))) = (lock_ok, found.as_ref()) {
-        install::install_locked(&slot.name, path, &spec, &installs, cwd).await?;
+        let locked_spec = spec::at_version(&spec, &slot.version);
+        if lock::is_generated(path) {
+            install::install_locked(path, &locked_spec, &installs, cwd).await?;
+        } else {
+            install::install_from_url(&locked_spec, &installs, cwd).await?;
+        }
     } else {
         install::install_from_url(&spec, &installs, cwd).await?;
-        rewrite_nearest_lock(cwd, key, &spec)?;
     }
     let found_version = resolve_version();
     match lookup::find_cli_dir(&installs, &names, &found_version, key, &spec) {
@@ -91,27 +95,6 @@ fn rewrite_floating_yaml(
     let uri = spec::replace_version(&spec.uri, resolved);
     crate::command::add::replace_binding_uri(&path, key, &uri)
         .map_err(|e| Error::install(e.to_string()))?;
-    Ok(())
-}
-
-fn rewrite_nearest_lock(cwd: &Path, key: &str, spec: &spec::Spec) -> Result<(), Error> {
-    let snap = super::plane::scan(cwd);
-    let Some(path) = snap.lock_path().map(Path::to_path_buf) else {
-        return Ok(());
-    };
-    let mut slots = lock::read_tools(&path).unwrap_or_default();
-    lock::upsert(
-        &mut slots,
-        lookup::slot_after_install(key, spec, &store::installs_dir()),
-    );
-    lock::write_tools(&path, &slots).map_err(|e| Error::install(e.to_string()))?;
-    if let super::plane::Plane::Mise { toml_write, .. } = snap.plane {
-        let entries = slots
-            .iter()
-            .map(|slot| (slot.name.clone(), slot.version.clone()))
-            .collect::<Vec<_>>();
-        super::toml_merge::upsert_tools(&toml_write, &entries).map_err(Error::install)?;
-    }
     Ok(())
 }
 
