@@ -31,11 +31,13 @@ jobs:
             exit 1
           fi
           echo "Releasing v$VERSION"
+          bash scripts/changelog-section.sh CHANGELOG.md "$VERSION" > release-notes.md
       - uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_name }}
           makeLatest: false
-          generateReleaseNotes: true
+          generateReleaseNotes: false
+          bodyFile: release-notes.md
 
   crates:
     needs:
