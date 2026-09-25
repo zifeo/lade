@@ -16,8 +16,7 @@ pub struct Snapshot {
     pub project_git_root: Option<PathBuf>,
     pub plane: Plane,
     pub leftover_lade_locks: Vec<PathBuf>,
-    /// Walk length. Read by plane tests. Production uses the plane, not the count.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub dirs_visited: usize,
     pub split_warning: bool,
 }
@@ -138,6 +137,7 @@ pub fn scan(start: &Path) -> Snapshot {
         project_git_root,
         plane,
         leftover_lade_locks,
+        #[cfg(test)]
         dirs_visited,
         split_warning,
     }
