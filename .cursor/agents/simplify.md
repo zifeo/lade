@@ -31,6 +31,12 @@ Comment only a non-obvious why.
 - A wrapper that adds no behavior
 - Nested `if` that an early return would flatten
 - A comment that restates the code
+- A field on a production struct that only a test reads
+  (`allow(dead_code)`, or `#[cfg(test)]` on the field). Assert what
+  the caller can see. A `#[cfg(test)]` function is fine
+- A fetch, path, or shell in production code that names macOS and
+  has no Linux path, or a hardcoded Darwin location
+  (`/opt/homebrew`, `launchctl`)
 - Speculative flexibility (extra enum, flag, or alias) with one caller
 
 Do not churn names for taste. Do not collapse two concerns into one

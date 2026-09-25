@@ -16,19 +16,6 @@ fn write(path: &std::path::Path, body: &str) {
     std::fs::write(path, body).unwrap();
 }
 
-fn expected_visits(start: &std::path::Path, home: &std::path::Path) -> usize {
-    let mut n = 1;
-    let mut path = start.to_path_buf();
-    while path != home {
-        let Some(parent) = path.parent() else {
-            break;
-        };
-        path = parent.to_path_buf();
-        n += 1;
-    }
-    n
-}
-
 #[test]
 fn a1_git_and_yaml_at_root_is_lade() {
     let home = tempdir().unwrap();
@@ -44,7 +31,6 @@ fn a1_git_and_yaml_at_root_is_lade() {
             }
         );
         assert_eq!(snap.project_git_root.as_deref(), Some(proj.as_path()));
-        assert_eq!(snap.dirs_visited, expected_visits(&proj, home.path()));
     });
 }
 
@@ -305,9 +291,21 @@ fn d2_one_pass_to_home() {
     let home = tempdir().unwrap();
     let start = home.path().join("a/b/c");
     std::fs::create_dir_all(&start).unwrap();
+    write(&start.join("lade.yaml"), ".:\n  X: raw://c\n");
+    write(&home.path().join("a/b/lade.yaml"), ".:\n  X: raw://b\n");
+    write(&home.path().join("a/lade.yaml"), ".:\n  X: raw://a\n");
+    write(&home.path().join("lade.yaml"), ".:\n  X: raw://home\n");
     with_home(home.path(), || {
         let snap = scan(&start);
-        assert_eq!(snap.dirs_visited, expected_visits(&start, home.path()));
-        assert_eq!(snap.dirs_visited, 4);
+        let files = snap.yaml_files;
+        assert_eq!(
+            files,
+            vec![
+                start.join("lade.yaml"),
+                home.path().join("a/b/lade.yaml"),
+                home.path().join("a/lade.yaml"),
+                home.path().join("lade.yaml"),
+            ]
+        );
     });
 }

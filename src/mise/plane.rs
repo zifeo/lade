@@ -16,8 +16,6 @@ pub struct Snapshot {
     pub project_git_root: Option<PathBuf>,
     pub plane: Plane,
     pub leftover_lade_locks: Vec<PathBuf>,
-    #[cfg(test)]
-    pub dirs_visited: usize,
     pub split_warning: bool,
 }
 
@@ -137,8 +135,6 @@ pub fn scan(start: &Path) -> Snapshot {
         project_git_root,
         plane,
         leftover_lade_locks,
-        #[cfg(test)]
-        dirs_visited,
         split_warning,
     }
 }

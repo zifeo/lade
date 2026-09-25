@@ -31,6 +31,8 @@ Report only issues with a credible failure. Skip style.
 - User stderr that bypasses `MessageBox`
 - A test that asserts the old contract
 - A path that can drop a secret or a pin on the floor
+- A macOS-only path, asset name, or shell in production code with no
+  Linux branch
 
 ## Output
 
