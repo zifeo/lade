@@ -106,6 +106,18 @@ fn parse_query_setup_teardown() {
 }
 
 #[test]
+fn latest_query_keeps_backend_options() {
+    let spec =
+        parse("mise://pipx/azure-cli[dependency_prereleases=allow,with=pip]@>=2.50.0").unwrap();
+    assert_eq!(
+        spec.latest_query(),
+        "pipx:azure-cli[dependency_prereleases=allow,with=pip]"
+    );
+    let aqua = parse("mise://aqua/gravitational/teleport@>=17.1.5").unwrap();
+    assert_eq!(aqua.latest_query(), "aqua:gravitational/teleport");
+}
+
+#[test]
 fn range_install_arg_omits_at() {
     let spec = parse("mise://aqua/kubernetes/kubectl@>=1.27.0").unwrap();
     assert!(spec.is_range());
@@ -113,6 +125,16 @@ fn range_install_arg_omits_at() {
     let exact = parse("mise://aqua/jqlang/jq@1.7.1").unwrap();
     assert!(!exact.is_range());
     assert_eq!(exact.install_arg(), "aqua:jqlang/jq@1.7.1");
+}
+
+#[test]
+fn range_is_not_a_concrete_version() {
+    assert!(!version_is_concrete(">=2.18.0"));
+    assert!(!version_is_concrete("latest"));
+    assert!(!version_is_concrete(""));
+    assert!(!version_is_concrete("*"));
+    assert!(version_is_concrete("2.39.0"));
+    assert!(version_is_concrete("apps_v1.69.0"));
 }
 
 #[test]

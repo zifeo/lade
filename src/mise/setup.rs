@@ -85,11 +85,11 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
         });
         let spec = match mode {
             PinMode::Update => {
-                let next = resolve_for_update(key, spec)?;
                 let old = existing
                     .as_ref()
                     .map(|(_, slot)| slot.version.as_str())
                     .unwrap_or("");
+                let next = resolve_for_update(key, spec, old)?;
                 if old != next.version {
                     bumped.push((key.clone(), old.to_string(), next.version.clone()));
                 }
@@ -107,23 +107,16 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
         } else if spec.is_range() {
             let label = named_version(key, &spec.version);
             crate::live_progress::running(key, &label);
-            match super::latest_matching(&spec) {
-                Ok(version) if !version.is_empty() => {
-                    rewrite_floating_pin(&key_dir, key, &spec, &version)?;
-                    crate::live_progress::done(key, named_version(key, &version));
-                    spec::at_version(&spec, &version)
+            let version = match super::resolve::concrete_version(&spec) {
+                Ok(version) => version,
+                Err(e) => {
+                    crate::live_progress::failed(key, &label);
+                    return Err(e.into());
                 }
-                _ => {
-                    if let Err(e) = install::install_from_url(&spec, &installs, &cwd).await {
-                        crate::live_progress::failed(key, &label);
-                        return Err(e.into());
-                    }
-                    let slot = lookup::slot_after_install(key, &spec, &installs);
-                    rewrite_floating_pin(&key_dir, key, &spec, &slot.version)?;
-                    crate::live_progress::done(key, named_version(key, &slot.version));
-                    spec::at_version(&spec, &slot.version)
-                }
-            }
+            };
+            rewrite_floating_pin(&key_dir, key, &spec, &version)?;
+            crate::live_progress::done(key, named_version(key, &version));
+            spec::at_version(&spec, &version)
         } else {
             spec.clone()
         };
@@ -266,18 +259,20 @@ fn lock_matches_pins(lock_path: &Path, pins: &[(String, Spec)]) -> bool {
     })
 }
 
-fn resolve_for_update(key: &str, spec: &Spec) -> Result<Spec, Error> {
+fn resolve_for_update(key: &str, spec: &Spec, current: &str) -> Result<Spec, Error> {
     let implied = implied::by_key(key).is_some();
     if !implied && !spec.is_range() {
         return Ok(spec.clone());
     }
-    crate::live_progress::running(key, named_version(key, &spec.version));
-    let Ok(version) = super::latest_matching(spec) else {
-        return Ok(spec.clone());
+    let label = named_version(key, &spec.version);
+    crate::live_progress::running(key, &label);
+    let version = match super::resolve::concrete_for_update(spec, current) {
+        Ok(version) => version,
+        Err(e) => {
+            crate::live_progress::failed(key, &label);
+            return Err(e);
+        }
     };
-    if version.is_empty() {
-        return Ok(spec.clone());
-    }
     crate::live_progress::done(key, named_version(key, &version));
     Ok(spec::at_version(spec, &version))
 }

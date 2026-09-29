@@ -53,7 +53,7 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
 fi
-if [ "$1" = "latest" ]; then
+if [ "$1" = "latest" ] || [ "$1" = "ls-remote" ]; then
   printf '%s\n' "1.7.1"
   exit 0
 fi

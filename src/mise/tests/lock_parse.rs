@@ -135,6 +135,17 @@ fn agrees_when_lock_satisfies_range() {
 }
 
 #[test]
+fn agrees_rejects_a_range_stored_as_the_version() {
+    let slot = LockSlot {
+        name: "op".to_string(),
+        version: ">=2.18.0".to_string(),
+        backend: Some("aqua:1password/cli".to_string()),
+    };
+    assert!(!agrees(&slot, ">=2.18.0", "aqua:1password/cli"));
+    assert!(!agrees(&slot, "latest", "aqua:1password/cli"));
+}
+
+#[test]
 fn generated_lock_detects_mise_output() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("lade.lock");

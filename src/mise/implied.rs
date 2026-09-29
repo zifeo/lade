@@ -201,6 +201,34 @@ mod tests {
     }
 
     #[test]
+    fn secret_clis_absent_from_aqua_use_an_installable_backend() {
+        let doppler = pins_for(&["doppler://api.doppler.com/p/e/K".to_string()], &[]);
+        assert_eq!(doppler[0].1.prefix, "github");
+        assert_eq!(doppler[0].1.package, "DopplerHQ/cli");
+
+        let infisical = pins_for(&["infisical://app.infisical.com/p/e/K".to_string()], &[]);
+        assert_eq!(infisical[0].1.prefix, "github");
+        assert_eq!(infisical[0].1.package, "Infisical/cli");
+        assert!(
+            infisical[0].1.options.contains_key("asset_pattern"),
+            "{:?}",
+            infisical[0].1.options
+        );
+
+        let azure = pins_for(&["azurekv://eng/db".to_string()], &[]);
+        assert_ne!(azure[0].1.prefix, "aqua");
+        assert!(
+            azure[0].1.package.contains("azure-cli"),
+            "{}",
+            azure[0].1.package
+        );
+
+        let gcloud = pins_for(&["gcpsm://proj/db".to_string()], &[]);
+        assert_eq!(gcloud[0].1.prefix, "vfox");
+        assert_eq!(gcloud[0].1.package, "mise-plugins/vfox-gcloud");
+    }
+
+    #[test]
     fn vault_implies_lock() {
         let pins = pins_for(&["vault://127.0.0.1:8200/secret/k/f".to_string()], &[]);
         assert_eq!(pins.len(), 1);

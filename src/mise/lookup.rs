@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use super::error::Error;
-use super::lock;
 use super::spec;
 use super::store;
 
@@ -26,20 +25,6 @@ pub fn matching_store_version(
     argv0s(key, spec)
         .into_iter()
         .find_map(|argv0| store::resolve_matching_version(installs, names, argv0, &spec.version))
-}
-
-pub fn slot_after_install(key: &str, spec: &spec::Spec, installs: &Path) -> lock::LockSlot {
-    let names = store::tool_names(spec, key, None);
-    let version = if spec.is_range() {
-        matching_store_version(key, spec, installs, &names).unwrap_or_else(|| spec.version.clone())
-    } else {
-        spec.version.clone()
-    };
-    lock::LockSlot {
-        name: key.to_string(),
-        version,
-        backend: Some(spec.backend_id()),
-    }
 }
 
 pub fn argv0s<'a>(key: &'a str, spec: &'a spec::Spec) -> Vec<&'a str> {
@@ -96,13 +81,13 @@ mod tests {
     #[test]
     fn cli_suffix_does_not_collapse_two_pins() {
         let op = spec::parse("mise://aqua/1password/cli@2.30.0").unwrap();
-        let doppler = spec::parse("mise://aqua/DopplerHQ/cli@3.75.1").unwrap();
+        let doppler = spec::parse("mise://github/DopplerHQ/cli@3.75.1").unwrap();
         let mut pins = Vec::new();
         upsert_pin(&mut pins, "op".to_string(), op);
         upsert_pin(&mut pins, "doppler".to_string(), doppler);
         assert_eq!(pins.len(), 2);
         assert_eq!(pins[0].1.backend_id(), "aqua:1password/cli");
-        assert_eq!(pins[1].1.backend_id(), "aqua:DopplerHQ/cli");
+        assert_eq!(pins[1].1.backend_id(), "github:DopplerHQ/cli");
     }
 
     #[test]

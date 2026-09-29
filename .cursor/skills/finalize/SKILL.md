@@ -23,15 +23,16 @@ Fetch `origin/main`. Rebase this branch onto it (or merge `main` if
 rebase is refused). If the rebase conflicts, stop and ask. Do not
 launch reviewers on a stale base.
 
-Then pin the range:
+Then pin what will be reviewed. Commits ahead of `origin/main` and
+uncommitted edits both count. A dirty tree is the review subject.
+Do not commit it to make a range. Stop only when both are empty.
 
 ```bash
 git fetch origin main
 git merge-base origin/main HEAD
 git diff --stat "$(git merge-base origin/main HEAD)"
+git diff --stat HEAD
 ```
-
-If the diff is empty after the rebase, stop.
 
 Build a `Spec:` block for the specs child, in this order:
 
@@ -42,11 +43,16 @@ Build a `Spec:` block for the specs child, in this order:
 If none of those exist, still launch specs. It must ask. Do not
 drop the seat.
 
+The child scope uses `Diff: branch changes` when the commit range is
+non-empty, and `Diff: uncommitted changes` when the work is only in
+the tree. When both exist, name both.
+
 ```text
 Full Repository Path: <abs>
-Diff: branch changes
+Diff: <branch changes | uncommitted changes | both>
 Base Branch: main
 Range: <merge-base>...<HEAD>
+Worktree: <clean | dirty, include HEAD>
 Spec:
 <quoted lines, or "none, ask">
 ```

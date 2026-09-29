@@ -9,6 +9,26 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-09-29
+
+### Fixed
+
+- **mise ranges:** a range is not passed to `mise latest`, `mise install`,
+  or `mise lock`. mise 2026.9.15 rejects a range on aqua, github, npm,
+  pipx, and vfox, prints nothing, and exits 0. A range already stored in
+  the project `mise.toml` is left out of the lock request. Setup lists
+  versions with `mise ls-remote` and installs the highest match.
+  `aqua:1password/cli` still has no listing, so the implied `op` pin
+  installs 2.39.0. Doppler, Infisical, Azure CLI, and gcloud use
+  GitHub releases, `pipx` (`github` on Windows), and the gcloud vfox plugin.
+- **Release archives:** `age-plugin-lade` is compiled into the release
+  archives. Packaging failed when the release build only compiled `lade`.
+- **Release notes** ([#211](https://github.com/zifeo/lade/pull/211)):
+  the tag workflow publishes the changelog section as the GitHub release
+  body. A re-run leaves existing notes and assets in place.
+
+[0.19.1]: https://github.com/zifeo/lade/compare/v0.19.0...v0.19.1
+
 ## [0.19.0] - 2026-09-25
 
 Since 0.18.0, a repo gets its CLIs from mise in one of two ways.
