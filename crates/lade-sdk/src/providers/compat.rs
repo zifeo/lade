@@ -10,6 +10,24 @@ pub struct CliSpec {
     pub docs: Option<&'static str>,
 }
 
+const fn infisical_mise() -> &'static str {
+    if cfg!(all(windows, target_arch = "aarch64")) {
+        "github/Infisical/cli[asset_pattern=cli_{{ version }}_{{ os(macos='darwin') }}_{{ arch(x64='amd64') }}.zip]"
+    } else {
+        "github/Infisical/cli[asset_pattern=cli_{{ version }}_{{ os(macos='darwin') }}_{{ arch(x64='amd64') }}.tar.gz]"
+    }
+}
+
+const fn azure_cli_mise() -> &'static str {
+    if cfg!(all(windows, target_arch = "aarch64")) {
+        "github/Azure/azure-cli[asset_pattern=azure-cli-{{ version }}-x64.zip,version_prefix=azure-cli-]"
+    } else if cfg!(windows) {
+        "github/Azure/azure-cli[version_prefix=azure-cli-]"
+    } else {
+        "pipx/azure-cli[dependency_prereleases=allow,with=pip]"
+    }
+}
+
 pub static CLI_SPECS: &[CliSpec] = &[
     CliSpec {
         scheme: "op",
@@ -25,7 +43,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "doppler",
         min_version: "3.76.0",
         max_version: None,
-        mise: Some("aqua/DopplerHQ/cli"),
+        mise: Some("github/DopplerHQ/cli"),
         tunnel: false,
         docs: Some("https://docs.doppler.com/docs/cli"),
     },
@@ -52,7 +70,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "infisical",
         min_version: "0.4.0",
         max_version: None,
-        mise: Some("aqua/Infisical/infisical"),
+        mise: Some(infisical_mise()),
         tunnel: false,
         docs: Some("https://infisical.com/docs/cli/overview"),
     },
@@ -90,7 +108,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "az",
         min_version: "2.50.0",
         max_version: None,
-        mise: Some("aqua/Azure/azure-cli"),
+        mise: Some(azure_cli_mise()),
         tunnel: false,
         docs: Some("https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli"),
     },
@@ -99,7 +117,7 @@ pub static CLI_SPECS: &[CliSpec] = &[
         bin: "gcloud",
         min_version: "450.0.0",
         max_version: None,
-        mise: Some("aqua/GoogleCloudPlatform/cloud-sdk"),
+        mise: Some("vfox/mise-plugins/vfox-gcloud"),
         tunnel: false,
         docs: Some("https://cloud.google.com/sdk/docs/authorizing"),
     },

@@ -12,11 +12,13 @@ mod plane;
 mod prepare;
 mod project;
 mod range;
+mod resolve;
 mod run;
 mod setup;
 mod spec;
 mod store;
 mod toml_merge;
+mod unlistable;
 mod walk;
 
 #[cfg(test)]
@@ -67,31 +69,40 @@ pub fn pin_exact(uri: &str) -> anyhow::Result<String> {
 }
 
 pub(super) fn latest_matching(spec: &spec::Spec) -> anyhow::Result<String> {
-    let query = if spec::version_is_range(&spec.version) {
-        format!("{}@{}", spec.backend_id(), spec.version)
-    } else {
-        spec.backend_id()
-    };
+    let query = spec.latest_query();
+    if spec::version_is_range(&spec.version) {
+        let versions = mise_lines(&["ls-remote", &query])?;
+        return Ok(resolve::highest_matching(&spec.version, &versions).unwrap_or_default());
+    }
+    let lines = mise_lines(&["latest", &query])?;
+    Ok(lines.into_iter().next().unwrap_or_default())
+}
+
+fn mise_lines(args: &[&str]) -> anyhow::Result<Vec<String>> {
     let output = std::process::Command::new(ensure::mise_program())
-        .args(["latest", &query])
+        .args(args)
+        .env("MISE_YES", "1")
         .output()
         .map_err(|e| Error::missing_mise(e.to_string()))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("mise latest {query} failed: {stderr}");
+        anyhow::bail!("mise {} failed: {stderr}", args.join(" "));
     }
-    Ok(parse_latest_stdout(&String::from_utf8_lossy(
-        &output.stdout,
-    )))
+    Ok(version_tokens(&String::from_utf8_lossy(&output.stdout)))
 }
 
-fn parse_latest_stdout(stdout: &str) -> String {
+fn version_tokens(stdout: &str) -> Vec<String> {
     stdout
         .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("")
-        .to_string()
+        .filter_map(|line| {
+            let token = line.split_whitespace().next()?.trim();
+            if token.is_empty() {
+                None
+            } else {
+                Some(token.to_string())
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Default)]

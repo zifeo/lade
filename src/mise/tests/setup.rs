@@ -68,6 +68,10 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
 fi
+if [ "$1" = "latest" ] || [ "$1" = "ls-remote" ]; then
+  printf '%s\n' "2.31.1"
+  exit 0
+fi
 printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
 if [ "$1" = "lock" ]; then
   toml="$cd_dir/mise.toml"
@@ -367,7 +371,7 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' "mise 2024.8.12"
   exit 0
 fi
-if [ "$1" = "latest" ]; then
+if [ "$1" = "latest" ] || [ "$1" = "ls-remote" ]; then
   printf '%s\n' "2.40.0"
   exit 0
 fi
@@ -450,4 +454,159 @@ exit 0
             assert!(installs.join("op/2.40.0/op").is_file());
         },
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_implied_op_when_latest_prints_nothing() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), range_rejecting_stub());
+    git_init(dir.path());
+    std::fs::write(
+        dir.path().join("lade.yaml"),
+        "^terraform:\n  TF_VAR_FOO: op://v/i/f\n",
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+            ("LADE_MISE_FETCH", Some("0")),
+        ],
+        || {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+            let result = block_on(setup_pins(PinMode::Locked));
+            std::env::set_current_dir(prev).unwrap();
+            result.unwrap();
+            let lock = std::fs::read_to_string(dir.path().join("lade.lock")).unwrap();
+            assert!(lock.contains("2.39.0"), "{lock}");
+            assert!(!lock.contains(">="), "{lock}");
+            let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
+            assert!(!args.contains(">="), "{args}");
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_refuses_a_range_when_nothing_lists_it() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), range_rejecting_stub());
+    git_init(dir.path());
+    std::fs::write(
+        dir.path().join("lade.yaml"),
+        "^jq:\n  jq: mise://aqua/jqlang/jq@>=1.7.0\n",
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+            ("LADE_MISE_FETCH", Some("0")),
+        ],
+        || {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+            let result = block_on(setup_pins(PinMode::Locked));
+            std::env::set_current_dir(prev).unwrap();
+            let text = result.unwrap_err().to_string();
+            assert!(text.contains("aqua:jqlang/jq"), "{text}");
+            assert!(text.contains("not installed"), "{text}");
+            assert!(!dir.path().join("lade.lock").exists());
+            if installs.join("mise-args").is_file() {
+                let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
+                assert!(!args.contains("install"), "{args}");
+            }
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn update_keeps_a_newer_lock_when_latest_prints_nothing() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), range_rejecting_stub());
+    git_init(dir.path());
+    std::fs::write(
+        dir.path().join("lade.yaml"),
+        "^terraform:\n  TF_VAR_FOO: op://v/i/f\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        "[[tools.op]]\nversion = \"2.40.0\"\nbackend = \"aqua:1password/cli\"\n",
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+            ("LADE_MISE_FETCH", Some("0")),
+        ],
+        || {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+            let result = block_on(setup_pins(PinMode::Update));
+            std::env::set_current_dir(prev).unwrap();
+            result.unwrap();
+            let lock = std::fs::read_to_string(dir.path().join("lade.lock")).unwrap();
+            assert!(lock.contains("2.40.0"), "{lock}");
+            assert!(!lock.contains("2.39.0"), "{lock}");
+            assert!(!lock.contains(">="), "{lock}");
+        },
+    );
+}
+
+#[cfg(unix)]
+fn range_rejecting_stub() -> &'static str {
+    r#"
+cd_dir="."
+if [ "$1" = "--cd" ]; then
+  cd_dir="$2"
+  shift 2
+fi
+if [ "$1" = "--version" ]; then
+  printf '%s\n' "mise 2024.8.12"
+  exit 0
+fi
+if [ "$1" = "latest" ] || [ "$1" = "ls-remote" ]; then
+  exit 0
+fi
+printf '%s\n' "$*" >> "$MISE_INSTALLS_DIR/mise-args"
+if printf '%s' "$*" | grep -q '>='; then
+  printf '%s\n' "range on argv" >&2
+  exit 1
+fi
+if [ -f "$cd_dir/mise.toml" ] && grep -q '>=' "$cd_dir/mise.toml"; then
+  printf '%s\n' "range in mise.toml" >&2
+  exit 1
+fi
+if [ "$1" = "lock" ]; then
+  cat "$cd_dir/mise.toml" > "$cd_dir/mise.lock"
+  exit 0
+fi
+exit 0
+"#
 }

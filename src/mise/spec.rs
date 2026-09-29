@@ -45,6 +45,18 @@ impl Spec {
         self.cli_spec()
     }
 
+    /// Tool id for `mise latest` and `mise ls-remote`.
+    /// The version stays off this string. mise 2026.9.15 rejects a range
+    /// on aqua, github, npm, pipx, and vfox: it warns, prints nothing, and
+    /// exits 0.
+    pub fn latest_query(&self) -> String {
+        let full = self.cli_spec();
+        match full.rsplit_once('@') {
+            Some((head, _)) => head.to_string(),
+            None => full,
+        }
+    }
+
     pub fn cli_spec(&self) -> String {
         if self.options.is_empty() {
             return format!("{}:{}@{}", self.prefix, self.package, self.version);
@@ -75,6 +87,10 @@ pub fn version_is_range(version: &str) -> bool {
 
 pub fn version_is_floating(version: &str) -> bool {
     matches!(version, "latest" | "lts")
+}
+
+pub fn version_is_concrete(version: &str) -> bool {
+    !version.is_empty() && !version_is_range(version) && !version_is_floating(version)
 }
 
 pub fn at_version(spec: &Spec, version: &str) -> Spec {

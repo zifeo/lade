@@ -39,6 +39,24 @@ impl Error {
         ])
     }
 
+    pub fn no_listed_version(backend: &str, version: &str) -> Self {
+        Self::box_lines([
+            format!("mise listed no version for {backend}."),
+            String::new(),
+            format!("`{version}` stays unresolved."),
+            "The package was not installed.".to_string(),
+        ])
+    }
+
+    pub fn range_install(version: &str) -> Self {
+        Self::box_lines([
+            "A version range was passed to mise install.".to_string(),
+            String::new(),
+            format!("`{version}` is not a concrete version."),
+            "The package was not installed.".to_string(),
+        ])
+    }
+
     pub fn install(detail: String) -> Self {
         Self::box_lines([
             "mise install failed.".to_string(),

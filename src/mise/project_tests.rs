@@ -46,6 +46,18 @@ fn conflict_on_same_tool_different_version() {
 }
 
 #[test]
+fn pin_only_toml_keeps_backend_options() {
+    let spec = parse(
+        "mise://github/Infisical/cli[asset_pattern=cli_{{ version }}_{{ os(macos='darwin') }}_{{ arch(x64='amd64') }}.tar.gz]@0.43.137",
+    )
+    .unwrap();
+    let body = pin_only_toml(&spec);
+    assert!(body.contains("asset_pattern"), "{body}");
+    assert!(body.contains("version = \"0.43.137\""), "{body}");
+    assert!(body.contains("github:Infisical/cli"), "{body}");
+}
+
+#[test]
 fn pin_only_toml_is_just_this_spec() {
     let spec = parse("mise://core/rust@1.96.0").unwrap();
     let body = pin_only_toml(&spec);
@@ -85,6 +97,38 @@ fn compose_replaces_bin_alias_with_backend() {
         "{body}"
     );
     assert!(!body.contains("op = "), "{body}");
+}
+
+#[test]
+fn compose_drops_a_range_from_the_project_toml() {
+    let spec = parse("mise://aqua/1password/cli@2.39.0").unwrap();
+    let theirs = vec![
+        ProjectTool {
+            key: "op".to_string(),
+            version: ">=2.18.0".to_string(),
+        },
+        ProjectTool {
+            key: "node".to_string(),
+            version: "24.16.0".to_string(),
+        },
+        ProjectTool {
+            key: "aqua:jqlang/jq".to_string(),
+            version: ">=1.7.0".to_string(),
+        },
+        ProjectTool {
+            key: "python".to_string(),
+            version: "latest".to_string(),
+        },
+    ];
+    let body = compose_toml(&theirs, &[("op".to_string(), spec)]);
+    assert!(
+        body.contains("\"aqua:1password/cli\" = \"2.39.0\""),
+        "{body}"
+    );
+    assert!(body.contains("node = \"24.16.0\""), "{body}");
+    assert!(body.contains("python = \"latest\""), "{body}");
+    assert!(!body.contains(">="), "{body}");
+    assert!(!body.contains("jq"), "{body}");
 }
 
 #[test]

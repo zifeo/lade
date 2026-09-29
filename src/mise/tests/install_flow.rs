@@ -1,5 +1,15 @@
 use super::*;
 
+#[test]
+fn install_from_url_refuses_a_range_without_calling_mise() {
+    let dir = tempdir().unwrap();
+    let spec = parse("mise://aqua/1password/cli@>=2.18.0").unwrap();
+    let err = block_on(install::install_from_url(&spec, dir.path(), dir.path())).unwrap_err();
+    let text = err.to_string();
+    assert!(text.contains(">=2.18.0"), "{text}");
+    assert!(text.contains("not a concrete version"), "{text}");
+}
+
 #[cfg(unix)]
 #[test]
 fn install_from_url_isolates_pin_only_config() {

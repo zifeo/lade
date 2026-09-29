@@ -146,6 +146,10 @@ pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
 pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
     let mut tools: BTreeMap<String, String> = BTreeMap::new();
     for tool in theirs {
+        // mise 2026.9.15 warns, exits 0, and writes the range into the lock.
+        if spec::version_is_range(&tool.version) {
+            continue;
+        }
         tools.insert(tool.key.clone(), tool.version.clone());
     }
     for (key, spec) in pins {
@@ -164,6 +168,9 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
     }
     let mut out = String::from("[tools]\n");
     for (key, version) in tools {
+        let options = pins.iter().find_map(|(_, spec)| {
+            (spec.backend_id() == key && spec.version == version).then_some(&spec.options)
+        });
         let rendered = if key
             .chars()
             .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
@@ -173,11 +180,24 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
             key
         };
         out.push_str(&format!(
-            "{rendered} = \"{}\"\n",
-            version.replace('"', "\\\"")
+            "{rendered} = {}\n",
+            tool_assignment(&version, options)
         ));
     }
     out
+}
+
+fn tool_assignment(version: &str, options: Option<&BTreeMap<String, String>>) -> String {
+    let version = version.replace('"', "\\\"");
+    let Some(options) = options.filter(|opts| !opts.is_empty()) else {
+        return format!("\"{version}\"");
+    };
+    let mut parts = vec![format!("version = \"{version}\"")];
+    for (key, value) in options {
+        let value = value.replace('\\', "\\\\").replace('"', "\\\"");
+        parts.push(format!("{key} = \"{value}\""));
+    }
+    format!("{{ {} }}", parts.join(", "))
 }
 
 #[cfg(test)]

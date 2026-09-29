@@ -8,6 +8,7 @@ use super::project;
 use super::spec::Spec;
 
 pub async fn install_from_url(spec: &Spec, installs: &Path, cwd: &Path) -> Result<(), Error> {
+    require_concrete(spec)?;
     let root = crate::cache::prepare_mise_project(cwd, &project::pin_only_toml(spec), None)
         .map_err(|e| Error::install(e.to_string()))?;
     let config = root.join("mise.toml");
@@ -23,6 +24,7 @@ pub async fn install_locked(
     installs: &Path,
     cwd: &Path,
 ) -> Result<(), Error> {
+    require_concrete(spec)?;
     let root =
         crate::cache::prepare_mise_project(cwd, &project::pin_only_toml(spec), Some(lock_src))
             .map_err(|e| Error::install(e.to_string()))?;
@@ -195,6 +197,14 @@ pub(super) fn failure_detail(output: &Output, args: &[String]) -> String {
         stdout
     } else {
         format!("mise {} failed", args.join(" "))
+    }
+}
+
+fn require_concrete(spec: &Spec) -> Result<(), Error> {
+    if super::spec::version_is_concrete(&spec.version) {
+        Ok(())
+    } else {
+        Err(Error::range_install(&spec.version))
     }
 }
 

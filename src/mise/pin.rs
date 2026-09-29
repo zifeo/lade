@@ -57,17 +57,28 @@ pub(super) async fn pin_command(
         ]));
     }
     ensure::require_for_inject().await?;
-    if let (true, Some((path, slot))) = (lock_ok, found.as_ref()) {
+    let installed_version = if let (true, Some((path, slot))) = (lock_ok, found.as_ref()) {
         let locked_spec = spec::at_version(&spec, &slot.version);
         if lock::is_generated(path) {
             install::install_locked(path, &locked_spec, &installs, cwd).await?;
         } else {
             install::install_from_url(&locked_spec, &installs, cwd).await?;
         }
+        None
     } else {
-        install::install_from_url(&spec, &installs, cwd).await?;
-    }
-    let found_version = resolve_version();
+        let installed = if spec.is_range() {
+            let version = super::resolve::concrete_version(&spec)?;
+            spec::at_version(&spec, &version)
+        } else {
+            spec.clone()
+        };
+        install::install_from_url(&installed, &installs, cwd).await?;
+        Some(installed.version)
+    };
+    let found_version = match installed_version {
+        Some(version) => version,
+        None => resolve_version(),
+    };
     match lookup::find_cli_dir(&installs, &names, &found_version, key, &spec) {
         Some(bin_dir) => {
             rewrite_floating_yaml(cwd, key, &spec, &found_version)?;

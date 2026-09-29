@@ -122,6 +122,9 @@ pub fn agrees(slot: &LockSlot, version: &str, backend_id: &str) -> bool {
     if !backend_ok {
         return false;
     }
+    if !super::spec::version_is_concrete(&slot.version) {
+        return false;
+    }
     if slot.version == version {
         return true;
     }
