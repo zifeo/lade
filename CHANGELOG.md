@@ -13,7 +13,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
-- **mise ranges:** a range is not passed to `mise latest`, `mise install`,
+- **mise ranges** ([#212](https://github.com/zifeo/lade/pull/212)): a range is not passed to `mise latest`, `mise install`,
   or `mise lock`. mise 2026.9.15 rejects a range on aqua, github, npm,
   pipx, and vfox, prints nothing, and exits 0. A range already stored in
   the project `mise.toml` is left out of the lock request. Setup lists
