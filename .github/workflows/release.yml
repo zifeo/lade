@@ -96,7 +96,10 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}
+          key: ${{ runner.os }}-${{ matrix.target }}
+          # The cross gnu image cannot reload proc-macro dylibs from a
+          # restored target dir. Keep the registry cache, rebuild objects.
+          cache-targets: ${{ matrix.build_cmd != 'cross' }}
       - name: Install cross
         if: matrix.build_cmd == 'cross'
         run: curl -L https://github.com/cross-rs/cross/releases/download/v0.2.5/cross-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin
