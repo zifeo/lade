@@ -140,10 +140,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - name: Mark release as latest
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --latest
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --latest
 
   bump:
     needs:
