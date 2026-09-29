@@ -604,7 +604,7 @@ if [ -f "$cd_dir/mise.toml" ] && grep -q '>=' "$cd_dir/mise.toml"; then
   exit 1
 fi
 if [ "$1" = "lock" ]; then
-  cp "$cd_dir/mise.toml" "$cd_dir/mise.lock"
+  cat "$cd_dir/mise.toml" > "$cd_dir/mise.lock"
   exit 0
 fi
 exit 0
