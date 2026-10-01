@@ -2117,7 +2117,7 @@ dependencies = [
  "aho-corasick",
  "anyhow",
  "assert_cmd",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "clap",
  "clap-verbosity-flag",
