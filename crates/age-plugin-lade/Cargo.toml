@@ -1,6 +1,6 @@
 [package]
 name = "age-plugin-lade"
-version = "0.19.2"
+version = "0.19.3-beta.1"
 edition = "2024"
 description = "age plugin that hydrates Lade secret URIs"
 license = "MPL-2.0"
