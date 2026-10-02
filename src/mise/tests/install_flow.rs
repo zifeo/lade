@@ -124,6 +124,54 @@ fn install_locked_isolates_pin_only_config() {
 
 #[cfg(unix)]
 #[test]
+fn install_locked_requests_the_declared_tool_id() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), isolation_record_stub());
+    write_foreign_home_mise(home.path());
+    std::fs::write(
+        dir.path().join("mise.lock"),
+        "[[tools.infisical]]\nversion = \"0.43.55\"\nbackend = \"github:Infisical/cli\"\n",
+    )
+    .unwrap();
+    let mut spec =
+        parse("mise://github/Infisical/cli[asset_pattern=from-implied]@0.43.55").unwrap();
+    spec.options.clear();
+    spec.install_id = Some("infisical".to_string());
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+        ],
+        || {
+            block_on(install::install_locked(
+                &dir.path().join("mise.lock"),
+                &spec,
+                &installs,
+                dir.path(),
+            ))
+            .unwrap();
+            let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
+            assert!(args.contains("install"), "{args}");
+            assert!(args.contains("--locked"), "{args}");
+            assert!(args.contains("infisical"), "{args}");
+            assert!(!args.contains("github:Infisical/cli"), "{args}");
+            let isolated = std::fs::read_to_string(installs.join("isolated.toml")).unwrap();
+            assert!(isolated.contains("infisical = \"0.43.55\""), "{isolated}");
+            assert!(!isolated.contains("asset_pattern"), "{isolated}");
+            assert!(!isolated.contains("from-implied"), "{isolated}");
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn refresh_lock_writes_mise_output_to_lade_lock() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

@@ -1,3 +1,4 @@
+mod decide;
 mod ensure;
 mod env;
 mod error;

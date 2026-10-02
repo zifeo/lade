@@ -60,6 +60,9 @@ pub fn slot_and_path(start: &Path, names: &[&str]) -> Option<(PathBuf, LockSlot)
     {
         return Some((path.to_path_buf(), slot));
     }
+    if snap.is_mise() {
+        return None;
+    }
     walk_up(start, |dir| {
         LOCK_NAMES.iter().find_map(|name| {
             let path = dir.join(name);
@@ -132,13 +135,30 @@ pub fn agrees(slot: &LockSlot, version: &str, backend_id: &str) -> bool {
         return true;
     }
     if !super::spec::version_is_range(version) {
-        return false;
+        return lock_extends_version(&slot.version, version);
     }
     let Ok(req) = semver::VersionReq::parse(version) else {
         return false;
     };
-    let Ok(found) = semver::Version::parse(&slot.version) else {
+    let Some(found) = parse_tool_version(&slot.version) else {
         return false;
     };
     req.matches(&found)
+}
+
+fn lock_extends_version(locked: &str, requested: &str) -> bool {
+    locked.starts_with(requested) && locked.as_bytes().get(requested.len()) == Some(&b'.')
+}
+
+fn parse_tool_version(raw: &str) -> Option<semver::Version> {
+    if let Ok(version) = semver::Version::parse(raw) {
+        return Some(version);
+    }
+    let parts: Vec<&str> = raw.split('.').collect();
+    let padded = match parts.as_slice() {
+        [a] if !a.is_empty() => format!("{a}.0.0"),
+        [a, b] if !a.is_empty() && !b.is_empty() => format!("{a}.{b}.0"),
+        _ => return None,
+    };
+    semver::Version::parse(&padded).ok()
 }

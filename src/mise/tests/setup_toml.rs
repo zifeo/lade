@@ -51,7 +51,7 @@ fn setup_extends_mise_toml_and_lock() {
 
 #[cfg(unix)]
 #[test]
-fn setup_rewrites_bin_alias_to_backend_id() {
+fn setup_keeps_a_declared_alias() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
@@ -86,21 +86,24 @@ fn setup_rewrites_bin_alias_to_backend_id() {
             result.unwrap();
             let toml = std::fs::read_to_string(dir.path().join("mise.toml")).unwrap();
             assert!(toml.contains("node = \"24\""), "{toml}");
-            assert!(
-                toml.contains("\"aqua:1password/cli\" = \"2.30.0\""),
-                "{toml}"
-            );
-            assert!(!toml.contains("op = "), "{toml}");
+            assert!(toml.contains("op = \"2.30.0\""), "{toml}");
+            assert!(!toml.contains("aqua:1password/cli"), "{toml}");
             let lock = std::fs::read_to_string(dir.path().join("mise.lock")).unwrap();
-            assert!(lock.contains("aqua:1password/cli"), "{lock}");
-            assert!(!lock.contains("tools.op"), "{lock}");
+            assert!(lock.contains("2.30.0"), "{lock}");
+            assert!(
+                lock.contains("tools.\"op\"") || lock.contains("tools.op"),
+                "{lock}"
+            );
+            let isolated = std::fs::read_to_string(installs.join("isolated.toml")).unwrap();
+            assert!(isolated.contains("op = \"2.30.0\""), "{isolated}");
+            assert!(!isolated.contains("aqua:1password/cli"), "{isolated}");
         },
     );
 }
 
 #[cfg(unix)]
 #[test]
-fn setup_toml_in_range_heals_stale_lock() {
+fn provider_range_keeps_its_lock_ahead_of_the_toml() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
@@ -137,10 +140,11 @@ fn setup_toml_in_range_heals_stale_lock() {
             std::env::set_current_dir(prev).unwrap();
             result.unwrap();
             let lock = std::fs::read_to_string(dir.path().join("mise.lock")).unwrap();
-            assert!(lock.contains("1.8.0"), "{lock}");
-            assert!(!lock.contains("1.7.1"), "{lock}");
+            assert!(lock.contains("1.7.1"), "{lock}");
+            assert!(!lock.contains("1.8.0"), "{lock}");
             let toml = std::fs::read_to_string(dir.path().join("mise.toml")).unwrap();
-            assert!(toml.contains("1.8.0"), "{toml}");
+            assert!(toml.contains("1.7.1"), "{toml}");
+            assert!(!toml.contains("1.8.0"), "{toml}");
         },
     );
 }

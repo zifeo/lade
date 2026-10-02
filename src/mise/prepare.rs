@@ -39,7 +39,7 @@ pub async fn prepare(
             continue;
         }
         let allow_install = key == argv0;
-        match super::pin::pin_command(cwd, key, spec.clone(), allow_install).await {
+        match super::pin::pin_command(cwd, key, spec.clone(), allow_install, true).await {
             Ok(extra) => merge_outcome(&mut out, extra),
             Err(_) if key != argv0 => {}
             Err(err) => return Err(err),
@@ -52,7 +52,7 @@ pub async fn prepare(
     }
     let sources = config.sources_for_command(command, saved_user, audience);
     for (key, spec) in implied::pins_for(&sources, &pins) {
-        let extra = super::pin::pin_command(cwd, &key, spec, false).await?;
+        let extra = super::pin::pin_command(cwd, &key, spec, false, false).await?;
         merge_outcome(&mut out, extra);
     }
     Ok(out)

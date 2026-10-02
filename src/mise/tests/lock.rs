@@ -231,7 +231,7 @@ url = "https://example.com/jq"
 
 #[cfg(unix)]
 #[test]
-fn child_lock_walks_parent_for_missing_tool() {
+fn nearer_lock_without_the_tool_does_not_borrow_the_parent() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let child = dir.path().join("apps/web");
@@ -277,7 +277,8 @@ url = "https://example.com/jq"
             block_on(prepare(&config, "jq", &child, &None, Audience::Human)).unwrap();
             let args = std::fs::read_to_string(installs.join("mise-args")).unwrap();
             assert!(args.contains("install"), "{args}");
-            assert!(args.contains("--locked"), "{args}");
+            assert!(args.contains("1.7.1"), "{args}");
+            assert!(!args.contains("--locked"), "{args}");
         },
     );
 }

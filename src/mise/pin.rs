@@ -17,11 +17,20 @@ pub(super) async fn pin_command(
     key: &str,
     spec: spec::Spec,
     allow_install: bool,
+    from_yaml: bool,
 ) -> Result<Outcome, Error> {
+    let snap = super::plane::scan(cwd);
+    let spec = super::decide::decide(&snap, key, spec, from_yaml)
+        .spec()
+        .clone();
     let installs = store::installs_dir();
     let names = store::tool_names(&spec, key, None);
     let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    let found = lock::slot_and_path(cwd, &name_refs);
+    let found = snap.lock_path().and_then(|path| {
+        path.is_file()
+            .then(|| lock::slot_for(path, &name_refs).map(|slot| (path.to_path_buf(), slot)))
+            .flatten()
+    });
     let lock_ok = found
         .as_ref()
         .is_some_and(|(_, slot)| lock::agrees(slot, &spec.version, &spec.backend_id()));

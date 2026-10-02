@@ -9,6 +9,20 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-10-03
+
+### Fixed
+
+- **Project mise.toml** ([#220](https://github.com/zifeo/lade/pull/220)): when a
+  repo already has a `mise.toml`, implied CLIs use the in-range row as
+  written. A yaml pin still wins. A missing tool is added with `mise use`.
+  Lock is the nearest `mise.lock`. A leftover `lade.lock` is unread.
+- **Release latest:** the mark-latest job checks out the repo before
+  `gh release edit`.
+- **Release cache:** cross builds no longer reuse a broken target dir.
+
+[0.19.2]: https://github.com/zifeo/lade/compare/v0.19.1...v0.19.2
+
 ## [0.19.1] - 2026-09-29
 
 ### Fixed
