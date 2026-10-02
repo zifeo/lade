@@ -25,6 +25,7 @@ pub fn installs_dir() -> PathBuf {
 pub fn tool_names(spec: &Spec, pin_key: &str, lock_name: Option<&str>) -> Vec<String> {
     let mut names = Vec::new();
     for name in [
+        spec.install_id.clone(),
         lock_name.map(str::to_string),
         Some(spec.short_name().to_string()),
         Some(pin_key.to_string()),
@@ -231,6 +232,14 @@ mod tests {
         write_exec(&root.join("jq"));
         let found = find_pinned_bin(dir.path(), &names, "1.7.1", "jq").unwrap();
         assert_eq!(found, root);
+    }
+
+    #[test]
+    fn tool_names_lead_with_the_declared_id() {
+        let mut spec = parse("mise://github/Infisical/cli@0.43.55").unwrap();
+        spec.install_id = Some("infisical".to_string());
+        let names = tool_names(&spec, "infisical", None);
+        assert_eq!(names.first().map(String::as_str), Some("infisical"));
     }
 
     #[test]

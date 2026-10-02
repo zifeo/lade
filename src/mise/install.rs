@@ -18,6 +18,22 @@ pub async fn install_from_url(spec: &Spec, installs: &Path, cwd: &Path) -> Resul
     require_ok(output, &args)
 }
 
+/// `mise use` writes the tool into the project `mise.toml`. Lade does not.
+pub async fn use_in_project(spec: &Spec, toml_path: &Path, installs: &Path) -> Result<(), Error> {
+    require_concrete(spec)?;
+    let dir = toml_path.parent().unwrap_or(toml_path);
+    let tool = format!("{}@{}", spec.backend_id(), spec.version);
+    let args = vec![
+        "use".to_string(),
+        "--path".to_string(),
+        toml_path.to_string_lossy().into_owned(),
+        tool,
+    ];
+    let ignored = project::isolate_config_paths(dir);
+    let output = run_mise_progress(installs, dir, args.clone(), None, &ignored).await?;
+    require_ok(output, &args)
+}
+
 pub async fn install_locked(
     lock_src: &Path,
     spec: &Spec,
@@ -32,7 +48,7 @@ pub async fn install_locked(
     let args = vec![
         "install".to_string(),
         "--locked".to_string(),
-        spec.backend_id(),
+        spec.tool_id(),
     ];
     let ignored = project::isolate_config_paths(cwd);
     let output = run_mise_progress(installs, &root, args.clone(), Some(config), &ignored).await?;

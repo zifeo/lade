@@ -58,6 +58,63 @@ fn pin_only_toml_keeps_backend_options() {
 }
 
 #[test]
+fn pin_only_toml_uses_a_declared_install_id() {
+    let mut spec = parse(
+        "mise://github/Infisical/cli[asset_pattern=cli_{{ version }}_{{ os(macos='darwin') }}_{{ arch(x64='amd64') }}.tar.gz]@0.43.55",
+    )
+    .unwrap();
+    spec.options.clear();
+    spec.install_id = Some("infisical".to_string());
+    let body = pin_only_toml(&spec);
+    assert_eq!(body, "[tools]\ninfisical = \"0.43.55\"\n");
+}
+
+#[test]
+fn compose_keeps_a_declared_alias() {
+    let mut spec = parse(
+        "mise://github/Infisical/cli[asset_pattern=cli_{{ version }}_{{ os(macos='darwin') }}_{{ arch(x64='amd64') }}.tar.gz]@0.43.55",
+    )
+    .unwrap();
+    spec.options.clear();
+    spec.install_id = Some("infisical".to_string());
+    let theirs = vec![
+        ProjectTool {
+            key: "node".to_string(),
+            version: "24".to_string(),
+        },
+        ProjectTool {
+            key: "infisical".to_string(),
+            version: "0.43.55".to_string(),
+        },
+    ];
+    let body = compose_toml(&theirs, &[("infisical".to_string(), spec)]);
+    assert!(body.contains("infisical = \"0.43.55\""), "{body}");
+    assert!(body.contains("node = \"24\""), "{body}");
+    assert!(!body.contains("github:Infisical/cli"), "{body}");
+    assert!(!body.contains("asset_pattern"), "{body}");
+}
+
+#[test]
+fn compose_renders_declared_options_on_the_declared_key() {
+    let mut spec = parse("mise://github/Infisical/cli@0.43.55").unwrap();
+    spec.options
+        .insert("asset_pattern".to_string(), "from-toml".to_string());
+    spec.install_id = Some("github:Infisical/cli".to_string());
+    let body = compose_toml(&[], &[("infisical".to_string(), spec)]);
+    assert!(body.contains("from-toml"), "{body}");
+    assert!(body.contains("github:Infisical/cli"), "{body}");
+    assert!(!body.contains("infisical ="), "{body}");
+}
+
+#[test]
+fn tool_key_prefers_the_declared_id() {
+    let mut spec = parse("mise://aqua/1password/cli@2.30.0").unwrap();
+    assert_eq!(tool_key("op", &spec), "aqua:1password/cli");
+    spec.install_id = Some("op".to_string());
+    assert_eq!(tool_key("op", &spec), "op");
+}
+
+#[test]
 fn pin_only_toml_is_just_this_spec() {
     let spec = parse("mise://core/rust@1.96.0").unwrap();
     let body = pin_only_toml(&spec);
@@ -75,6 +132,19 @@ fn compose_keeps_matching_short_name() {
     let body = compose_toml(&theirs, &[("jq".to_string(), spec)]);
     assert!(body.contains("jq = \"1.7.1\""), "{body}");
     assert!(!body.contains("aqua:jqlang/jq"), "{body}");
+}
+
+#[test]
+fn compose_drops_an_alias_when_the_pin_version_moved() {
+    let spec = parse("mise://github/Infisical/cli@9.9.9").unwrap();
+    let theirs = vec![ProjectTool {
+        key: "infisical".to_string(),
+        version: "0.43.55".to_string(),
+    }];
+    let body = compose_toml(&theirs, &[("infisical".to_string(), spec)]);
+    assert!(body.contains("9.9.9"), "{body}");
+    assert!(!body.contains("infisical = "), "{body}");
+    assert!(!body.contains("0.43.55"), "{body}");
 }
 
 #[test]

@@ -122,6 +122,29 @@ fn agrees_when_lock_omits_backend() {
 }
 
 #[test]
+fn agrees_pads_a_two_part_version() {
+    let slot = LockSlot {
+        name: "kubectl".to_string(),
+        version: "1.31".to_string(),
+        backend: Some("aqua:kubernetes/kubectl".to_string()),
+    };
+    assert!(agrees(&slot, ">=1.27.0", "aqua:kubernetes/kubectl"));
+    assert!(!agrees(&slot, ">=1.32.0", "aqua:kubernetes/kubectl"));
+}
+
+#[test]
+fn agrees_when_lock_extends_a_two_part_version() {
+    let slot = LockSlot {
+        name: "kubectl".to_string(),
+        version: "1.31.4".to_string(),
+        backend: Some("aqua:kubernetes/kubectl".to_string()),
+    };
+    assert!(agrees(&slot, "1.31", "aqua:kubernetes/kubectl"));
+    assert!(!agrees(&slot, "1.3", "aqua:kubernetes/kubectl"));
+    assert!(!agrees(&slot, "1.32", "aqua:kubernetes/kubectl"));
+}
+
+#[test]
 fn agrees_when_lock_satisfies_range() {
     let slot = LockSlot {
         name: "op".to_string(),
@@ -189,6 +212,19 @@ fn child_lock_walk_finds_parent_tool() {
     assert!(slot_for(&found, &["jq", "aqua:jqlang/jq"]).is_none());
     assert!(slot_for_walk(&child, &["jq", "aqua:jqlang/jq"]).is_some());
     assert!(slot_for_walk(&child, &["node"]).is_some());
+}
+
+#[test]
+fn mise_plane_does_not_read_leftover_lade_lock() {
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(dir.path().join("mise.toml"), "[tools]\nnode = \"24\"\n").unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+    )
+    .unwrap();
+    assert!(slot_for_walk(dir.path(), &["jq", "aqua:jqlang/jq"]).is_none());
 }
 
 #[test]

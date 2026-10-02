@@ -102,8 +102,12 @@ pub fn pin_only_toml(spec: &Spec) -> String {
     compose_toml(&[], &[("_".to_string(), spec.clone())])
 }
 
-/// `jq` stays `jq`. `op` is the binary, so the tool id is `aqua:1password/cli`.
+/// `jq` stays `jq`. An id copied from `mise.toml` stays that id.
+/// Otherwise `op` is the binary, so the tool id is `aqua:1password/cli`.
 pub fn tool_key(key: &str, spec: &Spec) -> String {
+    if let Some(id) = &spec.install_id {
+        return id.clone();
+    }
     if key == spec.short_name() {
         key.to_string()
     } else {
@@ -155,21 +159,22 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
     for (key, spec) in pins {
         let backend = spec.backend_id();
         let written = tool_key(key, spec);
-        if written != *key && tools.get(key).map(String::as_str) == Some(spec.version.as_str()) {
+        let id = spec.tool_id();
+        if spec.install_id.is_none() && written != *key {
             tools.remove(key);
         }
-        let already = [backend.as_str(), written.as_str()]
+        let already = [id.as_str(), backend.as_str(), written.as_str()]
             .iter()
             .any(|name| tools.get(*name).map(String::as_str) == Some(spec.version.as_str()));
         if already {
             continue;
         }
-        tools.insert(backend, spec.version.clone());
+        tools.insert(id, spec.version.clone());
     }
     let mut out = String::from("[tools]\n");
     for (key, version) in tools {
         let options = pins.iter().find_map(|(_, spec)| {
-            (spec.backend_id() == key && spec.version == version).then_some(&spec.options)
+            (spec.tool_id() == key && spec.version == version).then_some(&spec.options)
         });
         let rendered = if key
             .chars()

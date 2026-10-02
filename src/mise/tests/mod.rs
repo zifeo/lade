@@ -66,6 +66,24 @@ fi
 printf '%s\n' "$MISE_IGNORED_CONFIG_PATHS" > "$MISE_INSTALLS_DIR/ignored"
 printf '%s\n' "$MISE_CONFIG_DIR" > "$MISE_INSTALLS_DIR/config-dir"
 printf '%s\n' "$MISE_SHIMS_DIR" > "$MISE_INSTALLS_DIR/shims-dir"
+if [ "$1" = "use" ]; then
+  toml=""
+  spec=""
+  shift
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "--path" ]; then
+      toml="$2"
+      shift 2
+      continue
+    fi
+    spec="$1"
+    shift
+  done
+  key="${spec%@*}"
+  ver="${spec##*@}"
+  printf '\n# written by mise use\n"%s" = "%s"\n' "$key" "$ver" >> "$toml"
+  exit 0
+fi
 if [ "$1" = "lock" ]; then
   toml="$cd_dir/mise.toml"
   lock="$cd_dir/mise.lock"
@@ -145,6 +163,7 @@ pub(super) fn assert_isolated_pin_only(
     );
 }
 
+mod declared;
 mod ensure_flow;
 mod install_flow;
 mod lock;

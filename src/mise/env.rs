@@ -62,7 +62,7 @@ pub async fn refresh(
     let args = vec![
         "env".to_string(),
         "--json-extended".to_string(),
-        spec.cli_spec(),
+        env_tool_arg(spec),
     ];
     let output = install::run_mise(installs, &root, args.clone(), Some(config), &ignored).await?;
     if !output.status.success() {
@@ -105,11 +105,20 @@ fn keep_key(key: &str) -> bool {
     key != "PATH" && !key.starts_with("MISE_")
 }
 
+fn env_tool_arg(spec: &Spec) -> String {
+    if spec.install_id.is_some() {
+        return format!("{}@{}", spec.tool_id(), spec.version);
+    }
+    spec.cli_spec()
+}
+
 fn tool_matches(spec: &Spec, tool: &str) -> bool {
     tool == spec.backend_id()
+        || spec.install_id.as_deref() == Some(tool)
         || tool == spec.short_name()
         || tool == spec.package
         || tool == spec.cli_spec()
+        || tool == spec.tool_id()
 }
 
 #[cfg(test)]
@@ -231,5 +240,17 @@ mod tests {
             std::fs::write(&path, serde_json::to_vec(&parsed).unwrap()).unwrap();
             assert!(load(&spec).is_none());
         });
+    }
+
+    #[test]
+    fn declared_install_id_is_the_env_query_and_a_tool_match() {
+        let mut spec =
+            parse("mise://github/Infisical/cli[asset_pattern=from-implied]@0.43.55").unwrap();
+        spec.options.clear();
+        spec.install_id = Some("infisical".to_string());
+        assert_eq!(env_tool_arg(&spec), "infisical@0.43.55");
+        assert!(tool_matches(&spec, "infisical"));
+        assert!(tool_matches(&spec, "github:Infisical/cli"));
+        assert!(!tool_matches(&spec, "from-implied"));
     }
 }

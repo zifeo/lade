@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use super::decide::{Choice, decide, with_spec};
 use super::ensure;
 use super::error::Error;
 use super::implied;
 use super::install;
-use super::lock::{self, LockSlot};
+use super::lock;
 use super::lookup;
 use super::plane::{self, Plane, Snapshot};
 use super::project;
@@ -47,25 +48,26 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
         e.emit();
     })?;
     let snap = plane::scan(&cwd);
-    warn_plane(&snap);
     let installs = store::installs_dir();
     let mut dirs = snap.yaml_dirs();
     dirs.reverse();
-    let mut accumulated: Vec<(String, Spec)> = Vec::new();
+    let mut pending: Vec<(String, Spec)> = Vec::new();
+    let mut yaml_keys = HashSet::new();
     let mut key_dir: HashMap<String, PathBuf> = HashMap::new();
     for dir in dirs {
         for (key, value) in config.pins_in_dir(&dir, &saved) {
             let spec = spec::parse(&value).map_err(Error::invalid_spec)?;
-            lookup::upsert_pin(&mut accumulated, key.clone(), spec);
+            lookup::upsert_pin(&mut pending, key.clone(), spec);
+            yaml_keys.insert(key.clone());
             key_dir.insert(key, dir.clone());
         }
-        let implied_pins = implied::pins_for(&config.sources_in_dir(&dir, &saved), &accumulated);
-        for (key, spec) in implied_pins {
-            lookup::upsert_pin(&mut accumulated, key.clone(), spec);
+        for (key, spec) in implied::pins_for(&config.sources_in_dir(&dir, &saved), &pending) {
+            lookup::upsert_pin(&mut pending, key.clone(), spec);
             key_dir.entry(key).or_insert_with(|| dir.clone());
         }
     }
-    if accumulated.is_empty() {
+    if pending.is_empty() {
+        warn_plane(&snap);
         return Ok(PinReport {
             mise: ensure::path_status().await.version,
             tools: Vec::new(),
@@ -73,55 +75,69 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
         });
     }
     let mut bumped = Vec::new();
+    let mut works: Vec<(String, Choice)> = Vec::new();
     let lock_path = snap.lock_path().map(Path::to_path_buf);
-    let pending = accumulated.clone();
-    for (key, spec) in &pending {
-        let names = store::tool_names(spec, key, None);
+    for (key, spec) in pending {
+        let choice = decide(&snap, &key, spec.clone(), yaml_keys.contains(&key));
+        let names = store::tool_names(choice.spec(), &key, None);
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let existing = lock_path.as_ref().and_then(|path| {
             path.is_file()
                 .then(|| lock::slot_for(path, &name_refs).map(|slot| (path.clone(), slot)))
                 .flatten()
         });
-        let spec = match mode {
+        let choice = match mode {
             PinMode::Update => {
                 let old = existing
                     .as_ref()
                     .map(|(_, slot)| slot.version.as_str())
                     .unwrap_or("");
-                let next = resolve_for_update(key, spec, old)?;
+                let mut next = resolve_for_update(&key, &spec, old)?;
+                next.install_id.clone_from(&choice.spec().install_id);
+                next.options.clone_from(&choice.spec().options);
                 if old != next.version {
                     bumped.push((key.clone(), old.to_string(), next.version.clone()));
                 }
-                next
+                with_spec(choice, next)
             }
-            PinMode::Unlock => spec.clone(),
-            PinMode::Locked => heal_from_toml(&snap, key, spec),
+            PinMode::Unlock | PinMode::Locked => choice,
         };
+        let spec = choice.spec();
         let lock_ok = mode != PinMode::Unlock
             && existing
                 .as_ref()
                 .is_some_and(|(_, slot)| lock::agrees(slot, &spec.version, &spec.backend_id()));
-        let spec = if lock_ok && let Some((_, slot)) = existing.as_ref() {
-            spec::at_version(&spec, &slot.version)
+        let mut spec = if lock_ok && let Some((_, slot)) = existing.as_ref() {
+            spec::at_version(spec, &slot.version)
         } else if spec.is_range() {
-            let label = named_version(key, &spec.version);
-            crate::live_progress::running(key, &label);
-            let version = match super::resolve::concrete_version(&spec) {
+            let label = named_version(&key, &spec.version);
+            crate::live_progress::running(&key, &label);
+            let version = match super::resolve::concrete_version(spec) {
                 Ok(version) => version,
                 Err(e) => {
-                    crate::live_progress::failed(key, &label);
+                    crate::live_progress::failed(&key, &label);
                     return Err(e.into());
                 }
             };
-            rewrite_floating_pin(&key_dir, key, &spec, &version)?;
-            crate::live_progress::done(key, named_version(key, &version));
-            spec::at_version(&spec, &version)
+            rewrite_floating_pin(&key_dir, &key, spec, &version)?;
+            crate::live_progress::done(&key, named_version(&key, &version));
+            spec::at_version(spec, &version)
         } else {
             spec.clone()
         };
-        lookup::upsert_pin(&mut accumulated, key.clone(), spec);
+        let choice = if snap.is_mise() && matches!(&choice, Choice::Builtin(_)) {
+            spec.options.clear();
+            Choice::Builtin(spec)
+        } else {
+            with_spec(choice, spec)
+        };
+        works.push((key, choice));
     }
+    warn_plane(&snap);
+    let pins: Vec<(String, Spec)> = works
+        .iter()
+        .map(|(key, choice)| (key.clone(), choice.spec().clone()))
+        .collect();
     if let Some(lock_path) = lock_path {
         let theirs = match &snap.plane {
             Plane::Mise {
@@ -133,52 +149,42 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             Plane::Lade { .. } | Plane::None => Vec::new(),
         };
         let upgrade = mode == PinMode::Update;
-        let rewrite_lock = upgrade || !lock_matches_pins(&lock_path, &accumulated);
-        if rewrite_lock {
-            let label = if upgrade {
-                "mise lock --upgrade"
-            } else {
-                "mise lock"
-            };
-            crate::live_progress::running("lock", label);
-            if let Err(e) = install::refresh_lock(
-                &project::compose_toml(&theirs, &accumulated),
-                &lock_path,
-                &installs,
-                &cwd,
-                upgrade,
-            )
-            .await
-            {
-                crate::live_progress::failed("lock", label);
-                return Err(e.into());
-            }
-            crate::live_progress::done("lock", label);
-        }
-        for (key, spec) in &accumulated {
-            let label = named_version(key, &spec.version);
-            crate::live_progress::running(key, &label);
-            if let Err(e) = install::install_locked(&lock_path, spec, &installs, &cwd).await {
-                crate::live_progress::failed(key, &label);
-                return Err(e.into());
-            }
-            crate::live_progress::done(key, &label);
-        }
         if let Plane::Mise { toml_write, .. } = &snap.plane {
-            let stale: Vec<String> = accumulated
+            for (_, choice) in &works {
+                if let Choice::Builtin(spec) = choice {
+                    install::use_in_project(spec, toml_write, &installs).await?;
+                }
+            }
+        }
+        install_group(&pins, &lock_path, &theirs, &installs, &cwd, upgrade).await?;
+        if let Plane::Mise { toml_write, .. } = &snap.plane {
+            let owned: Vec<(String, Spec)> = works
                 .iter()
-                .filter(|(key, spec)| *key != project::tool_key(key, spec))
-                .map(|(key, _)| key.clone())
+                .filter(|(_, choice)| {
+                    matches!(
+                        (mode, choice),
+                        (_, Choice::Pin(_)) | (PinMode::Update, Choice::Row(_))
+                    )
+                })
+                .map(|(key, choice)| (key.clone(), choice.spec().clone()))
                 .collect();
-            toml_merge::remove_tool_keys(toml_write, &stale).map_err(Error::install)?;
-            let entries: Vec<(String, String)> = accumulated
-                .iter()
-                .map(|(key, spec)| (project::tool_key(key, spec), spec.version.clone()))
-                .collect();
-            toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
+            if !owned.is_empty() {
+                let stale: Vec<String> = works
+                    .iter()
+                    .filter(|(_, choice)| matches!(choice, Choice::Pin(_)))
+                    .filter(|(key, choice)| *key != project::tool_key(key, choice.spec()))
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                toml_merge::remove_tool_keys(toml_write, &stale).map_err(Error::install)?;
+                let entries: Vec<(String, String)> = owned
+                    .iter()
+                    .map(|(key, spec)| (project::tool_key(key, spec), spec.version.clone()))
+                    .collect();
+                toml_merge::upsert_tools(toml_write, &entries).map_err(Error::install)?;
+            }
         }
     } else {
-        for (key, spec) in &accumulated {
+        for (key, spec) in &pins {
             let label = named_version(key, &spec.version);
             crate::live_progress::running(key, &label);
             if let Err(e) = install::install_from_url(spec, &installs, &cwd).await {
@@ -190,12 +196,57 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
     }
     Ok(PinReport {
         mise: ensure::path_status().await.version,
-        tools: accumulated
+        tools: pins
             .iter()
             .map(|(key, spec)| (key.clone(), spec.version.clone()))
             .collect(),
         bumped,
     })
+}
+
+async fn install_group(
+    pins: &[(String, Spec)],
+    lock_path: &Path,
+    theirs: &[project::ProjectTool],
+    installs: &Path,
+    cwd: &Path,
+    upgrade: bool,
+) -> Result<(), Error> {
+    if pins.is_empty() {
+        return Ok(());
+    }
+    let rewrite_lock = upgrade || !lock_matches_pins(lock_path, pins);
+    if rewrite_lock {
+        let label = if upgrade {
+            "mise lock --upgrade"
+        } else {
+            "mise lock"
+        };
+        crate::live_progress::running("lock", label);
+        if let Err(e) = install::refresh_lock(
+            &project::compose_toml(theirs, pins),
+            lock_path,
+            installs,
+            cwd,
+            upgrade,
+        )
+        .await
+        {
+            crate::live_progress::failed("lock", label);
+            return Err(e);
+        }
+        crate::live_progress::done("lock", label);
+    }
+    for (key, spec) in pins {
+        let label = named_version(key, &spec.version);
+        crate::live_progress::running(key, &label);
+        if let Err(e) = install::install_locked(lock_path, spec, installs, cwd).await {
+            crate::live_progress::failed(key, &label);
+            return Err(e);
+        }
+        crate::live_progress::done(key, &label);
+    }
+    Ok(())
 }
 
 fn rewrite_floating_pin(
@@ -215,37 +266,6 @@ fn rewrite_floating_pin(
             .map_err(|e| Error::install(e.to_string()))?;
     }
     Ok(())
-}
-
-fn heal_from_toml(snap: &Snapshot, key: &str, spec: &Spec) -> Spec {
-    let Plane::Mise {
-        toml, toml_write, ..
-    } = &snap.plane
-    else {
-        return spec.clone();
-    };
-    let path = toml.as_ref().unwrap_or(toml_write);
-    if !path.is_file() {
-        return spec.clone();
-    }
-    let implied = implied::by_key(key).is_some();
-    if !implied && !spec.is_range() {
-        return spec.clone();
-    }
-    let Some(version) = toml_merge::tool_version(path, key)
-        .or_else(|| toml_merge::tool_version(path, &spec.backend_id()))
-    else {
-        return spec.clone();
-    };
-    let probe = LockSlot {
-        name: key.to_string(),
-        version: version.clone(),
-        backend: Some(spec.backend_id()),
-    };
-    if !lock::agrees(&probe, &spec.version, &spec.backend_id()) {
-        return spec.clone();
-    }
-    spec::at_version(spec, &version)
 }
 
 fn lock_matches_pins(lock_path: &Path, pins: &[(String, Spec)]) -> bool {

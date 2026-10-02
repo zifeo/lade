@@ -1,6 +1,14 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use toml_edit::{DocumentMut, Item, Key, Table, value};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredTool {
+    pub key: String,
+    pub version: String,
+    pub options: BTreeMap<String, String>,
+}
 
 /// Upsert `[tools]` entries. Other tables and comments stay.
 pub fn upsert_tools(path: &Path, entries: &[(String, String)]) -> Result<(), String> {
@@ -45,22 +53,73 @@ pub fn remove_tool_keys(path: &Path, keys: &[String]) -> Result<(), String> {
     write_atomic(path, &doc.to_string())
 }
 
-pub fn tool_version(path: &Path, key: &str) -> Option<String> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    let doc = raw.parse::<DocumentMut>().ok()?;
-    let tools = doc.get("tools")?;
-    if let Some(item) = tools.get(key) {
-        return version_from_item(item);
+/// Project row for this pin. A plain string has no options.
+/// The package segment `cli` is not the pin `infisical`.
+#[cfg(test)]
+pub fn declared_tool(path: &Path, pin_key: &str, backend_id: &str) -> Option<DeclaredTool> {
+    declared_candidates(path, pin_key, backend_id)
+        .into_iter()
+        .next()
+}
+
+pub fn declared_candidates(path: &Path, pin_key: &str, backend_id: &str) -> Vec<DeclaredTool> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(doc) = raw.parse::<DocumentMut>() else {
+        return Vec::new();
+    };
+    let Some(tools) = doc.get("tools").and_then(Item::as_table) else {
+        return Vec::new();
+    };
+    let mut keys = Vec::new();
+    if tools.contains_key(pin_key) {
+        keys.push(pin_key.to_string());
     }
-    let want = short_tool_name(key);
-    let table = tools.as_table()?;
-    table.iter().find_map(|(stored, item)| {
-        if short_tool_name(stored) == want {
-            version_from_item(item)
-        } else {
-            None
+    if backend_id != pin_key && tools.contains_key(backend_id) {
+        keys.push(backend_id.to_string());
+    }
+    for (stored, _) in tools.iter() {
+        if short_tool_name(stored) == pin_key && stored != pin_key && stored != backend_id {
+            keys.push(stored.to_string());
         }
-    })
+    }
+    keys.into_iter()
+        .filter_map(|key| {
+            let item = tools.get(&key)?;
+            Some(DeclaredTool {
+                version: version_from_item(item)?,
+                options: options_from_item(item),
+                key,
+            })
+        })
+        .collect()
+}
+
+fn options_from_item(item: &Item) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    if let Some(table) = item.as_inline_table() {
+        for (key, value) in table.iter() {
+            if key == "version" {
+                continue;
+            }
+            if let Some(text) = value.as_str() {
+                out.insert(key.to_string(), text.to_string());
+            }
+        }
+        return out;
+    }
+    if let Some(table) = item.as_table() {
+        for (key, value) in table.iter() {
+            if key == "version" {
+                continue;
+            }
+            if let Some(text) = value.as_str() {
+                out.insert(key.to_string(), text.to_string());
+            }
+        }
+    }
+    out
 }
 
 fn apply_entries(doc: &mut DocumentMut, entries: &[(String, String)]) -> Result<(), String> {

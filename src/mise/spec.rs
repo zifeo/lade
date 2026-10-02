@@ -15,11 +15,18 @@ pub struct Spec {
     pub options: BTreeMap<String, String>,
     pub version: String,
     pub uri: String,
+    /// Tool id copied from an existing `mise.toml`. Absent means `backend_id()`.
+    pub install_id: Option<String>,
 }
 
 impl Spec {
     pub fn backend_id(&self) -> String {
         format!("{}:{}", self.prefix, self.package)
+    }
+
+    /// Id mise must install. A project `mise.toml` entry wins over the backend id.
+    pub fn tool_id(&self) -> String {
+        self.install_id.clone().unwrap_or_else(|| self.backend_id())
     }
 
     pub fn short_name(&self) -> &str {
@@ -40,7 +47,10 @@ impl Spec {
 
     pub fn install_arg(&self) -> String {
         if self.is_range() {
-            return self.backend_id();
+            return self.tool_id();
+        }
+        if self.install_id.is_some() {
+            return format!("{}@{}", self.tool_id(), self.version);
         }
         self.cli_spec()
     }
@@ -100,6 +110,7 @@ pub fn at_version(spec: &Spec, version: &str) -> Spec {
         options: spec.options.clone(),
         version: version.to_string(),
         uri: replace_version(&spec.uri, version),
+        install_id: spec.install_id.clone(),
     }
 }
 
@@ -178,6 +189,7 @@ pub fn parse(value: &str) -> Result<Spec, String> {
         options,
         version,
         uri: value.to_string(),
+        install_id: None,
     })
 }
 

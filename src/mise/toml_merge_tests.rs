@@ -17,7 +17,8 @@ fn creates_new_file_with_only_tools() {
     assert!(body.contains("[tools]"), "{body}");
     assert!(body.contains("jq = \"1.7.1\""), "{body}");
     assert!(!body.contains("[env]"), "{body}");
-    assert_eq!(tool_version(&path, "jq").as_deref(), Some("1.7.1"));
+    let declared = declared_tool(&path, "jq", "aqua:jqlang/jq").unwrap();
+    assert_eq!(declared.version, "1.7.1");
 }
 
 #[test]
@@ -51,7 +52,8 @@ fn string_form_overwrite() {
     assert!(body.contains("jq = \"1.7.1\""), "{body}");
     assert!(!body.contains("1.6.0"), "{body}");
     assert!(body.contains("node = \"24\""), "{body}");
-    assert_eq!(tool_version(&path, "jq").as_deref(), Some("1.7.1"));
+    let declared = declared_tool(&path, "jq", "aqua:jqlang/jq").unwrap();
+    assert_eq!(declared.version, "1.7.1");
 }
 
 #[test]
@@ -69,7 +71,12 @@ fn table_form_keeps_source() {
     assert!(!body.contains("1.6.0"), "{body}");
     assert!(body.contains("source"), "{body}");
     assert!(body.contains("asdf"), "{body}");
-    assert_eq!(tool_version(&path, "jq").as_deref(), Some("1.7.1"));
+    let declared = declared_tool(&path, "jq", "aqua:jqlang/jq").unwrap();
+    assert_eq!(declared.version, "1.7.1");
+    assert_eq!(
+        declared.options.get("source").map(String::as_str),
+        Some("asdf")
+    );
 }
 
 #[test]
@@ -80,11 +87,11 @@ fn quoted_aqua_key() {
     let body = std::fs::read_to_string(&path).unwrap();
     assert!(body.contains("\"aqua:jqlang/jq\""), "{body}");
     assert!(body.contains("1.7.1"), "{body}");
-    assert_eq!(
-        tool_version(&path, "aqua:jqlang/jq").as_deref(),
-        Some("1.7.1")
-    );
-    assert_eq!(tool_version(&path, "jq").as_deref(), Some("1.7.1"));
+    let by_backend = declared_tool(&path, "jq", "aqua:jqlang/jq").unwrap();
+    assert_eq!(by_backend.key, "aqua:jqlang/jq");
+    assert_eq!(by_backend.version, "1.7.1");
+    let by_short_name = declared_tool(&path, "jq", "github:other/jq").unwrap();
+    assert_eq!(by_short_name.key, "aqua:jqlang/jq");
 }
 
 #[test]
@@ -116,7 +123,7 @@ fn invalid_toml_is_error_and_file_unchanged() {
     let err = upsert_tools(&path, &entries(&[("jq", "1.7.1")])).unwrap_err();
     assert!(err.contains("invalid TOML"), "{err}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-    assert_eq!(tool_version(&path, "jq"), None);
+    assert!(declared_tool(&path, "jq", "aqua:jqlang/jq").is_none());
 }
 
 #[test]
@@ -133,6 +140,63 @@ fn removes_only_named_tools() {
     assert!(body.contains("FOO = \"bar\""), "{body}");
     assert!(body.contains("node = \"24\""), "{body}");
     assert!(!body.contains("op = "), "{body}");
+}
+
+#[test]
+fn declared_tool_reads_alias_string_without_options() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(&path, "[tools]\ninfisical = \"0.43.55\"\nnode = \"24\"\n").unwrap();
+    let declared = declared_tool(&path, "infisical", "github:Infisical/cli").unwrap();
+    assert_eq!(declared.key, "infisical");
+    assert_eq!(declared.version, "0.43.55");
+    assert!(declared.options.is_empty());
+}
+
+#[test]
+fn declared_tool_reads_backend_key_and_its_options() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(
+        &path,
+        "[tools]\n\"github:Infisical/cli\" = { version = \"0.43.55\", asset_pattern = \"from-toml\" }\n",
+    )
+    .unwrap();
+    let declared = declared_tool(&path, "infisical", "github:Infisical/cli").unwrap();
+    assert_eq!(declared.key, "github:Infisical/cli");
+    assert_eq!(declared.version, "0.43.55");
+    assert_eq!(
+        declared.options.get("asset_pattern").map(String::as_str),
+        Some("from-toml")
+    );
+}
+
+#[test]
+fn declared_tool_matches_backend_id_when_the_alias_is_absent() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(&path, "[tools]\n\"github:Infisical/cli\" = \"0.43.55\"\n").unwrap();
+    let declared = declared_tool(&path, "infisical", "github:Infisical/cli").unwrap();
+    assert_eq!(declared.key, "github:Infisical/cli");
+    assert!(declared.options.is_empty());
+}
+
+#[test]
+fn declared_tool_matches_short_name_for_the_pin_key() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(&path, "[tools]\n\"aqua:jqlang/jq\" = \"1.7.1\"\n").unwrap();
+    let declared = declared_tool(&path, "jq", "aqua:jqlang/jq").unwrap();
+    assert_eq!(declared.key, "aqua:jqlang/jq");
+    assert_eq!(declared.version, "1.7.1");
+}
+
+#[test]
+fn declared_tool_does_not_treat_cli_as_infisical() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("mise.toml");
+    std::fs::write(&path, "[tools]\n\"aqua:1password/cli\" = \"2.30.0\"\n").unwrap();
+    assert!(declared_tool(&path, "infisical", "github:Infisical/cli").is_none());
 }
 
 #[test]
