@@ -9,6 +9,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Changed
+
+- **`lade upgrade`**: after a successful update, a box says this terminal
+  still has the previous wrap and prints the reload command
+  (`eval "$(lade on)"` on zsh).
+
 ## [0.19.2] - 2026-10-03
 
 ### Fixed

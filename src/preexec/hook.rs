@@ -155,6 +155,32 @@ pub fn reload_hint(shell: Shell, path: &str) -> String {
     }
 }
 
+pub(crate) fn wrap_reload_command(shell: Shell, bin: &str) -> String {
+    match shell {
+        Shell::Bash => format!("source <(echo \"$({bin} on)\")"),
+        Shell::Zsh | Shell::Sh => format!("eval \"$({bin} on)\""),
+        Shell::Fish => format!("source ({bin} on | psub)"),
+    }
+}
+
+pub(crate) fn reload_after_upgrade_lines(
+    shell: Option<Shell>,
+    bin: &str,
+    wrapped: bool,
+) -> Vec<String> {
+    match (shell, wrapped) {
+        (Some(shell), true) => vec![
+            "This terminal still has the previous wrap.".to_string(),
+            format!("Reload it: {}", wrap_reload_command(shell, bin)),
+            "Or open a new terminal.".to_string(),
+        ],
+        _ => vec![
+            "This terminal still has the previous binary.".to_string(),
+            "Open a new terminal.".to_string(),
+        ],
+    }
+}
+
 pub fn any_profile_wrapped() -> bool {
     DETECTABLE.iter().any(|shell| preexec_installed(shell).1)
 }
@@ -257,5 +283,40 @@ mod tests {
         temp_env::with_var("CI", Some("false"), || assert!(!ci_job()));
         temp_env::with_var("CI", Some("0"), || assert!(!ci_job()));
         temp_env::with_var("CI", None::<&str>, || assert!(!ci_job()));
+    }
+
+    #[test]
+    fn wrap_reload_command_matches_the_profile_line() {
+        assert_eq!(
+            wrap_reload_command(Shell::Zsh, "lade"),
+            "eval \"$(lade on)\""
+        );
+        assert_eq!(
+            wrap_reload_command(Shell::Bash, "/opt/lade"),
+            "source <(echo \"$(/opt/lade on)\")"
+        );
+        assert_eq!(
+            wrap_reload_command(Shell::Fish, "lade"),
+            "source (lade on | psub)"
+        );
+    }
+
+    #[test]
+    fn reload_after_upgrade_suggests_on_when_wrapped() {
+        assert_eq!(
+            reload_after_upgrade_lines(Some(Shell::Zsh), "lade", true),
+            [
+                "This terminal still has the previous wrap.",
+                "Reload it: eval \"$(lade on)\"",
+                "Or open a new terminal.",
+            ]
+        );
+        assert_eq!(
+            reload_after_upgrade_lines(None, "lade", false),
+            [
+                "This terminal still has the previous binary.",
+                "Open a new terminal.",
+            ]
+        );
     }
 }

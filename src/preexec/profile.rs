@@ -7,19 +7,11 @@ use super::hook::{MARKER, profile_config_file};
 
 pub(super) fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
     let bin = crate::pretool::invoked_lade_bin();
-
-    let (command, config_file) = match shell {
-        Shell::Bash => (
-            format!("source <(echo \"$({bin} on)\")"),
-            profile_config_file(shell),
-        ),
-        Shell::Zsh => (format!("eval \"$({bin} on)\""), profile_config_file(shell)),
-        Shell::Fish => (
-            format!("source ({bin} on | psub)"),
-            profile_config_file(shell),
-        ),
-        _ => bail!("Unsupported behavior on shell {}", shell.bin()),
-    };
+    if matches!(shell, Shell::Sh) {
+        bail!("Unsupported behavior on shell {}", shell.bin());
+    }
+    let command = super::wrap_reload_command(*shell, &bin);
+    let config_file = profile_config_file(shell);
 
     edit_config(&config_file, command, install)?;
     Ok(config_file)
