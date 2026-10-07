@@ -114,7 +114,7 @@ pub fn handle(
         return Ok(allow(platform));
     }
 
-    let saved_user = GlobalConfig::user_from_disk();
+    let saved_user = GlobalConfig::resolved_user();
     let work = match Config::pre_event_work(&patterned, &saved_user) {
         Ok(work) => work,
         Err(_) => return Ok(allow(platform)),
@@ -180,7 +180,7 @@ fn handle_verb(
     let command = normalize(parsed);
     let argv = verb_args(parsed);
     let patterned = config.collect_for_with_pattern(&command, audience);
-    let saved_user = GlobalConfig::user_from_disk();
+    let saved_user = GlobalConfig::resolved_user();
     let (log, matches) = if patterned.is_empty() {
         (config.log_on_walk(), json!([]))
     } else {
@@ -231,7 +231,7 @@ fn emit_seen_pretool(
         return;
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let saved_user = GlobalConfig::user_from_disk();
+    let saved_user = GlobalConfig::resolved_user();
     event::emit_if(
         true,
         Emit {

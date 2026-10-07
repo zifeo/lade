@@ -68,11 +68,9 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         pretool: pretool::install::inspect(&cwd)?,
     };
 
-    let saved_user = global.user.or_else(|| {
-        std::env::var("USER")
-            .ok()
-            .or_else(|| std::env::var("USERNAME").ok())
-    });
+    let saved_user = global
+        .user
+        .or_else(crate::global_config::GlobalConfig::os_user);
 
     let project_config = match LadeFile::build(cwd.clone()) {
         Ok(config) => {
@@ -152,6 +150,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         hooks,
         project_config,
         log: event::info_for_repo(repo.as_deref()),
+        hub: crate::hub::probe(),
         mise,
         ok,
     })

@@ -116,6 +116,12 @@ pub struct McpCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = "\
+Examples:
+  lade status
+  lade status --json
+  lade cache
+")]
 pub struct StatusCommand {
     /// Check all supported secret providers, not only those referenced in lade.yaml.
     #[clap(long, default_value_t = false)]
@@ -205,11 +211,14 @@ pub struct LogCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum LogAction {
-    /// Delete rows older than `--keep`. Required. Nothing prunes by itself.
+    /// Delete diary rows older than `--keep`, and/or forget the secret cache.
     Prune {
         /// Keep this window. Ns | Nm | Nh | Nd | Nw | Nmonth.
         #[clap(long, help = DURATION_HELP)]
         keep: Option<String>,
+        /// Alias of `lade cache forget`. Stops this binary's hub. Combinable with `--keep`.
+        #[clap(long)]
+        hub: bool,
     },
     /// Write a gzipped SQLite snapshot of the diary window.
     Share {
@@ -219,6 +228,40 @@ pub enum LogAction {
     },
     /// Check the diary hash chain.
     Verify,
+}
+
+pub const CACHE_AFTER_HELP: &str = "\
+Examples:
+  lade cache
+  lade cache list --json
+  lade cache forget
+  lade cache forget AWS_ACCESS_KEY_ID
+
+Names only. Never values. This binary's hub only.
+`lade log prune --hub` is an alias of `lade cache forget`.
+Loader marks: (c) cached, (o) overridden, (u) unset. See docs/cli.md.
+";
+
+/// This binary's in-memory secret cache. Names only.
+#[derive(Parser, Debug)]
+#[command(after_help = CACHE_AFTER_HELP)]
+pub struct CacheCommand {
+    /// Emit the listing as JSON.
+    #[clap(long, default_value_t = false, global = true)]
+    pub json: bool,
+    #[command(subcommand)]
+    pub action: Option<CacheAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheAction {
+    /// List cached key names, rule, yaml path, ttl left.
+    List,
+    /// Forget all keys, or the named keys. Does not spawn.
+    Forget {
+        /// Binding names to drop. Empty forgets every key and stops the hub.
+        names: Vec<String>,
+    },
 }
 
 #[derive(Parser, Debug)]

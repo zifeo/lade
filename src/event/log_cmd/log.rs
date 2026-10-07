@@ -30,7 +30,9 @@ pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
         Some(LogAction::Share { ref output }) => {
             return run_share(&opts, agent, output.clone());
         }
-        Some(LogAction::Prune { ref keep }) => return run_prune(&opts, keep.as_deref()),
+        Some(LogAction::Prune { ref keep, hub }) => {
+            return run_prune(&opts, keep.as_deref(), hub);
+        }
         Some(LogAction::Verify) => return run_verify(&opts),
         None => {}
     }
@@ -162,38 +164,48 @@ fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<
     }
 }
 
-fn run_prune(opts: &LogCommand, keep: Option<&str>) -> Result<()> {
-    let Some(keep) = keep else {
+fn run_prune(opts: &LogCommand, keep: Option<&str>, hub: bool) -> Result<()> {
+    if keep.is_none() && !hub {
         message_box::MessageBox::new()
             .error()
-            .line("need --keep")
+            .line("need --keep or --hub")
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);
-    };
-    let ts = match window::cutoff(keep) {
-        Ok(ts) => ts,
-        Err(e) => {
-            message_box::MessageBox::new()
-                .error()
-                .paragraph(e)
-                .print_stderr();
-            std::process::exit(crate::exit_codes::FAILURE);
-        }
-    };
-    let cwd = std::env::current_dir()?;
-    let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
-    let n = match event::prune_before(&ts, repo.as_deref()) {
-        Ok(n) => n,
-        Err(e) => {
-            message_box::MessageBox::new()
-                .error()
-                .paragraph(e.to_string())
-                .print_stderr();
-            std::process::exit(crate::exit_codes::FAILURE);
-        }
-    };
-    message_box::Report::new()
-        .line(format!("deleted {n} rows older than {keep}"))
-        .print();
+    }
+    let mut report = message_box::Report::new();
+    if let Some(keep) = keep {
+        let ts = match window::cutoff(keep) {
+            Ok(ts) => ts,
+            Err(e) => {
+                message_box::MessageBox::new()
+                    .error()
+                    .paragraph(e)
+                    .print_stderr();
+                std::process::exit(crate::exit_codes::FAILURE);
+            }
+        };
+        let cwd = std::env::current_dir()?;
+        let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
+        let n = match event::prune_before(&ts, repo.as_deref()) {
+            Ok(n) => n,
+            Err(e) => {
+                message_box::MessageBox::new()
+                    .error()
+                    .paragraph(e.to_string())
+                    .print_stderr();
+                std::process::exit(crate::exit_codes::FAILURE);
+            }
+        };
+        report = report.line(format!("deleted {n} rows older than {keep}"));
+    }
+    if hub {
+        report = report.line(match crate::hub::stop() {
+            crate::hub::HubStop::Stopped => "hub: stopped".to_string(),
+            crate::hub::HubStop::Down => "hub: down".to_string(),
+            crate::hub::HubStop::Off => "hub: off".to_string(),
+            crate::hub::HubStop::Stale => "hub: stale".to_string(),
+        });
+    }
+    report.print();
     Ok(())
 }

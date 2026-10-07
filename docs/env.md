@@ -5,14 +5,16 @@ protocol, pretool tickets, and tests. Override the global config path
 when you need a non-default home for `config.json`.
 
 See also [protocol.md](protocol.md) (T tickets), [architecture.md](architecture.md)
-(disclaimer and wrap flow), and [observability.md](observability.md)
-(diary).
+(disclaimer and wrap flow), [observability.md](observability.md)
+(diary), and [cache.md](cache.md) (hub).
 
 ## User overrides
 
 | Variable | Purpose |
 | --- | --- |
 | `LADE_CONFIG_PATH` | Path to the global config file (`config.json`). Default: XDG config dir. Tests and CI set this to avoid update checks. |
+| `LADE_DAEMON` | `off` skips the in-memory hub. No connect, no spawn. |
+| `LADE_WRAP_KEY` | 64 hex chars (32 bytes). Tests and CI only. Replaces Keychain / `@s`. Bad hex skips the hub. |
 
 ## Installer and CI
 
@@ -34,7 +36,7 @@ Set by Lade or the shell hook. Do not rely on these in scripts.
 
 | Variable | Purpose |
 | --- | --- |
-| `LADE_T` | Active pretool / pre-exec ticket id (4-char). Points at `{temp}/lade-t/{id}.json`. |
+| `LADE_T` | Active pretool / pre-exec ticket id (4-char). Points at `{cache}/tickets/{id}.json`. |
 | `LADE_RESTORE` | Previous env snapshot for pre-exec cleanup. May contain secrets. |
 | `LADE_APPROVE` | Per-command disclaimer code (`sha256(command + window)[:5]`). Prefix the command or run `lade approve`. |
 | `LADE_BIN` | `age-plugin-lade` uses this to find `lade eval` when not on `PATH`. |

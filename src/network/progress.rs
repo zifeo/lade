@@ -15,5 +15,9 @@ pub struct ProviderProgressEvent {
 }
 
 pub fn format_timing(display: &str, started: Instant) -> String {
-    format!("{display} {} ms", started.elapsed().as_millis())
+    format_elapsed_ms(display, started.elapsed().as_millis())
+}
+
+pub fn format_elapsed_ms(display: &str, ms: u128) -> String {
+    format!("{display} {ms} ms")
 }

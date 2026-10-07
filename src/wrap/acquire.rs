@@ -13,7 +13,7 @@ use crate::provider_progress::{
 };
 use crate::ticket::{self, TicketSecret};
 
-use super::work::SecretHydrate;
+use super::work::{CacheScope, SecretHydrate};
 use super::{Acquisition, SecretBundle, handle_provider_failure};
 
 /// Shared orchestration for `run_inject`/`handle_set`: starts the provider
@@ -41,6 +41,7 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
             secrets.secrets,
             secrets.op_sa,
             secrets.progress,
+            secrets.cache,
             secret_sink,
         );
         let network_task = async {
@@ -81,6 +82,7 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
 
 fn unlink_ticket_before_exit(id: Option<&str>) {
     if let Some(id) = id {
+        crate::hub::unlink_t(id);
         let _ = ticket::unlink(id);
     }
 }
@@ -128,16 +130,59 @@ async fn prepare_secrets(
     secrets: &[TicketSecret],
     op_sa: Option<&str>,
     progress_plan: &SecretSources,
+    cache: Option<CacheScope<'_>>,
     progress: ProviderProgressSink,
 ) -> Result<SecretBundle> {
+    let hit = match &cache {
+        Some(scope) => crate::hub::lookup(scope.cwd, scope.walk, scope.saved_user, scope.patterned),
+        None => crate::hub::CacheHit::empty(),
+    };
+    let remaining: Vec<TicketSecret> = secrets
+        .iter()
+        .filter(|secret| !hit.keys.contains(&secret.key))
+        .cloned()
+        .collect();
     let LoadedSecrets {
-        vars,
-        sources,
-        maskable,
+        mut vars,
+        mut sources,
+        mut maskable,
         warnings,
-    } = hydrate_secrets_from_ticket_with_progress(secrets, op_sa, progress_plan, progress).await?;
+    } = hydrate_secrets_from_ticket_with_progress(
+        &remaining,
+        op_sa,
+        progress_plan,
+        progress,
+        &hit.keys,
+    )
+    .await?;
+
+    for secret in secrets {
+        let Some(value) = hit.values.get(&secret.key) else {
+            continue;
+        };
+        sources.insert(secret.key.clone(), secret.source.clone());
+        maskable.insert(secret.key.clone());
+        vars.entry(secret.output.clone())
+            .or_default()
+            .insert(secret.key.clone(), value.clone());
+    }
+
+    if let Some(scope) = &cache {
+        let mut flat = std::collections::HashMap::new();
+        for values in vars.values() {
+            flat.extend(values.clone());
+        }
+        crate::hub::store(
+            scope.cwd,
+            scope.walk,
+            scope.saved_user,
+            scope.patterned,
+            &flat,
+            &hit.keys,
+        );
+    }
 
     let (env, files) = split_env_files(vars);
     write_files(&files)?;
-    Ok((env, files, sources, maskable, warnings))
+    Ok((env, files, sources, maskable, warnings, hit.keys))
 }

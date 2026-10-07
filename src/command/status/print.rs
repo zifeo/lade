@@ -2,6 +2,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Local, Utc};
 
+use crate::hub::HubState;
 use crate::pretool;
 
 use super::StatusReport;
@@ -83,6 +84,7 @@ pub(super) fn print_human(report: &StatusReport) {
         report.log.events,
         format_bytes(report.log.bytes)
     );
+    print_hub(&report.hub);
     match (
         report.mise.needed,
         report.mise.in_range,
@@ -158,6 +160,21 @@ pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {
         (true, true) => "current",
         (true, false) => "not current",
         (false, _) => "missing",
+    }
+}
+
+fn print_hub(hub: &crate::hub::HubInfo) {
+    match hub.state {
+        HubState::Off => println!("hub: off"),
+        HubState::Down => println!("hub: down"),
+        HubState::Stale => println!("hub: stale"),
+        HubState::Up => match hub.pid {
+            Some(pid) => println!(
+                "hub: pid {pid} ({} secrets, {} tickets)",
+                hub.secrets, hub.tickets
+            ),
+            None => println!("hub: up ({} secrets, {} tickets)", hub.secrets, hub.tickets),
+        },
     }
 }
 

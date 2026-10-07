@@ -1,6 +1,9 @@
 use super::*;
 use crate::config::LadeFile;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 use tempfile::tempdir;
 
 #[test]
@@ -49,76 +52,107 @@ fn test_split_mixed() {
 
 #[test]
 fn secret_progress_groups_omit_silent_keys() {
-    let groups = secret_progress_groups(&SecretSources {
-        sources: HashMap::from([
-            (
-                "QUIET".to_string(),
-                "vault://vault.example.com/secret/quiet/value".to_string(),
-            ),
-            (
-                "LOUD".to_string(),
-                "vault://vault.example.com/secret/loud/value".to_string(),
-            ),
-        ]),
-        silent: ["QUIET".to_string()].into_iter().collect(),
-        ..SecretSources::default()
-    });
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([
+                (
+                    "QUIET".to_string(),
+                    "vault://vault.example.com/secret/quiet/value".to_string(),
+                ),
+                (
+                    "LOUD".to_string(),
+                    "vault://vault.example.com/secret/loud/value".to_string(),
+                ),
+            ]),
+            silent: ["QUIET".to_string()].into_iter().collect(),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].1, "Vault vault.example.com: LOUD");
 }
 
 #[test]
 fn secret_progress_groups_omit_silent_cancelled_keys() {
-    let groups = secret_progress_groups(&SecretSources {
-        cancelled: HashMap::from([(
-            "TOKEN".to_string(),
-            "op://my.1password.eu/vault/item".to_string(),
-        )]),
-        silent: ["TOKEN".to_string()].into_iter().collect(),
-        ..SecretSources::default()
-    });
+    let groups = secret_progress_groups(
+        &SecretSources {
+            cancelled: HashMap::from([(
+                "TOKEN".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            silent: ["TOKEN".to_string()].into_iter().collect(),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
     assert!(groups.is_empty());
 }
 
 #[test]
 fn secret_progress_groups_omit_raw_values() {
-    let groups = secret_progress_groups(&SecretSources {
-        sources: HashMap::from([
-            ("USER".to_string(), "demo-user".to_string()),
-            (
-                "PASSWORD".to_string(),
-                "vault://vault.example.com/secret/password/value".to_string(),
-            ),
-        ]),
-        ..SecretSources::default()
-    });
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([
+                ("USER".to_string(), "demo-user".to_string()),
+                (
+                    "PASSWORD".to_string(),
+                    "vault://vault.example.com/secret/password/value".to_string(),
+                ),
+            ]),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
     assert_eq!(groups.len(), 1);
-    assert!(!groups.iter().any(|(_, display)| display.contains("Raw")));
+    assert!(!groups.iter().any(|(_, display, _)| display.contains("Raw")));
     assert_eq!(groups[0].1, "Vault vault.example.com: PASSWORD");
 }
 
 #[test]
 fn secret_progress_groups_mark_overrides_and_cancels() {
-    let groups = secret_progress_groups(&SecretSources {
-        sources: HashMap::from([(
-            "KEEP".to_string(),
-            "op://my.1password.eu/vault/item".to_string(),
-        )]),
-        overridden: ["KEEP".to_string()].into_iter().collect(),
-        cancelled: HashMap::from([(
-            "TOKEN".to_string(),
-            "op://my.1password.eu/vault/item".to_string(),
-        )]),
-        ..SecretSources::default()
-    });
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([(
+                "KEEP".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            overridden: ["KEEP".to_string()].into_iter().collect(),
+            cancelled: HashMap::from([(
+                "TOKEN".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
     assert!(
         groups
             .iter()
-            .any(|(_, display)| display.contains("KEEP (overridden)"))
+            .any(|(_, display, _)| display.contains("KEEP (o)"))
     );
-    assert!(groups.iter().any(|(_, display)| {
-        display.contains("TOKEN (cancelled)") && display.contains("1Password")
+    assert!(groups.iter().any(|(_, display, fetched)| {
+        display.contains("TOKEN (u)") && display.contains("1Password") && *fetched
     }));
+}
+
+#[test]
+fn secret_progress_groups_cancelled_only_is_not_fetched() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            cancelled: HashMap::from([(
+                "TOKEN".to_string(),
+                "op://dixence.1password.eu/vault/item".to_string(),
+            )]),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
+    assert_eq!(groups.len(), 1);
+    assert!(
+        groups[0].1.contains("TOKEN (u)") && !groups[0].2,
+        "groups: {groups:?}"
+    );
 }
 
 #[test]
@@ -131,11 +165,79 @@ fn secret_progress_groups_label_cancelled_op_from_yaml() {
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     let plan = config.collect_secret_sources("git status").unwrap();
-    let groups = secret_progress_groups(&plan);
+    let groups = secret_progress_groups(&plan, &HashSet::new());
     assert!(
-        groups.iter().any(|(_, display)| {
-            display.contains("1Password my.1password.eu: TOKEN (cancelled)")
+        groups.iter().any(|(_, display, fetched)| {
+            display.contains("1Password my.1password.eu: TOKEN (u)") && !*fetched
         }),
+        "groups: {groups:?}"
+    );
+}
+
+#[test]
+fn secret_progress_groups_mark_cached_keys() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([(
+                "PASSWORD".to_string(),
+                "vault://vault.example.com/secret/password/value".to_string(),
+            )]),
+            ..SecretSources::default()
+        },
+        &HashSet::from(["PASSWORD".to_string()]),
+    );
+    assert_eq!(groups.len(), 1);
+    assert!(
+        groups[0].1.contains("PASSWORD (c)") && !groups[0].2,
+        "groups: {groups:?}"
+    );
+}
+
+#[test]
+fn secret_progress_groups_cached_mix_still_fetches() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([
+                (
+                    "PASSWORD".to_string(),
+                    "vault://vault.example.com/secret/password/value".to_string(),
+                ),
+                (
+                    "TOKEN".to_string(),
+                    "vault://vault.example.com/secret/token/value".to_string(),
+                ),
+            ]),
+            ..SecretSources::default()
+        },
+        &HashSet::from(["PASSWORD".to_string()]),
+    );
+    assert_eq!(groups.len(), 1);
+    assert!(
+        groups[0].1.contains("PASSWORD (c)")
+            && groups[0].1.contains("TOKEN")
+            && !groups[0].1.contains("TOKEN (c)")
+            && groups[0].2,
+        "groups: {groups:?}"
+    );
+}
+
+#[test]
+fn secret_progress_groups_overridden_and_cached() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([(
+                "KEEP".to_string(),
+                "op://my.1password.eu/vault/item".to_string(),
+            )]),
+            overridden: ["KEEP".to_string()].into_iter().collect(),
+            ..SecretSources::default()
+        },
+        &HashSet::from(["KEEP".to_string()]),
+    );
+    assert!(
+        groups
+            .iter()
+            .any(|(_, display, fetched)| display.contains("KEEP (o, c)") && !fetched),
         "groups: {groups:?}"
     );
 }

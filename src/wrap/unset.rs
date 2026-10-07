@@ -48,6 +48,7 @@ pub async fn handle_unset(
         if let Ok(pre) = ticket::read(id) {
             network::stop_network_pids_list(&pre.network_pids);
         }
+        crate::hub::unlink_t(id);
         let _ = ticket::unlink(id);
     }
     remove_files(&mut files.keys())?;

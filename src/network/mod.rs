@@ -7,5 +7,5 @@ mod types;
 
 pub use acquire::{start_attached_network_session, start_detached_network_session};
 pub use process::stop_network_pids_list;
-pub use progress::{ProviderProgressEvent, ProviderProgressKind, format_timing};
+pub use progress::{ProviderProgressEvent, ProviderProgressKind, format_elapsed_ms, format_timing};
 pub use types::AcquiredNetwork;

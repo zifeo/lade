@@ -124,7 +124,7 @@ fn repo_needs_mise() -> bool {
     let Ok(config) = crate::config::LadeFile::build(cwd) else {
         return false;
     };
-    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let saved = crate::global_config::GlobalConfig::resolved_user();
     implied::repo_needs_mise(&config, &saved)
 }
 

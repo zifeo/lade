@@ -18,7 +18,7 @@ fn test_set_overlay_shows_overridden_progress() {
         .assert()
         .success()
         .stdout(predicates::str::contains("export TOKEN='b'"))
-        .stderr(predicates::str::contains("TOKEN (overridden)").not());
+        .stderr(predicates::str::contains("TOKEN (o)").not());
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_set_git_cancel_shows_cancelled_progress() {
         .assert()
         .success()
         .stdout(predicates::str::contains("export SSH_AUTH_SOCK").not())
-        .stderr(predicates::str::contains("SSH_AUTH_SOCK (cancelled)").not());
+        .stderr(predicates::str::contains("SSH_AUTH_SOCK (u)").not());
 }
 
 #[test]
@@ -162,4 +162,81 @@ fn test_set_fish_still_evals_in_the_interactive_shell() {
         !stdout.contains("--no-config"),
         "preexec must not switch the interactive shell to --no-config: {stdout}"
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_set_marks_hub_hit_cached_until_prune() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let secret = dir.path().join("secret.json");
+    fs::write(&secret, r#"{"token":"first-value"}"#).unwrap();
+    let uri = format!("file://{}?query=.token", secret.display());
+    fs::write(
+        dir.path().join("lade.yml"),
+        format!("\"echo\":\n  KEY: \"{uri}\"\n"),
+    )
+    .unwrap();
+    let wrap = "ab".repeat(32);
+
+    let first = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let first_out = String::from_utf8_lossy(&first.stdout);
+    let first_err = String::from_utf8_lossy(&first.stderr);
+    assert!(first_out.contains("first-value"), "{first_out}");
+    assert!(!first_err.contains("KEY (c)"), "{first_err}");
+    let listed = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["cache"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let listed = String::from_utf8_lossy(&listed);
+    assert!(listed.contains("KEY"), "{listed}");
+
+    fs::write(&secret, r#"{"token":"second-value"}"#).unwrap();
+    let second = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let second_out = String::from_utf8_lossy(&second.stdout);
+    let second_err = String::from_utf8_lossy(&second.stderr);
+    assert!(
+        second_out.contains("first-value") && !second_out.contains("second-value"),
+        "{second_out}"
+    );
+    assert!(second_err.contains("KEY (c)"), "{second_err}");
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["log", "prune", "--hub"])
+        .assert()
+        .success();
+
+    let third = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let third_out = String::from_utf8_lossy(&third.stdout);
+    let third_err = String::from_utf8_lossy(&third.stderr);
+    assert!(third_out.contains("second-value"), "{third_out}");
+    assert!(!third_err.contains("KEY (c)"), "{third_err}");
 }

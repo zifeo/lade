@@ -26,6 +26,66 @@ fn test_agent_when_wraps() {
 }
 
 #[test]
+fn user_keyed_secret_uses_os_user_when_disk_user_is_null() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let cfg = tempdir().unwrap();
+            let path = cfg.path().join("config.json");
+            std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+            temp_env::with_vars(
+                [
+                    ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                    ("USER", Some("alice")),
+                    ("USERNAME", None),
+                ],
+                || {
+                    let dir = tempdir().unwrap();
+                    std::fs::write(
+                        dir.path().join("lade.yml"),
+                        "\"^echo\":\n  KEY:\n    alice: val\n",
+                    )
+                    .unwrap();
+                    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+                    let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+                    let result = handle(&config, input, Audience::Agent, None).unwrap();
+                    assert_wraps_with_ticket(&result, "echo hello");
+                },
+            );
+        });
+    });
+}
+
+#[test]
+fn user_keyed_secret_skips_wrap_when_os_user_misses() {
+    with_cursor_env(|| {
+        let cfg = tempdir().unwrap();
+        let path = cfg.path().join("config.json");
+        std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("bob")),
+                ("USERNAME", None),
+            ],
+            || {
+                let dir = tempdir().unwrap();
+                std::fs::write(
+                    dir.path().join("lade.yml"),
+                    "\"^echo\":\n  KEY:\n    alice: val\n",
+                )
+                .unwrap();
+                let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+                let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+                let result = handle(&config, input, Audience::Agent, None).unwrap();
+                assert!(result.contains("allow"));
+                assert!(!result.contains("updated_input"));
+                assert!(!result.contains("--pretool"));
+            },
+        );
+    });
+}
+
+#[test]
 fn test_human_when_does_not_wrap() {
     with_cursor_env(|| {
         let dir = tempdir().unwrap();

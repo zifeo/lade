@@ -12,7 +12,7 @@ pub async fn run(verb: &str) -> Result<()> {
         return Ok(());
     };
     let config = LadeFile::build(cwd.clone())?;
-    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let saved = crate::global_config::GlobalConfig::resolved_user();
     let mut ran = Vec::new();
     for (key, uri) in config.package_uris(&saved) {
         let Some((cli, reference)) = parse_package(&uri) else {

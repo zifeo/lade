@@ -130,6 +130,47 @@ fn eval_access_command_is_hidden() {
 }
 
 #[test]
+fn cache_defaults_to_list() {
+    let args = Args::try_parse_from(["lade", "cache"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => {
+            assert!(cache.action.is_none());
+            assert!(!cache.json);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_forget_takes_names() {
+    let args = Args::try_parse_from(["lade", "cache", "forget", "AWS_ACCESS_KEY_ID"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => match cache.action {
+            Some(crate::args::CacheAction::Forget { names }) => {
+                assert_eq!(names, vec!["AWS_ACCESS_KEY_ID"]);
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn prune_hub_does_not_need_keep() {
+    let args = Args::try_parse_from(["lade", "log", "prune", "--hub"]).unwrap();
+    match args.command {
+        Some(Command::Log(log)) => match log.action {
+            Some(LogAction::Prune { keep, hub }) => {
+                assert!(keep.is_none());
+                assert!(hub);
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn log_is_not_inject_alias() {
     let args = Args::try_parse_from(["lade", "log", "--since", "1d"]).unwrap();
     match args.command {
@@ -162,6 +203,9 @@ fn default_help_hides_internal_commands() {
     assert!(!help.contains("\n  unset "));
     assert!(!help.contains("\n  hook "));
     assert!(!help.contains("\n  inject "));
+    assert!(!help.contains("\n  hub "));
+    assert!(!help.contains("\n  bench "));
+    assert!(help.contains("\n  cache"));
     assert!(!help.contains("--pretool"));
 }
 

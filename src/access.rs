@@ -1,9 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 
 use crate::{
-    config::{Config, LadeRule, saved_user},
+    config::{Config, LadeRule, ResolvedEntry, binding_name, resolve_entry, saved_user},
     files::{remove_files, split_env_files, write_files},
     network::{self, AcquiredNetwork},
     provider_progress::{
@@ -16,6 +19,7 @@ use crate::{
 pub struct AttachedAccess {
     pub env: HashMap<String, String>,
     pub warnings: Vec<String>,
+    pub cached: HashSet<String>,
     files: HashMap<PathBuf, HashMap<String, String>>,
     _network: AcquiredNetwork,
 }
@@ -41,11 +45,50 @@ impl Drop for AttachedAccess {
 pub async fn acquire_attached(
     config: &Config,
     rules: &[(PathBuf, LadeRule)],
+    patterned: &[(PathBuf, String, LadeRule)],
+    cwd: &Path,
     rich_progress: bool,
 ) -> Result<AttachedAccess> {
     let saved_user = saved_user().await?;
     let network_bindings = Config::network_bindings_from_rules(rules, &saved_user);
-    let (vars, _sources, _maskable, warnings) = config.hydrate_rules(rules, &saved_user).await?;
+    let hit = crate::hub::lookup(cwd, config.walk_hash(), &saved_user, patterned);
+    let (mut vars, _sources, _maskable, warnings) = config
+        .hydrate_rules_except(rules, &saved_user, &hit.keys)
+        .await?;
+    let mut output_for = HashMap::new();
+    for (dir, rule) in rules {
+        let output = rule
+            .config
+            .as_ref()
+            .and_then(|config| config.file.clone())
+            .map(|path| dir.join(path));
+        for (key, secret) in &rule.secrets {
+            if let Some(ResolvedEntry::Secret { key, .. }) = resolve_entry(key, secret, &saved_user)
+                && let Ok((name, _)) = binding_name(&key)
+            {
+                output_for.insert(name, output.clone());
+            }
+        }
+    }
+    for (name, value) in &hit.values {
+        let output = output_for.get(name).cloned().flatten();
+        vars.entry(output)
+            .or_default()
+            .insert(name.clone(), value.clone());
+    }
+    let mut flat = HashMap::new();
+    for values in vars.values() {
+        flat.extend(values.clone());
+    }
+    crate::hub::store(
+        cwd,
+        config.walk_hash(),
+        &saved_user,
+        patterned,
+        &flat,
+        &hit.keys,
+    );
+    let cached = hit.keys;
     let mut progress: Option<ProviderProgressRenderer> =
         Some(start_provider_progress(rich_progress));
     let network_sink = progress.as_ref().expect("progress renderer").sink();
@@ -73,6 +116,7 @@ pub async fn acquire_attached(
     Ok(AttachedAccess {
         env,
         warnings,
+        cached,
         files,
         _network: network,
     })

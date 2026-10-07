@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::{
-    collections::{BTreeMap, HashMap, hash_map::Keys},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Keys},
     ffi::OsStr,
     fs,
     io::{ErrorKind, Write},
@@ -12,7 +12,9 @@ use std::{
 use tokio::{signal, time};
 
 use crate::config::{Config, Output, SecretSources};
-use crate::network::{ProviderProgressEvent, ProviderProgressKind, format_timing};
+use crate::network::{
+    ProviderProgressEvent, ProviderProgressKind, format_elapsed_ms, format_timing,
+};
 use crate::provider_progress::ProviderProgressSink;
 use crate::ticket::TicketSecret;
 
@@ -42,19 +44,31 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
     op_sa: Option<&str>,
     plan: &SecretSources,
     progress: ProviderProgressSink,
+    cached: &HashSet<String>,
 ) -> Result<LoadedSecrets> {
     let started = Instant::now();
-    let progress_groups = secret_progress_groups(plan);
-    for (id, display) in &progress_groups {
-        progress.send(ProviderProgressEvent {
-            id: id.clone(),
-            display: display.clone(),
-            kind: ProviderProgressKind::Connecting,
-        });
+    let progress_groups = secret_progress_groups(plan, cached);
+    for (id, display, fetched) in &progress_groups {
+        if *fetched {
+            progress.send(ProviderProgressEvent {
+                id: id.clone(),
+                display: display.clone(),
+                kind: ProviderProgressKind::Connecting,
+            });
+        } else {
+            progress.send(ProviderProgressEvent {
+                id: id.clone(),
+                display: format_elapsed_ms(display, 0),
+                kind: ProviderProgressKind::Connected,
+            });
+        }
     }
     let hydrated = Config::hydrate_work(secrets, op_sa).await;
     if let Err(e) = &hydrated {
-        for (id, display) in &progress_groups {
+        for (id, display, fetched) in &progress_groups {
+            if !*fetched {
+                continue;
+            }
             progress.send(ProviderProgressEvent {
                 id: id.clone(),
                 display: format_timing(display, started),
@@ -64,7 +78,10 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
         return Err(anyhow::anyhow!(e.to_string()));
     }
     let (vars, sources, maskable, warnings) = hydrated?;
-    for (id, display) in &progress_groups {
+    for (id, display, fetched) in &progress_groups {
+        if !*fetched {
+            continue;
+        }
         progress.send(ProviderProgressEvent {
             id: id.clone(),
             display: format_timing(display, started),
@@ -103,18 +120,22 @@ fn provider_label(source: &str) -> String {
     }
 }
 
-fn secret_progress_groups(plan: &SecretSources) -> Vec<(String, String)> {
-    let mut groups = BTreeMap::<String, Vec<String>>::new();
+fn secret_progress_groups(
+    plan: &SecretSources,
+    cached: &HashSet<String>,
+) -> Vec<(String, String, bool)> {
+    let mut groups = BTreeMap::<String, (Vec<String>, bool)>::new();
     for (key, source) in &plan.sources {
         if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
             continue;
         }
-        let name = if plan.overridden.contains(key) {
-            format!("{key} (overridden)")
-        } else {
-            key.clone()
-        };
-        groups.entry(provider_label(source)).or_default().push(name);
+        let from_hub = cached.contains(key);
+        let name = progress_binding_name(key, plan.overridden.contains(key), from_hub);
+        let entry = groups.entry(provider_label(source)).or_default();
+        entry.0.push(name);
+        if !from_hub {
+            entry.1 = true;
+        }
     }
     for (key, source) in &plan.cancelled {
         if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
@@ -123,16 +144,26 @@ fn secret_progress_groups(plan: &SecretSources) -> Vec<(String, String)> {
         groups
             .entry(provider_label(source))
             .or_default()
-            .push(format!("{key} (cancelled)"));
+            .0
+            .push(format!("{key} (u)"));
     }
     groups
         .into_iter()
-        .map(|(label, mut keys)| {
+        .map(|(label, (mut keys, fetched))| {
             keys.sort();
             let display = format!("{label}: {}", keys.join(", "));
-            (format!("secret|{label}"), display)
+            (format!("secret|{label}"), display, fetched)
         })
         .collect()
+}
+
+fn progress_binding_name(key: &str, overridden: bool, cached: bool) -> String {
+    match (overridden, cached) {
+        (true, true) => format!("{key} (o, c)"),
+        (true, false) => format!("{key} (o)"),
+        (false, true) => format!("{key} (c)"),
+        (false, false) => key.to_string(),
+    }
 }
 
 pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {

@@ -18,6 +18,7 @@ pub enum Command {
     /// Report version, mise, locked tools, age-plugin-lade, config, pre-exec, pre-tool, and providers.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
+    #[command(hide = true)]
     Bench(BenchCommand),
     /// Enable pre-exec for this shell.
     On,
@@ -78,6 +79,8 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
     },
+    /// This binary's in-memory secret cache. Names only.
+    Cache(CacheCommand),
     /// Local command diary.
     Log(LogCommand),
     /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--global` / `--path` change the tree.
@@ -85,6 +88,9 @@ pub enum Command {
     /// Run a command with matching access. Same as `lade -- <command...>`.
     #[command(external_subcommand)]
     InjectAlias(Vec<String>),
+    /// In-memory secret casier. Spawned by set / wrap / mcp.
+    #[command(hide = true)]
+    Hub,
 }
 
 #[derive(Parser, Debug)]
@@ -116,6 +122,12 @@ pub fn help_lists_internal(verbose: &Verbosity) -> bool {
 pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bool) -> Result<()> {
     let mut cmd = Args::command();
     match command {
+        Some(Command::Cache(_)) => {
+            if let Some(sub) = cmd.find_subcommand_mut("cache") {
+                sub.print_help()?;
+                return Ok(());
+            }
+        }
         Some(Command::Log(_)) => {
             if let Some(sub) = cmd.find_subcommand_mut("log") {
                 let tail = format!(

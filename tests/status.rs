@@ -24,7 +24,8 @@ fn test_status_reports_version_and_project() {
             "inject wrap: skips startup files",
         ))
         .stdout(predicates::str::contains("log:"))
-        .stdout(predicates::str::contains("0 events, 0 B"));
+        .stdout(predicates::str::contains("0 events, 0 B"))
+        .stdout(predicates::str::contains("hub:"));
 }
 
 #[test]
@@ -68,6 +69,11 @@ fn test_status_json_is_valid_with_expected_keys() {
     assert!(value["log"].get("path").is_some());
     assert_eq!(value["log"]["events"], 0);
     assert_eq!(value["log"]["bytes"], 0);
+    assert!(value.get("hub").is_some());
+    assert_eq!(value["hub"]["state"], "down");
+    assert!(value["hub"]["pid"].is_null());
+    assert_eq!(value["hub"]["secrets"], 0);
+    assert_eq!(value["hub"]["tickets"], 0);
     assert!(!home.path().join("events.db").is_file());
     assert!(value["project_config"]["error"].is_null());
     assert!(value["project_config"].get("vault_clis").is_some());

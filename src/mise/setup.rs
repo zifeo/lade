@@ -38,7 +38,7 @@ impl PinReport {
 pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
     let cwd = std::env::current_dir().map_err(|e| Error::install(e.to_string()))?;
     let config = crate::config::LadeFile::build(cwd.clone())?;
-    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let saved = crate::global_config::GlobalConfig::resolved_user();
     if !implied::repo_needs_mise(&config, &saved) {
         return Ok(PinReport::default());
     }

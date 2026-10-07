@@ -18,7 +18,7 @@ pub use unset::handle_unset;
 use anyhow::Result;
 use rustc_hash::FxHashSet;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
@@ -41,6 +41,7 @@ pub(super) type SecretBundle = (
     HashMap<String, String>,
     FxHashSet<String>,
     Vec<String>,
+    HashSet<String>,
 );
 
 pub(super) enum Acquisition<N> {

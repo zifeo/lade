@@ -3,6 +3,8 @@
 Match tickets (T) are specified in [protocol.md](protocol.md).
 Observability is specified in [observability.md](observability.md).
 Environment variables are listed in [env.md](env.md).
+Secret cache is in [cache.md](cache.md).
+The public CLI is in [cli.md](cli.md).
 
 ## 1. High-Level Flow (Shell Hooks)
 
@@ -254,9 +256,9 @@ The match is a prefix slice (`${1:0:5}` in Bash/Zsh, `string sub` in Fish).
 
 Use `lade status` for an active report (version, `age-plugin-lade`,
 config, pre-exec and pre-tool, `lade.yaml`, mise and locked tools,
-providers, diary path and size). `--json` keeps `version`,
+providers, diary path and size, hub pid and cache counts). `--json` keeps `version`,
 `global_config`, `hooks`, `project_config`, and `ok`. `hooks` is
-`preexec` plus `pretool`. `log`, `mise`, and `age_plugin` are extra.
+`preexec` plus `pretool`. `log`, `mise`, `age_plugin`, and `hub` are extra.
 A successful daily GitHub check persists the latest tag. Upgrade
 nudges on inject only remind you to run `lade upgrade` or
 `lade status`. `lade bench` times parse, match, and per-rule hydrate.

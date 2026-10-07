@@ -146,6 +146,46 @@ fn test_rule_config_when() {
 }
 
 #[test]
+fn test_rule_config_ttl_duration() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yml");
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: 5m\n  KEY: val\n").unwrap();
+    let lade_file = LadeFile::from_path(&file_path).unwrap();
+    let ttl = lade_file.commands.get("cmd").unwrap()[0]
+        .config
+        .as_ref()
+        .unwrap()
+        .ttl
+        .as_ref()
+        .unwrap();
+    assert_eq!(ttl.ttl_ms(), Some(300_000));
+}
+
+#[test]
+fn test_rule_config_ttl_off() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yml");
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: off\n  KEY: val\n").unwrap();
+    let lade_file = LadeFile::from_path(&file_path).unwrap();
+    assert_eq!(
+        lade_file.commands.get("cmd").unwrap()[0]
+            .config
+            .as_ref()
+            .unwrap()
+            .ttl,
+        Some(RuleTtl::Off)
+    );
+}
+
+#[test]
+fn test_rule_config_ttl_invalid_fails() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yml");
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: 5\n  KEY: val\n").unwrap();
+    assert!(LadeFile::from_path(&file_path).is_err());
+}
+
+#[test]
 fn test_rule_config_when_invalid_fails() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yml");
