@@ -178,6 +178,29 @@ fn test_rule_config_ttl_off() {
 }
 
 #[test]
+fn test_rule_config_ttl_max_24h() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yml");
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: 24h\n  KEY: val\n").unwrap();
+    let lade_file = LadeFile::from_path(&file_path).unwrap();
+    assert_eq!(
+        lade_file.commands.get("cmd").unwrap()[0]
+            .config
+            .as_ref()
+            .unwrap()
+            .ttl
+            .as_ref()
+            .unwrap()
+            .ttl_ms(),
+        Some(MAX_TTL_MS)
+    );
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: 25h\n  KEY: val\n").unwrap();
+    assert!(LadeFile::from_path(&file_path).is_err());
+    std::fs::write(&file_path, "\"cmd\":\n  \".\":\n    ttl: 2d\n  KEY: val\n").unwrap();
+    assert!(LadeFile::from_path(&file_path).is_err());
+}
+
+#[test]
 fn test_rule_config_ttl_invalid_fails() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yml");

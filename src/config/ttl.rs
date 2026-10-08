@@ -71,4 +71,12 @@ mod tests {
         assert!(uri_is_cacheable("op://v/i/f", Some(&ttl)));
         assert!(!uri_is_cacheable("raw://x", Some(&ttl)));
     }
+
+    #[test]
+    fn ttl_parse_caps_at_24h() {
+        assert!(RuleTtl::parse("24h").is_ok());
+        assert!(RuleTtl::parse("1d").is_ok());
+        assert!(RuleTtl::parse("25h").unwrap_err().contains("24h"));
+        assert!(RuleTtl::parse("2d").is_err());
+    }
 }

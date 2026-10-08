@@ -82,6 +82,19 @@ files, or inline config only when needed.
 <tr>
 <td width="50%">
 
+**In-memory cache.** A second match reads the hub. Progress tags
+`(c)`. `lade cache` lists names. `lade cache forget` refetches.
+
+</td>
+<td width="50%">
+
+![In-memory cache](./examples/tape/cache.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
 **Private networks.** Open a local forward only while the command
 runs, then close it automatically.
 
@@ -216,6 +229,23 @@ var.
 | File | `file://PATH?query=.fields[0].field` | `?query=` required. INI, JSON, YAML, TOML. |
 | Shell | `sh://gcloud auth print-access-token` | Also `bash://`, `zsh://`, `fish://`. |
 | Raw | `"visible-in-the-yaml"` | Not a secret. `!` forces raw, `!!` keeps a leading `!`. |
+
+Vault, file, sops, and age stay in RAM for **5 minutes** after the
+first hydrate. Set `ttl:` on that rule's `.` to turn it off or
+raise it, up to **24 hours**. Shell URIs stay off unless that body
+sets `ttl:`. Raw, tunnels, and packages never cache.
+
+```yaml
+"^psql":
+  .:
+    ttl: 1h
+  DB_USER: op://my.1password.com/eng/postgres/username
+
+"^curl":
+  .:
+    ttl: off
+  API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
+```
 
 `lade eval <uri>` resolves one URI. Authenticate the provider CLI
 first. Lade does not pick the login command. See that product's

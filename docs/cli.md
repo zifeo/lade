@@ -1,9 +1,10 @@
 # CLI
 
-User-facing verbs a person or a harness types. Internal protocol
-(`set`, `unset`, `hub`, stdin `hook`, `--pretool`) stays out of
-`lade --help`. `lade --help -v` lists them. Details:
-[protocol.md](protocol.md).
+User-facing verbs a person or a harness types. `lade --help` is
+the playbook (examples, RAM ttl, loader marks). Each verb:
+`lade <command> --help`. Internal protocol (`set`, `unset`,
+`hub`, stdin `hook`, `--pretool`) stays out of `lade --help`.
+`lade --help -v` lists them. Details: [protocol.md](protocol.md).
 
 Spoken words: **harness**, **pre-exec**, **pre-tool**. Diary JSON
 may still say `agent`. `lade status --json` keeps `version`,
@@ -24,7 +25,7 @@ While secrets hydrate, a progress line can tag a binding:
 Example:
 
 ```
-Lade connected: 1Password vault: AWS_ACCESS_KEY_ID (c) 0 ms
+✔︎ Vault 127.0.0.1:8200: TOKEN (c)                                        0 ms
 ```
 
 `silence: true` on a rule hides that rule's progress lines.

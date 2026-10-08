@@ -57,7 +57,11 @@ impl RuleTtl {
         if raw == "off" {
             return Ok(Self::Off);
         }
-        Ok(Self::Window(parse_window(raw)?))
+        let window = parse_window(raw)?;
+        if window.num_milliseconds() > i64::from(MAX_TTL_MS) {
+            return Err("ttl is at most 24h".to_string());
+        }
+        Ok(Self::Window(window))
     }
 
     pub fn ttl_ms(&self) -> Option<u32> {
@@ -79,13 +83,14 @@ impl<'de> Deserialize<'de> for RuleTtl {
 }
 
 pub const DEFAULT_VAULT_TTL_MS: u32 = 300_000;
+pub const MAX_TTL_MS: u32 = 86_400_000;
 
 pub fn duration_to_ttl_ms(duration: chrono::Duration) -> u32 {
     let ms = duration.num_milliseconds();
     if ms <= 0 {
         1
-    } else if ms > u32::MAX as i64 {
-        u32::MAX
+    } else if ms > i64::from(MAX_TTL_MS) {
+        MAX_TTL_MS
     } else {
         ms as u32
     }

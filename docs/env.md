@@ -13,6 +13,7 @@ See also [protocol.md](protocol.md) (T tickets), [architecture.md](architecture.
 | Variable | Purpose |
 | --- | --- |
 | `LADE_CONFIG_PATH` | Path to the global config file (`config.json`). Default: XDG config dir. Tests and CI set this to avoid update checks. |
+| `LADE_CACHE_DIR` | Override the hub socket / ticket / mise-env root. Tests and tape render set this. |
 | `LADE_DAEMON` | `off` skips the in-memory hub. No connect, no spawn. |
 | `LADE_WRAP_KEY` | 64 hex chars (32 bytes). Tests and CI only. Replaces Keychain / `@s`. Bad hex skips the hub. |
 

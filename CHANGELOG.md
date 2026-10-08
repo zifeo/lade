@@ -17,8 +17,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   `lade cache forget` and `lade cache forget KEY` drop this binary's
   RAM. `lade log prune --hub` is an alias. `lade status` reports hub
   pid and counts. Progress marks `(c)` cached, `(o)` overridden,
-  `(u)` unset. See [docs/cache.md](docs/cache.md) and
-  [docs/cli.md](docs/cli.md).
+  `(u)` unset. Rule `ttl:` is `off` or up to 24h. See
+  [docs/cache.md](docs/cache.md) and [docs/cli.md](docs/cli.md).
+  `lade --help` lists examples and the ttl. `-v` lists protocol
+  verbs.
 
 ### Fixed
 

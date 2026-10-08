@@ -88,6 +88,9 @@ pub(crate) async fn run_standalone(
             uri,
             access_command,
         } => {
+            let Some(uri) = uri else {
+                anyhow::bail!("the secret URI is required");
+            };
             if access_command.as_ref().is_some_and(|name| name.is_empty()) {
                 anyhow::bail!("--access-command cannot be empty");
             }

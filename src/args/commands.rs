@@ -6,10 +6,94 @@ use std::time::Duration;
 
 use super::HookAgent;
 
+pub const SETUP_AFTER_HELP: &str = "\
+Examples:
+  lade setup
+  lade setup --harness cursor
+  lade setup --unlock
+";
+
+pub const TEARDOWN_AFTER_HELP: &str = "\
+Examples:
+  lade teardown
+  lade teardown --global
+";
+
+pub const ADD_AFTER_HELP: &str = "\
+Examples:
+  lade add secret --rule 'terraform .*' --key AWS_ACCESS_KEY_ID --uri op://v/i/f
+  lade add package --key tofu --uri mise://aqua/opentofu/opentofu@1.8.2
+  lade add tunnel --rule '^psql' --key 5432 --uri kubectl://host:6443/ctx/ns/service/db/5432
+";
+
+pub const REMOVE_AFTER_HELP: &str = "\
+Examples:
+  lade remove secret --key AWS_ACCESS_KEY_ID
+";
+
+pub const ON_AFTER_HELP: &str = "\
+Examples:
+  eval \"$(lade on)\"
+";
+
+pub const OFF_AFTER_HELP: &str = "\
+Examples:
+  eval \"$(lade off)\"
+";
+
+pub const UPDATE_AFTER_HELP: &str = "\
+Examples:
+  lade update
+";
+
+pub const UPGRADE_AFTER_HELP: &str = "\
+Examples:
+  lade upgrade
+  lade upgrade --version 0.19.2 -y
+";
+
+pub const EVAL_AFTER_HELP: &str = "\
+Examples:
+  lade eval op://vault/item/field
+  lade eval 'file://./secrets.json?query=.token'
+";
+
+pub const MCP_AFTER_HELP: &str = "\
+Examples:
+  lade mcp -- npx -y @modelcontextprotocol/server-everything
+  lade mcp https://example.com/mcp
+";
+
+pub const APPROVE_AFTER_HELP: &str = "\
+Examples:
+  lade approve ab12c
+";
+
+pub const USER_AFTER_HELP: &str = "\
+Examples:
+  lade user alice
+  lade user --reset
+";
+
+pub const LOG_AFTER_HELP: &str = "\
+Examples:
+  lade log
+  lade log --since 12h --json
+  lade log prune --keep 90d
+  lade log prune --hub
+";
+
+pub const USAGE_AFTER_HELP: &str = "\
+Examples:
+  lade usage
+  lade usage --since 7d --json
+";
+
 /// This git repo: install locked packages, first-time pre-exec, repo
 /// pre-tool. The lock is the version. `lade update` re-resolves.
 /// `--unlock` ignores the lock this once.
 #[derive(Parser, Debug)]
+#[command(after_help = SETUP_AFTER_HELP)]
 pub struct SetupCommand {
     /// Ignore the lock, resolve from yaml, rewrite, and install.
     #[clap(long, default_value_t = false)]
@@ -29,6 +113,7 @@ impl SetupCommand {
 /// Remove this repo's Lade pre-tool hooks and run teardown commands.
 /// `--global` wipes this machine's cache. Home hooks stay.
 #[derive(Parser, Debug)]
+#[command(after_help = TEARDOWN_AFTER_HELP)]
 pub struct TeardownCommand {
     /// Wipe this machine's Lade cache (mise isolation, env sidecars, tickets).
     /// Home hooks stay until `lade hook disable --scope user`.
@@ -37,6 +122,7 @@ pub struct TeardownCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = ADD_AFTER_HELP)]
 pub struct AddCommand {
     /// Family (`secret`, `package`, `tunnel`) or a package search (`ghjk`).
     #[clap(value_parser)]
@@ -56,6 +142,7 @@ pub struct AddCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = REMOVE_AFTER_HELP)]
 pub struct RemoveCommand {
     /// Family (`secret`, `package`, `tunnel`) or the key to drop.
     #[clap(value_parser)]

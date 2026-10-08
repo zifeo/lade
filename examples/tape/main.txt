@@ -2,21 +2,31 @@
 hello
 
 > lade setup
-╭ Info ───────────────────────────────────────────────────────────────────────────╮
-│                                                                                 │
-│   pre-exec  this shell                                                          │
-│   Wraps commands you type.                                                      │
-│                                                                                 │
-│   Found Zsh. This shell: Zsh.                                                   │
-│     installed  ~/.zshrc                                                         │
-│   Reload this shell: source ~/.zshrc                                            │
-│                                                                                 │
-│   pre-tool  this repo  .                                   │
-│   Wraps commands harnesses run.                                                 │
-│                                                                                 │
-│   nothing here.                                                                 │
-│                                                                                 │
-╰─────────────────────────────────────────────────────────────────────────────────╯
+packages
+CLIs this repo wraps. Leave the folder and your usual ones come back.
+
+⠋ mise
+
+✔︎ mise 2025.8.11
+
+⠸ vault 1.15.0
+
+✔︎ vault 1.15.0
+
+⠸ kubectl 1.31.4
+
+✔︎ kubectl 1.31.4
+
+pre-exec  this shell
+Wraps commands you type. `lade hook disable --shell` removes it.
+
+  Zsh         ~/.zshrc
+Reload this shell: source ~/.zshrc
+
+pre-tool  this repo  .
+Wraps commands harnesses run. `lade teardown` removes them from this repo.
+
+nothing here.
 
 > source ~/.zshrc
 

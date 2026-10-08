@@ -122,7 +122,7 @@ fn eval_access_command_is_hidden() {
             uri,
             access_command,
         }) => {
-            assert_eq!(uri, "file:///tmp/k?query=.k");
+            assert_eq!(uri.as_deref(), Some("file:///tmp/k?query=.k"));
             assert_eq!(access_command.as_deref(), Some("age-plugin-lade"));
         }
         other => panic!("{other:?}"),
@@ -195,10 +195,12 @@ fn help_with_verbose_flag_lists_internal() {
 #[test]
 fn default_help_hides_internal_commands() {
     let help = Args::command()
-        .after_help(super::INTERNAL_HINT)
-        .render_help()
+        .after_help(super::ROOT_AFTER_HELP)
+        .render_long_help()
         .to_string();
     assert!(help.contains("Internal commands: lade --help -v"));
+    assert!(help.contains("lade cache forget"));
+    assert!(help.contains("ttl: off"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));
     assert!(!help.contains("\n  hook "));
@@ -213,13 +215,43 @@ fn default_help_hides_internal_commands() {
 fn verbose_help_lists_internal_commands() {
     let mut cmd = Args::command();
     super::reveal_internal(&mut cmd);
-    let help = cmd.render_help().to_string();
+    cmd = std::mem::take(&mut cmd).after_help(super::ROOT_VERBOSE_AFTER_HELP);
+    let help = cmd.render_long_help().to_string();
     assert!(help.contains("  set "));
     assert!(help.contains("  unset "));
     assert!(help.contains("  hook "));
     assert!(help.contains("  inject "));
     assert!(help.contains("--pretool"));
+    assert!(help.contains("Protocol verbs"));
     assert!(!help.contains("Internal commands: lade --help -v"));
+}
+
+#[test]
+fn eval_help_does_not_require_uri() {
+    let args = Args::try_parse_from(["lade", "eval", "--help"]).unwrap();
+    assert!(args.help);
+    match args.command {
+        Some(Command::Eval { uri, .. }) => assert!(uri.is_none()),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn public_verb_help_prints_examples() {
+    let mut cmd = Args::command();
+    for name in [
+        "setup", "teardown", "add", "remove", "on", "off", "update", "upgrade", "eval", "mcp",
+        "approve", "user", "cache", "status",
+    ] {
+        let sub = cmd
+            .find_subcommand_mut(name)
+            .unwrap_or_else(|| panic!("{name}"));
+        let help = sub.render_long_help().to_string();
+        assert!(
+            help.contains("Examples:"),
+            "{name} help has no Examples:\n{help}"
+        );
+    }
 }
 
 #[test]

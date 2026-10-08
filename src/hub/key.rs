@@ -1,5 +1,6 @@
 use super::crypto::zero_key;
 
+#[cfg(target_os = "macos")]
 const SERVICE: &str = "com.zifeo.lade.wrap";
 const ACCOUNT: &str = "lade-wrap-v2";
 

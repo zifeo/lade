@@ -13,34 +13,35 @@ pub use hook::*;
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Download and install the latest release.
+    /// Install a newer Lade binary.
+    #[command(after_help = UPGRADE_AFTER_HELP)]
     Upgrade(UpgradeCommand),
-    /// Report version, mise, locked tools, age-plugin-lade, config, pre-exec, pre-tool, and providers.
+    /// Version, hooks, mise, providers, hub counts.
     Status(StatusCommand),
     /// Time config parse, match, and per-rule secret resolution.
     #[command(hide = true)]
     Bench(BenchCommand),
-    /// Enable pre-exec for this shell.
+    /// Enable pre-exec in this shell.
+    #[command(after_help = ON_AFTER_HELP)]
     On,
-    /// Disable pre-exec for this shell.
+    /// Disable pre-exec in this shell.
+    #[command(after_help = OFF_AFTER_HELP)]
     Off,
-    /// Wire this git repo. Installs the locked packages. First-time
-    /// pre-exec. pre-tool stays in the repo.
+    /// This repo: packages, lock, first-time pre-exec, repo pre-tool.
     Setup(SetupCommand),
-    /// Re-resolve implied and ranged pins to the latest matching package.
-    /// Rewrites the lock and installs. Exact yaml pins stay.
-    /// `lade upgrade` is the Lade binary.
+    /// Re-resolve ranged pins and rewrite the lock.
+    #[command(after_help = UPDATE_AFTER_HELP)]
     Update,
-    /// Remove this repo's Lade pre-tool hooks and run teardown commands.
-    /// `--global` wipes this machine's cache.
+    /// Remove repo pre-tool hooks. `--global` wipes on-disk cache.
     Teardown(TeardownCommand),
     /// Write a secret, package, or tunnel into the nearest lade.yaml.
     Add(AddCommand),
-    /// Remove a binding from the nearest lade.yaml.
+    /// Drop a binding from the nearest lade.yaml.
     Remove(RemoveCommand),
     /// Run a command with matching lade.yaml access. One-shot, no pre-exec.
     Inject(InjectCommand),
-    /// Resolve secrets for a local or remote MCP server.
+    /// Wrap a local or remote MCP server with matching access.
+    #[command(after_help = MCP_AFTER_HELP)]
     Mcp(McpCommand),
     /// Set environment for the interactive shell. Called by pre-exec.
     #[command(hide = true)]
@@ -48,13 +49,15 @@ pub enum Command {
     /// Restore the shell environment. Called by pre-exec.
     #[command(hide = true)]
     Unset(EvalCommand),
-    /// Evaluate a secret URI and print its resolved value.
+    /// Resolve one secret URI to stdout.
+    #[command(after_help = EVAL_AFTER_HELP)]
     Eval {
         /// Diary command name. age-plugin-lade passes its binary name.
         #[arg(long = "access-command", hide = true)]
         access_command: Option<String>,
-        /// The secret URI to resolve (e.g., op://vault/item/field)
-        uri: String,
+        /// Secret URI (`op://`, `file://`, `vault://`, …).
+        #[arg(required_unless_present = "help")]
+        uri: Option<String>,
     },
     /// Install or remove a pre-tool hook, or handle hook JSON on stdin.
     #[command(hide = true)]
@@ -65,13 +68,14 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<HookAction>,
     },
-    /// Approve a pending disclaimer and run the command, using the code shown in
-    /// the disclaimer message.
+    /// Approve a withheld disclaimer and run the command.
+    #[command(after_help = APPROVE_AFTER_HELP)]
     Approve {
         /// The approval code printed in the disclaimer (e.g. `ab12c`).
         code: Option<String>,
     },
-    /// Set the lade.yaml per-user key, or reset to the OS user.
+    /// Per-user yaml map key. `--reset` uses the OS user.
+    #[command(after_help = USER_AFTER_HELP)]
     User {
         /// The username to set
         username: Option<String>,
@@ -79,11 +83,13 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
     },
-    /// This binary's in-memory secret cache. Names only.
+    /// This binary's RAM secret names. Never values.
     Cache(CacheCommand),
     /// Local command diary.
+    #[command(after_help = LOG_AFTER_HELP)]
     Log(LogCommand),
-    /// Matched lade.yaml rules in this tree, most frequent first. `--all` / `--global` / `--path` change the tree.
+    /// Matched rules in this tree, most frequent first.
+    #[command(after_help = USAGE_AFTER_HELP)]
     Usage(UsageCommand),
     /// Run a command with matching access. Same as `lade -- <command...>`.
     #[command(external_subcommand)]
@@ -99,6 +105,7 @@ pub struct Args {
     #[clap(long, value_parser)]
     pub version: bool,
 
+    /// Print help. `-v` adds protocol verbs (`set`, `unset`, `hook`).
     #[clap(short, long, value_parser, global = true)]
     pub help: bool,
 
@@ -113,87 +120,107 @@ pub struct Args {
     pub verbose: Verbosity,
 }
 
-pub(super) const INTERNAL_HINT: &str = "Internal commands: lade --help -v";
+pub const ROOT_AFTER_HELP: &str = "\
+Examples:
+  lade setup
+  tofu apply
+  lade -- tofu apply
+  lade status
+  lade cache
+  lade cache forget AWS_ACCESS_KEY_ID
+  lade eval op://vault/item/field
+
+Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
+Progress: (c) cached  (o) overridden  (u) unset.
+Next: lade <command> --help. Internal commands: lade --help -v.
+";
+
+pub const ROOT_VERBOSE_AFTER_HELP: &str = "\
+Examples:
+  lade setup
+  tofu apply
+  lade -- tofu apply
+  lade status
+  lade cache
+  lade cache forget AWS_ACCESS_KEY_ID
+  lade eval op://vault/item/field
+
+Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
+Progress: (c) cached  (o) overridden  (u) unset.
+
+Protocol verbs (this list):
+  set / unset   pre-exec inject and restore
+  hook          stdin pre-tool JSON; enable --scope user|project
+  inject        same as lade --
+  hub           in-memory secret casier
+  --pretool     mark this invocation as pre-tool
+";
 
 pub fn help_lists_internal(verbose: &Verbosity) -> bool {
     verbose.log_level_filter() > log::LevelFilter::Error
 }
 
+fn subcommand_name(command: &Command) -> Option<&'static str> {
+    match command {
+        Command::Upgrade(_) => Some("upgrade"),
+        Command::Status(_) => Some("status"),
+        Command::Bench(_) => Some("bench"),
+        Command::On => Some("on"),
+        Command::Off => Some("off"),
+        Command::Setup(_) => Some("setup"),
+        Command::Update => Some("update"),
+        Command::Teardown(_) => Some("teardown"),
+        Command::Add(_) => Some("add"),
+        Command::Remove(_) => Some("remove"),
+        Command::Inject(_) => Some("inject"),
+        Command::Mcp(_) => Some("mcp"),
+        Command::Set(_) => Some("set"),
+        Command::Unset(_) => Some("unset"),
+        Command::Eval { .. } => Some("eval"),
+        Command::Hook { .. } => Some("hook"),
+        Command::Approve { .. } => Some("approve"),
+        Command::User { .. } => Some("user"),
+        Command::Cache(_) => Some("cache"),
+        Command::Log(_) => Some("log"),
+        Command::Usage(_) => Some("usage"),
+        Command::Hub => Some("hub"),
+        Command::InjectAlias(_) => None,
+    }
+}
+
 pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bool) -> Result<()> {
     let mut cmd = Args::command();
-    match command {
-        Some(Command::Cache(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("cache") {
-                sub.print_help()?;
-                return Ok(());
-            }
-        }
-        Some(Command::Log(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("log") {
-                let tail = format!(
-                    "Database: {}\nDuration: {}",
-                    db_path.display(),
-                    DURATION_HELP
-                );
-                *sub = std::mem::take(sub).after_help(tail);
-                sub.print_help()?;
-                return Ok(());
-            }
-        }
-        Some(Command::Usage(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("usage") {
-                let tail = format!("Duration: {DURATION_HELP}");
-                *sub = std::mem::take(sub).after_help(tail);
-                sub.print_help()?;
-                return Ok(());
-            }
-        }
-        Some(Command::Set(_)) => return print_hidden_command(&mut cmd, "set"),
-        Some(Command::Unset(_)) => return print_hidden_command(&mut cmd, "unset"),
-        Some(Command::Hook { .. }) => {
-            if let Some(sub) = cmd.find_subcommand_mut("hook") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        Some(Command::Setup(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("setup") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        Some(Command::Update) => {
-            if let Some(sub) = cmd.find_subcommand_mut("update") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        Some(Command::Teardown(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("teardown") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        Some(Command::Add(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("add") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        Some(Command::Remove(_)) => {
-            if let Some(sub) = cmd.find_subcommand_mut("remove") {
-                sub.print_help()?;
-            }
-            return Ok(());
-        }
-        _ => {}
-    }
     if verbose {
         reveal_internal(&mut cmd);
-    } else {
-        cmd = std::mem::take(&mut cmd).after_help(INTERNAL_HINT);
     }
-    cmd.print_help()?;
+    let Some(name) = command.as_ref().and_then(subcommand_name) else {
+        let tail = if verbose {
+            ROOT_VERBOSE_AFTER_HELP
+        } else {
+            ROOT_AFTER_HELP
+        };
+        cmd = std::mem::take(&mut cmd).after_help(tail);
+        cmd.print_long_help()?;
+        return Ok(());
+    };
+    let Some(sub) = cmd.find_subcommand_mut(name) else {
+        return Ok(());
+    };
+    if matches!(name, "set" | "unset" | "inject" | "hook" | "hub" | "bench") {
+        *sub = std::mem::take(sub).hide(false);
+    }
+    if name == "log" {
+        let tail = format!(
+            "{LOG_AFTER_HELP}\nDatabase: {}\nDuration: {}",
+            db_path.display(),
+            DURATION_HELP
+        );
+        *sub = std::mem::take(sub).after_help(tail);
+    } else if name == "usage" {
+        let tail = format!("{USAGE_AFTER_HELP}\nDuration: {DURATION_HELP}");
+        *sub = std::mem::take(sub).after_help(tail);
+    }
+    sub.print_long_help()?;
     Ok(())
 }
 
@@ -204,14 +231,6 @@ pub(super) fn reveal_internal(cmd: &mut clap::Command) {
         }
     }
     *cmd = std::mem::take(cmd).mut_arg("pretool", |arg| arg.hide(false));
-}
-
-fn print_hidden_command(cmd: &mut clap::Command, name: &str) -> Result<()> {
-    if let Some(sub) = cmd.find_subcommand_mut(name) {
-        *sub = std::mem::take(sub).hide(false);
-        sub.print_help()?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

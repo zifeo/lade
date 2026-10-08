@@ -25,9 +25,11 @@ the same pattern: the second refetches. It does not fail.
 
 | Binding on that body | Default | Opt-in |
 |---|---|---|
-| Vault / `op` / cloud / file / sops / age | 5m | `ttl: off` disables cache on that body |
-| `sh` / `bash` / `zsh` / `fish` | off | that body writes `ttl:` |
+| Vault / `op` / cloud / file / sops / age | 5m | `ttl: off` disables. `ttl: 1h` … `ttl: 24h` (max) |
+| `sh` / `bash` / `zsh` / `fish` | off | that body writes `ttl:` (same max) |
 | `raw://`, tunnel, package | off | never |
+
+A body `ttl:` longer than 24h fails at load.
 
 One matching command can hit several patterns. One `Get` / `Put`
 per cacheable body, not one for the whole command. `rule` on the
