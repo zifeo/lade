@@ -25,6 +25,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   [docs/cli.md](docs/cli.md). `lade --help` lists examples and
   the ttl. `-v` lists protocol verbs.
 
+### Changed
+
+- **`lade upgrade`**: after a successful update, a box says this terminal
+  still has the previous wrap and prints the reload command
+  (`eval "$(lade on)"` on zsh).
+
 ### Fixed
 
 - **OS user:** when `config.json` has no user, per-user yaml maps
