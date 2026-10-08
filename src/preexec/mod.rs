@@ -5,6 +5,7 @@ pub use hook::{
     SetupShell, ci_job, enable_current_preexec, maybe_bootstrap_setup_shell, preexec_installed,
     present_shells, uninstall_current_preexec,
 };
+pub(crate) use hook::{reload_after_upgrade_lines, wrap_reload_command};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;

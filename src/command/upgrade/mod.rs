@@ -244,8 +244,22 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
                 e.emit();
             })?;
         }
+        print_reload_after_upgrade();
     }
     Ok(())
+}
+
+fn print_reload_after_upgrade() {
+    let shell = crate::preexec::Shell::detect().ok();
+    let wrapped = shell
+        .as_ref()
+        .is_some_and(|s| crate::preexec::preexec_installed(s).1);
+    let bin = crate::pretool::invoked_lade_bin();
+    let mut message = MessageBox::new().info();
+    for line in crate::preexec::reload_after_upgrade_lines(shell, &bin, wrapped) {
+        message = message.line(line);
+    }
+    message.print_stderr();
 }
 
 #[cfg(test)]
