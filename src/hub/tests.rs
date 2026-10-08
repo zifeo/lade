@@ -103,6 +103,127 @@ fn tables_list_and_forget_named_key() {
 }
 
 #[test]
+fn tables_window_marks_scope_and_restamps() {
+    let mut tables = empty_tables();
+    let put = Req::Put {
+        cwd: "/proj/src".into(),
+        path: "/proj/lade.yaml".into(),
+        rule: "t .*".into(),
+        when: "always".into(),
+        walk: [9u8; 32],
+        user: String::new(),
+        ttl_ms: 60_000,
+        bindings: vec![("AWS".into(), b"a".to_vec())],
+    };
+    assert_eq!(handle_for_test(&mut tables, put), Rep::Ok);
+    assert_eq!(
+        handle_for_test(
+            &mut tables,
+            Req::SetWindow {
+                scope: "/proj".into(),
+                ttl: Some("2h".into()),
+            },
+        ),
+        Rep::Ok
+    );
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/proj".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl.as_deref(), Some("2h")),
+        other => panic!("{other:?}"),
+    }
+    match handle_for_test(&mut tables, Req::List) {
+        Rep::Listing { rows, .. } => {
+            assert!(rows[0].ttl_left_ms > 60_000, "{}", rows[0].ttl_left_ms);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        handle_for_test(
+            &mut tables,
+            Req::SetWindow {
+                scope: "/proj".into(),
+                ttl: None,
+            },
+        ),
+        Rep::Ok
+    );
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/proj".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl, None),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn tables_window_follows_cwd_hierarchy() {
+    let mut tables = empty_tables();
+    assert_eq!(
+        handle_for_test(
+            &mut tables,
+            Req::SetWindow {
+                scope: "/proj/src".into(),
+                ttl: Some("2h".into()),
+            },
+        ),
+        Rep::Ok
+    );
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/proj".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl.as_deref(), Some("2h")),
+        other => panic!("{other:?}"),
+    }
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/proj/src/lib".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl.as_deref(), Some("2h")),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        handle_for_test(
+            &mut tables,
+            Req::SetWindow {
+                scope: "/proj".into(),
+                ttl: Some("30m".into()),
+            },
+        ),
+        Rep::Ok
+    );
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/proj/src".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl.as_deref(), Some("2h")),
+        other => panic!("{other:?}"),
+    }
+    match handle_for_test(
+        &mut tables,
+        Req::GetWindow {
+            scope: "/other".into(),
+        },
+    ) {
+        Rep::Window { ttl } => assert_eq!(ttl, None),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn tables_upsert_at_cap_keeps_row() {
     let mut tables = empty_tables();
     let walk = [1u8; 32];

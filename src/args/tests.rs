@@ -156,6 +156,40 @@ fn cache_forget_takes_names() {
 }
 
 #[test]
+fn cache_set_takes_ttl() {
+    let args = Args::try_parse_from(["lade", "cache", "set", "2h"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => match cache.action {
+            Some(crate::args::CacheAction::Set { ttl }) => {
+                assert_eq!(ttl.as_deref(), Some("2h"));
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_set_help_does_not_require_ttl() {
+    let args = Args::try_parse_from(["lade", "cache", "set", "--help"]).unwrap();
+    assert!(args.help);
+}
+
+#[test]
+fn cache_unset_parses() {
+    let args = Args::try_parse_from(["lade", "cache", "unset"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => {
+            assert!(matches!(
+                cache.action,
+                Some(crate::args::CacheAction::Unset)
+            ));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn prune_hub_does_not_need_keep() {
     let args = Args::try_parse_from(["lade", "log", "prune", "--hub"]).unwrap();
     match args.command {
@@ -200,6 +234,7 @@ fn default_help_hides_internal_commands() {
         .to_string();
     assert!(help.contains("Internal commands: lade --help -v"));
     assert!(help.contains("lade cache forget"));
+    assert!(help.contains("lade cache set"));
     assert!(help.contains("ttl: off"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));

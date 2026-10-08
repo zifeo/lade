@@ -17,7 +17,9 @@
 
 # tape: cache
 ^echo cache:
-  TOKEN: file://../sources/config.json?query=.token
+  .:
+    ttl: 5m
+  TOKEN: "sh://sleep 1; echo token-42"
 
 # tape: format
 ^printenv FROM_FILE:

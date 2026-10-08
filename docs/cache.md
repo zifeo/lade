@@ -27,9 +27,11 @@ the same pattern: the second refetches. It does not fail.
 |---|---|---|
 | Vault / `op` / cloud / file / sops / age | 5m | `ttl: off` disables. `ttl: 1h` … `ttl: 24h` (max) |
 | `sh` / `bash` / `zsh` / `fish` | off | that body writes `ttl:` (same max) |
+| This cwd (hub window) | yaml / 5m | `lade cache set 2h` marks this cwd. Ancestors and children share it. `ttl: off` on the body still wins. Shell URIs opt in. `lade cache unset` clears this cwd. |
 | `raw://`, tunnel, package | off | never |
 
-A body `ttl:` longer than 24h fails at load.
+A body `ttl:` longer than 24h fails at load. `lade cache forget`
+drops the RAM now. The next match refetches.
 
 One matching command can hit several patterns. One `Get` / `Put`
 per cacheable body, not one for the whole command. `rule` on the
@@ -199,7 +201,8 @@ that silent drop is a stale hub (unlink + spawn once).
 
 `user` is `saved_user` or `""`. `path` is that body's yaml
 file. `ttl_ms` is that body's duration, or 300000 when the
-body used the vault default. `ttl: off` bodies are not put.
+body used the vault default, or this cwd's hub window when
+`lade cache set` marked one. `ttl: off` bodies are not put.
 `Err` 4 is denied (wrong peer or version).
 
 ## CLI
@@ -209,8 +212,11 @@ body used the vault default. `ttl: off` bodies are not put.
 `pid`, `secrets`, `tickets`) and leaves `ok` unchanged.
 
 `lade cache` lists this image's key names, rule, yaml path, and
-ttl left. Never values. `lade cache forget` and
-`lade cache forget KEY` drop rows. Neither spawns.
+ttl left. Never values. `lade cache set 2h` marks this cwd on
+the hub. A parent or child cwd shares that window (nearest
+path wins). `lade cache unset` clears this cwd.
+`lade cache forget` and `lade cache forget KEY` drop
+rows. List and forget do not spawn. Set and unset spawn.
 `lade log prune --hub` is an alias of `lade cache forget`.
 Combinable with `--keep`. Other `hub-*.sock` leftovers stay.
 The next matching command refetches. A vault edit does not
@@ -222,7 +228,7 @@ Extra, like `agent`. See [cli.md](cli.md).
 
 ## What is not cached
 
-- Shell URIs unless that body has `ttl:`
+- Shell URIs unless that body has `ttl:` or this cwd has a hub window
 - Raw literals, tunnels, packages
 - `lade eval` / `age-plugin-lade`
 - A pending disclaimer treated as already consented

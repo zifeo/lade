@@ -321,10 +321,15 @@ pub const CACHE_AFTER_HELP: &str = "\
 Examples:
   lade cache
   lade cache list --json
+  lade cache set 2h
+  lade cache unset
   lade cache forget
   lade cache forget AWS_ACCESS_KEY_ID
 
 Names only. Never values. This binary's hub only.
+`lade cache set` marks this cwd on the hub. Ancestors share it.
+`unset` clears this cwd.
+Vault and file stay in RAM 5m. `forget` drops them now.
 `lade log prune --hub` is an alias of `lade cache forget`.
 Loader marks: (c) cached, (o) overridden, (u) unset. See docs/cli.md.
 ";
@@ -349,6 +354,14 @@ pub enum CacheAction {
         /// Binding names to drop. Empty forgets every key and stops the hub.
         names: Vec<String>,
     },
+    /// Mark this cwd's hub window. Ancestors share it. `off` or up to 24h.
+    Set {
+        /// `off` or a window up to 24h (`5m`, `2h`).
+        #[arg(required_unless_present = "help")]
+        ttl: Option<String>,
+    },
+    /// Clear this cwd's hub window.
+    Unset,
 }
 
 #[derive(Parser, Debug)]

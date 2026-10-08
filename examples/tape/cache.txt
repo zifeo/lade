@@ -1,17 +1,19 @@
 > ./show-example cache
 ^echo cache:
-  TOKEN: file://../sources/config.json?query=.token
+  .:
+    ttl: 5m
+  TOKEN: "sh://sleep 1; echo token-42"
 
 > echo cache $TOKEN
-⠋ File: TOKEN
+⠋ sh sleep 1; echo token-42: TOKEN
 
-✔︎ File: TOKEN                                                            0 ms
+✔︎ sh sleep 1; echo token-42: TOKEN                                    1014 ms
 
-cache super-secret-token-42
+cache token-42
 
 > echo cache $TOKEN
-✔︎ File: TOKEN (c)                                                        0 ms
+✔︎ sh sleep 1; echo token-42: TOKEN (c)                                   0 ms
 
-cache super-secret-token-42
+cache token-42
 
 >

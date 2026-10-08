@@ -83,7 +83,7 @@ files, or inline config only when needed.
 <td width="50%">
 
 **In-memory cache.** A second match reads the hub. Progress tags
-`(c)`. `lade cache` lists names. `lade cache forget` refetches.
+`(c)`. `lade cache` lists names. `lade cache forget` drops RAM.
 
 </td>
 <td width="50%">
@@ -234,6 +234,10 @@ Vault, file, sops, and age stay in RAM for **5 minutes** after the
 first hydrate. Set `ttl:` on that rule's `.` to turn it off or
 raise it, up to **24 hours**. Shell URIs stay off unless that body
 sets `ttl:`. Raw, tunnels, and packages never cache.
+`lade cache set 2h` marks this cwd on the hub. Parent folders
+share it. `ttl: off` on the body still wins. `lade cache unset`
+clears this cwd.
+`lade cache forget` drops the RAM now.
 
 ```yaml
 "^psql":
@@ -414,7 +418,7 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | `lade bench` | Time parse, match, hydrate. Hidden from `lade --help`. `--json`, `--timeout`. |
 | `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
 | `lade status` | Version, hooks, mise, providers, hub counts. `--json`, `--all`. |
-| `lade cache` | RAM key names for this binary. `list`, `forget [KEY]`. Never values. |
+| `lade cache` | RAM key names for this binary. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. |
 | `lade log` / `lade usage` | Diary queries. See [docs/observability.md](docs/observability.md). |
 | `lade mcp` | MCP bridge (below). |
 | `lade -- <cmd>` | One-shot wrap (same as documented inject path). |
@@ -423,8 +427,11 @@ Progress tags: `(c)` cached from the hub, `(o)` overridden by a
 closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
 
 A vault edit does not evict RAM. `lade cache` lists names.
-`lade cache forget` (or `lade log prune --hub`) drops this
-binary's hub. Next hydrate refetches. [docs/cache.md](docs/cache.md).
+`lade cache set 2h` raises the 5m default for this cwd on the
+hub. Parent folders share it. `lade cache unset` clears this
+cwd. `lade cache forget` (or
+`lade log prune --hub`) drops this binary's hub. Next hydrate
+refetches. [docs/cache.md](docs/cache.md).
 
 `silence: true` on a rule skips secret progress lines for that rule.
 Provider URIs can **imply** a locked CLI on setup (`op://` → `op`,

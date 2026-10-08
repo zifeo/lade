@@ -240,3 +240,125 @@ fn test_set_marks_hub_hit_cached_until_prune() {
     assert!(third_out.contains("second-value"), "{third_out}");
     assert!(!third_err.contains("KEY (c)"), "{third_err}");
 }
+
+#[test]
+#[cfg(unix)]
+fn test_set_caches_shell_when_body_has_ttl() {
+    assert_shell_cache(
+        "\"echo\":\n  \".\":\n    ttl: 5m\n  KEY: \"sh://cat {secret}\"\n",
+        None,
+        true,
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_set_skips_shell_without_ttl() {
+    assert_shell_cache("\"echo\":\n  KEY: \"sh://cat {secret}\"\n", None, false);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_set_caches_shell_when_session_ttl() {
+    assert_shell_cache(
+        "\"echo\":\n  KEY: \"sh://cat {secret}\"\n",
+        Some("5m"),
+        true,
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_yaml_off_wins_over_session_ttl() {
+    assert_shell_cache(
+        "\"echo\":\n  \".\":\n    ttl: off\n  KEY: \"sh://cat {secret}\"\n",
+        Some("2h"),
+        false,
+    );
+}
+
+#[test]
+fn test_cache_set_marks_hub_window() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["cache", "set", "2h"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("cache ttl 2h"))
+        .stdout(predicates::str::contains("export").not());
+    let listed = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["cache"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let listed = String::from_utf8_lossy(&listed);
+    assert!(listed.contains("window: 2h"), "{listed}");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["cache", "unset"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("cache ttl cleared"));
+}
+
+#[test]
+fn test_cache_set_rejects_over_24h() {
+    let home = tempdir().unwrap();
+    common::lade(home.path())
+        .args(["cache", "set", "25h"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("24h"));
+}
+
+#[cfg(unix)]
+fn assert_shell_cache(yml: &str, session_ttl: Option<&str>, expect_hit: bool) {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let secret = dir.path().join("secret.txt");
+    fs::write(&secret, "first-value").unwrap();
+    let yml = yml.replace("{secret}", &secret.display().to_string());
+    fs::write(dir.path().join("lade.yml"), yml).unwrap();
+    let wrap = "ab".repeat(32);
+    let mut first = common::lade(home.path());
+    first
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["set", "echo hi"]);
+    if let Some(ttl) = session_ttl {
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .env("LADE_WRAP_KEY", &wrap)
+            .args(["cache", "set", ttl])
+            .assert()
+            .success();
+    }
+    let first = first.assert().success().get_output().clone();
+    let first_out = String::from_utf8_lossy(&first.stdout);
+    assert!(first_out.contains("first-value"), "{first_out}");
+
+    fs::write(&secret, "second-value").unwrap();
+    let mut second = common::lade(home.path());
+    second
+        .current_dir(dir.path())
+        .env("LADE_WRAP_KEY", &wrap)
+        .args(["set", "echo hi"]);
+    let second = second.assert().success().get_output().clone();
+    let second_out = String::from_utf8_lossy(&second.stdout);
+    let second_err = String::from_utf8_lossy(&second.stderr);
+    if expect_hit {
+        assert!(
+            second_out.contains("first-value") && !second_out.contains("second-value"),
+            "{second_out}"
+        );
+        assert!(second_err.contains("KEY (c)"), "{second_err}");
+    } else {
+        assert!(second_out.contains("second-value"), "{second_out}");
+        assert!(!second_err.contains("KEY (c)"), "{second_err}");
+    }
+}

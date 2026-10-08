@@ -53,6 +53,14 @@ pub enum Req {
     Forget {
         names: Vec<String>,
     },
+    /// `ttl` is `off` or a window. `None` clears this scope.
+    SetWindow {
+        scope: String,
+        ttl: Option<String>,
+    },
+    GetWindow {
+        scope: String,
+    },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -75,6 +83,9 @@ pub enum Rep {
         pid: u32,
         tickets: u32,
         rows: Vec<CacheRow>,
+    },
+    Window {
+        ttl: Option<String>,
     },
 }
 

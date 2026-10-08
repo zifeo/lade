@@ -150,6 +150,39 @@ pub fn listing() -> CacheListing {
     }
 }
 
+pub fn scope(cwd: &std::path::Path) -> String {
+    cwd.to_string_lossy().into_owned()
+}
+
+pub fn set_window(scope: &str, ttl: &str) -> Option<()> {
+    match rpc(Req::SetWindow {
+        scope: scope.to_string(),
+        ttl: Some(ttl.to_string()),
+    }) {
+        Some(Rep::Ok) => Some(()),
+        _ => None,
+    }
+}
+
+pub fn unset_window(scope: &str) -> Option<()> {
+    match rpc(Req::SetWindow {
+        scope: scope.to_string(),
+        ttl: None,
+    }) {
+        Some(Rep::Ok) => Some(()),
+        _ => None,
+    }
+}
+
+pub fn window(scope: &str) -> Option<String> {
+    match rpc_existing(Req::GetWindow {
+        scope: scope.to_string(),
+    }) {
+        Some(Rep::Window { ttl }) => ttl,
+        _ => None,
+    }
+}
+
 pub fn forget_names(names: &[String]) -> Option<()> {
     if names.is_empty() || daemon_off() {
         return None;

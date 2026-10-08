@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::{
-    LadeRule, ResolvedEntry, binding_name, body_put_ttl_ms, config_in_dir, resolve_entry,
+    LadeRule, ResolvedEntry, RuleTtl, binding_name, body_put_ttl_ms, config_in_dir, resolve_entry,
     uri_is_cacheable, when_label,
 };
 
@@ -50,8 +50,9 @@ pub fn lookup(
         return hit;
     }
     let user = saved_user.clone().unwrap_or_default();
+    let session = session_for(cwd);
     let cwd = cwd.to_string_lossy().into_owned();
-    let planned = plan(&cwd, walk, &user, saved_user, patterned);
+    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
     if planned.is_empty() {
         return hit;
     }
@@ -85,8 +86,9 @@ pub fn store(
         return;
     }
     let user = saved_user.clone().unwrap_or_default();
+    let session = session_for(cwd);
     let cwd = cwd.to_string_lossy().into_owned();
-    let planned = plan(&cwd, walk, &user, saved_user, patterned);
+    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
     if planned.is_empty() {
         return;
     }
@@ -152,17 +154,23 @@ fn get_body(key: &mut [u8; 32], body: &PlannedBody) -> Option<Vec<(String, Strin
     Some(out)
 }
 
+fn session_for(cwd: &Path) -> Option<RuleTtl> {
+    let raw = crate::hub::window(&crate::hub::scope(cwd))?;
+    RuleTtl::parse(&raw).ok()
+}
+
 fn plan(
     cwd: &str,
     walk: [u8; 32],
     user: &str,
     saved_user: &Option<String>,
     patterned: &[(PathBuf, String, LadeRule)],
+    session: Option<&RuleTtl>,
 ) -> Vec<PlannedBody> {
     let mut owner: HashMap<String, usize> = HashMap::new();
     let mut bodies = Vec::new();
     for (dir, rule_pattern, rule) in patterned {
-        let Some(ttl_ms) = body_put_ttl_ms(rule) else {
+        let Some(ttl_ms) = body_put_ttl_ms(rule, session) else {
             for name in rule_secret_names(rule, saved_user) {
                 owner.remove(&name);
             }
@@ -182,7 +190,7 @@ fn plan(
                     let Ok((name, _)) = binding_name(&key) else {
                         continue;
                     };
-                    if uri_is_cacheable(&value, rule.ttl()) {
+                    if uri_is_cacheable(&value, rule.ttl(), session) {
                         names.push(name.clone());
                         owner.insert(name, bodies.len());
                     } else {

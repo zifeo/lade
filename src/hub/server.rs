@@ -38,6 +38,7 @@ struct TicketRow {
 pub(crate) struct Tables {
     secrets: HashMap<SecretKey, SecretRow>,
     tickets: HashMap<[u8; 4], TicketRow>,
+    windows: HashMap<String, String>,
 }
 
 impl Tables {
@@ -190,8 +191,57 @@ impl Tables {
                 self.secrets.retain(|_, row| !row.bindings.is_empty());
                 Rep::Ok
             }
+            Req::SetWindow { scope, ttl } => {
+                match ttl {
+                    Some(raw) => {
+                        if let Ok(crate::config::RuleTtl::Window(duration)) =
+                            crate::config::RuleTtl::parse(&raw)
+                        {
+                            let ttl_ms = crate::config::duration_to_ttl_ms(duration);
+                            restamp_scope(&mut self.secrets, &scope, ttl_ms);
+                        }
+                        self.windows.insert(scope, raw);
+                    }
+                    None => {
+                        self.windows.remove(&scope);
+                    }
+                }
+                Rep::Ok
+            }
+            Req::GetWindow { scope } => Rep::Window {
+                ttl: window_for(&self.windows, &scope),
+            },
         }
     }
+}
+
+fn restamp_scope(secrets: &mut HashMap<SecretKey, SecretRow>, scope: &str, ttl_ms: u32) {
+    let now = Instant::now();
+    for (key, row) in secrets.iter_mut() {
+        if path_related(&key.cwd, scope) {
+            row.inserted = now;
+            row.ttl_ms = ttl_ms;
+        }
+    }
+}
+
+fn window_for(windows: &HashMap<String, String>, cwd: &str) -> Option<String> {
+    windows
+        .iter()
+        .filter(|(scope, _)| path_related(cwd, scope))
+        .max_by_key(|(scope, _)| scope.len())
+        .map(|(_, ttl)| ttl.clone())
+}
+
+fn path_related(cwd: &str, scope: &str) -> bool {
+    if cwd == "/" || scope == "/" {
+        return cwd == scope;
+    }
+    cwd == scope || is_path_prefix(cwd, scope) || is_path_prefix(scope, cwd)
+}
+
+fn is_path_prefix(child: &str, parent: &str) -> bool {
+    child.starts_with(parent) && child.as_bytes().get(parent.len()) == Some(&b'/')
 }
 
 fn ttl_left_ms(row: &SecretRow) -> u32 {

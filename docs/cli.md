@@ -127,9 +127,16 @@ Does not spawn.
 lade cache
 lade cache list
 lade cache list --json
+lade cache set 2h
+lade cache unset
 lade cache forget
 lade cache forget AWS_ACCESS_KEY_ID
 ```
+
+`lade cache set` marks this cwd on the hub. A parent cwd
+shares it. Vault and file stay in RAM 5m until then.
+`lade cache unset` clears this cwd.
+`lade cache forget` drops the RAM now.
 
 ```
 hub: pid 18432

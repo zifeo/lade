@@ -127,10 +127,12 @@ Examples:
   lade -- tofu apply
   lade status
   lade cache
+  lade cache set 2h
   lade cache forget AWS_ACCESS_KEY_ID
   lade eval op://vault/item/field
 
 Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
+This cwd: lade cache set 2h. Ancestors share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 Next: lade <command> --help. Internal commands: lade --help -v.
 ";
@@ -142,10 +144,12 @@ Examples:
   lade -- tofu apply
   lade status
   lade cache
+  lade cache set 2h
   lade cache forget AWS_ACCESS_KEY_ID
   lade eval op://vault/item/field
 
 Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
+This cwd: lade cache set 2h. Ancestors share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 
 Protocol verbs (this list):
