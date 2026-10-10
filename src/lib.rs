@@ -17,6 +17,7 @@ mod exit_codes;
 mod family;
 mod files;
 mod global_config;
+mod hub;
 mod live_progress;
 mod masking;
 mod mcp;

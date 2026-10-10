@@ -122,9 +122,84 @@ fn eval_access_command_is_hidden() {
             uri,
             access_command,
         }) => {
-            assert_eq!(uri, "file:///tmp/k?query=.k");
+            assert_eq!(uri.as_deref(), Some("file:///tmp/k?query=.k"));
             assert_eq!(access_command.as_deref(), Some("age-plugin-lade"));
         }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_defaults_to_list() {
+    let args = Args::try_parse_from(["lade", "cache"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => {
+            assert!(cache.action.is_none());
+            assert!(!cache.json);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_forget_takes_names() {
+    let args = Args::try_parse_from(["lade", "cache", "forget", "AWS_ACCESS_KEY_ID"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => match cache.action {
+            Some(crate::args::CacheAction::Forget { names }) => {
+                assert_eq!(names, vec!["AWS_ACCESS_KEY_ID"]);
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_set_takes_ttl() {
+    let args = Args::try_parse_from(["lade", "cache", "set", "2h"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => match cache.action {
+            Some(crate::args::CacheAction::Set { ttl }) => {
+                assert_eq!(ttl.as_deref(), Some("2h"));
+            }
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_set_help_does_not_require_ttl() {
+    let args = Args::try_parse_from(["lade", "cache", "set", "--help"]).unwrap();
+    assert!(args.help);
+}
+
+#[test]
+fn cache_unset_parses() {
+    let args = Args::try_parse_from(["lade", "cache", "unset"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => {
+            assert!(matches!(
+                cache.action,
+                Some(crate::args::CacheAction::Unset)
+            ));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn prune_hub_does_not_need_keep() {
+    let args = Args::try_parse_from(["lade", "log", "prune", "--hub"]).unwrap();
+    match args.command {
+        Some(Command::Log(log)) => match log.action {
+            Some(LogAction::Prune { keep, hub }) => {
+                assert!(keep.is_none());
+                assert!(hub);
+            }
+            other => panic!("{other:?}"),
+        },
         other => panic!("{other:?}"),
     }
 }
@@ -154,14 +229,20 @@ fn help_with_verbose_flag_lists_internal() {
 #[test]
 fn default_help_hides_internal_commands() {
     let help = Args::command()
-        .after_help(super::INTERNAL_HINT)
-        .render_help()
+        .after_help(super::ROOT_AFTER_HELP)
+        .render_long_help()
         .to_string();
     assert!(help.contains("Internal commands: lade --help -v"));
+    assert!(help.contains("lade cache forget"));
+    assert!(help.contains("lade cache set"));
+    assert!(help.contains("ttl: off"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));
     assert!(!help.contains("\n  hook "));
     assert!(!help.contains("\n  inject "));
+    assert!(!help.contains("\n  hub "));
+    assert!(!help.contains("\n  bench "));
+    assert!(help.contains("\n  cache"));
     assert!(!help.contains("--pretool"));
 }
 
@@ -169,13 +250,43 @@ fn default_help_hides_internal_commands() {
 fn verbose_help_lists_internal_commands() {
     let mut cmd = Args::command();
     super::reveal_internal(&mut cmd);
-    let help = cmd.render_help().to_string();
+    cmd = std::mem::take(&mut cmd).after_help(super::ROOT_VERBOSE_AFTER_HELP);
+    let help = cmd.render_long_help().to_string();
     assert!(help.contains("  set "));
     assert!(help.contains("  unset "));
     assert!(help.contains("  hook "));
     assert!(help.contains("  inject "));
     assert!(help.contains("--pretool"));
+    assert!(help.contains("Protocol verbs"));
     assert!(!help.contains("Internal commands: lade --help -v"));
+}
+
+#[test]
+fn eval_help_does_not_require_uri() {
+    let args = Args::try_parse_from(["lade", "eval", "--help"]).unwrap();
+    assert!(args.help);
+    match args.command {
+        Some(Command::Eval { uri, .. }) => assert!(uri.is_none()),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn public_verb_help_prints_examples() {
+    let mut cmd = Args::command();
+    for name in [
+        "setup", "teardown", "add", "remove", "on", "off", "update", "upgrade", "eval", "mcp",
+        "approve", "user", "cache", "status",
+    ] {
+        let sub = cmd
+            .find_subcommand_mut(name)
+            .unwrap_or_else(|| panic!("{name}"));
+        let help = sub.render_long_help().to_string();
+        assert!(
+            help.contains("Examples:"),
+            "{name} help has no Examples:\n{help}"
+        );
+    }
 }
 
 #[test]

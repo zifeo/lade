@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::de;
 
+use crate::window::parse_window;
+
 #[derive(Debug, Clone)]
 pub enum LadeSecret {
     Secret(String),
@@ -43,6 +45,78 @@ pub enum RuleWhen {
     Agent,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleTtl {
+    Off,
+    Window(chrono::Duration),
+}
+
+impl RuleTtl {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        if raw == "off" {
+            return Ok(Self::Off);
+        }
+        let window = parse_window(raw)?;
+        if window.num_milliseconds() > i64::from(MAX_TTL_MS) {
+            return Err("ttl is at most 24h".to_string());
+        }
+        Ok(Self::Window(window))
+    }
+
+    pub fn ttl_ms(&self) -> Option<u32> {
+        match self {
+            Self::Off => None,
+            Self::Window(duration) => Some(duration_to_ttl_ms(*duration)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for RuleTtl {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        RuleTtl::parse(&raw).map_err(de::Error::custom)
+    }
+}
+
+pub const DEFAULT_VAULT_TTL_MS: u32 = 300_000;
+pub const MAX_TTL_MS: u32 = 86_400_000;
+
+pub fn duration_to_ttl_ms(duration: chrono::Duration) -> u32 {
+    let ms = duration.num_milliseconds();
+    if ms <= 0 {
+        1
+    } else if ms > i64::from(MAX_TTL_MS) {
+        MAX_TTL_MS
+    } else {
+        ms as u32
+    }
+}
+
+pub fn when_label(when: RuleWhen) -> &'static str {
+    match when {
+        RuleWhen::Always => "always",
+        RuleWhen::Human => "human",
+        RuleWhen::Agent => "agent",
+    }
+}
+
+impl LadeRule {
+    pub fn when(&self) -> RuleWhen {
+        self.config
+            .as_ref()
+            .map(|config| config.when)
+            .unwrap_or_default()
+    }
+
+    pub fn ttl(&self) -> Option<&RuleTtl> {
+        self.config.as_ref().and_then(|config| config.ttl.as_ref())
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct RuleConfig {
     pub file: Option<PathBuf>,
@@ -54,6 +128,7 @@ pub struct RuleConfig {
     #[serde(default)]
     pub silence: bool,
     pub log: Option<bool>,
+    pub ttl: Option<RuleTtl>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

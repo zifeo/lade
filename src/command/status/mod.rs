@@ -104,6 +104,7 @@ struct StatusReport {
     hooks: HooksInfo,
     project_config: ProjectConfig,
     log: event::LogInfo,
+    hub: crate::hub::HubInfo,
     mise: MiseInfo,
     ok: bool,
 }

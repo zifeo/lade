@@ -1,0 +1,19 @@
+> ./show-example cache
+^echo cache:
+  .:
+    ttl: 5m
+  TOKEN: "sh://sleep 1; echo token-42"
+
+> echo cache $TOKEN
+⠋ sh sleep 1; echo token-42: TOKEN
+
+✔︎ sh sleep 1; echo token-42: TOKEN                                    1014 ms
+
+cache token-42
+
+> echo cache $TOKEN
+✔︎ sh sleep 1; echo token-42: TOKEN (c)                                   0 ms
+
+cache token-42
+
+>

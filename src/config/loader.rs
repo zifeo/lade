@@ -61,15 +61,16 @@ impl LadeFile {
 
     pub fn build(path: PathBuf) -> Result<Config> {
         let files = yaml_files_on_walk(&path)?;
+        let walk_hash = super::hash_yaml_files(&files);
         let mut configs: Vec<(PathBuf, LadeFile)> = Vec::default();
-        for file in files {
+        for file in &files {
             let dir = file
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_else(|| path.clone());
             configs.push((
                 dir,
-                LadeFile::from_path(&file)
+                LadeFile::from_path(file)
                     .with_context(|| format!("failed to parse {}", file.display()))?,
             ));
         }
@@ -87,7 +88,7 @@ impl LadeFile {
         }
 
         let compiled = CompiledPatterns::compile(&regex_strs)?;
-        Ok(Config::new(rules, regex_strs, compiled))
+        Ok(Config::new(rules, regex_strs, compiled, walk_hash))
     }
 }
 

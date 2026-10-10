@@ -170,10 +170,7 @@ fn redact_matches(matches: &Value) -> Value {
 }
 
 fn share_user() -> String {
-    let raw = GlobalConfig::user_from_disk()
-        .or_else(|| std::env::var("USER").ok())
-        .or_else(|| std::env::var("USERNAME").ok())
-        .unwrap_or_else(|| "unknown".to_string());
+    let raw = GlobalConfig::resolved_user().unwrap_or_else(|| "unknown".to_string());
     sanitize_filename_component(&raw)
 }
 

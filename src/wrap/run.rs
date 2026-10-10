@@ -17,7 +17,7 @@ use crate::wrap::exec;
 
 use super::acquire::acquire_secrets_and_network;
 use super::pins::{PinCleanup, apply_pins, select_tool_env};
-use super::work::{SecretHydrate, TicketCleanup, resolve_provider_work, ticket_ready};
+use super::work::{CacheScope, SecretHydrate, TicketCleanup, resolve_provider_work, ticket_ready};
 use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
 };
@@ -110,19 +110,27 @@ pub async fn run_inject(
     let ticket_unlink = (ctx.via == Via::Pretool)
         .then_some(ctx.ticket_id.as_deref())
         .flatten();
-    let ((mut env, files, sources, maskable, warnings), network) = acquire_secrets_and_network(
-        ctx,
-        SecretHydrate {
-            secrets: &work.secrets,
-            op_sa: work.op_sa.as_deref(),
-            progress: &work.progress,
-            ticket_unlink,
-        },
-        work.network_bindings,
-        work.log,
-        network::start_attached_network_session,
-    )
-    .await;
+    let patterned = config.collect_for_with_pattern(&command, ctx.audience);
+    let ((mut env, files, sources, maskable, warnings, cached), network) =
+        acquire_secrets_and_network(
+            ctx,
+            SecretHydrate {
+                secrets: &work.secrets,
+                op_sa: work.op_sa.as_deref(),
+                progress: &work.progress,
+                ticket_unlink,
+                cache: Some(CacheScope {
+                    cwd: current_dir,
+                    walk: config.walk_hash(),
+                    saved_user: &saved_user,
+                    patterned: &patterned,
+                }),
+            },
+            work.network_bindings,
+            work.log,
+            network::start_attached_network_session,
+        )
+        .await;
     show_loader_warnings(ctx, &warnings).await;
     if let Err(error) = merge_env_with_conflicts(&mut env, network.env.clone()) {
         let _ = remove_files(&mut files.keys());
@@ -140,10 +148,12 @@ pub async fn run_inject(
     };
     let hydrate_ms = Some(hydrate_started.elapsed().as_secs_f64() * 1000.0);
     let hydrated = Some(public_hydrate(&env, &files));
+    let mut matches = work.matches;
+    event::mark_cached(&mut matches, &cached);
     event::emit_if(
         work.log,
         Emit {
-            kind: event::logged_kind(&work.matches),
+            kind: event::logged_kind(&matches),
             via: ctx.via,
             audience: ctx.audience,
             actor: event::actor(&saved_user),
@@ -151,7 +161,7 @@ pub async fn run_inject(
             command: command.clone(),
             argv: None,
             hydrated,
-            matches: work.matches,
+            matches,
             hydrate_ms,
             agent: crate::agent_meta::merge(work.agent.clone()),
         },

@@ -1,9 +1,9 @@
 use anyhow::Result;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::audience::Via;
-use crate::config::{Audience, Config, NetworkBinding, PreEventWork, SecretSources};
+use crate::config::{Audience, Config, LadeRule, NetworkBinding, PreEventWork, SecretSources};
 use crate::ticket::{self, PreEvent, TicketSecret};
 
 pub(super) struct ProviderWork {
@@ -31,11 +31,19 @@ impl ProviderWork {
     }
 }
 
+pub(super) struct CacheScope<'a> {
+    pub(super) cwd: &'a Path,
+    pub(super) walk: [u8; 32],
+    pub(super) saved_user: &'a Option<String>,
+    pub(super) patterned: &'a [(PathBuf, String, LadeRule)],
+}
+
 pub(super) struct SecretHydrate<'a> {
     pub(super) secrets: &'a [TicketSecret],
     pub(super) op_sa: Option<&'a str>,
     pub(super) progress: &'a SecretSources,
     pub(super) ticket_unlink: Option<&'a str>,
+    pub(super) cache: Option<CacheScope<'a>>,
 }
 
 pub(super) struct TicketCleanup(Option<String>);
@@ -49,6 +57,7 @@ impl TicketCleanup {
 impl Drop for TicketCleanup {
     fn drop(&mut self) {
         if let Some(id) = &self.0 {
+            crate::hub::unlink_t(id);
             let _ = ticket::unlink(id);
         }
     }

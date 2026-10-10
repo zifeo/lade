@@ -7,9 +7,9 @@ use std::{
     path::PathBuf,
 };
 
-use super::resolve::{ResolvedEntry, binding_name, resolve_entry, split_scheme};
+use super::resolve::{ResolvedEntry, binding_name, resolve_entry};
 use super::secret::resolve_lade_secret;
-use super::{Config, LadeRule, Output};
+use super::{Config, LadeRule, Output, is_shell_uri};
 use crate::ticket::TicketSecret;
 
 #[derive(Debug, Clone)]
@@ -19,10 +19,6 @@ struct Binding {
     cwd: PathBuf,
     output: Output,
     extra_env: HashMap<String, String>,
-}
-
-fn is_shell_source(source: &str) -> bool {
-    matches!(split_scheme(source), Some("sh" | "bash" | "zsh" | "fish"))
 }
 
 async fn bindings_from_rules(
@@ -150,7 +146,7 @@ async fn hydrate_bindings(
         for name in &batch {
             let binding = bindings.get(name).expect("planned binding");
             let template = dag.template(name).expect("planned template");
-            let shell_source = is_shell_source(&binding.source);
+            let shell_source = is_shell_uri(&binding.source);
             let rendered = if shell_source {
                 template.shell_source()
             } else {
@@ -246,7 +242,25 @@ impl Config {
         FxHashSet<String>,
         Vec<String>,
     )> {
-        let bindings = bindings_from_rules(rules, saved_user).await?;
+        self.hydrate_rules_except(rules, saved_user, &std::collections::HashSet::new())
+            .await
+    }
+
+    pub async fn hydrate_rules_except(
+        &self,
+        rules: &[(PathBuf, LadeRule)],
+        saved_user: &Option<String>,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<(
+        HashMap<Output, HashMap<String, String>>,
+        HashMap<String, String>,
+        FxHashSet<String>,
+        Vec<String>,
+    )> {
+        let mut bindings = bindings_from_rules(rules, saved_user).await?;
+        for name in skip {
+            bindings.remove(name);
+        }
         hydrate_bindings(bindings).await
     }
 

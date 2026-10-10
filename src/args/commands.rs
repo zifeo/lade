@@ -6,10 +6,94 @@ use std::time::Duration;
 
 use super::HookAgent;
 
+pub const SETUP_AFTER_HELP: &str = "\
+Examples:
+  lade setup
+  lade setup --harness cursor
+  lade setup --unlock
+";
+
+pub const TEARDOWN_AFTER_HELP: &str = "\
+Examples:
+  lade teardown
+  lade teardown --global
+";
+
+pub const ADD_AFTER_HELP: &str = "\
+Examples:
+  lade add secret --rule 'terraform .*' --key AWS_ACCESS_KEY_ID --uri op://v/i/f
+  lade add package --key tofu --uri mise://aqua/opentofu/opentofu@1.8.2
+  lade add tunnel --rule '^psql' --key 5432 --uri kubectl://host:6443/ctx/ns/service/db/5432
+";
+
+pub const REMOVE_AFTER_HELP: &str = "\
+Examples:
+  lade remove secret --key AWS_ACCESS_KEY_ID
+";
+
+pub const ON_AFTER_HELP: &str = "\
+Examples:
+  eval \"$(lade on)\"
+";
+
+pub const OFF_AFTER_HELP: &str = "\
+Examples:
+  eval \"$(lade off)\"
+";
+
+pub const UPDATE_AFTER_HELP: &str = "\
+Examples:
+  lade update
+";
+
+pub const UPGRADE_AFTER_HELP: &str = "\
+Examples:
+  lade upgrade
+  lade upgrade --version 0.19.2 -y
+";
+
+pub const EVAL_AFTER_HELP: &str = "\
+Examples:
+  lade eval op://vault/item/field
+  lade eval 'file://./secrets.json?query=.token'
+";
+
+pub const MCP_AFTER_HELP: &str = "\
+Examples:
+  lade mcp -- npx -y @modelcontextprotocol/server-everything
+  lade mcp https://example.com/mcp
+";
+
+pub const APPROVE_AFTER_HELP: &str = "\
+Examples:
+  lade approve ab12c
+";
+
+pub const USER_AFTER_HELP: &str = "\
+Examples:
+  lade user alice
+  lade user --reset
+";
+
+pub const LOG_AFTER_HELP: &str = "\
+Examples:
+  lade log
+  lade log --since 12h --json
+  lade log prune --keep 90d
+  lade log prune --hub
+";
+
+pub const USAGE_AFTER_HELP: &str = "\
+Examples:
+  lade usage
+  lade usage --since 7d --json
+";
+
 /// This git repo: install locked packages, first-time pre-exec, repo
 /// pre-tool. The lock is the version. `lade update` re-resolves.
 /// `--unlock` ignores the lock this once.
 #[derive(Parser, Debug)]
+#[command(after_help = SETUP_AFTER_HELP)]
 pub struct SetupCommand {
     /// Ignore the lock, resolve from yaml, rewrite, and install.
     #[clap(long, default_value_t = false)]
@@ -29,6 +113,7 @@ impl SetupCommand {
 /// Remove this repo's Lade pre-tool hooks and run teardown commands.
 /// `--global` wipes this machine's cache. Home hooks stay.
 #[derive(Parser, Debug)]
+#[command(after_help = TEARDOWN_AFTER_HELP)]
 pub struct TeardownCommand {
     /// Wipe this machine's Lade cache (mise isolation, env sidecars, tickets).
     /// Home hooks stay until `lade hook disable --scope user`.
@@ -37,6 +122,7 @@ pub struct TeardownCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = ADD_AFTER_HELP)]
 pub struct AddCommand {
     /// Family (`secret`, `package`, `tunnel`) or a package search (`ghjk`).
     #[clap(value_parser)]
@@ -56,6 +142,7 @@ pub struct AddCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = REMOVE_AFTER_HELP)]
 pub struct RemoveCommand {
     /// Family (`secret`, `package`, `tunnel`) or the key to drop.
     #[clap(value_parser)]
@@ -116,6 +203,12 @@ pub struct McpCommand {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_help = "\
+Examples:
+  lade status
+  lade status --json
+  lade cache
+")]
 pub struct StatusCommand {
     /// Check all supported secret providers, not only those referenced in lade.yaml.
     #[clap(long, default_value_t = false)]
@@ -205,11 +298,14 @@ pub struct LogCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum LogAction {
-    /// Delete rows older than `--keep`. Required. Nothing prunes by itself.
+    /// Delete diary rows older than `--keep`, and/or forget the secret cache.
     Prune {
         /// Keep this window. Ns | Nm | Nh | Nd | Nw | Nmonth.
         #[clap(long, help = DURATION_HELP)]
         keep: Option<String>,
+        /// Alias of `lade cache forget`. Stops this binary's hub. Combinable with `--keep`.
+        #[clap(long)]
+        hub: bool,
     },
     /// Write a gzipped SQLite snapshot of the diary window.
     Share {
@@ -219,6 +315,53 @@ pub enum LogAction {
     },
     /// Check the diary hash chain.
     Verify,
+}
+
+pub const CACHE_AFTER_HELP: &str = "\
+Examples:
+  lade cache
+  lade cache list --json
+  lade cache set 2h
+  lade cache unset
+  lade cache forget
+  lade cache forget AWS_ACCESS_KEY_ID
+
+Names only. Never values. This binary's hub only.
+`lade cache set` marks this cwd on the hub. Ancestors share it.
+`unset` clears this cwd.
+Vault and file stay in RAM 5m. `forget` drops them now.
+`lade log prune --hub` is an alias of `lade cache forget`.
+Loader marks: (c) cached, (o) overridden, (u) unset. See docs/cli.md.
+";
+
+/// This binary's in-memory secret cache. Names only.
+#[derive(Parser, Debug)]
+#[command(after_help = CACHE_AFTER_HELP)]
+pub struct CacheCommand {
+    /// Emit the listing as JSON.
+    #[clap(long, default_value_t = false, global = true)]
+    pub json: bool,
+    #[command(subcommand)]
+    pub action: Option<CacheAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheAction {
+    /// List cached key names, rule, yaml path, ttl left.
+    List,
+    /// Forget all keys, or the named keys. Does not spawn.
+    Forget {
+        /// Binding names to drop. Empty forgets every key and stops the hub.
+        names: Vec<String>,
+    },
+    /// Mark this cwd's hub window. Ancestors share it. `off` or up to 24h.
+    Set {
+        /// `off` or a window up to 24h (`5m`, `2h`).
+        #[arg(required_unless_present = "help")]
+        ttl: Option<String>,
+    },
+    /// Clear this cwd's hub window.
+    Unset,
 }
 
 #[derive(Parser, Debug)]

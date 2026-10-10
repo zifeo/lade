@@ -15,6 +15,12 @@
 ^echo token:
   TOKEN: vault://127.0.0.1:8200/secret/password/value1
 
+# tape: cache
+^echo cache:
+  .:
+    ttl: 5m
+  TOKEN: "sh://sleep 1; echo token-42"
+
 # tape: format
 ^printenv FROM_FILE:
   FROM_FILE: file://../sources/config.json?query=.format

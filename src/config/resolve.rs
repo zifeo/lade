@@ -12,7 +12,7 @@ use super::{LadeRule, LadeSecret};
 /// the scheme/numeric-key rules consistent across hydration, `unset`, and
 /// tunnel binding collection, instead of each call site re-deriving them
 /// slightly differently.
-pub(super) enum ResolvedEntry {
+pub(crate) enum ResolvedEntry {
     Secret {
         key: String,
         value: String,
@@ -42,7 +42,7 @@ pub(super) enum ResolvedEntry {
     },
 }
 
-pub(super) fn resolve_entry(
+pub(crate) fn resolve_entry(
     key: &str,
     secret: &LadeSecret,
     saved_user: &Option<String>,
@@ -89,7 +89,7 @@ pub(super) fn split_scheme(value: &str) -> Option<&str> {
     value.split_once("://").map(|(scheme, _)| scheme)
 }
 
-pub(super) fn binding_name(key: &str) -> Result<(String, bool)> {
+pub(crate) fn binding_name(key: &str) -> Result<(String, bool)> {
     if key == "." {
         bail!("'.' is reserved for rule configuration");
     }

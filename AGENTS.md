@@ -35,7 +35,7 @@ bash tests/installer_test.sh
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor
   versions. `lade status --json` keeps `version`, `global_config`, `hooks`,
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
-  `age_plugin` is extra (`present`, `path`). `mise` and `log` are extra.
+  `age_plugin` is extra (`present`, `path`). `mise`, `log`, and `hub` are extra.
   Spoken stderr, README, and clap say pre-exec / pre-tool. JSON stays
   `preexec` / `pretool`. `--scope user` and JSON `global` stay.
 - User-facing copy for Cursor/Claude/Codex/OpenCode says **harness**,

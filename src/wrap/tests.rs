@@ -1,7 +1,7 @@
 use super::acquire::race_provider_tasks;
 use super::pins::select_tool_env;
 use super::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[test]
 fn select_tool_env_rejects_pin_secret_collision() {
@@ -39,12 +39,13 @@ async fn provider_race_fails_fast_and_does_not_deadlock_progress_renderer() {
         let secret_task = async move {
             let _sink = sink;
             tokio::time::sleep(Duration::from_secs(30)).await;
-            Ok::<_, anyhow::Error>((
+            Ok::<SecretBundle, anyhow::Error>((
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 FxHashSet::default(),
                 Vec::new(),
+                HashSet::new(),
             ))
         };
         let network_task = async { Err::<(), _>(anyhow::anyhow!("tunnel error: fast failure")) };

@@ -1,0 +1,5 @@
+eval "$(lade on)"
+clear
+./show-example cache
+echo cache $TOKEN
+echo cache $TOKEN

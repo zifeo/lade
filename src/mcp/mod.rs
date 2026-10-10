@@ -70,27 +70,33 @@ pub async fn run(
     let mut access = crate::access::acquire_attached(
         config,
         &rules,
+        &patterned,
+        current_dir,
         ctx.stderr_is_terminal && !ctx.stdin_is_terminal,
     )
     .await?;
     let hydrate_ms = Some(hydrate_started.elapsed().as_secs_f64() * 1000.0);
     match &work {
-        Some(work) => event::emit_if(
-            work.log,
-            event::Emit {
-                kind: event::logged_kind(&work.matches),
-                via: ctx.via,
-                audience: ctx.audience,
-                actor: event::actor(&saved_user),
-                cwd: current_dir.to_path_buf(),
-                command: stored.clone(),
-                argv: argv.clone(),
-                hydrated: Some(access.public_hydrate()),
-                matches: work.matches.clone(),
-                hydrate_ms,
-                agent: crate::agent_meta::merge(serde_json::Value::Null),
-            },
-        ),
+        Some(work) => {
+            let mut matches = work.matches.clone();
+            event::mark_cached(&mut matches, &access.cached);
+            event::emit_if(
+                work.log,
+                event::Emit {
+                    kind: event::logged_kind(&matches),
+                    via: ctx.via,
+                    audience: ctx.audience,
+                    actor: event::actor(&saved_user),
+                    cwd: current_dir.to_path_buf(),
+                    command: stored.clone(),
+                    argv: argv.clone(),
+                    hydrated: Some(access.public_hydrate()),
+                    matches,
+                    hydrate_ms,
+                    agent: crate::agent_meta::merge(serde_json::Value::Null),
+                },
+            );
+        }
         None => wrap::emit_seen_if_walk_log(config, ctx, &stored, current_dir, &saved_user, argv),
     }
     for warning in &access.warnings {

@@ -12,7 +12,9 @@ use crate::ticket;
 
 use super::acquire::acquire_secrets_and_network;
 use super::pins::{apply_pins, select_tool_env};
-use super::work::{SecretHydrate, pre_event_from_work, resolve_provider_work, ticket_ready};
+use super::work::{
+    CacheScope, SecretHydrate, pre_event_from_work, resolve_provider_work, ticket_ready,
+};
 use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
 };
@@ -52,6 +54,7 @@ pub async fn handle_set(
             }
             let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
             let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
+            crate::hub::put_t(&id);
             println!(
                 "{}",
                 stamp_preexec(shell, pins.env, &id, original_path.clone())?
@@ -82,6 +85,7 @@ pub async fn handle_set(
         }
         let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
         let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
+        crate::hub::put_t(&id);
         println!(
             "{}",
             stamp_preexec(shell, pins.env, &id, original_path.clone())?
@@ -98,6 +102,7 @@ pub async fn handle_set(
         &work,
     );
     let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
+    crate::hub::put_t(&id);
 
     if let Err(e) = prompt::resolve_disclaimers(ctx, &work.disclaimers, &command).await {
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
@@ -119,39 +124,52 @@ pub async fn handle_set(
             );
             pre.pending = true;
             ticket::replace(&id, &pre)?;
+            crate::hub::put_t(&id);
             println!(
                 "{}",
                 shell.set(HashMap::from([(crate::preexec::LADE_T.to_string(), id)]))
             );
             std::process::exit(crate::exit_codes::DISCLAIMER_WITHHELD);
         }
+        crate::hub::unlink_t(&id);
         let _ = ticket::unlink(&id);
         return Err(e);
     }
     let hydrate_started = std::time::Instant::now();
-    let ((mut env, files, _sources, _maskable, warnings), detached) = acquire_secrets_and_network(
-        ctx,
-        SecretHydrate {
-            secrets: &work.secrets,
-            op_sa: work.op_sa.as_deref(),
-            progress: &work.progress,
-            ticket_unlink: Some(id.as_str()),
-        },
-        work.network_bindings,
-        work.log,
-        network::start_detached_network_session,
-    )
-    .await;
+    let patterned = config.collect_for_with_pattern(&command, ctx.audience);
+    let ((mut env, files, _sources, _maskable, warnings, cached), detached) =
+        acquire_secrets_and_network(
+            ctx,
+            SecretHydrate {
+                secrets: &work.secrets,
+                op_sa: work.op_sa.as_deref(),
+                progress: &work.progress,
+                ticket_unlink: Some(id.as_str()),
+                cache: Some(CacheScope {
+                    cwd: &current_dir,
+                    walk: config.walk_hash(),
+                    saved_user: &saved_user,
+                    patterned: &patterned,
+                }),
+            },
+            work.network_bindings,
+            work.log,
+            network::start_detached_network_session,
+        )
+        .await;
     show_loader_warnings(ctx, &warnings).await;
     merge_env_with_conflicts(&mut env, detached.env)?;
     select_tool_env(&mut env, pins.env)?;
     pre.network_pids = detached.pids;
     pre.pending = false;
     ticket::replace(&id, &pre)?;
+    crate::hub::put_t(&id);
+    let mut matches = work.matches;
+    event::mark_cached(&mut matches, &cached);
     event::emit_if(
         work.log,
         Emit {
-            kind: event::logged_kind(&work.matches),
+            kind: event::logged_kind(&matches),
             via: ctx.via,
             audience: ctx.audience,
             actor: event::actor(&saved_user),
@@ -159,7 +177,7 @@ pub async fn handle_set(
             command: command.clone(),
             argv: None,
             hydrated: Some(public_hydrate(&env, &files)),
-            matches: work.matches,
+            matches,
             hydrate_ms: Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
             agent: crate::agent_meta::merge(work.agent.clone()),
         },

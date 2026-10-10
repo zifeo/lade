@@ -1,5 +1,6 @@
 pub(crate) mod add;
 mod bench;
+mod cache;
 mod eval;
 mod status;
 mod upgrade;
@@ -87,6 +88,9 @@ pub(crate) async fn run_standalone(
             uri,
             access_command,
         } => {
+            let Some(uri) = uri else {
+                anyhow::bail!("the secret URI is required");
+            };
             if access_command.as_ref().is_some_and(|name| name.is_empty()) {
                 anyhow::bail!("--access-command cannot be empty");
             }
@@ -145,12 +149,18 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Status(opts) => status::run(opts).await.map(|()| None),
+        Command::Cache(opts) => cache::run(opts).map(|()| None),
         Command::Log(opts) => {
             log_cmd::run_log(opts, ctx.audience == crate::config::Audience::Agent).map(|()| None)
         }
         Command::Usage(opts) => log_cmd::run_usage(opts).map(|()| None),
         Command::Bench(opts) => bench::run(opts).await.map(|()| None),
         Command::User { username, reset } => user::run(username, reset).await.map(|()| None),
+        Command::Hub => {
+            #[cfg(unix)]
+            crate::hub::serve().await?;
+            Ok(None)
+        }
         other => Ok(Some(other)),
     }
 }
@@ -271,7 +281,7 @@ async fn run_setup(
         return Ok(());
     }
     require_lade_yaml()?;
-    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let saved = crate::global_config::GlobalConfig::resolved_user();
     let config = crate::config::LadeFile::build(cwd.clone())?;
     let show_packages = crate::mise::repo_needs_mise(&config, &saved);
     if show_packages {

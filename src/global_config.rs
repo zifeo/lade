@@ -47,6 +47,16 @@ impl GlobalConfig {
             .and_then(|c| c.user)
     }
 
+    pub fn os_user() -> Option<String> {
+        std::env::var("USER")
+            .ok()
+            .or_else(|| std::env::var("USERNAME").ok())
+    }
+
+    pub fn resolved_user() -> Option<String> {
+        Self::user_from_disk().or_else(Self::os_user)
+    }
+
     pub async fn load() -> Result<Self> {
         let path = Self::path();
         if path.exists() {
@@ -105,6 +115,41 @@ mod tests {
                     assert!(!path.exists());
                 });
         });
+    }
+
+    #[test]
+    fn resolved_user_falls_back_to_os_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("alice")),
+                ("USERNAME", None),
+            ],
+            || {
+                assert_eq!(GlobalConfig::user_from_disk(), None);
+                assert_eq!(GlobalConfig::resolved_user().as_deref(), Some("alice"));
+            },
+        );
+    }
+
+    #[test]
+    fn resolved_user_prefers_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, r#"{"user":"carol","cli_check":{}}"#).unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("alice")),
+                ("USERNAME", None),
+            ],
+            || {
+                assert_eq!(GlobalConfig::resolved_user().as_deref(), Some("carol"));
+            },
+        );
     }
 
     #[test]

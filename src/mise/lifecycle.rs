@@ -13,7 +13,7 @@ pub async fn run_lifecycle_commands(verb: &str) -> Result<()> {
         return Ok(());
     };
     let config = LadeFile::build(cwd.clone())?;
-    let saved = crate::global_config::GlobalConfig::user_from_disk();
+    let saved = crate::global_config::GlobalConfig::resolved_user();
     let mut ran = Vec::new();
     for (key, value) in config.pins(&saved) {
         let Ok(spec) = spec::parse(&value) else {

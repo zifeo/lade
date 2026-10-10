@@ -117,12 +117,7 @@ pub fn db_path() -> PathBuf {
 
 pub fn actor(user: &Option<String>) -> Option<String> {
     user.clone()
-        .or_else(crate::global_config::GlobalConfig::user_from_disk)
-        .or_else(|| {
-            std::env::var("USER")
-                .ok()
-                .or_else(|| std::env::var("USERNAME").ok())
-        })
+        .or_else(crate::global_config::GlobalConfig::resolved_user)
 }
 
 pub fn match_tree_from(
@@ -171,6 +166,29 @@ pub fn match_tree_from(
         })
         .collect();
     Value::Array(out)
+}
+
+/// Set `cached: true` on public bindings that came from the hub.
+pub fn mark_cached(matches: &mut Value, keys: &std::collections::HashSet<String>) {
+    if keys.is_empty() {
+        return;
+    }
+    let Some(rules) = matches.as_array_mut() else {
+        return;
+    };
+    for rule in rules {
+        let Some(bindings) = rule.get_mut("bindings").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for binding in bindings {
+            let Some(key) = binding.get("key").and_then(Value::as_str) else {
+                continue;
+            };
+            if keys.contains(key) {
+                binding["cached"] = json!(true);
+            }
+        }
+    }
 }
 
 pub fn display_line(command: &str, argv: Option<&Value>) -> Option<String> {

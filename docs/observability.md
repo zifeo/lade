@@ -128,7 +128,8 @@ default. Queries stay on the current git root (worktrees count).
 | `lade log --group command` | Frequency by argv0 |
 | `lade log --kind` / `--audience` | Filters |
 | `lade usage` | Matched `lade.yaml` rules in this tree, most frequent first. Warns if the chain is broken |
-| `lade log prune --keep` | The only delete. Starts a new chain epoch over what remains |
+| `lade log prune --keep` | The only diary delete. Starts a new chain epoch over what remains |
+| `lade log prune --hub` | Alias of `lade cache forget`. Next hydrate refetches. Does not spawn. Combinable with `--keep` |
 | `lade log share` | Gzipped snapshot (`lade-$USER-$FROM-$TO.tar.gz`) with its own chain |
 | `lade log verify` | Walk the hash chain. `--source` checks a pack |
 | `--source` | Read packs (or `local`) without writing the live db |
@@ -148,7 +149,8 @@ One SQLite WAL:
 
 `lade log --help` and `lade status` print the path. Tests set
 `LADE_EVENTS_PATH`. `status --json` adds `log` (`path`, `events`,
-`bytes`) and leaves `ok` unchanged.
+`bytes`) and `hub` (`state`, `pid`, `secrets`, `tickets`). Both
+leave `ok` unchanged. `hub` Pings a live daemon. It does not spawn.
 
 `matches`, `agent`, and `argv` are JSONB (`jsonb(...)` on write,
 `json(...)` on read). SQLite has no JSONB storage class, so

@@ -82,6 +82,19 @@ files, or inline config only when needed.
 <tr>
 <td width="50%">
 
+**In-memory cache.** A second match reads the hub. Progress tags
+`(c)`. `lade cache` lists names. `lade cache forget` drops RAM.
+
+</td>
+<td width="50%">
+
+![In-memory cache](./examples/tape/cache.gif)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
 **Private networks.** Open a local forward only while the command
 runs, then close it automatically.
 
@@ -216,6 +229,27 @@ var.
 | File | `file://PATH?query=.fields[0].field` | `?query=` required. INI, JSON, YAML, TOML. |
 | Shell | `sh://gcloud auth print-access-token` | Also `bash://`, `zsh://`, `fish://`. |
 | Raw | `"visible-in-the-yaml"` | Not a secret. `!` forces raw, `!!` keeps a leading `!`. |
+
+Vault, file, sops, and age stay in RAM for **5 minutes** after the
+first hydrate. Set `ttl:` on that rule's `.` to turn it off or
+raise it, up to **24 hours**. Shell URIs stay off unless that body
+sets `ttl:`. Raw, tunnels, and packages never cache.
+`lade cache set 2h` marks this cwd on the hub. Parent folders
+share it. `ttl: off` on the body still wins. `lade cache unset`
+clears this cwd.
+`lade cache forget` drops the RAM now.
+
+```yaml
+"^psql":
+  .:
+    ttl: 1h
+  DB_USER: op://my.1password.com/eng/postgres/username
+
+"^curl":
+  .:
+    ttl: off
+  API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
+```
 
 `lade eval <uri>` resolves one URI. Authenticate the provider CLI
 first. Lade does not pick the login command. See that product's
@@ -375,18 +409,29 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | --- | --- |
 | `lade setup` | This repo: packages, lock, first-time pre-exec, pre-tool. `--unlock`, `--harness`. |
 | `lade update` | Re-resolve implied and ranged pins; rewrite lock. |
-| `lade teardown` | Remove repo pre-tool hooks; run `?teardown=`. |
+| `lade teardown` | Remove repo pre-tool hooks; run `?teardown=`. `--global` wipes on-disk cache. |
 | `lade add` / `lade remove` | Edit nearest `lade.yaml`. `add` runs setup. Flags: `--rule`, `--key`, `--uri`. |
 | `lade on` / `lade off` | Toggle pre-exec snippets for this shell. |
 | `lade user` | Set per-user secret map key. `--reset` for OS default. |
 | `lade approve <code>` | After a `disclaimer`, or prefix `LADE_APPROVE=<code>`. Exit `3` when withheld. |
 | `lade eval <uri>` | Resolve one secret URI to stdout. |
-| `lade bench` | Time parse, match, hydrate. `--json`, `--timeout`. |
+| `lade bench` | Time parse, match, hydrate. Hidden from `lade --help`. `--json`, `--timeout`. |
 | `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
-| `lade status` | Version, hooks, mise, providers. `--json`, `--all`. |
+| `lade status` | Version, hooks, mise, providers, hub counts. `--json`, `--all`. |
+| `lade cache` | RAM key names for this binary. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. |
 | `lade log` / `lade usage` | Diary queries. See [docs/observability.md](docs/observability.md). |
 | `lade mcp` | MCP bridge (below). |
 | `lade -- <cmd>` | One-shot wrap (same as documented inject path). |
+
+Progress tags: `(c)` cached from the hub, `(o)` overridden by a
+closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
+
+A vault edit does not evict RAM. `lade cache` lists names.
+`lade cache set 2h` raises the 5m default for this cwd on the
+hub. Parent folders share it. `lade cache unset` clears this
+cwd. `lade cache forget` (or
+`lade log prune --hub`) drops this binary's hub. Next hydrate
+refetches. [docs/cache.md](docs/cache.md).
 
 `silence: true` on a rule skips secret progress lines for that rule.
 Provider URIs can **imply** a locked CLI on setup (`op://` → `op`,
@@ -452,7 +497,8 @@ env: [docs/protocol.md](docs/protocol.md),
 [docs/env.md](docs/env.md). Provider examples:
 [examples/providers/lade.yml](examples/providers/lade.yml).
 
-`lade log` and `lade usage` flags:
+CLI manual (every public verb, examples, loader marks):
+[docs/cli.md](docs/cli.md). `lade log` and `lade usage` flags:
 [docs/observability.md](docs/observability.md).
 
 CI that talks to 1Password without a person: set

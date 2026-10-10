@@ -40,7 +40,19 @@ fn prune_needs_keep() {
         .args(["log", "prune"])
         .assert()
         .code(1)
-        .stderr(predicates::str::contains("--keep"));
+        .stderr(predicates::str::contains("--keep or --hub"));
+}
+
+#[test]
+fn prune_hub_when_down_reports_down() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "prune", "--hub"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("hub: down"));
 }
 
 #[test]

@@ -8,13 +8,18 @@ mod resolve;
 mod secret;
 #[cfg(test)]
 mod tests;
+mod ttl;
+mod walk;
 
 pub use loader::LadeFile;
 pub(crate) use loader::{
     at_user_home, config_in_dir, parse_lade_yaml, render_lade_yaml, report_load_error,
     require_lade_version, yaml_files_on_walk,
 };
+pub(crate) use resolve::{ResolvedEntry, binding_name, resolve_entry};
 pub use secret::*;
+pub(crate) use ttl::{body_put_ttl_ms, is_shell_uri, uri_is_cacheable};
+pub(crate) use walk::hash_yaml_files;
 
 use crate::global_config::GlobalConfig;
 use crate::ticket::TicketSecret;
@@ -75,6 +80,7 @@ pub struct Config {
     rules: Vec<(PathBuf, LadeRule)>,
     patterns: Vec<String>,
     compiled: CompiledPatterns,
+    walk_hash: [u8; 32],
 }
 
 impl Config {
@@ -82,12 +88,18 @@ impl Config {
         rules: Vec<(PathBuf, LadeRule)>,
         patterns: Vec<String>,
         compiled: CompiledPatterns,
+        walk_hash: [u8; 32],
     ) -> Self {
         Config {
             rules,
             patterns,
             compiled,
+            walk_hash,
         }
+    }
+
+    pub(crate) fn walk_hash(&self) -> [u8; 32] {
+        self.walk_hash
     }
 
     /// Loaded rules in overlay order, with the file directory and pattern.
@@ -109,12 +121,8 @@ impl Config {
 /// = one invocation) should resolve it once and pass it down rather than
 /// calling this repeatedly.
 pub(crate) async fn saved_user() -> Result<Option<String>> {
-    use std::env;
-
     let local_config = GlobalConfig::load().await?;
-    Ok(local_config
-        .user
-        .or_else(|| env::var("USER").ok().or_else(|| env::var("USERNAME").ok())))
+    Ok(local_config.user.or_else(GlobalConfig::os_user))
 }
 
 pub(crate) fn is_valid_env_key(key: &str) -> bool {
