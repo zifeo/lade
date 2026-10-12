@@ -102,7 +102,8 @@ applies to this audience. `log: true` does not mean the line is a
 
 The handler never emits `lade inject …` or `lade --pretool inject …`.
 `lade inject -- cmd`, `lade -- cmd`, and `lade cmd` (alias) peel to
-`cmd`. A clap verb other than `inject` is left alone. A finished wrap
+`cmd`. A clap verb other than `inject` is not peeled. Yaml still sees
+the full line. A finished wrap
 (`--pretool=<id> 'cmd'` and T exists with that command) is left alone.
 If T write fails, the rewrite is `lade --pretool -- 'cmd'` and the
 handler still writes `seen` when log is on.

@@ -92,7 +92,7 @@ pub fn handle(
     let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
     let class = classify(&rest);
     match class {
-        Class::Finished | Class::Verb => return Ok(allow(platform)),
+        Class::Finished => return Ok(allow(platform)),
         Class::Empty => {
             emit_seen_pretool(
                 config.log_on_walk_for(audience),
@@ -103,7 +103,7 @@ pub fn handle(
             );
             return Ok(allow(platform));
         }
-        Class::NotLade | Class::Vehicle { .. } => {}
+        Class::Verb | Class::NotLade | Class::Vehicle { .. } => {}
     }
     let from_vehicle = matches!(class, Class::Vehicle { .. });
     let command = class.inner().unwrap_or(rest);

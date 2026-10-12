@@ -147,13 +147,46 @@ fn approve_prefix_kept_protocol_prefix_dropped() {
 }
 
 #[test]
-fn verbs_are_left_alone() {
+fn verbs_are_not_peeled_onto_an_inner_rule() {
     with_cursor_env(|| {
         with_ticket_tmpdir(|| {
-            let (config, _dir) = test_config(".*");
-            for command in ["lade status", "lade hook", "lade --pretool mcp -- acme"] {
+            let (config, _dir) = test_config("^tofu");
+            for command in [
+                "lade status",
+                "lade hook",
+                "lade --pretool mcp -- acme",
+                "lade --help inject -- tofu apply",
+            ] {
                 let result = handle(&config, &hook(command), Audience::Agent, None).unwrap();
                 assert!(allows(&result), "{command}: {result}");
+            }
+        });
+    });
+}
+
+#[test]
+fn verb_still_matches_the_full_line() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let (config, _dir) = test_config("^lade status");
+            let result = handle(&config, &hook("lade status"), Audience::Agent, None).unwrap();
+            assert_wraps_with_ticket(&result, "lade status");
+        });
+    });
+}
+
+#[test]
+fn inject_flags_do_not_hide_the_inner_rule() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let (config, _dir) = test_config("^tofu");
+            for command in [
+                "lade inject --no-mask -- tofu apply",
+                "lade inject --mask-format REDACTED -- tofu apply",
+                "lade inject --no-mask tofu apply",
+            ] {
+                let result = handle(&config, &hook(command), Audience::Agent, None).unwrap();
+                assert_wraps_with_ticket(&result, "tofu apply");
             }
         });
     });

@@ -77,17 +77,12 @@ fn classify_once(command: &str) -> Class {
             rest = after.trim_start();
             continue;
         }
+        if matches!(tok.as_str(), "-h" | "--help" | "--version") {
+            return Class::Verb;
+        }
         if matches!(
             tok.as_str(),
-            "--via=pretool"
-                | "--no-mask"
-                | "-v"
-                | "-vv"
-                | "-q"
-                | "-h"
-                | "--help"
-                | "--version"
-                | "--verbose"
+            "--via=pretool" | "--no-mask" | "-v" | "-vv" | "-q" | "--verbose"
         ) {
             rest = after.trim_start();
             continue;
@@ -104,12 +99,7 @@ fn classify_once(command: &str) -> Class {
             break;
         }
         if tok == "inject" {
-            rest = after.trim_start();
-            if let Some((next, after_next)) = split_token(rest)
-                && next == "--"
-            {
-                rest = after_next.trim_start();
-            }
+            rest = skip_inject_flags(after);
             break;
         }
         if is_verb(&tok) {
@@ -127,6 +117,31 @@ fn classify_once(command: &str) -> Class {
         return Class::Finished;
     }
     Class::Vehicle { inner }
+}
+
+/// `lade inject --no-mask --mask-format X -- cmd` must still peel to `cmd`.
+fn skip_inject_flags(after_inject: &str) -> &str {
+    let mut rest = after_inject.trim_start();
+    loop {
+        let Some((tok, after)) = split_token(rest) else {
+            return rest;
+        };
+        if tok == "--" {
+            return after.trim_start();
+        }
+        if tok == "--no-mask" || tok.starts_with("--mask-format=") {
+            rest = after.trim_start();
+            continue;
+        }
+        if tok == "--mask-format" {
+            rest = after.trim_start();
+            if let Some((_, after_val)) = split_token(rest) {
+                rest = after_val.trim_start();
+            }
+            continue;
+        }
+        return rest;
+    }
 }
 
 fn ticket_finished(id: &str, inner: &str) -> bool {
@@ -214,6 +229,7 @@ mod tests {
         assert_eq!(classify("lade hook"), Class::Verb);
         assert_eq!(classify("lade --pretool mcp -- acme"), Class::Verb);
         assert_eq!(classify("lade usage | grep inject"), Class::Verb);
+        assert_eq!(classify("lade --help inject -- tofu"), Class::Verb);
         assert_eq!(classify("echo lade inject"), Class::NotLade);
     }
 
@@ -254,6 +270,24 @@ mod tests {
             classify("/usr/bin/lade.exe inject echo"),
             Class::Vehicle {
                 inner: "echo".into()
+            }
+        );
+        assert_eq!(
+            classify("lade inject --no-mask -- tofu apply"),
+            Class::Vehicle {
+                inner: "tofu apply".into()
+            }
+        );
+        assert_eq!(
+            classify("lade inject --mask-format REDACTED -- tofu apply"),
+            Class::Vehicle {
+                inner: "tofu apply".into()
+            }
+        );
+        assert_eq!(
+            classify("lade inject --no-mask tofu apply"),
+            Class::Vehicle {
+                inner: "tofu apply".into()
             }
         );
     }
