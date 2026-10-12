@@ -4,6 +4,26 @@ use predicates::prelude::PredicateBooleanExt;
 use tempfile::tempdir;
 
 #[test]
+fn hook_peels_inject_and_writes_ticket() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tmp = tempdir().unwrap();
+    write_yml(dir.path(), "\"^echo\":\n  SECRET: from_ticket\n");
+    let stdout = hook_stdout(
+        home.path(),
+        dir.path(),
+        tmp.path(),
+        "lade inject -- echo hi",
+    );
+    let wrapped = wrap_command(&stdout);
+    assert!(!wrapped.contains("lade --pretool inject"), "{wrapped}");
+    assert!(wrapped.contains("--pretool="), "{wrapped}");
+    assert!(wrapped.contains("'echo hi'"), "{wrapped}");
+    let id = ticket_id_from_wrap(&wrapped);
+    assert!(ticket_path(home.path(), &id).exists());
+}
+
+#[test]
 fn wrap_hydrates_from_ticket_without_rematch() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

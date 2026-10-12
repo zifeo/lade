@@ -159,9 +159,8 @@ fn is_env_assignment(token: &str) -> bool {
 }
 
 /// Split leading `VAR=value` assignments (e.g. `LADE_APPROVE=ab12c`) from the
-/// rest of the command. The hook re-emits them before `lade inject` so an
-/// approval prefix lands in the wrapped process's environment instead of being
-/// swallowed into the quoted inject argument.
+/// rest of the command. The hook re-emits them before the rewritten command
+/// so an approval prefix lands in the child environment.
 pub(crate) fn split_env_prefix(command: &str) -> (String, String) {
     let mut prefix: Vec<&str> = Vec::new();
     let mut rest = command.trim_start();
@@ -174,46 +173,4 @@ pub(crate) fn split_env_prefix(command: &str) -> (String, String) {
         }
     }
     (prefix.join(" "), rest.to_string())
-}
-
-/// True when a previous `lade hook` already rewrote this into inject.
-/// The rewrite may be `lade` or an absolute path, so `starts_with("lade inject")`
-/// is not enough for a user hook plus a project hook. `--pretool` and
-/// `--pretool=<id>` are the alias form.
-pub(super) fn is_already_injected(command: &str) -> bool {
-    let (_, command) = split_env_prefix(command);
-    let mut parts = command.split_whitespace();
-    let Some(prog) = parts.next() else {
-        return false;
-    };
-    let is_lade = std::path::Path::new(prog)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| matches!(name, "lade" | "lade.exe"));
-    is_lade
-        && parts.any(|part| part == "inject" || is_pretool_flag(part) || part == "--via=pretool")
-}
-
-/// True when the rewrite already carries pretool: `--pretool`,
-/// `--pretool=<id>`, older `--via=pretool`, or a `LADE_VIA=pretool` env prefix.
-pub(super) fn has_pretool_stamp(env_prefix: &str, command: &str) -> bool {
-    let stamp = format!(
-        "{}={}",
-        crate::preexec::LADE_VIA,
-        crate::audience::Via::PRETOOL
-    );
-    if env_prefix.split_whitespace().any(|part| part == stamp) {
-        return true;
-    }
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    parts
-        .iter()
-        .any(|part| is_pretool_flag(part) || *part == "--via=pretool")
-        || parts
-            .windows(2)
-            .any(|pair| pair[0] == "--via" && pair[1] == crate::audience::Via::PRETOOL)
-}
-
-fn is_pretool_flag(part: &str) -> bool {
-    part == "--pretool" || part.starts_with("--pretool=")
 }

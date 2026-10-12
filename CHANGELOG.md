@@ -35,6 +35,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **OS user:** when `config.json` has no user, per-user yaml maps
   fall back to `$USER` / `$USERNAME`.
+- **Pretool `lade inject`:** the hook peels `lade inject`, `lade --`,
+  and `lade <cmd>` to the inner command. A match writes T and wraps
+  `lade --pretool=<id> '…'`. No match rewrites to the inner command.
+  It no longer stamps `lade --pretool inject` without a ticket.
+  Walk `log` follows the current audience. See
+  [docs/protocol.md](docs/protocol.md).
 
 ## [0.19.2] - 2026-10-03
 

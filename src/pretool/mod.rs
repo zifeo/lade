@@ -27,6 +27,7 @@ Disclaimer enforcement lives in inject.
 */
 
 pub(crate) mod bin;
+mod classify;
 pub mod install;
 mod platform;
 mod response;
@@ -41,22 +42,16 @@ use crate::global_config::GlobalConfig;
 use crate::message_box::MessageBox;
 use crate::ticket::{PreEvent, TicketNetwork, write as write_ticket};
 use anyhow::Result;
+use classify::{Class, classify, join_prefix, sanitize_env_prefix, wrap_idless, wrap_ticket};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
-use platform::{
-    collect_agent, extract_command, has_pretool_stamp, is_already_injected, resolve_platform,
-    split_env_prefix,
-};
+use platform::{collect_agent, extract_command, resolve_platform, split_env_prefix};
 use verb::{hook_event, is_post_event, is_verb, normalize, verb_agent, verb_args};
 
 pub(crate) use bin::invoked_lade_bin;
 pub(crate) use platform::split_env_prefix as split_command_env_prefix;
 use response::{format_allow, format_allow_verb, format_modify};
-
-fn pretool_flag() -> &'static str {
-    "--pretool"
-}
 
 pub fn handle(
     config: &Config,
@@ -91,33 +86,53 @@ pub fn handle(
     };
 
     // Keep any leading `LADE_APPROVE=...` (or other env assignments) so the
-    // approval prefix reaches the wrapped process.
-    let (env_prefix, command) = split_env_prefix(&raw);
+    // approval prefix reaches the wrapped process. Protocol leftovers are dropped.
+    let (raw_prefix, rest) = split_env_prefix(&raw);
+    let prefix = sanitize_env_prefix(&raw_prefix);
     let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
-
-    if is_already_injected(&command) {
-        if has_pretool_stamp(&env_prefix, &command) {
+    let class = classify(&rest);
+    match class {
+        Class::Finished | Class::Verb => return Ok(allow(platform)),
+        Class::Empty => {
+            emit_seen_pretool(
+                config.log_on_walk_for(audience),
+                audience,
+                &rest,
+                json!([]),
+                agent,
+            );
             return Ok(allow(platform));
         }
-        let stamped = insert_pretool_flag(&command);
-        let rewritten = if env_prefix.is_empty() {
-            stamped
-        } else {
-            format!("{} {}", env_prefix, stamped)
-        };
-        return Ok(modify(platform, &tool_input, &rewritten));
+        Class::NotLade | Class::Vehicle { .. } => {}
     }
+    let from_vehicle = matches!(class, Class::Vehicle { .. });
+    let command = class.inner().unwrap_or(rest);
 
     let patterned = config.collect_for_with_pattern(&command, audience);
     if patterned.is_empty() {
-        emit_seen_pretool(config.log_on_walk(), audience, &command, json!([]), agent);
-        return Ok(allow(platform));
+        emit_seen_pretool(
+            config.log_on_walk_for(audience),
+            audience,
+            &command,
+            json!([]),
+            agent,
+        );
+        return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
     }
 
     let saved_user = GlobalConfig::resolved_user();
     let work = match Config::pre_event_work(&patterned, &saved_user) {
         Ok(work) => work,
-        Err(_) => return Ok(allow(platform)),
+        Err(_) => {
+            emit_seen_pretool(
+                config.log_on_walk_for(audience),
+                audience,
+                &command,
+                json!([]),
+                agent,
+            );
+            return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
+        }
     };
     if !Config::needs_wrap(
         &work,
@@ -126,7 +141,7 @@ pub fn handle(
         &saved_user,
     ) {
         emit_seen_pretool(work.log, audience, &command, work.matches, agent);
-        return Ok(allow(platform));
+        return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let pre = PreEvent {
@@ -150,25 +165,26 @@ pub fn handle(
                 uri: binding.uri,
             })
             .collect(),
-        matches: work.matches,
+        matches: work.matches.clone(),
         op_sa: work.op_sa,
-        agent,
+        agent: agent.clone(),
         network_pids: Vec::new(),
         pending: false,
     };
-    let id = match write_ticket(&pre) {
-        Ok(id) => id,
-        Err(_) => return Ok(allow(platform)),
-    };
     let lade_bin = invoked_lade_bin();
-    let escaped = command.replace('\'', "'\\''");
-    let wrapped = format!("{} --pretool={} '{}'", lade_bin, id, escaped);
-    let new_command = if env_prefix.is_empty() {
-        wrapped
-    } else {
-        format!("{} {}", env_prefix, wrapped)
+    let wrapped = match write_ticket(&pre) {
+        Ok(id) => wrap_ticket(&lade_bin, &id, &command),
+        Err(_) => {
+            warn_ticket();
+            emit_seen_pretool(work.log, audience, &command, work.matches, agent);
+            wrap_idless(&lade_bin, &command)
+        }
     };
-    Ok(modify(platform, &tool_input, &new_command))
+    Ok(modify(
+        platform,
+        &tool_input,
+        &join_prefix(&prefix, &wrapped),
+    ))
 }
 
 fn handle_verb(
@@ -182,11 +198,11 @@ fn handle_verb(
     let patterned = config.collect_for_with_pattern(&command, audience);
     let saved_user = GlobalConfig::resolved_user();
     let (log, matches) = if patterned.is_empty() {
-        (config.log_on_walk(), json!([]))
+        (config.log_on_walk_for(audience), json!([]))
     } else {
         match Config::pre_event_work(&patterned, &saved_user) {
             Ok(work) => (work.log, work.matches),
-            Err(_) => (config.log_on_walk(), json!([])),
+            Err(_) => (config.log_on_walk_for(audience), json!([])),
         }
     };
     let agent = crate::agent_meta::merge(verb_agent(collect_agent(platform, parsed), parsed));
@@ -250,6 +266,28 @@ fn emit_seen_pretool(
     );
 }
 
+fn done(
+    platform: Option<platform::Platform>,
+    tool_input: &Value,
+    prefix: &str,
+    inner: &str,
+    rewrite_to_inner: bool,
+) -> String {
+    if rewrite_to_inner {
+        modify(platform, tool_input, &join_prefix(prefix, inner))
+    } else {
+        allow(platform)
+    }
+}
+
+fn warn_ticket() {
+    MessageBox::new()
+        .warning()
+        .line("Could not write the pre-tool ticket.")
+        .line("The command will run as inject without a ticket file.")
+        .print_stderr();
+}
+
 fn warn_unread(reason: &str) {
     MessageBox::new()
         .warning()
@@ -276,18 +314,5 @@ fn modify(platform: Option<platform::Platform>, tool_input: &Value, new_command:
     match platform {
         Some(platform) => format_modify(&platform, tool_input, new_command),
         None => format_modify(&platform::Platform::ClaudeCode, tool_input, new_command),
-    }
-}
-
-fn insert_pretool_flag(command: &str) -> String {
-    let mut parts = command.splitn(2, char::is_whitespace);
-    let Some(bin) = parts.next() else {
-        return command.to_string();
-    };
-    let rest = parts.next().unwrap_or("");
-    if rest.is_empty() {
-        format!("{} {}", bin, pretool_flag())
-    } else {
-        format!("{} {} {}", bin, pretool_flag(), rest)
     }
 }

@@ -279,6 +279,20 @@ fn test_log_on_walk_last_explicit_wins_across_non_matching_rules() {
 }
 
 #[test]
+fn log_on_walk_for_ignores_other_audience() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  .:\n    when: human\n    log: true\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    assert!(config.log_on_walk());
+    assert!(config.log_on_walk_for(Audience::Human));
+    assert!(!config.log_on_walk_for(Audience::Agent));
+}
+
+#[test]
 fn test_log_only_dot_does_not_need_wrap() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), ".:\n  .:\n    log: true\n").unwrap();

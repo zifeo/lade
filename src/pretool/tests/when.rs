@@ -177,7 +177,7 @@ fn collect_agent_reads_opencode_session_id() {
 }
 
 #[test]
-fn ticket_write_failure_allows() {
+fn ticket_write_failure_falls_back_to_idless_pretool() {
     with_cursor_env(|| {
         let tmp = tempdir().unwrap();
         let blocker = tmp.path().join("not-a-dir");
@@ -187,8 +187,8 @@ fn ticket_write_failure_allows() {
             let (config, _dir) = test_config("^echo");
             let input = r#"{"tool_input":{"command":"echo hello"},"hook_event_name":"preToolUse"}"#;
             let result = handle(&config, input, Audience::Agent, Some("cursor")).unwrap();
-            assert!(result.contains("allow"));
-            assert!(!result.contains("--pretool"));
+            assert!(result.contains("updated_input"), "{result}");
+            assert!(result.contains("--pretool -- 'echo hello'"), "{result}");
         });
     });
 }

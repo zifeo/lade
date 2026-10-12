@@ -39,7 +39,7 @@ pub(crate) fn invoked_lade_bin_from(
         .unwrap_or_else(|| "lade".to_string())
 }
 
-fn lade_basename(path: &Path) -> Option<&str> {
+pub(crate) fn lade_basename(path: &Path) -> Option<&str> {
     path.file_name()
         .and_then(|name| name.to_str())
         .filter(|name| matches!(*name, "lade" | "lade.exe"))

@@ -59,7 +59,7 @@ pub(crate) fn emit_seen_if_walk_log(
     saved_user: &Option<String>,
     argv: Option<serde_json::Value>,
 ) {
-    if !config.log_on_walk() {
+    if !config.log_on_walk_for(ctx.audience) {
         return;
     }
     event::emit_if(
