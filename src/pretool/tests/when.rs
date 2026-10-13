@@ -35,14 +35,14 @@ fn user_keyed_secret_uses_os_user_when_disk_user_is_null() {
             temp_env::with_vars(
                 [
                     ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
-                    ("USER", Some("alice")),
+                    ("USER", Some("owner")),
                     ("USERNAME", None),
                 ],
                 || {
                     let dir = tempdir().unwrap();
                     std::fs::write(
                         dir.path().join("lade.yml"),
-                        "\"^echo\":\n  KEY:\n    alice: val\n",
+                        "\"^echo\":\n  KEY:\n    owner: val\n",
                     )
                     .unwrap();
                     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -64,14 +64,14 @@ fn user_keyed_secret_skips_wrap_when_os_user_misses() {
         temp_env::with_vars(
             [
                 ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
-                ("USER", Some("bob")),
+                ("USER", Some("other")),
                 ("USERNAME", None),
             ],
             || {
                 let dir = tempdir().unwrap();
                 std::fs::write(
                     dir.path().join("lade.yml"),
-                    "\"^echo\":\n  KEY:\n    alice: val\n",
+                    "\"^echo\":\n  KEY:\n    owner: val\n",
                 )
                 .unwrap();
                 let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -177,7 +177,7 @@ fn collect_agent_reads_opencode_session_id() {
 }
 
 #[test]
-fn ticket_write_failure_allows() {
+fn ticket_write_failure_falls_back_to_idless_pretool() {
     with_cursor_env(|| {
         let tmp = tempdir().unwrap();
         let blocker = tmp.path().join("not-a-dir");
@@ -187,8 +187,8 @@ fn ticket_write_failure_allows() {
             let (config, _dir) = test_config("^echo");
             let input = r#"{"tool_input":{"command":"echo hello"},"hook_event_name":"preToolUse"}"#;
             let result = handle(&config, input, Audience::Agent, Some("cursor")).unwrap();
-            assert!(result.contains("allow"));
-            assert!(!result.contains("--pretool"));
+            assert!(result.contains("updated_input"), "{result}");
+            assert!(result.contains("--pretool -- 'echo hello'"), "{result}");
         });
     });
 }

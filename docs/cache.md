@@ -122,18 +122,20 @@ inject / pretool wrap / `mcp` that needs a `Put` does.
 
 1. `LADE_WRAP_KEY` set (64 hex, tests and CI): those 32 bytes.
    Bad hex skips the hub.
-2. Else the platform store. Any get or add that would need a
-   password or a dialog skips the hub. No Face ID. No Secure
-   Enclave.
+2. Else the platform store. No dialog. No Face ID. No Secure
+   Enclave. A get or add that would need a password skips the
+   hub.
 3. Miss: draw 32 random bytes and add. If add loses a race, get
    again and use the stored key.
 
 | OS | Store |
 |---|---|
-| Linux | Session keyring (`@s`), name `lade-wrap-v2`, possessor-only |
-| macOS | Data-protection keychain, generic password, service `com.zifeo.lade.wrap`, account `lade-wrap-v2`, `AfterFirstUnlockThisDeviceOnly` |
+| Linux | Session keyring (`@s`), name `lade-wrap-v2`, possessor-only. Created if this process has none. |
+| macOS | Login keychain, generic password, service `com.zifeo.lade.wrap`, account `lade-wrap-v2`. No dialog. A CLI cannot use the data-protection keychain. |
 
-Isolation is this login, not this binary. Linux `@s` dies on
+Isolation is this login, not this binary. The login keychain
+stays unlocked for the session unless Lock after or Lock when
+sleeping is on. Screen lock is not that. Linux `@s` dies on
 logout. A new session that cannot unwrap old rows misses and
 refetches.
 
@@ -211,8 +213,9 @@ body used the vault default, or this cwd's hub window when
 `down` / `off` / `stale`. `--json` adds extra `hub` (`state`,
 `pid`, `secrets`, `tickets`) and leaves `ok` unchanged.
 
-`lade cache` lists this image's key names, rule, yaml path, and
-ttl left. Never values. `lade cache set 2h` marks this cwd on
+`lade cache` lists this cwd's key names, the cwd the row is
+valid for, yaml path, and ttl left. `--global` lists every row
+on this hub. Never values. `lade cache set 2h` marks this cwd on
 the hub. A parent or child cwd shares that window (nearest
 path wins). `lade cache unset` clears this cwd.
 `lade cache forget` and `lade cache forget KEY` drop
@@ -243,7 +246,7 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Hub dies, leftover T files | Files still work |
 | Yaml edit between plan and apply | Miss, refetch |
 | Provider value changed, hub still live | Same row until TTL or `lade cache forget` |
-| Keychain locked or ACL would prompt | Skip hub, no dialog, no new wrap key |
+| Keychain locked or ACL would prompt | Skip the hub, no dialog. `ttl:` warns |
 | `@s` gone after logout | Unwrap fail, then miss |
 | Non-`lade` peer | Drop, `Err` 4 |
 | Inode or crate version mismatch | Unlink this image's socket, spawn once |

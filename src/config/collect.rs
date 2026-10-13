@@ -38,20 +38,27 @@ impl Config {
     }
 
     /// Last explicit `log` on all loaded rules wins. Absent `log` is not a vote.
-    /// Used for pre-event `log` and walk-level diary policy.
+    /// Production callers use [`Self::log_on_walk_for`].
+    #[cfg(test)]
     pub(crate) fn log_on_walk(&self) -> bool {
-        let mut enabled = false;
-        for (_, rule) in &self.rules {
-            if let Some(flag) = rule.config.as_ref().and_then(|config| config.log) {
-                enabled = flag;
-            }
-        }
-        enabled
+        Self::log_enabled(&self.rules)
+    }
+
+    /// Last explicit `log` on rules that apply to `audience`. A `when: human`
+    /// log flag does not turn on agent no-match `seen`.
+    pub(crate) fn log_on_walk_for(&self, audience: Audience) -> bool {
+        let kept: Vec<_> = self
+            .rules
+            .iter()
+            .filter(|(_, rule)| rule_applies_to(rule, audience))
+            .cloned()
+            .collect();
+        Self::log_enabled(&kept)
     }
 
     /// Build pre-event work from already-matched rules. No hydration.
     /// [`PreEventWork::log`] is last explicit `log` on these matches. No-match
-    /// `seen` uses [`Self::log_on_walk`].
+    /// `seen` uses [`Self::log_on_walk_for`].
     pub(crate) fn pre_event_work(
         rules: &[(PathBuf, String, LadeRule)],
         saved_user: &Option<String>,

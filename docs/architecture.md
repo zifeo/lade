@@ -178,8 +178,8 @@ one invocation.
 Keys prefixed with `.` are intermediate bindings. `.NAME` resolves and can be
 referenced as `$NAME` or `${NAME}`, but is never written to the child environment, a
 temporary file, or an MCP header. `.` on its own is still the rule
-configuration block (`file`, `disclaimer`, `when`, `silence`, `log`).
-`silence: true` skips that rule's secret progress lines. Hydration
+configuration block (`file`, `disclaimer`, `when`, `silent`, `log`).
+`silent: true` skips that rule's secret progress lines. Hydration
 itself is unchanged. A public binding and `.NAME` cannot coexist.
 
 Binding sources support simple `$NAME` and `${NAME}` references. For normal

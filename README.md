@@ -433,7 +433,7 @@ cwd. `lade cache forget` (or
 `lade log prune --hub`) drops this binary's hub. Next hydrate
 refetches. [docs/cache.md](docs/cache.md).
 
-`silence: true` on a rule skips secret progress lines for that rule.
+`silent: true` on a rule skips secret progress lines for that rule.
 Provider URIs can **imply** a locked CLI on setup (`op://` → `op`,
 `vault://` → `vault`, …) even when the yaml has no `mise://` pin.
 `lade status` reports min CLI versions and `sdk` vs `cli` transport.
@@ -506,6 +506,22 @@ CI that talks to 1Password without a person: set
 examples).
 
 ## Development
+
+Users: mise pins `lade`. The binary on PATH is the CLI and the
+hub. Each image has its own socket, so several hubs can be up.
+There is no idle exit. Logout, crash, or a new inode drops that
+hub. Cache does not cross binaries.
+
+Local work: `cargo install --path .` must beat every mise lade
+on this machine. One global mise setting, once:
+
+```bash
+mise settings add disable_tools github:zifeo/lade
+```
+
+`which` may still show the mise shim. That shim execs
+`~/.cargo/bin/lade`. Do not set `MISE_DISABLE_TOOLS` in the
+shell. mise reads this file at activate.
 
 ```bash
 eval "$(lade off)"

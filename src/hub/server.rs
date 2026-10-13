@@ -168,6 +168,7 @@ impl Tables {
                     for (name, _) in &row.bindings {
                         rows.push(wire::CacheRow {
                             name: name.clone(),
+                            cwd: key.cwd.clone(),
                             path: key.path.clone(),
                             rule: key.rule.clone(),
                             when: key.when.clone(),
@@ -176,7 +177,12 @@ impl Tables {
                         });
                     }
                 }
-                rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.rule.cmp(&b.rule)));
+                rows.sort_by(|a, b| {
+                    a.name
+                        .cmp(&b.name)
+                        .then(a.cwd.cmp(&b.cwd))
+                        .then(a.rule.cmp(&b.rule))
+                });
                 Rep::Listing {
                     pid: std::process::id(),
                     tickets: self.tickets.len() as u32,
@@ -233,7 +239,7 @@ fn window_for(windows: &HashMap<String, String>, cwd: &str) -> Option<String> {
         .map(|(_, ttl)| ttl.clone())
 }
 
-fn path_related(cwd: &str, scope: &str) -> bool {
+pub(crate) fn path_related(cwd: &str, scope: &str) -> bool {
     if cwd == "/" || scope == "/" {
         return cwd == scope;
     }

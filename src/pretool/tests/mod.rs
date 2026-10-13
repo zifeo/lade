@@ -1,8 +1,8 @@
 use crate::config::{Config, LadeFile};
 use tempfile::{TempDir, tempdir};
 
-mod already;
 mod detect;
+mod model;
 mod perf;
 mod when;
 mod wrap;

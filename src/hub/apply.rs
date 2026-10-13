@@ -6,9 +6,10 @@ use crate::config::{
     uri_is_cacheable, when_label,
 };
 
-use super::client::{daemon_off, rpc};
+use super::client::{HubState, daemon_off, probe, rpc};
 use super::crypto::{aad, open, seal, zero_key};
-use super::key::wrap_key;
+use super::key::{wrap_gap, wrap_key};
+use super::server::socket_path;
 use super::wire::{Rep, Req};
 
 pub struct CacheHit {
@@ -152,6 +153,44 @@ fn get_body(key: &mut [u8; 32], body: &PlannedBody) -> Option<Vec<(String, Strin
         out.push((name, value));
     }
     Some(out)
+}
+
+/// Why a `ttl:` body did not reach the hub. None if cache was not
+/// asked, or the hub took the Put.
+pub fn cache_gap(
+    cwd: &Path,
+    walk: [u8; 32],
+    saved_user: &Option<String>,
+    patterned: &[(PathBuf, String, LadeRule)],
+) -> Option<String> {
+    if daemon_off() {
+        return None;
+    }
+    let user = saved_user.clone().unwrap_or_default();
+    let session = session_for(cwd);
+    let cwd = cwd.to_string_lossy().into_owned();
+    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
+    if planned.is_empty() {
+        return None;
+    }
+    if let Some(why) = wrap_gap() {
+        return Some(format!("This rule has ttl. {why} Hydrated this time."));
+    }
+    match probe().state {
+        HubState::Down => {
+            let why = if socket_path().exists() {
+                "The secret cache socket did not answer."
+            } else {
+                "The secret cache is down."
+            };
+            Some(format!("This rule has ttl. {why} Hydrated this time."))
+        }
+        HubState::Stale => Some(
+            "This rule has ttl. The secret cache is stale (other lade binary). Hydrated this time."
+                .to_string(),
+        ),
+        HubState::Off | HubState::Up => None,
+    }
 }
 
 fn session_for(cwd: &Path) -> Option<RuleTtl> {

@@ -1,6 +1,6 @@
 .:
   .:
-    silence: true
+    silent: true
   cargo: mise://core/rust@1.96.0
   rustc: mise://core/rust@1.96.0
   op: mise://aqua/1password/cli@>=2.18.0

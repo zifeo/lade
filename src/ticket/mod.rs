@@ -178,7 +178,7 @@ pub fn peel_pretool(args: Vec<OsString>) -> (Option<String>, Vec<OsString>) {
                 let next = args[i + 1].to_string_lossy();
                 // Space form shares the slot with commands (`echo`, `yarn`).
                 // Only peel when the ticket file is already there.
-                if is_id(&next) && path(&next).exists() {
+                if exists(&next) {
                     ticket_id = Some(next.into_owned());
                     i += 2;
                     continue;

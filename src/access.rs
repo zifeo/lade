@@ -52,7 +52,7 @@ pub async fn acquire_attached(
     let saved_user = saved_user().await?;
     let network_bindings = Config::network_bindings_from_rules(rules, &saved_user);
     let hit = crate::hub::lookup(cwd, config.walk_hash(), &saved_user, patterned);
-    let (mut vars, _sources, _maskable, warnings) = config
+    let (mut vars, _sources, _maskable, mut warnings) = config
         .hydrate_rules_except(rules, &saved_user, &hit.keys)
         .await?;
     let mut output_for = HashMap::new();
@@ -88,6 +88,9 @@ pub async fn acquire_attached(
         &flat,
         &hit.keys,
     );
+    if let Some(gap) = crate::hub::cache_gap(cwd, config.walk_hash(), &saved_user, patterned) {
+        warnings.push(gap);
+    }
     let cached = hit.keys;
     let mut progress: Option<ProviderProgressRenderer> =
         Some(start_provider_progress(rich_progress));

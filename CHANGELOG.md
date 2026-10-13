@@ -13,7 +13,8 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **Secret cache:** an in-memory hub keeps hydrated vault ciphertext
   for a rule body (`ttl:` on `.`, 5m default for vault and file).
-  `lade cache` lists key names, rule, yaml path, and time left.
+  `lade cache` lists this cwd's key names, cwd, yaml path, and
+  time left. `lade cache --global` lists every row on this hub.
   `lade cache forget` and `lade cache forget KEY` drop this binary's
   RAM. `lade cache set 2h` marks this cwd on the hub. Parent
   and child folders share it. `lade cache unset` clears this
@@ -35,6 +36,29 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **OS user:** when `config.json` has no user, per-user yaml maps
   fall back to `$USER` / `$USERNAME`.
+- **Rule `silent`:** the yaml key is `silent: true`. `silence` is
+  unread.
+- **Shell progress:** `sh://` shows `sh: KEY`, like `File: KEY`,
+  not the command text. Each provider line gets its own clock
+  and turns ✔ when that group finishes, not when the whole
+  hydrate returns.
+- **Shell wrap:** `lade hook enable --shell` writes `lade on`, the
+  PATH name, not the install path. A later mise or cargo bin is
+  picked up on the next shell.
+- **Hub wrap key:** macOS uses the login keychain, not the
+  data-protection keychain a CLI cannot open. Linux still uses
+  the session keyring (`@s`), and creates it if missing.
+  `LADE_WRAP_KEY` still wins. No wrap-key file. If the store
+  refuses, the hub is unused and a `ttl:` body prints a warning.
+  Hydrate still runs.
+- **Pretool `lade inject`:** the hook peels `lade inject`, `lade --`,
+  and `lade <cmd>` to the inner command, including `inject --via`
+  and a peeled clap verb. `inject --help` / `--version` stay verbs.
+  A match writes T and wraps
+  `lade --pretool=<id> '…'`. No match rewrites to the inner command.
+  It no longer stamps `lade --pretool inject` without a ticket.
+  Clap verbs still match the full line. Walk `log` follows the
+  current audience. See [docs/protocol.md](docs/protocol.md).
 
 ## [0.19.2] - 2026-10-03
 

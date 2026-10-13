@@ -81,6 +81,7 @@ fn tables_list_and_forget_named_key() {
             assert_eq!(tickets, 0);
             let names: Vec<_> = rows.iter().map(|row| row.name.as_str()).collect();
             assert_eq!(names, ["AWS", "DB"]);
+            assert!(rows.iter().all(|row| row.cwd == "/c"));
         }
         other => panic!("{other:?}"),
     }
@@ -415,6 +416,137 @@ fn daemon_off_skips_lookup() {
 }
 
 #[test]
+fn log_then_shell_ttl_body_roundtrips_hub() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let proj = root.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join("lade.yml"),
+        ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET: sh://printf %s /tmp/app\n",
+    )
+    .unwrap();
+    let wrap = "ab".repeat(32);
+    let cache_s = cache.to_string_lossy().into_owned();
+    temp_env::with_vars(
+        [
+            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
+            ("LADE_WRAP_KEY", Some(wrap.as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let _server = std::thread::spawn(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _ = rt.block_on(crate::hub::serve());
+            });
+            let sock = super::server::socket_path();
+            for _ in 0..80 {
+                if sock.exists() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(sock.exists(), "hub socket");
+            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            let mut hydrated = std::collections::HashMap::new();
+            hydrated.insert("SOCKET".into(), "/tmp/sock".into());
+            crate::hub::store(
+                &proj,
+                config.walk_hash(),
+                &None,
+                &patterned,
+                &hydrated,
+                &std::collections::HashSet::new(),
+            );
+            assert_eq!(
+                crate::hub::cache_gap(&proj, config.walk_hash(), &None, &patterned),
+                None
+            );
+            let hit = crate::hub::lookup(&proj, config.walk_hash(), &None, &patterned);
+            assert_eq!(
+                hit.values.get("SOCKET").map(String::as_str),
+                Some("/tmp/sock"),
+                "keys={:?} values={:?}",
+                hit.keys,
+                hit.values
+            );
+            assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
+        },
+    );
+}
+
+#[test]
+fn user_map_shell_ttl_body_roundtrips_hub() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let proj = root.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join("lade.yml"),
+        ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET:\n      owner: sh://printf %s /tmp/app\n",
+    )
+    .unwrap();
+    let wrap = "ab".repeat(32);
+    let cache_s = cache.to_string_lossy().into_owned();
+    let user = Some("owner".to_string());
+    temp_env::with_vars(
+        [
+            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
+            ("LADE_WRAP_KEY", Some(wrap.as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let _server = std::thread::spawn(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _ = rt.block_on(crate::hub::serve());
+            });
+            let sock = super::server::socket_path();
+            for _ in 0..80 {
+                if sock.exists() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(sock.exists(), "hub socket");
+            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            let mut hydrated = std::collections::HashMap::new();
+            hydrated.insert("SOCKET".into(), "/tmp/sock".into());
+            crate::hub::store(
+                &proj,
+                config.walk_hash(),
+                &user,
+                &patterned,
+                &hydrated,
+                &std::collections::HashSet::new(),
+            );
+            assert_eq!(
+                crate::hub::cache_gap(&proj, config.walk_hash(), &user, &patterned),
+                None
+            );
+            let hit = crate::hub::lookup(&proj, config.walk_hash(), &user, &patterned);
+            assert_eq!(
+                hit.values.get("SOCKET").map(String::as_str),
+                Some("/tmp/sock"),
+                "keys={:?} values={:?}",
+                hit.keys,
+                hit.values
+            );
+            assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
+        },
+    );
+}
+
+#[test]
 fn wrap_key_roundtrip_via_hub() {
     let root = tempfile::tempdir().unwrap();
     let cache = root.path().join("cache");
@@ -582,6 +714,108 @@ fn denied_hub_unlinks_and_fresh_hub_serves() {
             assert_eq!(
                 hit.values.get("KEY").map(String::as_str),
                 Some("after-upgrade")
+            );
+        },
+    );
+}
+
+#[test]
+fn cache_gap_when_ttl_and_no_key() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [("LADE_WRAP_KEY", Some("zz")), ("LADE_DAEMON", None)],
+        || {
+            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            assert_eq!(
+                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
+                Some(
+                    "This rule has ttl. LADE_WRAP_KEY is not 64 hex chars. Hydrated this time."
+                        .to_string()
+                )
+            );
+        },
+    );
+}
+
+#[test]
+fn cache_gap_none_without_ttl() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  SOCKET: sh://printf %s /tmp/sock\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("LADE_WRAP_KEY", Some("ab".repeat(32).as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            assert_eq!(
+                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
+                None
+            );
+        },
+    );
+}
+
+#[test]
+fn cache_gap_none_when_daemon_off() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [("LADE_WRAP_KEY", Some("zz")), ("LADE_DAEMON", Some("off"))],
+        || {
+            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            assert_eq!(
+                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
+                None
+            );
+        },
+    );
+}
+
+#[test]
+fn cache_gap_when_ttl_and_hub_down() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let proj = root.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join("lade.yml"),
+        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
+    )
+    .unwrap();
+    let wrap = "ab".repeat(32);
+    let cache_s = cache.to_string_lossy().into_owned();
+    temp_env::with_vars(
+        [
+            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
+            ("LADE_WRAP_KEY", Some(wrap.as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            assert_eq!(
+                crate::hub::cache_gap(&proj, config.walk_hash(), &None, &patterned),
+                Some(
+                    "This rule has ttl. The secret cache is down. Hydrated this time.".to_string()
+                )
             );
         },
     );

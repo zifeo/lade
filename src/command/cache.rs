@@ -4,12 +4,12 @@ use std::path::Path;
 
 use crate::args::{CacheAction, CacheCommand};
 use crate::config::RuleTtl;
-use crate::hub::{self, CacheListing, HubState};
+use crate::hub::{self, CacheListing, CacheRow, HubState};
 use crate::message_box::Report;
 
 pub fn run(opts: CacheCommand) -> Result<()> {
     match opts.action {
-        None | Some(CacheAction::List) => print_list(opts.json),
+        None | Some(CacheAction::List) => print_list(opts.json, opts.global),
         Some(CacheAction::Forget { names }) if names.is_empty() => forget_all(),
         Some(CacheAction::Forget { names }) => forget_named(&names),
         Some(CacheAction::Set { ttl }) => set_window(ttl.as_deref()),
@@ -29,7 +29,7 @@ fn set_window(ttl: Option<&str>) -> Result<()> {
             Report::new()
                 .line(format!(
                     "cache ttl {raw}  {}",
-                    display_path(Path::new(&scope))
+                    crate::preexec::path_for_display(Path::new(&scope))
                 ))
                 .print();
             Ok(())
@@ -45,7 +45,7 @@ fn clear_window() -> Result<()> {
             Report::new()
                 .line(format!(
                     "cache ttl cleared  {}",
-                    display_path(Path::new(&scope))
+                    crate::preexec::path_for_display(Path::new(&scope))
                 ))
                 .print();
             Ok(())
@@ -67,13 +67,20 @@ fn hub_unavailable() -> Result<()> {
     })
 }
 
-fn print_list(as_json: bool) -> Result<()> {
+fn print_list(as_json: bool, global: bool) -> Result<()> {
     let listing = hub::listing();
-    let window = current_scope().ok().and_then(|scope| hub::window(&scope));
+    let scope = current_scope().ok();
+    let window = scope.as_deref().and_then(hub::window);
+    let rows = rows_for_scope(&listing.rows, scope.as_deref(), global);
     if as_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&listing_json(&listing, window.as_deref()))?
+            serde_json::to_string_pretty(&listing_json(
+                &listing,
+                window.as_deref(),
+                &rows,
+                global
+            ))?
         );
         return Ok(());
     }
@@ -89,14 +96,15 @@ fn print_list(as_json: bool) -> Result<()> {
     if let Some(ttl) = &window {
         println!("window: {ttl}");
     }
-    if listing.rows.is_empty() {
+    if rows.is_empty() {
         return Ok(());
     }
     println!();
-    for row in &listing.rows {
-        let path = display_path(Path::new(&row.path));
+    for row in rows {
+        let cwd = crate::preexec::path_for_display(Path::new(&row.cwd));
+        let path = crate::preexec::path_for_display(Path::new(&row.path));
         let ttl = format_ttl_left(row.ttl_left_ms);
-        println!("{}  {}  {path}  {ttl}", row.name, row.rule);
+        println!("{}  {cwd}  {path}  {ttl}", row.name);
     }
     Ok(())
 }
@@ -127,15 +135,32 @@ fn forget_named(names: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn listing_json(listing: &CacheListing, window: Option<&str>) -> Value {
+fn rows_for_scope<'a>(
+    rows: &'a [CacheRow],
+    scope: Option<&str>,
+    global: bool,
+) -> Vec<&'a CacheRow> {
+    rows.iter()
+        .filter(|row| global || scope.is_some_and(|cwd| hub::path_related(&row.cwd, cwd)))
+        .collect()
+}
+
+fn listing_json(
+    listing: &CacheListing,
+    window: Option<&str>,
+    rows: &[&CacheRow],
+    global: bool,
+) -> Value {
     json!({
         "state": listing.state,
         "pid": listing.pid,
         "tickets": listing.tickets,
         "window": window,
-        "keys": listing.rows.iter().map(|row| {
+        "global": global,
+        "keys": rows.iter().map(|row| {
             json!({
                 "name": row.name,
+                "cwd": row.cwd,
                 "path": row.path,
                 "rule": row.rule,
                 "when": row.when,
@@ -157,14 +182,40 @@ fn format_ttl_left(ms: u32) -> String {
     }
 }
 
-fn display_path(path: &Path) -> String {
-    if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf())
-        && let Ok(stripped) = path.strip_prefix(&home)
-    {
-        if stripped.as_os_str().is_empty() {
-            return "~".to_string();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hub::CacheRow;
+
+    fn row(name: &str, cwd: &str) -> CacheRow {
+        CacheRow {
+            name: name.into(),
+            cwd: cwd.into(),
+            path: "/proj/lade.yml".into(),
+            rule: ".".into(),
+            when: "always".into(),
+            user: String::new(),
+            ttl_left_ms: 60_000,
         }
-        return format!("~/{}", stripped.display());
     }
-    path.display().to_string()
+
+    #[test]
+    fn default_list_keeps_this_cwd_and_children() {
+        let rows = [
+            row("HERE", "/proj"),
+            row("CHILD", "/proj/src"),
+            row("OTHER", "/other"),
+        ];
+        let got: Vec<_> = rows_for_scope(&rows, Some("/proj"), false)
+            .iter()
+            .map(|row| row.name.as_str())
+            .collect();
+        assert_eq!(got, ["HERE", "CHILD"]);
+    }
+
+    #[test]
+    fn global_list_keeps_every_cwd() {
+        let rows = [row("HERE", "/proj"), row("OTHER", "/other")];
+        assert_eq!(rows_for_scope(&rows, Some("/proj"), true).len(), 2);
+    }
 }

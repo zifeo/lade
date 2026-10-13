@@ -69,7 +69,7 @@ pub(crate) struct PreEventWork {
 }
 
 impl PreEventWork {
-    /// Secrets, tunnels, or a disclaimer. `log` / `when` / `silence` alone
+    /// Secrets, tunnels, or a disclaimer. `log` / `when` / `silent` alone
     /// do not need a wrap.
     pub(crate) fn needs_inject(&self) -> bool {
         !self.secrets.is_empty() || !self.network.is_empty() || !self.disclaimers.is_empty()

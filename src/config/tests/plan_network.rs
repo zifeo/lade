@@ -146,7 +146,7 @@ fn test_collect_secret_sources_silent_rule_marks_keys() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("lade.yml"),
-        "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
+        "\"cmd\":\n  \".\":\n    silent: true\n  KEY: val\n",
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -156,11 +156,24 @@ fn test_collect_secret_sources_silent_rule_marks_keys() {
 }
 
 #[test]
-fn test_collect_secret_sources_later_non_silent_overlay_clears_silence() {
+fn test_collect_secret_sources_old_silence_key_is_unread() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("lade.yml"),
-        ".:\n  \".\":\n    silence: true\n  KEY: a\n\"cmd\":\n  KEY: b\n",
+        "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let plan = config.collect_secret_sources("cmd").unwrap();
+    assert!(!plan.silent.contains("KEY"));
+}
+
+#[test]
+fn test_collect_secret_sources_later_non_silent_overlay_clears_silent() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  \".\":\n    silent: true\n  KEY: a\n\"cmd\":\n  KEY: b\n",
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -175,7 +188,7 @@ fn test_collect_secret_sources_later_silent_overlay_hides_progress() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("lade.yml"),
-        ".:\n  KEY: a\n\"cmd\":\n  \".\":\n    silence: true\n  KEY: b\n",
+        ".:\n  KEY: a\n\"cmd\":\n  \".\":\n    silent: true\n  KEY: b\n",
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();

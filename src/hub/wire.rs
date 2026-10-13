@@ -92,6 +92,7 @@ pub enum Rep {
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct CacheRow {
     pub name: String,
+    pub cwd: String,
     pub path: String,
     pub rule: String,
     pub when: String,

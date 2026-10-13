@@ -6,6 +6,7 @@ pub use hook::{
     present_shells, uninstall_current_preexec,
 };
 pub(crate) use hook::{reload_after_upgrade_lines, wrap_reload_command};
+pub(crate) use profile::path_for_display;
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;

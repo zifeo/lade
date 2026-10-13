@@ -146,7 +146,7 @@ async fn prepare_secrets(
         mut vars,
         mut sources,
         mut maskable,
-        warnings,
+        mut warnings,
     } = hydrate_secrets_from_ticket_with_progress(
         &remaining,
         op_sa,
@@ -180,6 +180,11 @@ async fn prepare_secrets(
             &flat,
             &hit.keys,
         );
+        if let Some(gap) =
+            crate::hub::cache_gap(scope.cwd, scope.walk, scope.saved_user, scope.patterned)
+        {
+            warnings.push(gap);
+        }
     }
 
     let (env, files) = split_env_files(vars);

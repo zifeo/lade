@@ -95,12 +95,12 @@ fn test_yaml_null_and_tilde_are_unset() {
 }
 
 #[test]
-fn test_rule_config_silence() {
+fn test_rule_config_silent() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yml");
     std::fs::write(
         &file_path,
-        "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
+        "\"cmd\":\n  \".\":\n    silent: true\n  KEY: val\n",
     )
     .unwrap();
     let lade_file = LadeFile::from_path(&file_path).unwrap();
@@ -108,7 +108,7 @@ fn test_rule_config_silence() {
         .config
         .as_ref()
         .unwrap();
-    assert!(config.silence);
+    assert!(config.silent);
 }
 
 #[test]

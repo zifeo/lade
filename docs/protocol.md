@@ -54,12 +54,15 @@ sequenceDiagram
     participant Db as events.db
 
     Agent->>Handler: PreToolUse JSON
-    alt no match
-        Handler->>Db: seen if walk log
-        Handler-->>Agent: allow
+    Note over Handler: peel lade inject / lade -- / alias to inner
+    alt already --pretool=id and T matches
+        Handler-->>Agent: allow unchanged
+    else no match
+        Handler->>Db: seen if walk log for this audience
+        Handler-->>Agent: inner (or raw if not a vehicle)
     else match
         Handler->>Tmp: write x7Km.json
-        Handler-->>Agent: lade --pretool=x7Km 'cmd'
+        Handler-->>Agent: lade --pretool=x7Km 'inner'
         Agent->>Wrap: that line
         Wrap->>Tmp: read x7Km
         Wrap->>Wrap: run providers from the file
@@ -93,11 +96,22 @@ sequenceDiagram
 ## Paths
 
 Diary `log` on a match is the last explicit `log` on **matching** rules.
-No-match `seen` uses the last explicit `log` on the loaded walk.
+No-match `seen` uses the last explicit `log` on the loaded walk that
+applies to this audience. `log: true` does not mean the line is a
+`lade inject` vehicle. Vehicle detect is argv shape only.
+
+The handler never emits `lade inject …` or `lade --pretool inject …`.
+`lade inject -- cmd`, `lade -- cmd`, and `lade cmd` (alias) peel to
+`cmd`. A clap verb other than `inject` is not peeled. Yaml still sees
+the full line. A finished wrap
+(`--pretool=<id> 'cmd'` and T exists with that command) is left alone.
+If T write fails, the rewrite is `lade --pretool -- 'cmd'` and the
+handler still writes `seen` when log is on.
 
 | Surface | T | Providers | Unlink | Diary |
 |---|---|---|---|---|
 | Pretool handler, no match | none | no | | `seen` if walk log |
+| Pretool handler, peeled, no wrap | none | no | | `seen` if walk / match log |
 | Pretool handler, match | writes | no | | wrap writes |
 | Pretool wrap, id present | read | from file | wrap, after the child | if match log |
 | Pretool wrap, no id | none | walk | | if match log, `seen` on no match |

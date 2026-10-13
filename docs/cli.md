@@ -28,7 +28,7 @@ Example:
 ✔︎ Vault 127.0.0.1:8200: TOKEN (c)                                        0 ms
 ```
 
-`silence: true` on a rule hides that rule's progress lines.
+`silent: true` on a rule hides that rule's progress lines.
 
 ## Three stores
 
@@ -125,6 +125,7 @@ Does not spawn.
 
 ```bash
 lade cache
+lade cache --global
 lade cache list
 lade cache list --json
 lade cache set 2h
@@ -141,8 +142,8 @@ shares it. Vault and file stay in RAM 5m until then.
 ```
 hub: pid 18432
 
-AWS_ACCESS_KEY_ID  terraform .*  ~/code/claryo/lade.yml  3m left
-DATABASE_URL       terraform .*  ~/code/claryo/lade.yml  3m left
+AWS_ACCESS_KEY_ID  ~/src/app  ~/src/app/lade.yml  3m left
+DATABASE_URL       terraform .*  ~/src/app/lade.yml  3m left
 ```
 
 Hub down / off / stale:

@@ -320,6 +320,7 @@ pub enum LogAction {
 pub const CACHE_AFTER_HELP: &str = "\
 Examples:
   lade cache
+  lade cache --global
   lade cache list --json
   lade cache set 2h
   lade cache unset
@@ -327,6 +328,7 @@ Examples:
   lade cache forget AWS_ACCESS_KEY_ID
 
 Names only. Never values. This binary's hub only.
+`lade cache` lists this cwd and related paths. `--global` lists every row.
 `lade cache set` marks this cwd on the hub. Ancestors share it.
 `unset` clears this cwd.
 Vault and file stay in RAM 5m. `forget` drops them now.
@@ -341,13 +343,16 @@ pub struct CacheCommand {
     /// Emit the listing as JSON.
     #[clap(long, default_value_t = false, global = true)]
     pub json: bool,
+    /// List every row on this hub, not only this cwd.
+    #[clap(long, default_value_t = false, global = true)]
+    pub global: bool,
     #[command(subcommand)]
     pub action: Option<CacheAction>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum CacheAction {
-    /// List cached key names, rule, yaml path, ttl left.
+    /// List cached key names, cwd, yaml path, ttl left.
     List,
     /// Forget all keys, or the named keys. Does not spawn.
     Forget {

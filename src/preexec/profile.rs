@@ -6,18 +6,17 @@ use super::Shell;
 use super::hook::{MARKER, profile_config_file};
 
 pub(super) fn configure_auto_launch(shell: &Shell, install: bool) -> Result<PathBuf> {
-    let bin = crate::pretool::invoked_lade_bin();
     if matches!(shell, Shell::Sh) {
         bail!("Unsupported behavior on shell {}", shell.bin());
     }
-    let command = super::wrap_reload_command(*shell, &bin);
+    let command = super::wrap_reload_command(*shell, "lade");
     let config_file = profile_config_file(shell);
 
     edit_config(&config_file, command, install)?;
     Ok(config_file)
 }
 
-pub(super) fn path_for_display(path: &Path) -> String {
+pub(crate) fn path_for_display(path: &Path) -> String {
     let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) else {
         return path.display().to_string();
     };
