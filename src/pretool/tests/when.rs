@@ -35,14 +35,14 @@ fn user_keyed_secret_uses_os_user_when_disk_user_is_null() {
             temp_env::with_vars(
                 [
                     ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
-                    ("USER", Some("alice")),
+                    ("USER", Some("owner")),
                     ("USERNAME", None),
                 ],
                 || {
                     let dir = tempdir().unwrap();
                     std::fs::write(
                         dir.path().join("lade.yml"),
-                        "\"^echo\":\n  KEY:\n    alice: val\n",
+                        "\"^echo\":\n  KEY:\n    owner: val\n",
                     )
                     .unwrap();
                     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
@@ -64,14 +64,14 @@ fn user_keyed_secret_skips_wrap_when_os_user_misses() {
         temp_env::with_vars(
             [
                 ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
-                ("USER", Some("bob")),
+                ("USER", Some("other")),
                 ("USERNAME", None),
             ],
             || {
                 let dir = tempdir().unwrap();
                 std::fs::write(
                     dir.path().join("lade.yml"),
-                    "\"^echo\":\n  KEY:\n    alice: val\n",
+                    "\"^echo\":\n  KEY:\n    owner: val\n",
                 )
                 .unwrap();
                 let config = LadeFile::build(dir.path().to_path_buf()).unwrap();

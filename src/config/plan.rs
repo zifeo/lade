@@ -86,7 +86,7 @@ impl Config {
     ) -> Result<SecretSources> {
         let mut plan = SecretSources::default();
         for (_, rule) in rules {
-            let silent = rule.config.as_ref().is_some_and(|config| config.silence);
+            let silent = rule.config.as_ref().is_some_and(|config| config.silent);
             for (key, secret) in &rule.secrets {
                 match resolve_entry(key, secret, saved_user) {
                     Some(ResolvedEntry::Secret { key, value }) => {

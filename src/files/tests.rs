@@ -3,6 +3,7 @@ use crate::config::LadeFile;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    time::Instant,
 };
 use tempfile::tempdir;
 
@@ -51,6 +52,34 @@ fn test_split_mixed() {
 }
 
 #[test]
+fn take_finished_lines_keeps_other_provider() {
+    let started = Instant::now();
+    let mut pending = HashMap::from([
+        (
+            "secret|sh".to_string(),
+            PendingLine {
+                display: "sh: SOCKET".to_string(),
+                started,
+                remaining: HashSet::from(["SOCKET".to_string()]),
+            },
+        ),
+        (
+            "secret|op".to_string(),
+            PendingLine {
+                display: "1Password acme.1password.eu: TOKEN".to_string(),
+                started,
+                remaining: HashSet::from(["TOKEN".to_string()]),
+            },
+        ),
+    ]);
+    let done = take_finished_lines(&mut pending, &HashSet::from(["SOCKET".to_string()]));
+    assert_eq!(done.len(), 1);
+    assert_eq!(done[0].0, "secret|sh");
+    assert!(pending.contains_key("secret|op"));
+    assert!(!pending.contains_key("secret|sh"));
+}
+
+#[test]
 fn secret_progress_groups_omit_silent_keys() {
     let groups = secret_progress_groups(
         &SecretSources {
@@ -70,7 +99,7 @@ fn secret_progress_groups_omit_silent_keys() {
         &HashSet::new(),
     );
     assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].1, "Vault vault.example.com: LOUD");
+    assert_eq!(groups[0].display, "Vault vault.example.com: LOUD");
 }
 
 #[test]
@@ -90,6 +119,22 @@ fn secret_progress_groups_omit_silent_cancelled_keys() {
 }
 
 #[test]
+fn secret_progress_groups_label_shell_as_scheme() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([(
+                "SOCKET".to_string(),
+                r#"sh://printf %s /tmp/app"#.to_string(),
+            )]),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].display, "sh: SOCKET");
+}
+
+#[test]
 fn secret_progress_groups_omit_raw_values() {
     let groups = secret_progress_groups(
         &SecretSources {
@@ -105,8 +150,8 @@ fn secret_progress_groups_omit_raw_values() {
         &HashSet::new(),
     );
     assert_eq!(groups.len(), 1);
-    assert!(!groups.iter().any(|(_, display, _)| display.contains("Raw")));
-    assert_eq!(groups[0].1, "Vault vault.example.com: PASSWORD");
+    assert!(!groups.iter().any(|group| group.display.contains("Raw")));
+    assert_eq!(groups[0].display, "Vault vault.example.com: PASSWORD");
 }
 
 #[test]
@@ -129,10 +174,10 @@ fn secret_progress_groups_mark_overrides_and_cancels() {
     assert!(
         groups
             .iter()
-            .any(|(_, display, _)| display.contains("KEEP (o)"))
+            .any(|group| group.display.contains("KEEP (o)"))
     );
-    assert!(groups.iter().any(|(_, display, fetched)| {
-        display.contains("TOKEN (u)") && display.contains("1Password") && *fetched
+    assert!(groups.iter().any(|group| {
+        group.display.contains("TOKEN (u)") && group.display.contains("1Password") && group.fetched
     }));
 }
 
@@ -142,7 +187,7 @@ fn secret_progress_groups_cancelled_only_is_not_fetched() {
         &SecretSources {
             cancelled: HashMap::from([(
                 "TOKEN".to_string(),
-                "op://dixence.1password.eu/vault/item".to_string(),
+                "op://acme.1password.eu/vault/item".to_string(),
             )]),
             ..SecretSources::default()
         },
@@ -150,7 +195,7 @@ fn secret_progress_groups_cancelled_only_is_not_fetched() {
     );
     assert_eq!(groups.len(), 1);
     assert!(
-        groups[0].1.contains("TOKEN (u)") && !groups[0].2,
+        groups[0].display.contains("TOKEN (u)") && !groups[0].fetched,
         "groups: {groups:?}"
     );
 }
@@ -167,8 +212,11 @@ fn secret_progress_groups_label_cancelled_op_from_yaml() {
     let plan = config.collect_secret_sources("git status").unwrap();
     let groups = secret_progress_groups(&plan, &HashSet::new());
     assert!(
-        groups.iter().any(|(_, display, fetched)| {
-            display.contains("1Password my.1password.eu: TOKEN (u)") && !*fetched
+        groups.iter().any(|group| {
+            group
+                .display
+                .contains("1Password my.1password.eu: TOKEN (u)")
+                && !group.fetched
         }),
         "groups: {groups:?}"
     );
@@ -188,7 +236,7 @@ fn secret_progress_groups_mark_cached_keys() {
     );
     assert_eq!(groups.len(), 1);
     assert!(
-        groups[0].1.contains("PASSWORD (c)") && !groups[0].2,
+        groups[0].display.contains("PASSWORD (c)") && !groups[0].fetched,
         "groups: {groups:?}"
     );
 }
@@ -213,10 +261,10 @@ fn secret_progress_groups_cached_mix_still_fetches() {
     );
     assert_eq!(groups.len(), 1);
     assert!(
-        groups[0].1.contains("PASSWORD (c)")
-            && groups[0].1.contains("TOKEN")
-            && !groups[0].1.contains("TOKEN (c)")
-            && groups[0].2,
+        groups[0].display.contains("PASSWORD (c)")
+            && groups[0].display.contains("TOKEN")
+            && !groups[0].display.contains("TOKEN (c)")
+            && groups[0].fetched,
         "groups: {groups:?}"
     );
 }
@@ -237,7 +285,7 @@ fn secret_progress_groups_overridden_and_cached() {
     assert!(
         groups
             .iter()
-            .any(|(_, display, fetched)| display.contains("KEEP (o, c)") && !fetched),
+            .any(|group| group.display.contains("KEEP (o, c)") && !group.fetched),
         "groups: {groups:?}"
     );
 }

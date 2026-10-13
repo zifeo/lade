@@ -291,7 +291,9 @@ async fn test_hydrate_work_plain_source() {
         output: None,
         cwd: cwd.clone(),
     }];
-    let (vars, sources, _, _) = Config::hydrate_work(&secrets, None).await.unwrap();
+    let (vars, sources, _, _) = Config::hydrate_work_on_group(&secrets, None, |_| {})
+        .await
+        .unwrap();
     let env = vars.get(&None::<std::path::PathBuf>).unwrap();
     assert_eq!(env.get("PLAIN").unwrap(), "hello");
     assert_eq!(sources.get("PLAIN").unwrap(), "hello");
@@ -319,9 +321,49 @@ async fn test_hydrate_work_private_and_file_output() {
             cwd: cwd.clone(),
         },
     ];
-    let (vars, _, maskable, _) = Config::hydrate_work(&secrets, None).await.unwrap();
+    let (vars, _, maskable, _) = Config::hydrate_work_on_group(&secrets, None, |_| {})
+        .await
+        .unwrap();
     let env = vars.get(&Some(cwd.join("out.json"))).unwrap();
     assert_eq!(env.get("PUBLIC").unwrap(), "a");
     assert!(!env.contains_key("HIDDEN"));
     assert!(!maskable.contains("HIDDEN"));
+}
+
+#[tokio::test]
+async fn hydrate_work_notifies_shell_and_raw_apart() {
+    use crate::ticket::TicketSecret;
+    use std::sync::{Arc, Mutex};
+
+    let dir = tempdir().unwrap();
+    let cwd = dir.path().to_path_buf();
+    let secrets = vec![
+        TicketSecret {
+            key: "PLAIN".to_string(),
+            source: "hello".to_string(),
+            private: false,
+            output: None,
+            cwd: cwd.clone(),
+        },
+        TicketSecret {
+            key: "SOCKET".to_string(),
+            source: r#"sh://printf %s ready"#.to_string(),
+            private: false,
+            output: None,
+            cwd,
+        },
+    ];
+    let waves = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let seen = waves.clone();
+    Config::hydrate_work_on_group(&secrets, None, move |done| {
+        let mut keys: Vec<String> = done.iter().cloned().collect();
+        keys.sort();
+        seen.lock().unwrap().push(keys);
+    })
+    .await
+    .unwrap();
+    let waves = waves.lock().unwrap().clone();
+    assert_eq!(waves.len(), 2, "{waves:?}");
+    assert!(waves.iter().any(|wave| wave == &["PLAIN".to_string()]));
+    assert!(waves.iter().any(|wave| wave == &["SOCKET".to_string()]));
 }

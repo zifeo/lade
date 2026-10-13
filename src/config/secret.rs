@@ -126,7 +126,7 @@ pub struct RuleConfig {
     #[serde(default)]
     pub when: RuleWhen,
     #[serde(default)]
-    pub silence: bool,
+    pub silent: bool,
     pub log: Option<bool>,
     pub ttl: Option<RuleTtl>,
 }

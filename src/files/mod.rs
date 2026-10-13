@@ -46,48 +46,61 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
     progress: ProviderProgressSink,
     cached: &HashSet<String>,
 ) -> Result<LoadedSecrets> {
-    let started = Instant::now();
     let progress_groups = secret_progress_groups(plan, cached);
-    for (id, display, fetched) in &progress_groups {
-        if *fetched {
+    let mut pending = HashMap::<String, PendingLine>::new();
+    for group in &progress_groups {
+        if group.fetched {
+            let started = Instant::now();
             progress.send(ProviderProgressEvent {
-                id: id.clone(),
-                display: display.clone(),
+                id: group.id.clone(),
+                display: group.display.clone(),
                 kind: ProviderProgressKind::Connecting,
             });
+            pending.insert(
+                group.id.clone(),
+                PendingLine {
+                    display: group.display.clone(),
+                    started,
+                    remaining: group.keys.clone(),
+                },
+            );
         } else {
             progress.send(ProviderProgressEvent {
-                id: id.clone(),
-                display: format_elapsed_ms(display, 0),
+                id: group.id.clone(),
+                display: format_elapsed_ms(&group.display, 0),
                 kind: ProviderProgressKind::Connected,
             });
         }
     }
-    let hydrated = Config::hydrate_work(secrets, op_sa).await;
+    let sink = progress.clone();
+    let hydrated = Config::hydrate_work_on_group(secrets, op_sa, |done| {
+        for (id, display, started) in take_finished_lines(&mut pending, done) {
+            sink.send(ProviderProgressEvent {
+                id,
+                display: format_timing(&display, started),
+                kind: ProviderProgressKind::Connected,
+            });
+        }
+    })
+    .await;
     if let Err(e) = &hydrated {
-        for (id, display, fetched) in &progress_groups {
-            if !*fetched {
-                continue;
-            }
+        for (id, line) in pending.drain() {
             progress.send(ProviderProgressEvent {
-                id: id.clone(),
-                display: format_timing(display, started),
+                id,
+                display: format_timing(&line.display, line.started),
                 kind: ProviderProgressKind::Failed,
             });
         }
         return Err(anyhow::anyhow!(e.to_string()));
     }
-    let (vars, sources, maskable, warnings) = hydrated?;
-    for (id, display, fetched) in &progress_groups {
-        if !*fetched {
-            continue;
-        }
+    for (id, line) in pending.drain() {
         progress.send(ProviderProgressEvent {
-            id: id.clone(),
-            display: format_timing(display, started),
+            id,
+            display: format_timing(&line.display, line.started),
             kind: ProviderProgressKind::Connected,
         });
     }
+    let (vars, sources, maskable, warnings) = hydrated?;
     Ok(LoadedSecrets {
         vars,
         sources,
@@ -99,6 +112,9 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
 fn provider_label(source: &str) -> String {
     match source.split_once("://") {
         Some((scheme, rest)) => {
+            if crate::config::is_shell_uri(source) {
+                return scheme.to_string();
+            }
             let provider = rest.split('/').next().unwrap_or(rest);
             match scheme {
                 "op" => format!("1Password {provider}"),
@@ -120,11 +136,44 @@ fn provider_label(source: &str) -> String {
     }
 }
 
+#[derive(Debug)]
+struct SecretProgressGroup {
+    id: String,
+    display: String,
+    fetched: bool,
+    keys: HashSet<String>,
+}
+
+struct PendingLine {
+    display: String,
+    started: Instant,
+    remaining: HashSet<String>,
+}
+
+fn take_finished_lines(
+    pending: &mut HashMap<String, PendingLine>,
+    done: &HashSet<String>,
+) -> Vec<(String, String, Instant)> {
+    let mut finished = Vec::new();
+    pending.retain(|id, line| {
+        for key in done {
+            line.remaining.remove(key);
+        }
+        if line.remaining.is_empty() {
+            finished.push((id.clone(), line.display.clone(), line.started));
+            false
+        } else {
+            true
+        }
+    });
+    finished
+}
+
 fn secret_progress_groups(
     plan: &SecretSources,
     cached: &HashSet<String>,
-) -> Vec<(String, String, bool)> {
-    let mut groups = BTreeMap::<String, (Vec<String>, bool)>::new();
+) -> Vec<SecretProgressGroup> {
+    let mut groups = BTreeMap::<String, (Vec<String>, bool, HashSet<String>)>::new();
     for (key, source) in &plan.sources {
         if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
             continue;
@@ -135,6 +184,7 @@ fn secret_progress_groups(
         entry.0.push(name);
         if !from_hub {
             entry.1 = true;
+            entry.2.insert(key.clone());
         }
     }
     for (key, source) in &plan.cancelled {
@@ -149,10 +199,14 @@ fn secret_progress_groups(
     }
     groups
         .into_iter()
-        .map(|(label, (mut keys, fetched))| {
-            keys.sort();
-            let display = format!("{label}: {}", keys.join(", "));
-            (format!("secret|{label}"), display, fetched)
+        .map(|(label, (mut names, fetched, keys))| {
+            names.sort();
+            SecretProgressGroup {
+                id: format!("secret|{label}"),
+                display: format!("{label}: {}", names.join(", ")),
+                fetched,
+                keys,
+            }
         })
         .collect()
 }

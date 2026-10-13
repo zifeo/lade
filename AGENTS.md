@@ -47,6 +47,10 @@ bash tests/installer_test.sh
   14:25`, `tried yesterday at 09:05`). Do not print `not checked recently`
   when a check was attempted. `version` in `--json` includes `latest`,
   `last_check`, `update_available`, and `check_error`.
+- **Fake samples stay fake:** docs, README, clap examples, tests, and
+  fixtures never use a real customer name, a real home path, or a real
+  repo path. Use `~/src/app`, `/Users/me`, `acme`. No `claryo`, `dahu`,
+  `$HOME/...`, or a teammate path. No TELEPORT fixtures. No PII.
 
 ## Project layout
 

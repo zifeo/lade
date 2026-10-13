@@ -136,6 +136,19 @@ fn cache_defaults_to_list() {
         Some(Command::Cache(cache)) => {
             assert!(cache.action.is_none());
             assert!(!cache.json);
+            assert!(!cache.global);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn cache_global_lists_every_row() {
+    let args = Args::try_parse_from(["lade", "cache", "--global"]).unwrap();
+    match args.command {
+        Some(Command::Cache(cache)) => {
+            assert!(cache.global);
+            assert!(cache.action.is_none());
         }
         other => panic!("{other:?}"),
     }

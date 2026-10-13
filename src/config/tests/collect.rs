@@ -431,3 +431,37 @@ fn test_catch_all_shell_pin_does_not_wrap_echo() {
         &None,
     ));
 }
+
+#[test]
+fn two_dot_bodies_keep_the_shell_secret() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET: sh://printf %s /tmp/app\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let patterned = config.collect_for_with_pattern("true", Audience::Agent);
+    assert_eq!(
+        patterned.len(),
+        2,
+        "both . bodies must match, got {patterned:?}"
+    );
+    let work = Config::pre_event_work(&patterned, &None).unwrap();
+    assert_eq!(
+        work.secrets
+            .iter()
+            .map(|s| s.key.as_str())
+            .collect::<Vec<_>>(),
+        ["SOCKET"]
+    );
+    assert!(
+        Config::needs_wrap(
+            &work,
+            "true",
+            patterned.iter().map(|(_, _, rule)| rule),
+            &None,
+        ),
+        "true must wrap when the second . body has a secret"
+    );
+}

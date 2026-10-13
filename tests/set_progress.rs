@@ -40,12 +40,12 @@ fn test_set_git_cancel_shows_cancelled_progress() {
 }
 
 #[test]
-fn test_set_silence_hides_hydration_progress() {
+fn test_set_silent_hides_hydration_progress() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     fs::write(
         dir.path().join("lade.yml"),
-        "\"echo\":\n  \".\":\n    silence: true\n  KEY: val\n",
+        "\"echo\":\n  \".\":\n    silent: true\n  KEY: val\n",
     )
     .unwrap();
     common::lade(home.path())
@@ -58,7 +58,7 @@ fn test_set_silence_hides_hydration_progress() {
 }
 
 #[test]
-fn test_set_without_silence_shows_hydration_progress() {
+fn test_set_without_silent_shows_hydration_progress() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     fs::write(dir.path().join("lade.yml"), "\"echo\":\n  KEY: val\n").unwrap();

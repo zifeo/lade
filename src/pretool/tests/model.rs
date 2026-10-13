@@ -176,6 +176,23 @@ fn verb_still_matches_the_full_line() {
 }
 
 #[test]
+fn two_dot_bodies_wrap_true() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("lade.yml"),
+                ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET: sh://printf %s /tmp/app\n",
+            )
+            .unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let result = handle(&config, &hook("true"), Audience::Agent, None).unwrap();
+            assert_wraps_with_ticket(&result, "true");
+        });
+    });
+}
+
+#[test]
 fn inject_flags_do_not_hide_the_inner_rule() {
     with_cursor_env(|| {
         with_ticket_tmpdir(|| {

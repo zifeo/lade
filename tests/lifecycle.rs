@@ -231,8 +231,12 @@ fn hook_enable_shell_writes_profile() {
         "profile should contain the pre-exec marker: {content}"
     );
     assert!(
-        content.contains(" on") || content.contains(" on\""),
-        "profile should install the pre-exec snippet: {content}"
+        content.contains("lade on"),
+        "profile wrap must use PATH lade, got: {content}"
+    );
+    assert!(
+        !content.contains("/installs/") && !content.contains("/target/"),
+        "profile must not pin an install path: {content}"
     );
 
     let output = common::lade(home.path())

@@ -3,7 +3,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use lade_sdk::{Dag, Template, hydrate_one, hydrate_with_maskable};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::PathBuf,
 };
 
@@ -120,6 +120,7 @@ async fn bindings_from_ticket(
 
 async fn hydrate_bindings(
     bindings: HashMap<String, Binding>,
+    mut on_group: impl FnMut(&HashSet<String>),
 ) -> Result<(
     HashMap<Output, HashMap<String, String>>,
     HashMap<String, String>,
@@ -182,6 +183,7 @@ async fn hydrate_bindings(
             .next()
             .await
             .expect("a planned DAG must have an active group")?;
+        on_group(&configured.keys().cloned().collect());
         for (name, value) in resolved {
             let source = configured.get(&name).expect("configured source").clone();
             if group_maskable.contains(&source)
@@ -261,14 +263,15 @@ impl Config {
         for name in skip {
             bindings.remove(name);
         }
-        hydrate_bindings(bindings).await
+        hydrate_bindings(bindings, |_| {}).await
     }
 
     /// Hydrate ticket secrets from a pre-event. `op_sa` is the resolved
     /// `1password_service_account` URI, not the token.
-    pub async fn hydrate_work(
+    pub async fn hydrate_work_on_group(
         secrets: &[TicketSecret],
         op_sa: Option<&str>,
+        on_group: impl FnMut(&HashSet<String>),
     ) -> Result<(
         HashMap<Output, HashMap<String, String>>,
         HashMap<String, String>,
@@ -276,7 +279,7 @@ impl Config {
         Vec<String>,
     )> {
         let bindings = bindings_from_ticket(secrets, op_sa).await?;
-        hydrate_bindings(bindings).await
+        hydrate_bindings(bindings, on_group).await
     }
 
     #[cfg(test)]

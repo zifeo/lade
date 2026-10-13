@@ -36,7 +36,7 @@ pub(super) fn classify(command: &str) -> Class {
         match classify_once(&current) {
             Class::Vehicle { inner } if inner != current => current = inner,
             other => {
-                if matches!(other, Class::NotLade) && current != command.trim() {
+                if current != command.trim() && matches!(other, Class::NotLade | Class::Verb) {
                     return Class::Vehicle { inner: current };
                 }
                 return other;
@@ -51,7 +51,7 @@ fn classify_once(command: &str) -> Class {
     let Some((prog, after)) = split_token(rest) else {
         return Class::Empty;
     };
-    if !is_lade_bin(&prog) {
+    if super::bin::lade_basename(std::path::Path::new(&prog)).is_none() {
         return Class::NotLade;
     }
     rest = after.trim_start();
@@ -100,6 +100,11 @@ fn classify_once(command: &str) -> Class {
         }
         if tok == "inject" {
             rest = skip_inject_flags(after);
+            if let Some((first, _)) = split_token(rest)
+                && matches!(first.as_str(), "-h" | "--help" | "--version")
+            {
+                return Class::Verb;
+            }
             break;
         }
         if is_verb(&tok) {
@@ -129,11 +134,16 @@ fn skip_inject_flags(after_inject: &str) -> &str {
         if tok == "--" {
             return after.trim_start();
         }
-        if tok == "--no-mask" || tok.starts_with("--mask-format=") {
+        if matches!(
+            tok.as_str(),
+            "--no-mask" | "-v" | "-vv" | "-q" | "--verbose"
+        ) || tok.starts_with("--mask-format=")
+            || tok.starts_with("--via=")
+        {
             rest = after.trim_start();
             continue;
         }
-        if tok == "--mask-format" {
+        if tok == "--mask-format" || tok == "--via" {
             rest = after.trim_start();
             if let Some((_, after_val)) = split_token(rest) {
                 rest = after_val.trim_start();
@@ -150,10 +160,6 @@ fn ticket_finished(id: &str, inner: &str) -> bool {
 
 fn is_verb(tok: &str) -> bool {
     VERBS.contains(&tok)
-}
-
-fn is_lade_bin(prog: &str) -> bool {
-    super::bin::lade_basename(std::path::Path::new(prog)).is_some()
 }
 
 pub(super) fn sanitize_env_prefix(prefix: &str) -> String {
@@ -290,6 +296,26 @@ mod tests {
                 inner: "tofu apply".into()
             }
         );
+        assert_eq!(
+            classify("lade inject --via=pretool echo hi"),
+            Class::Vehicle {
+                inner: "echo hi".into()
+            }
+        );
+        assert_eq!(
+            classify("lade inject -v -- tofu apply"),
+            Class::Vehicle {
+                inner: "tofu apply".into()
+            }
+        );
+        assert_eq!(
+            classify("lade inject -- lade status"),
+            Class::Vehicle {
+                inner: "lade status".into()
+            }
+        );
+        assert_eq!(classify("lade inject --help"), Class::Verb);
+        assert_eq!(classify("lade inject --version"), Class::Verb);
     }
 
     #[test]
