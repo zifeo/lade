@@ -47,12 +47,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   picked up on the next shell.
 - **Hub wrap key:** macOS uses the login keychain, not the
   data-protection keychain a CLI cannot open. Linux still uses
-  the session keyring (`@s`), and creates it if missing. If
-  Keychain or the session key is missing, a `0600` file under
-  the cache dir holds the wrap key. `LADE_WRAP_KEY` still wins.
-  A `ttl:` body that still cannot reach the hub prints a warning
-  box with the wrap-key miss (env, Keychain, session keyring) or
-  hub state. Hydrate still runs.
+  the session keyring (`@s`), and creates it if missing.
+  `LADE_WRAP_KEY` still wins. No wrap-key file. If the store
+  refuses, the hub is unused and a `ttl:` body prints a warning.
+  Hydrate still runs.
 - **Pretool `lade inject`:** the hook peels `lade inject`, `lade --`,
   and `lade <cmd>` to the inner command, including `inject --via`
   and a peeled clap verb. `inject --help` / `--version` stay verbs.
