@@ -580,6 +580,34 @@ fn orphan_hub_keeps_the_socket_that_replaced_it() {
 }
 
 #[test]
+fn a_silent_client_does_not_hold_the_hub() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().to_string_lossy().into_owned();
+    temp_env::with_vars(
+        [
+            ("LADE_CACHE_DIR", Some(cache.as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let finished = spawn_idle_hub(std::time::Duration::from_secs(30));
+            let sock = super::server::socket_path();
+            wait_for(&sock);
+            let silent = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+            let up = (0..300).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                super::client::probe().state == super::client::HubState::Up
+            });
+            assert!(up, "hub still serves while a client sends nothing");
+            drop(silent);
+            assert_eq!(super::client::stop(), super::client::HubStop::Stopped);
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("hub quits");
+        },
+    );
+}
+
+#[test]
 fn socket_and_lock_follow_the_image_token() {
     let token = super::peer::instance_token();
     let sock = super::server::socket_path();

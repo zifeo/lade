@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -21,6 +21,30 @@ const CHECK_SLOT: Duration = Duration::from_secs(3600);
 const VERSION_EVERY_MS: i64 = 24 * 3600 * 1000;
 // No user waits on this fetch, unlike the 1s one `lade upgrade` used to block on.
 const VERSION_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+// Clients give up after 20 ms. One that stalls must not hold every other
+// client, and the idle and reach checks, behind it.
+const CONN_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Time since boot, sleep included. `Instant` stops while the machine sleeps
+/// (macOS `CLOCK_UPTIME_RAW`, Linux `CLOCK_MONOTONIC`), so a `ttl:` would
+/// outlive a closed lid.
+fn now() -> Duration {
+    #[cfg(target_os = "linux")]
+    const CLOCK: libc::clockid_t = libc::CLOCK_BOOTTIME;
+    #[cfg(not(target_os = "linux"))]
+    const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = unsafe { libc::clock_gettime(CLOCK, &mut ts) };
+    assert_eq!(rc, 0, "clock_gettime");
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+fn since(at: Duration) -> Duration {
+    now().saturating_sub(at)
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct SecretKey {
@@ -33,13 +57,13 @@ struct SecretKey {
 }
 
 struct SecretRow {
-    inserted: Instant,
+    inserted: Duration,
     ttl_ms: u32,
     bindings: Vec<(String, Vec<u8>)>,
 }
 
 struct TicketRow {
-    inserted: Instant,
+    inserted: Duration,
     ticket: Vec<u8>,
 }
 
@@ -49,7 +73,7 @@ pub(crate) struct Tables {
     tickets: HashMap<[u8; 4], TicketRow>,
     windows: HashMap<String, String>,
     version: Arc<Mutex<VersionLedger>>,
-    last_check_slot: Option<Instant>,
+    last_check_slot: Option<Duration>,
     version_fetch_due: bool,
 }
 
@@ -61,10 +85,12 @@ fn lock(ledger: &Mutex<VersionLedger>) -> std::sync::MutexGuard<'_, VersionLedge
 
 impl Tables {
     fn prune(&mut self) {
-        self.secrets
-            .retain(|_, row| row.inserted.elapsed() < Duration::from_millis(u64::from(row.ttl_ms)));
+        let at = now();
+        self.secrets.retain(|_, row| {
+            at.saturating_sub(row.inserted) < Duration::from_millis(u64::from(row.ttl_ms))
+        });
         self.tickets
-            .retain(|_, row| row.inserted.elapsed() < TICKET_TTL);
+            .retain(|_, row| at.saturating_sub(row.inserted) < TICKET_TTL);
     }
 
     // Windows never expire on their own: they are a `lade cache set`
@@ -151,7 +177,7 @@ impl Tables {
                 self.secrets.insert(
                     key,
                     SecretRow {
-                        inserted: Instant::now(),
+                        inserted: now(),
                         ttl_ms,
                         bindings,
                     },
@@ -169,7 +195,7 @@ impl Tables {
                 self.tickets.insert(
                     t,
                     TicketRow {
-                        inserted: Instant::now(),
+                        inserted: now(),
                         ticket,
                     },
                 );
@@ -262,9 +288,9 @@ impl Tables {
         };
         let check = self
             .last_check_slot
-            .is_none_or(|at| at.elapsed() >= CHECK_SLOT);
+            .is_none_or(|at| since(at) >= CHECK_SLOT);
         if check {
-            self.last_check_slot = Some(Instant::now());
+            self.last_check_slot = Some(now());
         }
         Rep::Notice { check, version }
     }
@@ -290,10 +316,10 @@ fn spawn_version_fetch(ledger: Arc<Mutex<VersionLedger>>) {
 }
 
 fn restamp_scope(secrets: &mut HashMap<SecretKey, SecretRow>, scope: &str, ttl_ms: u32) {
-    let now = Instant::now();
+    let at = now();
     for (key, row) in secrets.iter_mut() {
         if path_related(&key.cwd, scope) {
-            row.inserted = now;
+            row.inserted = at;
             row.ttl_ms = ttl_ms;
         }
     }
@@ -319,7 +345,7 @@ fn is_path_prefix(child: &str, parent: &str) -> bool {
 }
 
 fn ttl_left_ms(row: &SecretRow) -> u32 {
-    let elapsed = u32::try_from(row.inserted.elapsed().as_millis()).unwrap_or(u32::MAX);
+    let elapsed = u32::try_from(since(row.inserted).as_millis()).unwrap_or(u32::MAX);
     row.ttl_ms.saturating_sub(elapsed)
 }
 
@@ -346,14 +372,17 @@ pub(super) async fn serve_until_idle(idle: Duration) -> anyhow::Result<()> {
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     let bound = peer::inode_of(&path).ok_or_else(|| anyhow::anyhow!("hub socket inode"))?;
     let mut tables = Tables::default();
-    let mut last_request = tokio::time::Instant::now();
+    let mut last_request = now();
     loop {
         tokio::select! {
             biased;
             accepted = listener.accept() => {
                 let (stream, _) = accepted?;
-                last_request = tokio::time::Instant::now();
-                let after = handle_conn(&mut tables, stream, want).await;
+                last_request = now();
+                let conn = handle_conn(&mut tables, stream, want);
+                let after = tokio::time::timeout(CONN_TIMEOUT, conn)
+                    .await
+                    .unwrap_or(AfterConn::Continue);
                 if let Some(ledger) = tables.take_version_fetch() {
                     spawn_version_fetch(ledger);
                 }
@@ -364,7 +393,7 @@ pub(super) async fn serve_until_idle(idle: Duration) -> anyhow::Result<()> {
             () = tokio::time::sleep(idle.min(REACH_CHECK)) => {
                 let reachable =
                     peer::inode_of(&path) == Some(bound) && peer::image_is_current(want);
-                if should_exit(&mut tables, reachable, last_request.elapsed() >= idle) {
+                if should_exit(&mut tables, reachable, since(last_request) >= idle) {
                     break;
                 }
             }

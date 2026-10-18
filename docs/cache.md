@@ -98,13 +98,15 @@ flowchart LR
     Hub -->|ciphertext| Lade
 ```
 
-Two RAM tables. Every request first drops rows whose monotonic
-`Instant` + `ttl_ms` is due. `Put` on an existing secret key
-upserts and refreshes that clock.
+Two RAM tables. Every request first drops rows whose insert
+time + `ttl_ms` is due. The clock keeps counting while the
+machine sleeps (`CLOCK_MONOTONIC` on macOS, `CLOCK_BOOTTIME` on
+Linux), so a closed lid does not stretch a TTL. `Put` on an
+existing secret key upserts and refreshes that clock.
 
 | Table | Cap | Evict |
 |---|---|---|
-| Secrets | 256 rows | TTL, then oldest `Instant` if still full |
+| Secrets | 256 rows | TTL, then oldest insert if still full |
 | Tickets | 128 rows | `UnlinkT`, or older than 1 h |
 
 The cap is a fence for a client that puts faster than TTL. The
@@ -213,7 +215,9 @@ pretool handler writes the file only. Wrap / `unset` may
 
 ## Wire
 
-One connection is one request, one response, then close. Crate:
+One connection is one request, one response, then close. The hub
+serves one connection at a time and drops one that has not
+finished after 500 ms. Crate:
 `rkyv`. Magic `LDH1`, then `u32le` body length, then a
 `WireReq` / `WireRep` (`ver` plus `Req` / `Rep`). `N == 0`,
 `N > 1048576`, or bad magic: drop, no `Rep`. After a write,
@@ -281,7 +285,9 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Other image (`cargo run` vs install) | Other socket. Both hubs may stay up |
 | Socket > 20 ms | Miss, hydrate, one `Put` |
 | Decrypt fail (key A vs B) | Miss, hydrate, `Put` with the store key |
-| Table at cap, all TTLs live | Evict oldest `Instant` |
+| Table at cap, all TTLs live | Evict oldest insert |
+| Machine sleeps past a TTL | Row is due at wake |
+| Client connects and sends nothing | Dropped after 500 ms, next client served |
 | `LADE_DAEMON=off` | No hub. Hydrate as usual |
 | Idle 1h, no row, no window | Exit, unlink own socket and lock |
 | Idle 1h, rows or a window left | Stay on `accept` |

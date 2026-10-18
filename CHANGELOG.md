@@ -95,6 +95,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   within a minute, so orphans no longer pile up. On
   exit a hub unlinks its socket and lock only if the socket path is
   still its own.
+- **Hub clock:** a secret `ttl:`, a ticket, and the idle exit keep
+  counting while the machine sleeps, so a closed lid no longer
+  stretches a TTL. A client that connects and sends nothing is
+  dropped after 500 ms instead of holding the hub for every other
+  shell.
 
 ## [0.19.2] - 2026-10-03
 
