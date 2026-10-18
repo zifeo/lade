@@ -31,6 +31,36 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **`lade upgrade`**: after a successful update, a box says this terminal
   still has the previous wrap and prints the reload command
   (`eval "$(lade on)"` on zsh).
+- **Hub wrap key:** Linux stays the session keyring (`@s`). macOS
+  uses the login keychain and allows the system ACL prompt so
+  Always Allow can stick. Before that prompt, a terminal gets a
+  box saying the item only holds the secret cache key. Concurrent clients share one lock so
+  macOS shows a single ACL dialog. Screen lock and sleep leave it
+  unlocked unless Lock after / Lock when sleeping is on. Deny or
+  a locked keychain skips the hub. A rebuild without a stable
+  Developer ID is a new identity.
+- **`lade hook enable/disable --global`** replaces `--scope user`.
+  No flag is this repo, as before. `--scope` is gone and now fails.
+- **OpenCode plugin:** Lade writes the 1.x plugin or the 2.x one
+  (`export default { id, setup }`, `bash` and `shell` tools) from
+  `opencode --version`, and fails when `opencode` is not on PATH.
+  Refresh keeps the API of the file, so a shared repo plugin does
+  not flip between teammates. A plugin edited by hand is reported,
+  not rewritten. Lade 0.18 to 0.19.2 no longer recognize the 2.x
+  plugin, so they leave it alone.
+- **Release check and notices:** the hub checks GitHub at most once
+  a day, started by `lade set` in a human terminal for a command
+  that uses the hub (secrets, tunnels, disclaimers, pinned tools),
+  and keeps the result in RAM. Such a command gets at most one box
+  an hour: a new release, and pre-tool hooks that differ from what
+  this Lade writes, are not valid JSON, or use the wrong OpenCode
+  API. Starting `opencode`, `claude`, `codex`, `cursor-agent`, or
+  `agent` checks that harness's hooks every time. A plain command
+  never calls the hub. `lade set` no longer waits on GitHub. `lade status` lists the
+  same hook notices instead of the `drift` hint, and a failed
+  GitHub check no longer makes it exit 1.
+- **`config.json`** holds only `user`. Keys older Lade binaries
+  still read are written back untouched.
 
 ### Fixed
 
@@ -59,6 +89,17 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   It no longer stamps `lade --pretool inject` without a ticket.
   Clap verbs still match the full line. Walk `log` follows the
   current audience. See [docs/protocol.md](docs/protocol.md).
+- **Hub lifetime:** after 1h with no request, a hub with no secret,
+  ticket, or `lade cache set` window exits. A hub whose socket was
+  replaced or removed, or whose binary a reinstall replaced, exits
+  within a minute, so orphans no longer pile up. On
+  exit a hub unlinks its socket and lock only if the socket path is
+  still its own.
+- **Hub clock:** a secret `ttl:`, a ticket, and the idle exit keep
+  counting while the machine sleeps, so a closed lid no longer
+  stretches a TTL. A client that connects and sends nothing is
+  dropped after 500 ms instead of holding the hub for every other
+  shell.
 
 ## [0.19.2] - 2026-10-03
 

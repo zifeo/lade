@@ -63,42 +63,27 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
 
     let installs = tempdir().expect("mise installs");
     seed_workspace_pins(installs.path());
-    let path = path_env();
-    let installs_env = format!("MISE_INSTALLS_DIR={}", installs.path().display());
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            &installs_env,
-            "VAULT_TOKEN=token",
-            "LADE_VAULT_HTTP=1",
-            "bash",
-            "tests/test_vault.bash",
-        ],
-    );
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            &installs_env,
-            "VAULT_TOKEN=token",
-            "LADE_VAULT_HTTP=1",
-            "zsh",
-            "tests/test_vault.zsh",
-        ],
-    );
-    run_cmd(
-        "env",
-        &[
-            "-i",
-            &format!("PATH={path}"),
-            &installs_env,
-            "VAULT_TOKEN=token",
-            "LADE_VAULT_HTTP=1",
-            "fish",
-            "tests/test_vault.fish",
-        ],
-    );
+    // `env -i` drops HOME and the shells fall back to the real one. The
+    // vault bodies here are cacheable, so keep the hub out of the user's
+    // cache dir and keychain. A temp HOME would also cold-start mise and
+    // the `cargo run` debug hook.
+    let cache = tempdir().expect("lade cache");
+    let env = [
+        "-i".to_string(),
+        format!("PATH={}", path_env()),
+        format!("LADE_CACHE_DIR={}", cache.path().display()),
+        format!("LADE_WRAP_KEY={}", "ab".repeat(32)),
+        format!("MISE_INSTALLS_DIR={}", installs.path().display()),
+        "VAULT_TOKEN=token".to_string(),
+        "LADE_VAULT_HTTP=1".to_string(),
+    ];
+    for (shell, script) in [
+        ("bash", "tests/test_vault.bash"),
+        ("zsh", "tests/test_vault.zsh"),
+        ("fish", "tests/test_vault.fish"),
+    ] {
+        let mut args: Vec<&str> = env.iter().map(String::as_str).collect();
+        args.extend([shell, script]);
+        run_cmd("env", &args);
+    }
 }

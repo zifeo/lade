@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
+use crate::hub::VersionLedger;
 use crate::network;
 use crate::preexec::Shell;
 use crate::prompt;
@@ -19,13 +20,16 @@ use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
 };
 
+/// `notice`: ask the hub for the hourly notice slot, only when this command
+/// talks to it anyway. `Some`: this shell owns the slot.
 pub async fn handle_set(
     ctx: &InvocationContext,
     config: &Config,
     shell: &Shell,
     commands: Vec<String>,
     current_dir: PathBuf,
-) -> Result<()> {
+    notice: bool,
+) -> Result<Option<VersionLedger>> {
     println!(
         "{}",
         shell.unset(vec![crate::preexec::LADE_RESTORE.to_string()])
@@ -50,16 +54,16 @@ pub async fn handle_set(
             emit_seen_if_walk_log(config, ctx, &command, &current_dir, &saved_user, None);
             if pins.is_empty() {
                 println!("{}", shell.set(HashMap::new()));
-                return Ok(());
+                return Ok(None);
             }
             let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
             let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-            crate::hub::put_t(&id);
+            let slot = put_first_t(&id, notice);
             println!(
                 "{}",
                 stamp_preexec(shell, pins.env, &id, original_path.clone())?
             );
-            return Ok(());
+            return Ok(slot);
         }
     };
     if !work.needs_providers() {
@@ -81,16 +85,16 @@ pub async fn handle_set(
         );
         if pins.is_empty() {
             println!("{}", shell.set(HashMap::new()));
-            return Ok(());
+            return Ok(None);
         }
         let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
         let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-        crate::hub::put_t(&id);
+        let slot = put_first_t(&id, notice);
         println!(
             "{}",
             stamp_preexec(shell, pins.env, &id, original_path.clone())?
         );
-        return Ok(());
+        return Ok(slot);
     }
 
     let mut pre = pre_event_from_work(
@@ -102,7 +106,7 @@ pub async fn handle_set(
         &work,
     );
     let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-    crate::hub::put_t(&id);
+    let slot = put_first_t(&id, notice);
 
     if let Err(e) = prompt::resolve_disclaimers(ctx, &work.disclaimers, &command).await {
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
@@ -183,7 +187,15 @@ pub async fn handle_set(
         },
     );
     println!("{}", stamp_preexec(shell, env, &id, original_path)?);
-    Ok(())
+    Ok(slot)
+}
+
+fn put_first_t(id: &str, notice: bool) -> Option<VersionLedger> {
+    if notice {
+        return crate::hub::put_t_notice(id);
+    }
+    crate::hub::put_t(id);
+    None
 }
 
 fn empty_pre_event(

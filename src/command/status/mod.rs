@@ -107,6 +107,9 @@ struct StatusReport {
     hub: crate::hub::HubInfo,
     mise: MiseInfo,
     ok: bool,
+    /// Text only. The JSON keeps the per-location `installed` / `current`.
+    #[serde(skip)]
+    hook_notices: Vec<String>,
 }
 
 pub async fn run(opts: StatusCommand) -> Result<()> {

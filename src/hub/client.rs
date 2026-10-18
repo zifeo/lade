@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use super::server::{lock_path, socket_path};
-use super::wire::{self, CacheRow, ERR_DENIED, Rep, Req};
+use super::wire::{self, CacheRow, ERR_DENIED, Rep, Req, VersionLedger};
 
 const DEADLINE: Duration = Duration::from_millis(20);
 
@@ -208,6 +208,14 @@ pub fn stop() -> HubStop {
     result
 }
 
+/// Never starts a hub. `None`: off, down, or stale.
+pub fn version_ledger() -> Option<VersionLedger> {
+    match rpc_existing(Req::Version) {
+        Some(Rep::Version(version)) => Some(version),
+        _ => None,
+    }
+}
+
 pub fn rpc(req: Req) -> Option<Rep> {
     rpc_inner(req, true)
 }
@@ -372,15 +380,31 @@ fn remaining(started: Instant) -> Option<Duration> {
 }
 
 pub fn put_t(id: &str) {
-    if !crate::ticket::is_id(id) || daemon_off() {
-        return;
+    if let Some(req) = put_t_req(id, false) {
+        let _ = rpc_existing(req);
     }
-    let Ok(bytes) = std::fs::read(crate::ticket::path(id)) else {
-        return;
-    };
+}
+
+/// `put_t` that also asks for the hourly notice slot. Starts the hub when it
+/// is down. `Some` only when this caller owns the slot.
+pub fn put_t_notice(id: &str) -> Option<VersionLedger> {
+    match rpc(put_t_req(id, true)?) {
+        Some(Rep::Notice {
+            check: true,
+            version,
+        }) => Some(version),
+        _ => None,
+    }
+}
+
+fn put_t_req(id: &str, notice: bool) -> Option<Req> {
+    if !crate::ticket::is_id(id) || daemon_off() {
+        return None;
+    }
+    let ticket = std::fs::read(crate::ticket::path(id)).ok()?;
     let mut t = [0u8; 4];
     t.copy_from_slice(id.as_bytes());
-    let _ = rpc_existing(Req::PutT { t, ticket: bytes });
+    Some(Req::PutT { t, ticket, notice })
 }
 
 pub fn unlink_t(id: &str) {

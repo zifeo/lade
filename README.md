@@ -509,8 +509,8 @@ examples).
 
 Users: mise pins `lade`. The binary on PATH is the CLI and the
 hub. Each image has its own socket, so several hubs can be up.
-There is no idle exit. Logout, crash, or a new inode drops that
-hub. Cache does not cross binaries.
+A hub exits after 1h idle with nothing cached, and within a minute
+once a reinstall replaces its binary. Cache does not cross binaries.
 
 Local work: `cargo install --path .` must beat every mise lade
 on this machine. One global mise setting, once:

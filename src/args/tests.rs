@@ -330,28 +330,33 @@ fn hook_enable_defaults_scope_to_project() {
             action: Some(HookAction::Enable(opts)),
             harness: None,
         }) => {
-            assert_eq!(opts.scope, HookScope::Project);
+            assert!(!opts.global);
             assert_eq!(opts.agent, Some(HookAgent::Cursor));
         }
         other => panic!("{other:?}"),
     }
-    let user = Args::try_parse_from([
-        "lade",
-        "hook",
-        "enable",
-        "--scope",
-        "user",
-        "--harness",
-        "cursor",
-    ])
-    .unwrap();
-    match user.command {
+    let global =
+        Args::try_parse_from(["lade", "hook", "enable", "--global", "--harness", "cursor"])
+            .unwrap();
+    match global.command {
         Some(Command::Hook {
             action: Some(HookAction::Enable(opts)),
             ..
-        }) => assert_eq!(opts.scope, HookScope::User),
+        }) => assert!(opts.global),
         other => panic!("{other:?}"),
     }
+    assert!(
+        Args::try_parse_from([
+            "lade",
+            "hook",
+            "enable",
+            "--scope",
+            "user",
+            "--harness",
+            "cursor",
+        ])
+        .is_err()
+    );
 }
 
 #[test]

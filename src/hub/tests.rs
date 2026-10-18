@@ -1,5 +1,8 @@
 use super::crypto::{aad, open, seal};
-use super::server::{empty_tables, handle_for_test};
+use super::server::{
+    age_ledger_for_test, empty_tables, handle_for_test, should_exit_for_test,
+    take_version_fetch_for_test,
+};
 use super::wire::{self, InReq, Rep, Req};
 
 #[test]
@@ -302,7 +305,8 @@ fn tables_ticket_unlink() {
             &mut tables,
             Req::PutT {
                 t,
-                ticket: b"{}".to_vec()
+                ticket: b"{}".to_vec(),
+                notice: false,
             }
         ),
         Rep::Ok
@@ -348,7 +352,8 @@ fn ping_reports_table_counts() {
             &mut tables,
             Req::PutT {
                 t: *b"ab12",
-                ticket: b"{}".to_vec()
+                ticket: b"{}".to_vec(),
+                notice: false,
             }
         ),
         Rep::Ok
@@ -362,6 +367,244 @@ fn ping_reports_table_counts() {
         }
     );
     assert_eq!(handle_for_test(&mut tables, Req::Quit), Rep::Ok);
+}
+
+fn put_secret(tables: &mut super::server::Tables, ttl_ms: u32) {
+    let put = Req::Put {
+        cwd: "/c".into(),
+        path: "/c/lade.yaml".into(),
+        rule: "t .*".into(),
+        when: "always".into(),
+        walk: [1u8; 32],
+        user: String::new(),
+        ttl_ms,
+        bindings: vec![("AWS".into(), b"cipher".to_vec())],
+    };
+    assert_eq!(handle_for_test(tables, put), Rep::Ok);
+}
+
+#[test]
+fn idle_hub_exits_only_once_tables_are_empty() {
+    let mut empty = empty_tables();
+    assert!(should_exit_for_test(&mut empty, true, true));
+
+    let mut live = empty_tables();
+    put_secret(&mut live, 60_000);
+    assert!(!should_exit_for_test(&mut live, true, true));
+
+    let mut expired = empty_tables();
+    put_secret(&mut expired, 1);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    assert!(should_exit_for_test(&mut expired, true, true));
+
+    let mut ticket = empty_tables();
+    let put_t = Req::PutT {
+        t: *b"ab12",
+        ticket: b"{}".to_vec(),
+        notice: false,
+    };
+    assert_eq!(handle_for_test(&mut ticket, put_t), Rep::Ok);
+    assert!(!should_exit_for_test(&mut ticket, true, true));
+
+    let mut window = empty_tables();
+    let set = Req::SetWindow {
+        scope: "/proj".into(),
+        ttl: Some("2h".into()),
+    };
+    assert_eq!(handle_for_test(&mut window, set), Rep::Ok);
+    assert!(!should_exit_for_test(&mut window, true, true));
+}
+
+#[test]
+fn reachable_hub_waits_out_the_idle_time() {
+    let mut empty = empty_tables();
+    assert!(!should_exit_for_test(&mut empty, true, false));
+}
+
+fn put_t(notice: bool) -> Req {
+    Req::PutT {
+        t: *b"ab12",
+        ticket: b"{}".to_vec(),
+        notice,
+    }
+}
+
+fn tick(tables: &mut super::server::Tables) -> (bool, wire::VersionLedger) {
+    match handle_for_test(tables, put_t(true)) {
+        Rep::Notice { check, version } => (check, version),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn put_t_without_notice_starts_nothing() {
+    let mut tables = empty_tables();
+    assert_eq!(handle_for_test(&mut tables, put_t(false)), Rep::Ok);
+    assert!(!take_version_fetch_for_test(&mut tables));
+    let (check, _) = tick(&mut tables);
+    assert!(check, "the slot is still free");
+}
+
+#[test]
+fn first_tick_owns_the_slot_and_starts_one_version_fetch() {
+    let mut tables = empty_tables();
+    let (check, version) = tick(&mut tables);
+    assert!(check);
+    assert!(version.tried_at_ms.is_some());
+    assert_eq!(version.latest, None);
+    assert!(take_version_fetch_for_test(&mut tables));
+    assert!(!take_version_fetch_for_test(&mut tables));
+
+    let (check, _) = tick(&mut tables);
+    assert!(!check, "one slot an hour");
+    assert!(!take_version_fetch_for_test(&mut tables));
+}
+
+#[test]
+fn slot_returns_hourly_and_version_fetch_daily() {
+    let mut tables = empty_tables();
+    tick(&mut tables);
+    take_version_fetch_for_test(&mut tables);
+
+    age_ledger_for_test(&mut tables, std::time::Duration::from_secs(3601));
+    let (check, _) = tick(&mut tables);
+    assert!(check);
+    assert!(!take_version_fetch_for_test(&mut tables));
+
+    age_ledger_for_test(&mut tables, std::time::Duration::from_secs(24 * 3600));
+    let (check, _) = tick(&mut tables);
+    assert!(check);
+    assert!(take_version_fetch_for_test(&mut tables));
+}
+
+#[test]
+fn version_read_starts_nothing() {
+    let mut tables = empty_tables();
+    assert_eq!(
+        handle_for_test(&mut tables, Req::Version),
+        Rep::Version(wire::VersionLedger::default())
+    );
+    assert!(!take_version_fetch_for_test(&mut tables));
+}
+
+#[test]
+fn wire_roundtrip_notice_reply() {
+    let rep = Rep::Notice {
+        check: true,
+        version: wire::VersionLedger {
+            tried_at_ms: Some(1),
+            latest: Some("0.20.0".into()),
+            error: Some("timed out".into()),
+        },
+    };
+    let frame = wire::encode_rep(&rep).unwrap();
+    assert_eq!(wire::decode_rep(&frame), Some(rep));
+}
+
+#[test]
+fn orphan_hub_exits_even_with_live_rows() {
+    let mut live = empty_tables();
+    put_secret(&mut live, 60_000);
+    assert!(should_exit_for_test(&mut live, false, false));
+}
+
+#[test]
+fn a_running_binary_is_its_own_image() {
+    let snap = super::peer::snapshot_self().expect("self image");
+    assert!(super::peer::image_is_current(snap.inode()));
+    assert!(!super::peer::image_is_current((0, 0)));
+}
+
+/// Runs `serve_until_idle` on its own thread and returns a receiver that
+/// fires when it returns.
+fn spawn_idle_hub(idle: std::time::Duration) -> std::sync::mpsc::Receiver<()> {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _ = rt.block_on(super::server::serve_until_idle(idle));
+        let _ = done.send(());
+    });
+    finished
+}
+
+fn wait_for(path: &std::path::Path) {
+    for _ in 0..200 {
+        if path.exists() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    panic!("{} never appeared", path.display());
+}
+
+#[test]
+fn idle_empty_hub_exits_and_removes_its_socket() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().to_string_lossy().into_owned();
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache.as_str()))], || {
+        let lock = super::server::lock_path();
+        std::fs::write(&lock, b"").unwrap();
+        let finished = spawn_idle_hub(std::time::Duration::from_millis(50));
+        let sock = super::server::socket_path();
+        wait_for(&sock);
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("idle hub exits");
+        assert!(!sock.exists());
+        assert!(!lock.exists());
+    });
+}
+
+#[test]
+fn orphan_hub_keeps_the_socket_that_replaced_it() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().to_string_lossy().into_owned();
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache.as_str()))], || {
+        let lock = super::server::lock_path();
+        std::fs::write(&lock, b"").unwrap();
+        let finished = spawn_idle_hub(std::time::Duration::from_millis(200));
+        let sock = super::server::socket_path();
+        wait_for(&sock);
+        // What a client does when it gives up on this hub and binds a new one.
+        std::fs::remove_file(&sock).unwrap();
+        std::fs::write(&sock, b"next hub").unwrap();
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("orphan hub exits");
+        assert_eq!(std::fs::read(&sock).unwrap(), b"next hub");
+        assert!(lock.exists(), "the next hub's lock stays");
+    });
+}
+
+#[test]
+fn a_silent_client_does_not_hold_the_hub() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().to_string_lossy().into_owned();
+    temp_env::with_vars(
+        [
+            ("LADE_CACHE_DIR", Some(cache.as_str())),
+            ("LADE_DAEMON", None),
+        ],
+        || {
+            let finished = spawn_idle_hub(std::time::Duration::from_secs(30));
+            let sock = super::server::socket_path();
+            wait_for(&sock);
+            let silent = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+            let up = (0..300).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                super::client::probe().state == super::client::HubState::Up
+            });
+            assert!(up, "hub still serves while a client sends nothing");
+            drop(silent);
+            assert_eq!(super::client::stop(), super::client::HubStop::Stopped);
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("hub quits");
+        },
+    );
 }
 
 #[test]

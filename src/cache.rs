@@ -147,7 +147,7 @@ pub fn clear_and_report() -> anyhow::Result<()> {
         .line(format!("  {}", cache.display()))
         .blank()
         .dim("Home pre-tool hooks stay.")
-        .dim("`lade hook disable --scope user` removes them.")
+        .dim("`lade hook disable --global` removes them.")
         .print();
     Ok(())
 }

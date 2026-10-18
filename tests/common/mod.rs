@@ -157,15 +157,7 @@ pub fn backdate_all(home: &Path, ts: &str) {
 pub fn lade_std(home: &Path) -> StdCommand {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
-        // Far-future stamp: tests must not hit GitHub on `set` / `status`.
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"{{"update_check":"2099-01-01T00:00:00Z","self_version":"{}","user":null,"cli_check":{{}}}}"#,
-                env!("CARGO_PKG_VERSION")
-            ),
-        )
-        .unwrap();
+        std::fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
     let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
     // Drop leftover preexec protocol from the developer shell. An inherited

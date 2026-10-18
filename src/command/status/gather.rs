@@ -18,35 +18,14 @@ use super::{
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     let cwd = std::env::current_dir()?;
-    let current = env!("CARGO_PKG_VERSION").to_string();
 
-    let version = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        upgrade::fetch_version_status(),
-    )
-    .await
-    {
-        Ok(Ok(status)) => VersionInfo {
-            current: status.current,
-            latest: status.latest,
-            update_available: status.update_available,
-            check_error: None,
-            last_check: status.last_check,
-        },
-        Ok(Err(e)) => VersionInfo {
-            current,
-            latest: None,
-            update_available: false,
-            check_error: Some(e.to_string()),
-            last_check: None,
-        },
-        Err(_) => VersionInfo {
-            current,
-            latest: None,
-            update_available: false,
-            check_error: Some("update check timed out".to_string()),
-            last_check: None,
-        },
+    let status = upgrade::version_status();
+    let version = VersionInfo {
+        current: status.current,
+        latest: status.latest,
+        update_available: status.update_available,
+        check_error: status.check_error,
+        last_check: status.last_check,
     };
 
     let global = GlobalConfig::load().await?;
@@ -137,10 +116,9 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         range: mise_status.range,
         tools,
     };
-    let ok = version.check_error.is_none()
-        && project_config.error.is_none()
-        && (!mise.needed || mise.in_range)
-        && tools_ok;
+    // A failed GitHub check stays in the hub ledger until the next one, a
+    // day later. It says nothing about this machine's setup.
+    let ok = project_config.error.is_none() && (!mise.needed || mise.in_range) && tools_ok;
 
     let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
@@ -153,6 +131,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         hub: crate::hub::probe(),
         mise,
         ok,
+        hook_notices: pretool::install::health_report()?,
     })
 }
 

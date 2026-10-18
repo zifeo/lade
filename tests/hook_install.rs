@@ -17,7 +17,22 @@ fn status_pretool(home: &std::path::Path, cwd: &std::path::Path) -> serde_json::
 
 fn has_harness_command(body: &str, harness: &str) -> bool {
     body.contains(&format!("lade hook --harness {harness}"))
-        || body.contains(&format!(r#"["hook", "--harness", "{harness}"]"#))
+        || body.contains(&format!(r#""--harness", "{harness}"]"#))
+}
+
+/// PATH with a stub `opencode` that prints `version`, ahead of the real one.
+#[cfg(unix)]
+fn path_with_opencode(bin: &std::path::Path, version: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(bin).unwrap();
+    let stub = bin.join("opencode");
+    fs::write(&stub, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
 }
 
 #[test]
@@ -29,6 +44,7 @@ fn hook_install_and_uninstall_cover_both_scopes() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    let path = path_with_opencode(&home.path().join("bin"), "opencode v2.0.29");
 
     let cases = [
         (
@@ -63,7 +79,8 @@ fn hook_install_and_uninstall_cover_both_scopes() {
     for (harness, user, project) in cases {
         common::lade(home.path())
             .current_dir(dir.path())
-            .args(["hook", "enable", "--scope", "user", "--harness", harness])
+            .env("PATH", &path)
+            .args(["hook", "enable", "--global", "--harness", harness])
             .assert()
             .success();
         let user_body = fs::read_to_string(&user).unwrap();
@@ -74,7 +91,8 @@ fn hook_install_and_uninstall_cover_both_scopes() {
 
         common::lade(home.path())
             .current_dir(dir.path())
-            .args(["hook", "enable", "--scope", "project", "--harness", harness])
+            .env("PATH", &path)
+            .args(["hook", "enable", "--harness", harness])
             .assert()
             .success();
         let project_body = fs::read_to_string(&project).unwrap();
@@ -91,19 +109,14 @@ fn hook_install_and_uninstall_cover_both_scopes() {
 
         common::lade(home.path())
             .current_dir(dir.path())
-            .args(["hook", "disable", "--scope", "user", "--harness", harness])
+            .env("PATH", &path)
+            .args(["hook", "disable", "--global", "--harness", harness])
             .assert()
             .success();
         common::lade(home.path())
             .current_dir(dir.path())
-            .args([
-                "hook",
-                "disable",
-                "--scope",
-                "project",
-                "--harness",
-                harness,
-            ])
+            .env("PATH", &path)
+            .args(["hook", "disable", "--harness", harness])
             .assert()
             .success();
 
@@ -133,14 +146,7 @@ fn hook_install_preserves_claude_permissions_and_model() {
 
     common::lade(home.path())
         .current_dir(dir.path())
-        .args([
-            "hook",
-            "enable",
-            "--scope",
-            "project",
-            "--harness",
-            "claude",
-        ])
+        .args(["hook", "enable", "--harness", "claude"])
         .assert()
         .success();
 
@@ -154,5 +160,51 @@ fn hook_install_preserves_claude_permissions_and_model() {
     assert!(
         has_harness_command(command, "claude"),
         "unexpected command: {command}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_follows_the_installed_opencode() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    let plugin = dir
+        .path()
+        .join(".opencode")
+        .join("plugins")
+        .join("lade-pretool.js");
+    let enable = |path: &str| {
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .env("PATH", path)
+            .args(["hook", "enable", "--harness", "opencode"])
+            .assert()
+    };
+
+    enable(&path_with_opencode(&home.path().join("v1"), "1.19.0")).success();
+    let body = fs::read_to_string(&plugin).unwrap();
+    assert!(body.contains("export const LadePretool"), "{body}");
+
+    enable(&path_with_opencode(
+        &home.path().join("v2"),
+        "opencode v2.0.29",
+    ))
+    .success();
+    let body = fs::read_to_string(&plugin).unwrap();
+    assert!(body.contains(r#"id: "lade-pretool""#), "{body}");
+    assert!(!body.contains("LadePretool"), "{body}");
+
+    enable("/usr/bin:/bin")
+        .failure()
+        .stderr(predicates::str::contains("`opencode` is not on PATH"));
+    assert!(
+        fs::read_to_string(&plugin)
+            .unwrap()
+            .contains(r#"id: "lade-pretool""#)
     );
 }

@@ -40,9 +40,12 @@ pub enum Req {
     GetT {
         t: [u8; 4],
     },
+    /// `notice`: a human shell also asks for the hourly notice slot. May
+    /// start the version check.
     PutT {
         t: [u8; 4],
         ticket: Vec<u8>,
+        notice: bool,
     },
     UnlinkT {
         t: [u8; 4],
@@ -61,6 +64,17 @@ pub enum Req {
     GetWindow {
         scope: String,
     },
+    /// Read the version ledger. Starts nothing.
+    Version,
+}
+
+/// What this hub knows about the latest release. RAM only.
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionLedger {
+    /// Unix ms of the last GitHub attempt, failed or not.
+    pub tried_at_ms: Option<i64>,
+    pub latest: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -87,6 +101,13 @@ pub enum Rep {
     Window {
         ttl: Option<String>,
     },
+    /// Reply to a `PutT` with `notice`. `check`: this caller owns the
+    /// hourly slot to check hooks and show notices.
+    Notice {
+        check: bool,
+        version: VersionLedger,
+    },
+    Version(VersionLedger),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

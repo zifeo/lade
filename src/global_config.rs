@@ -1,30 +1,19 @@
 use anyhow::{Ok, Result};
-use chrono::{DateTime, Utc};
 use log::debug;
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tokio::fs;
 
 #[derive(Deserialize, Serialize)]
 pub struct GlobalConfig {
-    /// When we last *attempted* a GitHub version check. `None` means never.
-    /// Never invent `Utc::now()` here: that skipped the real lookup for 24h.
-    #[serde(default)]
-    pub update_check: Option<DateTime<Utc>>,
-    /// Last GitHub latest tag we successfully fetched. Separate from
-    /// `update_check`, which is stamped even when the request fails.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_version: Option<String>,
-    /// Binary version that last ran the daily check. Missing or different
-    /// from the running binary makes the check due again.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub self_version: Option<String>,
     pub user: Option<String>,
-    #[serde(default)]
-    pub cli_check: BTreeMap<String, DateTime<Utc>>,
+    /// Keys this binary does not read, written back untouched. Lade 0.15
+    /// fails to load the file without its `update_check`, and older
+    /// binaries still share it.
+    #[serde(flatten)]
+    rest: serde_json::Map<String, serde_json::Value>,
 }
 
 impl GlobalConfig {
@@ -65,11 +54,8 @@ impl GlobalConfig {
             Ok(config)
         } else {
             Ok(GlobalConfig {
-                update_check: None,
-                latest_version: None,
-                self_version: None,
                 user: None,
-                cli_check: BTreeMap::new(),
+                rest: serde_json::Map::new(),
             })
         }
     }
@@ -101,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn load_missing_file_is_never_checked() {
+    fn load_missing_file_has_no_user() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.json");
         temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
@@ -111,7 +97,7 @@ mod tests {
                 .unwrap()
                 .block_on(async {
                     let config = GlobalConfig::load().await.unwrap();
-                    assert_eq!(config.update_check, None);
+                    assert_eq!(config.user, None);
                     assert!(!path.exists());
                 });
         });
@@ -121,7 +107,7 @@ mod tests {
     fn resolved_user_falls_back_to_os_user() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+        std::fs::write(&path, r#"{"user":null}"#).unwrap();
         temp_env::with_vars(
             [
                 ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
@@ -139,7 +125,7 @@ mod tests {
     fn resolved_user_prefers_disk() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path, r#"{"user":"carol","cli_check":{}}"#).unwrap();
+        std::fs::write(&path, r#"{"user":"carol"}"#).unwrap();
         temp_env::with_vars(
             [
                 ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
@@ -153,12 +139,12 @@ mod tests {
     }
 
     #[test]
-    fn load_legacy_datetime_update_check() {
+    fn save_keeps_keys_older_binaries_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
         std::fs::write(
             &path,
-            r#"{"update_check":"2099-01-01T00:00:00Z","user":null,"cli_check":{}}"#,
+            r#"{"update_check":"2099-01-01T00:00:00Z","self_version":"0.19.2","user":null,"cli_check":{}}"#,
         )
         .unwrap();
         temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
@@ -167,10 +153,36 @@ mod tests {
                 .build()
                 .unwrap()
                 .block_on(async {
-                    let config = GlobalConfig::load().await.unwrap();
-                    assert!(config.update_check.is_some());
-                    assert_eq!(config.latest_version, None);
+                    GlobalConfig::update(|c| c.user = Some("carol".into()))
+                        .await
+                        .unwrap();
                 });
         });
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["user"], "carol");
+        assert_eq!(saved["update_check"], "2099-01-01T00:00:00Z");
+        assert_eq!(saved["self_version"], "0.19.2");
+        assert_eq!(saved["cli_check"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn a_fresh_file_holds_only_the_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    GlobalConfig::update(|c| c.user = Some("carol".into()))
+                        .await
+                        .unwrap();
+                });
+        });
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"user": "carol"}));
     }
 }

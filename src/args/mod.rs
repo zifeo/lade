@@ -154,7 +154,7 @@ Progress: (c) cached  (o) overridden  (u) unset.
 
 Protocol verbs (this list):
   set / unset   pre-exec inject and restore
-  hook          stdin pre-tool JSON; enable --scope user|project
+  hook          stdin pre-tool JSON; enable [--global]
   inject        same as lade --
   hub           in-memory secret casier
   --pretool     mark this invocation as pre-tool
