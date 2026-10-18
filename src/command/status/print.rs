@@ -9,21 +9,23 @@ use super::StatusReport;
 
 pub(super) fn print_human(report: &StatusReport) {
     let v = &report.version;
-    match &v.check_error {
-        Some(err) => println!("lade version: {} ({err})", v.current),
-        None => {
-            println!("lade version: {}", v.current);
-            match (&v.latest, v.update_available) {
-                (Some(latest), true) => {
-                    println!("  latest: {latest} (update available. run `lade upgrade`)")
-                }
-                (Some(latest), false) => println!("  latest: {latest} (up to date)"),
-                (None, _) => match v.last_check {
-                    Some(at) => println!("  latest: ({})", format_tried_at(at, Local::now())),
-                    None => println!("  latest: (not checked yet)"),
-                },
-            }
+    println!("lade version: {}", v.current);
+    match (&v.latest, v.update_available) {
+        (Some(latest), true) => {
+            println!("  latest: {latest} (update available. run `lade upgrade`)")
         }
+        (Some(latest), false) => println!("  latest: {latest} (up to date)"),
+        (None, _) => match (v.last_check, report.hub.state) {
+            (Some(at), _) => println!("  latest: ({})", format_tried_at(at, Local::now())),
+            (None, HubState::Up) => println!("  latest: (not checked yet)"),
+            (None, _) => println!("  latest: (unknown, the hub is not running)"),
+        },
+    }
+    if let (Some(err), Some(at)) = (&v.check_error, v.last_check) {
+        println!(
+            "  last check failed ({}): {err}",
+            format_tried_at(at, Local::now())
+        );
     }
 
     match &report.age_plugin.path {
@@ -73,8 +75,8 @@ pub(super) fn print_human(report: &StatusReport) {
     );
     print_pretool_line("OpenCode this repo", &report.hooks.pretool.opencode.project);
 
-    if has_stale_pretool(report) {
-        println!("  drift: run `lade setup` to refresh hooks that are not current");
+    for notice in &report.hook_notices {
+        println!("  ! {notice}");
     }
 
     let pc = &report.project_config;
@@ -139,20 +141,6 @@ pub(super) fn print_human(report: &StatusReport) {
             }
         }
     }
-}
-
-fn has_stale_pretool(report: &StatusReport) -> bool {
-    fn stale(location: &pretool::install::HookLocation) -> bool {
-        location.installed && !location.current
-    }
-    fn harness(status: &pretool::install::PretoolAgentStatus) -> bool {
-        stale(&status.global) || stale(&status.project)
-    }
-    let hooks = &report.hooks.pretool;
-    harness(&hooks.cursor)
-        || harness(&hooks.claude)
-        || harness(&hooks.codex)
-        || harness(&hooks.opencode)
 }
 
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {

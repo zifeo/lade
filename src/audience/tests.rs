@@ -1,7 +1,6 @@
 use super::*;
 use crate::args::{
-    DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookAgent, HookScope, HookToggleCommand,
-    InjectCommand,
+    DEFAULT_MASK_FORMAT, EvalCommand, HookAction, HookAgent, HookToggleCommand, InjectCommand,
 };
 use crate::preexec::LADE_VIA;
 
@@ -170,7 +169,7 @@ fn hook_enable_is_not_pretool() {
                 action: Some(HookAction::Enable(HookToggleCommand {
                     shell: false,
                     agent: Some(HookAgent::Cursor),
-                    scope: HookScope::User,
+                    global: true,
                 })),
             },
             false,

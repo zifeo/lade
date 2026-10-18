@@ -2,12 +2,6 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum HookScope {
-    User,
-    Project,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum HookAgent {
     Claude,
     Cursor,
@@ -41,9 +35,10 @@ pub struct HookToggleCommand {
     /// `claude`, `cursor`, `codex`, or `opencode`.
     #[clap(long = "harness", conflicts_with = "shell")]
     pub agent: Option<HookAgent>,
-    /// `project` is this repo (default). `user` is leftover home pre-tool hooks.
-    #[clap(long, default_value = "project")]
-    pub scope: HookScope,
+    /// Harness hook in the home config for this machine, not this repo.
+    /// The shell pre-exec is always for this machine.
+    #[clap(long, default_value_t = false)]
+    pub global: bool,
 }
 
 impl HookToggleCommand {

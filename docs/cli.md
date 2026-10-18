@@ -71,7 +71,7 @@ Without a flag: remove this repo's pre-tool hooks and run
 
 `--global`: wipe this machine's on-disk cache (mise isolation,
 tickets, sidecars). Not the RAM hub. Home pre-tool hooks stay
-until `lade hook disable --scope user` (`lade --help -v`).
+until `lade hook disable --global` (`lade --help -v`).
 
 ```bash
 lade teardown

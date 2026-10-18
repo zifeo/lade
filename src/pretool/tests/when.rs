@@ -31,7 +31,7 @@ fn user_keyed_secret_uses_os_user_when_disk_user_is_null() {
         with_ticket_tmpdir(|| {
             let cfg = tempdir().unwrap();
             let path = cfg.path().join("config.json");
-            std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+            std::fs::write(&path, r#"{"user":null}"#).unwrap();
             temp_env::with_vars(
                 [
                     ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
@@ -60,7 +60,7 @@ fn user_keyed_secret_skips_wrap_when_os_user_misses() {
     with_cursor_env(|| {
         let cfg = tempdir().unwrap();
         let path = cfg.path().join("config.json");
-        std::fs::write(&path, r#"{"user":null,"cli_check":{}}"#).unwrap();
+        std::fs::write(&path, r#"{"user":null}"#).unwrap();
         temp_env::with_vars(
             [
                 ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),

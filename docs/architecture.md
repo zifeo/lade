@@ -223,7 +223,7 @@ forwards are owned by the invocation and cleaned up when the transport exits.
 | Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
-| Upgrade reminder | silent daily check | passive info box after inject |
+| Release and hook notices | none | from `lade set`: at most one box an hour when the command uses the hub, and the started harness's hooks on every launch |
 | Loader/network error | error box + 5s wait when stderr is a TTY + exit 1 | error box + 5s wait + exit 1 |
 | Network providers | acquired by `lade set` as detached processes, stopped by `lade unset` | acquired before child command, released on exit |
 
@@ -259,9 +259,12 @@ config, pre-exec and pre-tool, `lade.yaml`, mise and locked tools,
 providers, diary path and size, hub pid and cache counts). `--json` keeps `version`,
 `global_config`, `hooks`, `project_config`, and `ok`. `hooks` is
 `preexec` plus `pretool`. `log`, `mise`, `age_plugin`, and `hub` are extra.
-A successful daily GitHub check persists the latest tag. Upgrade
-nudges on inject only remind you to run `lade upgrade` or
-`lade status`. `lade bench` times parse, match, and per-rule hydrate.
+The hub checks GitHub at most once a day, started by a human shell
+command that uses the hub, and keeps the tag in RAM. Such a command
+gets at most one notice box an hour: a new release, and pre-tool
+hooks that need the user. Starting a harness from the shell checks
+that harness's hooks every time. A plain command never calls the
+hub. `lade bench` times parse, match, and per-rule hydrate.
 It does not acquire network.
 
 ## 7. Agents (`lade hook`) and the direct path
@@ -295,7 +298,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to project. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The daily check refreshes already-installed hook files. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
+The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to this repo. `--global` writes the home config. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The hourly shell check, and a shell that starts a harness, refresh hook files Lade wrote, never an OpenCode plugin edited by hand. OpenCode gets the v1 or v2 plugin from `opencode --version` when Lade writes it, and refresh keeps the API of the file. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
 
 ### Direct path
 

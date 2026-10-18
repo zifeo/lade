@@ -4,6 +4,7 @@ use std::path::Path;
 
 use super::agent::Agent;
 use super::merge_json::{merge_snapshot_into, snapshot_is_present};
+use super::opencode::{OpenCodeApi, plugin};
 
 impl Agent {
     pub(super) fn has_hook(self, existing: &str) -> Result<bool> {
@@ -11,7 +12,7 @@ impl Agent {
             return Ok(false);
         }
         if matches!(self, Agent::OpenCode) {
-            return Ok(is_lade_plugin(existing));
+            return Ok(OpenCodeApi::of(existing).is_some());
         }
         let root = parse_root(existing, self)?;
         let found = match self {
@@ -35,16 +36,23 @@ impl Agent {
             return Ok(false);
         }
         if matches!(self, Agent::OpenCode) {
-            return Ok(existing.trim_end() == self.instantiate(command).trim_end());
+            let api = OpenCodeApi::of(existing).context("not a Lade OpenCode plugin")?;
+            return Ok(existing.trim_end() == plugin(api, command).trim_end());
         }
         let root = parse_root(existing, self)?;
         let snap = parse_root(&self.instantiate(command), self)?;
         Ok(snapshot_is_present(self, &root, &snap))
     }
 
+    /// OpenCode keeps the API of `existing`. Writing a new plugin goes
+    /// through `write_hook`, which asks `opencode --version`.
     pub(super) fn merge(self, existing: &str, command: &str) -> Result<String> {
+        if matches!(self, Agent::OpenCode) {
+            let api = OpenCodeApi::of(existing).context("not a Lade OpenCode plugin")?;
+            return Ok(plugin(api, command));
+        }
         let snapshot = self.instantiate(command);
-        if matches!(self, Agent::OpenCode) || existing.trim().is_empty() {
+        if existing.trim().is_empty() {
             return Ok(snapshot);
         }
         let mut root = parse_root(existing, self)?;
@@ -99,13 +107,6 @@ impl Agent {
         }
         to_pretty(&root)
     }
-}
-
-pub(super) fn is_lade_plugin(content: &str) -> bool {
-    content.contains("LadePretool")
-        || content.contains("lade hook")
-        || content.contains("[\"hook\"]")
-        || content.contains("[\"hook\",")
 }
 
 /// Recognize `lade hook` and `lade hook --harness cursor`, including an

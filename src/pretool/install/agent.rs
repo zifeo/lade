@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use super::opencode::instantiate_plugin;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Agent {
     Cursor,
@@ -42,6 +44,19 @@ impl Agent {
     pub(super) fn from_slug(slug: &str) -> Option<Self> {
         match slug {
             "cursor" => Some(Agent::Cursor),
+            "claude" => Some(Agent::Claude),
+            "codex" => Some(Agent::Codex),
+            "opencode" => Some(Agent::OpenCode),
+            _ => None,
+        }
+    }
+
+    /// The harness a shell command line starts, by its program name.
+    pub(super) fn launched_by(command: &str) -> Option<Self> {
+        let program = command.split_whitespace().next()?;
+        match Path::new(program).file_name()?.to_str()? {
+            // Cursor's installer links `agent` to `cursor-agent`.
+            "cursor-agent" | "agent" => Some(Agent::Cursor),
             "claude" => Some(Agent::Claude),
             "codex" => Some(Agent::Codex),
             "opencode" => Some(Agent::OpenCode),
@@ -102,21 +117,5 @@ fn instantiate_json(snapshot: &str, slug: &str, command: &str) -> String {
     snapshot.replace(
         &format!("\"lade hook --harness {slug}\""),
         &format!("\"{command}\""),
-    )
-}
-
-fn instantiate_plugin(snapshot: &str, command: &str) -> String {
-    let bin = command
-        .split_whitespace()
-        .next()
-        .unwrap_or("lade")
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    if bin == "lade" {
-        return snapshot.to_string();
-    }
-    snapshot.replace(
-        r#"process.env.LADE_BIN ?? "lade""#,
-        &format!(r#"process.env.LADE_BIN ?? "{bin}""#),
     )
 }

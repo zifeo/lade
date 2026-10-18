@@ -73,9 +73,15 @@ fn current_uid() -> u32 {
     unsafe { libc::getuid() }
 }
 
-fn inode_of(path: &std::path::Path) -> Option<(u64, u64)> {
+pub(super) fn inode_of(path: &std::path::Path) -> Option<(u64, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.dev(), meta.ino()))
+}
+
+/// False once a reinstall put another file at this binary's path (Linux
+/// reports the old one as deleted). New clients then hash another token.
+pub(super) fn image_is_current(want: (u64, u64)) -> bool {
+    std::env::current_exe().ok().and_then(|exe| inode_of(&exe)) == Some(want)
 }
 
 #[cfg(target_os = "linux")]

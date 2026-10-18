@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use super::super::agent::Agent;
 use super::super::merge::is_lade_hook;
+use super::super::opencode::{OpenCodeApi, plugin};
 use super::CMD;
 
 #[test]
@@ -155,16 +156,31 @@ fn has_hook_false_on_empty() {
 }
 
 #[test]
-fn opencode_merge_writes_repo_plugin() {
-    let exact = Agent::OpenCode
-        .merge("", "lade hook --harness opencode")
-        .unwrap();
-    assert_eq!(exact, Agent::OpenCode.snapshot());
-    let out = Agent::OpenCode.merge("", CMD).unwrap();
-    assert!(out.contains("export const LadePretool"));
-    assert!(out.contains(r#"["hook", "--harness", "opencode"]"#));
-    assert!(out.contains(CMD.split_whitespace().next().unwrap()));
-    assert!(Agent::OpenCode.has_hook(&out).unwrap());
+fn opencode_merge_keeps_the_api_of_the_file() {
+    for api in [OpenCodeApi::V1, OpenCodeApi::V2] {
+        let portable = plugin(api, "lade hook --harness opencode");
+        assert_eq!(portable, api.snapshot());
+        let pinned = Agent::OpenCode.merge(&portable, CMD).unwrap();
+        assert_eq!(OpenCodeApi::of(&pinned), Some(api));
+        assert!(pinned.contains(CMD.split_whitespace().next().unwrap()));
+        assert!(Agent::OpenCode.has_hook(&pinned).unwrap());
+        assert!(Agent::OpenCode.hook_uses_command(&pinned, CMD).unwrap());
+        assert!(
+            !Agent::OpenCode
+                .hook_uses_command(&pinned, "lade hook --harness opencode")
+                .unwrap()
+        );
+    }
+}
+
+#[test]
+fn opencode_merge_refuses_a_foreign_plugin() {
+    assert!(Agent::OpenCode.merge("", CMD).is_err());
+    assert!(
+        Agent::OpenCode
+            .merge("export default { id: \"other\" }", CMD)
+            .is_err()
+    );
 }
 
 #[test]

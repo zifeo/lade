@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::locate::{canonical_project_path, find_project, leftover_json_hook};
+use super::opencode::{OpenCodeApi, is_pristine, plugin};
 use super::paths::{
     ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
 };
@@ -77,16 +78,21 @@ pub(crate) fn write_scoped(
 
 pub(super) fn write_hook(agent: Agent, path: &Path, command: &str) -> Result<WriteOutcome> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    if agent.hook_uses_command(&existing, command)? {
-        return Ok(WriteOutcome {
-            verb: ItemVerb::Current,
-            path: path.to_path_buf(),
-        });
+    let current = WriteOutcome {
+        verb: ItemVerb::Current,
+        path: path.to_path_buf(),
+    };
+    let updated = match agent {
+        Agent::OpenCode => plugin(OpenCodeApi::installed()?, command),
+        _ if agent.hook_uses_command(&existing, command)? => return Ok(current),
+        _ => agent.merge(&existing, command)?,
+    };
+    if updated.trim_end() == existing.trim_end() {
+        return Ok(current);
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let updated = agent.merge(&existing, command)?;
     fs::write(path, updated)?;
     let verb = if agent.has_hook(&existing)? {
         ItemVerb::Updated
@@ -145,7 +151,7 @@ pub(super) fn hook_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) ->
 }
 
 /// Remove Lade project hooks in this repo. No git: no pre-tool writes.
-/// Home hooks stay until `lade hook disable --scope user`.
+/// Home hooks stay until `lade hook disable --global`.
 pub fn teardown() -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
@@ -185,25 +191,10 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
 }
 
 /// Rewrite already-installed hook files to today's command. Never creates
-/// a hook the user did not install. Errors are ignored.
-///
-/// No-op in the unit-test binary: `current_dir()` is the crate and
-/// `argv0` is the rustc harness. Refresh still runs in `lade set` /
-/// `lade inject` via the real binary. Tests that need a rewrite call
-/// `refresh_at` with an isolated home.
-pub fn refresh_installed() {
-    if cfg!(test) {
-        return;
-    }
-    let Ok(home) = home_dir() else {
-        return;
-    };
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    refresh_at(&home, &cwd);
-}
-
-pub(crate) fn refresh_at(home: &Path, cwd: &Path) {
-    for agent in AGENTS {
+/// a hook the user did not install, and never touches an OpenCode plugin
+/// edited by hand. Errors are ignored: `health` reports what is left.
+pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
+    for &agent in agents {
         refresh_path(agent, &agent.config_path(home), &hook_command(agent));
         if let Ok((project_path, true)) = find_project(agent, home, cwd) {
             refresh_path(agent, &project_path, &project_hook_command(agent));
@@ -218,6 +209,9 @@ pub(super) fn refresh_path(agent: Agent, path: &Path, command: &str) {
     match agent.has_hook(&existing) {
         Ok(true) => {}
         _ => return,
+    }
+    if matches!(agent, Agent::OpenCode) && !is_pristine(&existing) {
+        return;
     }
     match agent.hook_uses_command(&existing, command) {
         Ok(true) => return,

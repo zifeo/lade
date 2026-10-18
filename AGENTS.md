@@ -37,16 +37,26 @@ bash tests/installer_test.sh
   `project_config`, and `ok`; the `hooks` object is `preexec` plus `pretool`.
   `age_plugin` is extra (`present`, `path`). `mise`, `log`, and `hub` are extra.
   Spoken stderr, README, and clap say pre-exec / pre-tool. JSON stays
-  `preexec` / `pretool`. `--scope user` and JSON `global` stay.
+  `preexec` / `pretool`. `--global` and JSON `global` stay.
 - User-facing copy for Cursor/Claude/Codex/OpenCode says **harness**,
   not agent. CLI: `--harness`. JSON diary field `agent` is hook metadata.
   Spoken **pre-exec** / **pre-tool** map to JSON `preexec` / `pretool`.
-- **`lade status` latest**: a successful daily GitHub check must persist
-  the tag (`latest_version` in the global config) so status can show it after
-  shell use. If the fetch failed, print when we last tried (`tried today at
-  14:25`, `tried yesterday at 09:05`). Do not print `not checked recently`
-  when a check was attempted. `version` in `--json` includes `latest`,
-  `last_check`, `update_available`, and `check_error`.
+- **`lade status` latest**: the hub runs the GitHub check (at most daily,
+  started by a human shell command that uses the hub) and keeps the tag in
+  RAM, one ledger per Lade
+  binary. `config.json` holds only `user`, and unknown keys are written back
+  for older binaries. Status reads the ledger without starting a hub. A
+  failed fetch keeps the last known tag; print when we last tried (`tried
+  today at 14:25`, `tried yesterday at 09:05`). Do not print `not checked
+  recently` when a check was attempted. `version` in `--json` includes
+  `latest`, `last_check`, `update_available`, and `check_error`.
+- **Shell notices**: from `lade set`, only for a human at a terminal, and
+  never a hub call of their own: a plain command stays off the hub. A
+  command that uses the hub (secrets, tunnels, disclaimers, pinned tools)
+  asks for the hourly slot in its first `PutT`. The slot covers a new
+  release and every harness's pre-tool hooks. Starting a harness
+  (`opencode`, `claude`, `codex`, `cursor-agent`, `agent`) checks that
+  harness's hooks every time, without the hub (`pretool/install/health.rs`).
 - **Fake samples stay fake:** docs, README, clap examples, tests, and
   fixtures never use a real customer name, a real home path, or a real
   repo path. Use `~/src/app`, `/Users/me`, `acme`. No `claryo`, `dahu`,
@@ -56,7 +66,7 @@ bash tests/installer_test.sh
 
 - `src/` — CLI crate. `command/` is the clap verb entry points.
   Thematic engines: `pretool/` (`lade hook` preToolUse / MCP verb
-  handler plus `lade hook enable --scope user|project` into
+  handler plus `lade hook enable [--global]` into
   Cursor/Claude/Codex/OpenCode configs), `preexec/` (shell wrap),
   `wrap/` (inject + PTY exec + masking), `mcp/`, `mise/` (command-scoped
   pins via lade.lock / mise.lock and `$MISE_INSTALLS_DIR`), `network/`

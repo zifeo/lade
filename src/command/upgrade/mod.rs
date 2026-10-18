@@ -1,57 +1,46 @@
 use anyhow::Result;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use self_update::{backends::github::Update, cargo_crate_version, update::ReleaseStatus};
 use semver::Version;
 use serde::Deserialize;
 use std::time::Duration;
 
 use crate::args::UpgradeCommand;
-use crate::global_config::GlobalConfig;
+use crate::hub::VersionLedger;
 use crate::message_box::{MessageBox, Report};
 
-const CHECK_INTERVAL: TimeDelta = match TimeDelta::try_days(1) {
-    Some(delta) => delta,
-    None => panic!("1 day is a valid TimeDelta"),
-};
-const FETCH_TIMEOUT: Duration = Duration::from_secs(1);
-
+/// What this binary's hub learned from GitHub. Nothing goes to disk, so two
+/// installed Lade versions keep separate hubs and never race on a stamp.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionStatus {
     pub current: String,
     pub latest: Option<String>,
     pub update_available: bool,
     pub last_check: Option<DateTime<Utc>>,
+    pub check_error: Option<String>,
 }
 
-pub fn check_is_due(update_check: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
-    match update_check {
-        None => true,
-        Some(checked_at) => checked_at + CHECK_INTERVAL < now,
+impl VersionStatus {
+    pub(crate) fn from_ledger(current: &str, ledger: Option<VersionLedger>) -> Self {
+        let ledger = ledger.unwrap_or_default();
+        Self {
+            current: current.to_string(),
+            update_available: update_available(&ledger.latest, current),
+            latest: ledger.latest,
+            last_check: ledger.tried_at_ms.and_then(DateTime::from_timestamp_millis),
+            check_error: ledger.error,
+        }
+    }
+
+    pub(crate) fn release_line(&self) -> Option<String> {
+        let latest = self.latest.as_deref().filter(|_| self.update_available)?;
+        Some(format!("New Lade release: {} → {latest}.", self.current))
     }
 }
 
-pub(crate) async fn stamp_daily_check(now: DateTime<Utc>, current: String) -> Result<()> {
-    GlobalConfig::update(|c| {
-        c.update_check = Some(now);
-        c.self_version = Some(current);
-    })
-    .await?;
-    crate::pretool::install::refresh_installed();
-    Ok(())
-}
-
-pub(crate) fn void_daily_stamps(config: &mut GlobalConfig) {
-    config.update_check = None;
-    config.self_version = None;
-}
-
-pub fn daily_work_is_due(
-    update_check: Option<DateTime<Utc>>,
-    self_version: Option<&str>,
-    current: &str,
-    now: DateTime<Utc>,
-) -> bool {
-    check_is_due(update_check, now) || self_version != Some(current)
+/// Asks this binary's hub. Never starts one and never hits the network.
+pub fn version_status() -> VersionStatus {
+    VersionStatus::from_ledger(cargo_crate_version!(), crate::hub::version_ledger())
 }
 
 fn update_available(latest: &Option<String>, current: &str) -> bool {
@@ -69,14 +58,13 @@ struct GithubRelease {
     tag_name: String,
 }
 
-fn fetch_latest_tag() -> Result<String> {
+/// Blocking. The hub runs it on its blocking pool.
+pub(crate) fn fetch_latest_tag(timeout: Duration) -> Result<String> {
     // Not `self_update::Update::get_latest_release()`: that client is built with
-    // `ClientBuilder::new()` and no timeout. `tokio::time::timeout` around
-    // `spawn_blocking` does not cancel the HTTP call, and dropping the runtime
-    // waits for it, so `lade set` would still freeze the shell until GitHub
-    // answers. `lade upgrade` keeps using self_update for the download.
+    // `ClientBuilder::new()` and no timeout, and a hub stuck on GitHub would
+    // never exit. `lade upgrade` keeps using self_update for the download.
     let client = reqwest::blocking::Client::builder()
-        .timeout(FETCH_TIMEOUT)
+        .timeout(timeout)
         .user_agent(format!("lade/{}", cargo_crate_version!()))
         .build()?;
     let release: GithubRelease = client
@@ -87,67 +75,13 @@ fn fetch_latest_tag() -> Result<String> {
     Ok(release.tag_name.trim_start_matches('v').to_string())
 }
 
-pub async fn fetch_version_status() -> Result<VersionStatus> {
-    let current = cargo_crate_version!().to_string();
-    let local_config = GlobalConfig::load().await?;
-
-    if !daily_work_is_due(
-        local_config.update_check,
-        local_config.self_version.as_deref(),
-        &current,
-        Utc::now(),
-    ) {
-        let latest = local_config.latest_version;
-        let available = update_available(&latest, &current);
-        return Ok(VersionStatus {
-            current,
-            latest,
-            update_available: available,
-            last_check: local_config.update_check,
-        });
-    }
-
-    // Stamp first so a slow or failing GitHub call is not retried on every
-    // subsequent `lade set` / `lade inject` in this 24h window.
-    let now = Utc::now();
-    stamp_daily_check(now, current.clone()).await?;
-
-    let latest = tokio::task::spawn_blocking(fetch_latest_tag).await??;
-    GlobalConfig::update(|c| c.latest_version = Some(latest.clone())).await?;
-    let available = update_available(&Some(latest.clone()), &current);
-
-    Ok(VersionStatus {
-        current,
-        latest: Some(latest),
-        update_available: available,
-        last_check: Some(now),
-    })
-}
-
-pub async fn check_message() -> Result<Option<String>> {
-    let status = fetch_version_status().await?;
-    if status.update_available {
-        return Ok(Some(format!(
-            "New Lade release: {} → {}.",
-            status.current,
-            status.latest.unwrap_or_default()
-        )));
-    }
-    Ok(None)
-}
-
-pub async fn nudge_if_available() {
-    let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(2), fetch_version_status()).await
-    else {
+pub fn nudge_if_available() {
+    let Some(line) = version_status().release_line() else {
         return;
     };
-    if !status.update_available {
-        return;
-    }
-    let latest = status.latest.unwrap_or_default();
     MessageBox::new()
         .info()
-        .line(format!("New Lade release: {} → {latest}.", status.current))
+        .line(line)
         .line("Run `lade upgrade` to install it.")
         .print_stderr();
 }
@@ -197,17 +131,10 @@ fn install_plugin_binary(yes: bool, version: Option<&str>) -> Result<()> {
 pub async fn perform(opts: UpgradeCommand) -> Result<()> {
     let yes = opts.yes;
     let version = opts.version.clone();
-    if version.is_none() {
-        match tokio::time::timeout(Duration::from_secs(2), fetch_version_status()).await {
-            Ok(Ok(status)) if status.update_available => {
-                let latest = status.latest.unwrap_or_default();
-                MessageBox::new()
-                    .info()
-                    .line(format!("New Lade release: {} → {latest}.", status.current))
-                    .print_stderr();
-            }
-            _ => {}
-        }
+    if version.is_none()
+        && let Some(line) = version_status().release_line()
+    {
+        MessageBox::new().info().line(line).print_stderr();
     }
     let updated = tokio::task::spawn_blocking(move || {
         let updated = match configure_github("lade", yes, version.as_deref())?.update_extended()? {
@@ -238,7 +165,6 @@ pub async fn perform(opts: UpgradeCommand) -> Result<()> {
     })
     .await??;
     if updated {
-        let _ = GlobalConfig::update(void_daily_stamps).await;
         if crate::mise::managed_mise_in_play() {
             crate::mise::ensure_for_setup().await.inspect_err(|e| {
                 e.emit();

@@ -17,8 +17,9 @@ fn test_status_reports_version_and_project() {
         .assert()
         .stdout(predicates::str::contains("lade version:"))
         .stdout(predicates::str::contains("age-plugin-lade:"))
-        .stdout(predicates::str::contains("latest:"))
-        .stdout(predicates::str::contains("tried"))
+        .stdout(predicates::str::contains(
+            "latest: (unknown, the hub is not running)",
+        ))
         .stdout(predicates::str::contains("project config: ok"))
         .stdout(predicates::str::contains(
             "inject wrap: skips startup files",
@@ -84,14 +85,11 @@ fn test_status_json_is_valid_with_expected_keys() {
             .unwrap()
             .is_empty()
     );
+    // The hub holds the version ledger, and no hub runs here.
     assert!(value["version"]["latest"].is_null());
     assert_eq!(value["version"]["update_available"], false);
-    assert!(
-        value["version"]["last_check"]
-            .as_str()
-            .unwrap()
-            .starts_with("2099-01-01")
-    );
+    assert!(value["version"]["last_check"].is_null());
+    assert!(value["version"]["check_error"].is_null());
 }
 
 #[test]
@@ -140,8 +138,9 @@ fn test_status_reports_project_pretool_hook() {
         .assert()
         .stdout(predicates::str::contains("pre-exec (this shell)"))
         .stdout(predicates::str::contains("pre-tool (harnesses)"))
+        .stdout(predicates::str::contains("! Claude Code (this repo, "))
         .stdout(predicates::str::contains(
-            "drift: run `lade setup` to refresh hooks that are not current",
+            "the Lade hook differs from what this Lade writes. `lade hook enable --harness claude` rewrites it.",
         ));
     let output = common::lade(home.path())
         .current_dir(dir.path())

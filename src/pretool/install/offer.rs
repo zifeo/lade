@@ -171,7 +171,7 @@ fn refuse_double_plane(agents: &[Agent], home: &Path, dest: &Path) -> Result<()>
     }
     mb = mb
         .line("Both will run. Remove the home hooks first:")
-        .line("`lade hook disable --scope user --harness <slug>`");
+        .line("`lade hook disable --global --harness <slug>`");
     mb.print_stderr();
     bail!("home and repo hooks both present");
 }

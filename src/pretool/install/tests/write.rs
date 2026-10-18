@@ -1,11 +1,9 @@
 use serde_json::Value;
 
-use super::super::agent::Agent;
+use super::super::agent::{AGENTS, Agent};
 use super::super::offer::{Plan, apply_plan};
 use super::super::paths::{ItemVerb, hook_command, install_bin_from, project_hook_command};
-use super::super::write::{
-    Scope, refresh_at, refresh_installed, refresh_path, uninstall_plane, write_scoped,
-};
+use super::super::write::{Scope, refresh_at, refresh_path, uninstall_plane, write_scoped};
 
 #[test]
 fn hook_command_never_writes_a_test_binary() {
@@ -47,7 +45,7 @@ fn instantiate_does_not_double_an_absolute_bin() {
 fn refresh_at_repo_cwd_keeps_portable_project_hooks() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let home = tempfile::tempdir().unwrap();
-    refresh_at(home.path(), &root);
+    refresh_at(home.path(), &root, &AGENTS);
     let cursor = std::fs::read_to_string(root.join(".cursor/hooks.json")).unwrap();
     assert!(cursor.contains("lade hook --harness cursor"), "{cursor}");
     assert!(!cursor.contains("target/debug"), "{cursor}");
@@ -56,20 +54,6 @@ fn refresh_at_repo_cwd_keeps_portable_project_hooks() {
         plugin.contains(r#"process.env.LADE_BIN ?? "lade""#),
         "{plugin}"
     );
-}
-
-#[test]
-fn refresh_installed_is_inert_in_the_test_binary() {
-    let home = tempfile::tempdir().unwrap();
-    let path = home.path().join(".codex").join("hooks.json");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let stale = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#;
-    std::fs::write(&path, stale).unwrap();
-    let home_str = home.path().to_str().unwrap();
-    temp_env::with_var("HOME", Some(home_str), || {
-        refresh_installed();
-    });
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), stale);
 }
 
 #[test]

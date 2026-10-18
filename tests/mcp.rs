@@ -10,14 +10,7 @@ fn lade_process(home: &Path) -> std::process::Command {
     let mut cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("lade"));
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
-        fs::write(
-            &config_path,
-            format!(
-                r#"{{"update_check":"2099-01-01T00:00:00Z","self_version":"{}","user":null,"cli_check":{{}}}}"#,
-                env!("CARGO_PKG_VERSION")
-            ),
-        )
-        .unwrap();
+        fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)

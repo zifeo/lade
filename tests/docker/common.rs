@@ -93,14 +93,7 @@ pub fn command_path(name: &str) -> Option<PathBuf> {
 pub fn lade(home: &std::path::Path) -> Command {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"{{"update_check":"2099-01-01T00:00:00Z","self_version":"{}","user":null,"cli_check":{{}}}}"#,
-                env!("CARGO_PKG_VERSION")
-            ),
-        )
-        .unwrap();
+        std::fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("lade"));
     cmd.env("LADE_SHELL", "bash")

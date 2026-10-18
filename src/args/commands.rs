@@ -116,7 +116,7 @@ impl SetupCommand {
 #[command(after_help = TEARDOWN_AFTER_HELP)]
 pub struct TeardownCommand {
     /// Wipe this machine's Lade cache (mise isolation, env sidecars, tickets).
-    /// Home hooks stay until `lade hook disable --scope user`.
+    /// Home hooks stay until `lade hook disable --global`.
     #[clap(long, default_value_t = false)]
     pub global: bool,
 }

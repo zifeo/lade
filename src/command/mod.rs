@@ -2,13 +2,13 @@ pub(crate) mod add;
 mod bench;
 mod cache;
 mod eval;
+mod notice;
 mod status;
-mod upgrade;
+pub(crate) mod upgrade;
 mod user;
 
 use anyhow::Result;
 use std::io::Read;
-use std::time::Duration;
 
 use crate::args;
 use crate::args::{Command, EvalCommand, HookAction, HookTarget};
@@ -59,7 +59,7 @@ pub(crate) async fn run_standalone(
                 report if report.is_empty() => Report::new().line("No pins in this repo.").print(),
                 report => crate::mise::print_pin_update(&report.bumped),
             }
-            upgrade::nudge_if_available().await;
+            upgrade::nudge_if_available();
             Ok(None)
         }
         Command::Teardown(opts) => {
@@ -117,7 +117,7 @@ pub(crate) async fn run_standalone(
                         );
                     }
                     HookTarget::Agent(agent) => {
-                        pretool::install::install_scoped(hook_scope(opts.scope), agent.slug())?;
+                        pretool::install::install_scoped(hook_scope(opts.global), agent.slug())?;
                     }
                 },
                 HookAction::Disable(opts) => match opts.target()? {
@@ -131,7 +131,7 @@ pub(crate) async fn run_standalone(
                         );
                     }
                     HookTarget::Agent(agent) => {
-                        pretool::install::uninstall_scoped(hook_scope(opts.scope), agent.slug())?;
+                        pretool::install::uninstall_scoped(hook_scope(opts.global), agent.slug())?;
                     }
                 },
             }
@@ -232,12 +232,14 @@ pub(crate) async fn run_config_verbs(
         }
         Command::Set(EvalCommand { commands }) => {
             let shell = Shell::detect()?;
-            // Shell hooks are automatic but still part of an interactive
-            // session. Check at most daily and deliberately discard the
-            // result: stdout is the shell protocol and hook stderr must stay
-            // quiet unless the hook itself has an access error.
-            let _ = tokio::time::timeout(Duration::from_secs(2), upgrade::check_message()).await;
-            handle_set(ctx, config, &shell, commands, current_dir).await?;
+            // stdout is the shell protocol. stderr notices are for a human
+            // at a terminal only.
+            let notice = ctx.audience == crate::config::Audience::Human && ctx.stderr_is_terminal;
+            let command = commands.join(" ");
+            let slot = handle_set(ctx, config, &shell, commands, current_dir, notice).await?;
+            if notice {
+                notice::on_shell_use(&command, slot);
+            }
             Ok(None)
         }
         Command::Unset(EvalCommand { commands }) => {
@@ -277,7 +279,7 @@ async fn run_setup(
         }
         let tool = pretool::install::setup(may_prompt, slugs)?;
         pretool::install::print_setup(&shell, &tool);
-        upgrade::nudge_if_available().await;
+        upgrade::nudge_if_available();
         return Ok(());
     }
     require_lade_yaml()?;
@@ -319,7 +321,7 @@ async fn run_setup(
             pretool::install::print_pretool_rows(&tool, false);
         }
     }
-    upgrade::nudge_if_available().await;
+    upgrade::nudge_if_available();
     Ok(())
 }
 
@@ -332,10 +334,11 @@ fn require_lade_yaml() -> Result<()> {
     Ok(())
 }
 
-fn hook_scope(scope: args::HookScope) -> pretool::install::Scope {
-    match scope {
-        args::HookScope::User => pretool::install::Scope::User,
-        args::HookScope::Project => pretool::install::Scope::Project,
+fn hook_scope(global: bool) -> pretool::install::Scope {
+    if global {
+        pretool::install::Scope::User
+    } else {
+        pretool::install::Scope::Project
     }
 }
 

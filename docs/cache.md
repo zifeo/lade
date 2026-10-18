@@ -45,12 +45,28 @@ A later hit still runs `resolve_disclaimers`.
 `set`, inject, pretool wrap, and `mcp` connect and may spawn the
 hub. `unset` may `UnlinkT` only.
 
-`lade status` Pings a live hub. `lade log prune --hub` sends
-`Quit`. Neither spawns.
+A plain `set` (no secret, tunnel, disclaimer, or pinned tool)
+never connects. For a human at a terminal, the first `PutT` of any
+other `set` carries `notice`, and that `PutT` may spawn the hub, so
+a repo that only pins packages still gets checks. `notice` starts
+the GitHub release check when the last attempt is a day old (10s
+timeout, on the hub's blocking pool), and hands out the hourly
+slot. The slot owner refreshes hook files, then shows at most one
+box: a new release, and hooks that need the user. The ledger (last
+attempt, latest tag, last error) is RAM only, like the rest. A new
+hub checks again.
 
-`age-plugin-lade`, `lade eval`, `setup`, `on`, `off`, `upgrade`,
-and `bench` never connect. The pretool handler (`lade hook` on
-stdin) writes the T file only.
+A `set` that starts a harness (`opencode`, `claude`, `codex`,
+`cursor-agent`, `agent`) refreshes and reports that harness's hooks
+every time, without the hub.
+
+`lade status` Pings a live hub and reads its ledger. `setup`,
+`update`, and `upgrade` read the ledger for the release line.
+`lade log prune --hub` sends `Quit`. None of them spawns.
+
+`age-plugin-lade`, `lade eval`, `on`, `off`, and `bench` never
+connect. The pretool handler (`lade hook` on stdin) writes the T
+file only.
 
 `LADE_DAEMON=off` skips connect and spawn. `CI` is not a signal.
 
@@ -122,31 +138,42 @@ inject / pretool wrap / `mcp` that needs a `Put` does.
 
 1. `LADE_WRAP_KEY` set (64 hex, tests and CI): those 32 bytes.
    Bad hex skips the hub.
-2. Else the platform store. No dialog. No Face ID. No Secure
-   Enclave. A get or add that would need a password skips the
-   hub.
+2. Else the platform store. No Face ID. No Secure Enclave.
 3. Miss: draw 32 random bytes and add. If add loses a race, get
    again and use the stored key.
 
 | OS | Store |
 |---|---|
 | Linux | Session keyring (`@s`), name `lade-wrap-v2`, possessor-only. Created if this process has none. |
-| macOS | Login keychain, generic password, service `com.zifeo.lade.wrap`, account `lade-wrap-v2`. No dialog. A CLI cannot use the data-protection keychain. |
+| macOS | Login keychain, generic password, service `com.zifeo.lade.wrap`, account `lade-wrap-v2`. The system ACL dialog is allowed. Always Allow sticks for this app identity. A first read with the UI off tells Lade the dialog is coming, so a terminal gets a box first: what the item is for, and that Lade does not read saved passwords. Concurrent clients take one `wrap-key.lock`. One dialog at a time. |
 
-Isolation is this login, not this binary. The login keychain
-stays unlocked for the session unless Lock after or Lock when
-sleeping is on. Screen lock is not that. Linux `@s` dies on
-logout. A new session that cannot unwrap old rows misses and
-refetches.
+Isolation is this login, not this binary. Linux `@s` dies on
+logout. The macOS item stays. Hub tables do not: crash or logout
+is always cold. A new session that cannot unwrap old rows misses
+and refetches.
+
+Screen lock and sleep do not lock the login keychain. `Lock after`
+and `Lock when sleeping` are a user setting. Those prompt again.
+A rebuild without a stable Developer ID is a new identity. Always
+Allow does not follow it. Deny or a locked keychain skips the hub.
 
 The 20 ms socket deadline is not the Keychain clock.
 
 ## Process
 
 Hidden verb: `lade hub`. Same binary, `setsid`, no stdin. It
-stays on `accept`. No idle exit. Crash, logout, kill, inode
-mismatch, or crate version mismatch drop it. Crash is always
-cold. Nothing is serialized.
+stays on `accept`. Crash, logout, kill, inode mismatch, or
+crate version mismatch drop it. Crash is always cold. Nothing
+is serialized.
+
+After 1h with no request, it prunes expired rows. It exits when
+no secret, ticket, or `lade cache set` window is left. A window
+keeps it up until `lade cache unset`. Every minute it also checks
+that clients can still reach it, and exits, rows or not, when its
+socket path is gone or holds another hub's socket, or when a
+reinstall put another file at its binary path (new clients hash
+another token). On exit it unlinks the socket and its lock only if
+the socket path is still its own.
 
 A client that may use the hub:
 
@@ -172,9 +199,9 @@ its own socket and spawns once on a fresh 20 ms clock. It does
 not touch another image's hub.
 
 `lade upgrade` is a new token (new file) plus the version
-frame. An old hub stays on the old socket until that process
-exits. `lade status` and `lade log prune --hub` talk to this
-image only.
+frame. The old hub sees its binary replaced and exits within a
+minute. `lade status` and `lade log prune
+--hub` talk to this image only.
 
 ## Tickets
 
@@ -246,7 +273,8 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Hub dies, leftover T files | Files still work |
 | Yaml edit between plan and apply | Miss, refetch |
 | Provider value changed, hub still live | Same row until TTL or `lade cache forget` |
-| Keychain locked or ACL would prompt | Skip the hub, no dialog. `ttl:` warns |
+| Keychain ACL prompt | One dialog (wrap-key.lock). Always Allow: later gets are silent. Deny: skip hub |
+| Keychain locked (`Lock after` / sleep lock) | Skip hub if the user cancels |
 | `@s` gone after logout | Unwrap fail, then miss |
 | Non-`lade` peer | Drop, `Err` 4 |
 | Inode or crate version mismatch | Unlink this image's socket, spawn once |
@@ -255,4 +283,7 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Decrypt fail (key A vs B) | Miss, hydrate, `Put` with the store key |
 | Table at cap, all TTLs live | Evict oldest `Instant` |
 | `LADE_DAEMON=off` | No hub. Hydrate as usual |
-| Idle / empty tables | Stay on `accept` |
+| Idle 1h, no row, no window | Exit, unlink own socket and lock |
+| Idle 1h, rows or a window left | Stay on `accept` |
+| Socket path gone or replaced (checked every minute) | Exit, leave the path alone |
+| Binary replaced by a reinstall (checked every minute) | Exit, unlink own socket and lock |
