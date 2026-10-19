@@ -64,7 +64,20 @@ fn prepare_child(
     env: HashMap<String, String>,
     cwd: &Path,
 ) -> std::process::Command {
-    let mut cmd = shell.prepare_command(command);
+    // A mise shim standing in for the shell drops pinned dirs from PATH
+    // before the script runs, so the script sets PATH again first.
+    let script = match env
+        .get("PATH")
+        .cloned()
+        .or_else(|| std::env::var("PATH").ok())
+    {
+        Some(path) => format!(
+            "{}\n{command}",
+            shell.set(HashMap::from([("PATH".to_string(), path)]))
+        ),
+        None => command.to_string(),
+    };
+    let mut cmd = shell.prepare_command(&script);
     cmd.current_dir(cwd);
     cmd.envs(std::env::vars());
     crate::preexec::strip_child_protocol(&mut cmd);

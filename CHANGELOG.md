@@ -25,6 +25,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   up to 24h. See [docs/cache.md](docs/cache.md) and
   [docs/cli.md](docs/cli.md). `lade --help` lists examples and
   the ttl. `-v` lists protocol verbs.
+- **age plugin post-quantum keys:** `age-plugin-lade` wraps and
+  unwraps with Go age 1.3 keys (`age1pq1`, `AGE-SECRET-KEY-PQ-1`)
+  through `age-plugin-pq` on `PATH`. The age 1.3.2 release and mise
+  ship it. Homebrew's `age` does not. This bridge goes away when
+  rage 0.13 supports these keys.
 
 ### Changed
 
@@ -64,6 +69,20 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
+- **Pins in the wrap:** a `fish` or `zsh` mise shim on `PATH` removed
+  every pinned CLI from `PATH` before a wrapped command or a
+  `fish://` / `zsh://` / `bash://` / `sh://` snippet ran. The script now
+  sets `PATH` again first.
+- **Pinned CLI folder:** a release that unpacks to a folder named like
+  its binary (age: `age/age`) put that folder's parent on `PATH`, where
+  no binary lives. A pin now needs a file, not a folder.
+- **age plugin labels:** `age-plugin-lade` reports the labels of the
+  keys it hydrates. age now refuses to mix a post-quantum Lade key
+  (`age1tagpq1`, `age1pq1`) with a classic recipient, and accepts it
+  next to a native post-quantum one.
+- **age plugin identities:** an `AGE-PLUGIN-` line anywhere in a
+  hydrated value is refused, not only on the first line, so the plugin
+  cannot call itself.
 - **OS user:** when `config.json` has no user, per-user yaml maps
   fall back to `$USER` / `$USERNAME`.
 - **Rule `silent`:** the yaml key is `silent: true`. `silence` is

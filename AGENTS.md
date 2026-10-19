@@ -22,6 +22,10 @@ shellcheck installer.sh
 bash tests/installer_test.sh
 ```
 
+The `age-plugin-lade` post-quantum tests run `age`, `age-keygen`, and
+`age-plugin-pq` from age 1.3.2 (pinned in `lade.yml`). Homebrew's `age`
+has no `age-plugin-pq`.
+
 ## House rules
 
 - **stderr: `MessageBox` for attention, `Report` for command results** —

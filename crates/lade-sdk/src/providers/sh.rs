@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 
-use super::{Provider, Warnings, run_cli};
+use super::{Provider, Warnings, env_lookup, run_cli};
 use crate::Hydration;
 
 pub struct Shell {
@@ -30,6 +30,16 @@ fn invocation<'a>(bin: &'a str, cmd: &'a str) -> Vec<&'a str> {
         "fish" => vec![bin, "--no-config", "-c", cmd],
         "zsh" => vec![bin, "-f", "-c", cmd],
         _ => vec![bin, "-c", cmd],
+    }
+}
+
+// A mise shim standing in for the shell drops pinned dirs from PATH before
+// the snippet runs, so the snippet sets PATH again first.
+fn with_path(bin: &str, path: &str, cmd: &str) -> String {
+    let quoted = format!("'{}'", path.replace('\'', "'\\''"));
+    match bin {
+        "fish" => format!("set --global --export PATH {quoted}\n{cmd}"),
+        _ => format!("export PATH={quoted}\n{cmd}"),
     }
 }
 
@@ -75,6 +85,7 @@ impl Provider for Shell {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
+        let path = env_lookup(extra_env, &["PATH"]);
         let extra_env = Arc::new(extra_env.clone());
         let name = self.name();
         let install_url = self.install_url();
@@ -82,13 +93,17 @@ impl Provider for Shell {
 
         let fetches = self.commands.iter().map(|(full_value, cmd)| {
             let cmd_str = cmd.clone();
+            let script = match &path {
+                Some(path) => with_path(bin, path, cmd),
+                None => cmd.clone(),
+            };
             let full_value_str = full_value.clone();
             let extra_env = Arc::clone(&extra_env);
             async move {
                 let output = tokio::time::timeout(
                     Duration::from_secs(30),
                     run_cli(
-                        &invocation(bin, &cmd_str),
+                        &invocation(bin, &script),
                         &extra_env,
                         name,
                         install_url,
@@ -163,6 +178,35 @@ mod tests {
             result.get("sh://echo \"hello world\"").unwrap(),
             "hello world"
         );
+    }
+
+    #[test]
+    fn test_with_path_sets_path_per_shell() {
+        assert_eq!(
+            with_path("fish", "/opt/acme/bin:/usr/bin", "echo hi"),
+            "set --global --export PATH '/opt/acme/bin:/usr/bin'\necho hi"
+        );
+        assert_eq!(
+            with_path("zsh", "/opt/it's/bin", "echo hi"),
+            "export PATH='/opt/it'\\''s/bin'\necho hi"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_keeps_path_through_a_shim() {
+        let shim = tempdir().unwrap();
+        // Like a mise shim: rewrites PATH, then runs the real shell.
+        fake_cli(&shim, "sh", "PATH=/usr/bin:/bin exec /bin/sh \"$@\"");
+        let path = format!("{}:/usr/bin:/bin", shim.path().display());
+        let mut p = Shell::new("sh", "sh", "url");
+        p.add("sh://printf %s \"$PATH\"".to_string()).unwrap();
+        let extra = HashMap::from([("PATH".to_string(), path.clone())]);
+        let result = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await
+            .unwrap();
+        assert_eq!(result.get("sh://printf %s \"$PATH\"").unwrap(), &path);
     }
 
     #[tokio::test]

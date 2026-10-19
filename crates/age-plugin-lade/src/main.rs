@@ -5,6 +5,8 @@ use std::io::{self, Write};
 mod handler;
 mod link;
 mod parse;
+mod pq;
+mod recipient;
 
 use handler::PLUGIN_NAME;
 use link::is_plugin_argv0;

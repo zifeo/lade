@@ -1,14 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::process::Stdio;
 
 use age_core::format::{FileKey, Stanza};
 use age_plugin::identity::{self, IdentityPluginV1};
-use age_plugin::recipient::{self, RecipientPluginV1};
 use age_plugin::{Callbacks, PluginHandler};
 
 use super::link::{PLUGIN_BIN, find_lade};
-use super::parse::{as_identities, as_recipients};
+use super::parse::as_identities;
+use super::recipient::LadeRecipient;
 
 pub const PLUGIN_NAME: &str = "lade";
 
@@ -18,7 +18,7 @@ fn strip_println_newline(s: &str) -> &str {
         .unwrap_or(s)
 }
 
-fn hydrate(uri: &str) -> Result<String, String> {
+pub(super) fn hydrate(uri: &str) -> Result<String, String> {
     let bin = find_lade()?;
     let output = std::process::Command::new(&bin)
         .arg("eval")
@@ -44,7 +44,7 @@ fn hydrate(uri: &str) -> Result<String, String> {
     Ok(strip_println_newline(&stdout).to_string())
 }
 
-fn lade_uri(name: &str, bytes: &[u8]) -> Result<String, String> {
+pub(super) fn lade_uri(name: &str, bytes: &[u8]) -> Result<String, String> {
     if name != PLUGIN_NAME {
         return Err(format!("unknown plugin {name}"));
     }
@@ -60,113 +60,13 @@ impl PluginHandler for Handler {
     type IdentityV1 = LadeIdentity;
 
     fn recipient_v1(self) -> io::Result<Self::RecipientV1> {
-        Ok(LadeRecipient {
-            entries: Vec::new(),
-        })
+        Ok(LadeRecipient::new())
     }
 
     fn identity_v1(self) -> io::Result<Self::IdentityV1> {
         Ok(LadeIdentity {
             identities: Vec::new(),
         })
-    }
-}
-
-enum EntryKind {
-    Recipient,
-    Identity,
-}
-
-struct Entry {
-    index: usize,
-    kind: EntryKind,
-    uri: String,
-}
-
-pub struct LadeRecipient {
-    entries: Vec<Entry>,
-}
-
-impl RecipientPluginV1 for LadeRecipient {
-    fn add_recipient(
-        &mut self,
-        index: usize,
-        plugin_name: &str,
-        bytes: &[u8],
-    ) -> Result<(), recipient::Error> {
-        let uri = lade_uri(plugin_name, bytes)
-            .map_err(|message| recipient::Error::Recipient { index, message })?;
-        self.entries.push(Entry {
-            index,
-            kind: EntryKind::Recipient,
-            uri,
-        });
-        Ok(())
-    }
-
-    fn add_identity(
-        &mut self,
-        index: usize,
-        plugin_name: &str,
-        bytes: &[u8],
-    ) -> Result<(), recipient::Error> {
-        let uri = lade_uri(plugin_name, bytes)
-            .map_err(|message| recipient::Error::Identity { index, message })?;
-        self.entries.push(Entry {
-            index,
-            kind: EntryKind::Identity,
-            uri,
-        });
-        Ok(())
-    }
-
-    fn labels(&mut self) -> HashSet<String> {
-        HashSet::new()
-    }
-
-    fn wrap_file_keys(
-        &mut self,
-        file_keys: Vec<FileKey>,
-        _callbacks: impl Callbacks<recipient::Error>,
-    ) -> io::Result<Result<Vec<Vec<Stanza>>, Vec<recipient::Error>>> {
-        let mut natives = Vec::new();
-        let mut errors = Vec::new();
-        for e in &self.entries {
-            match hydrate(&e.uri).and_then(|h| as_recipients(&h)) {
-                Ok(r) => natives.push(r),
-                Err(message) => errors.push(match e.kind {
-                    EntryKind::Recipient => recipient::Error::Recipient {
-                        index: e.index,
-                        message,
-                    },
-                    EntryKind::Identity => recipient::Error::Identity {
-                        index: e.index,
-                        message,
-                    },
-                }),
-            }
-        }
-        if !errors.is_empty() {
-            return Ok(Err(errors));
-        }
-        let mut out = Vec::with_capacity(file_keys.len());
-        for fk in &file_keys {
-            let mut stanzas = Vec::new();
-            for group in &natives {
-                for native in group {
-                    match native.wrap_file_key(fk) {
-                        Ok((mut s, _)) => stanzas.append(&mut s),
-                        Err(err) => {
-                            return Ok(Err(vec![recipient::Error::Internal {
-                                message: err.to_string(),
-                            }]));
-                        }
-                    }
-                }
-            }
-            out.push(stanzas);
-        }
-        Ok(Ok(out))
     }
 }
 

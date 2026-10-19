@@ -82,6 +82,20 @@ typed `lade eval` (`hydrate_one`, no `lade.yml`). The age crate then
 wraps or unwraps with whatever that URI returned (X25519, SSH, tagged,
 post-quantum `age1tagpq1`). No network providers. No disclaimer.
 
+Go age 1.3 post-quantum keys (`age1pq1`, `AGE-SECRET-KEY-PQ-1`) are
+not in rage 0.12 (str4d/rage#632 targets 0.13). Until then
+`age-plugin-pq` from the Go age 1.3.2 release does that crypto
+(`crates/age-plugin-lade/src/pq.rs`). An `age1pq1` recipient is already
+a plugin recipient. A secret goes through `age-plugin-pq -identity` on
+a pipe and comes back as an `AGE-PLUGIN-PQ-1` identity. The age crate
+then runs `age-plugin-pq` as a nested plugin. No line of the hydrated
+value may be an `AGE-PLUGIN-` identity, so the plugin never calls
+itself.
+
+The plugin reports the labels of the keys it hydrated, before it wraps.
+A post-quantum key carries `postquantum`, so age refuses to put it in a
+file with a classic recipient, as it does for its own keys.
+
 For shell hooks, `lade set` must finish both secret hydration and network
 acquisition before it can print the shell exports. When a matching rule contains
 network providers, the visible pre-command latency is therefore the slower of

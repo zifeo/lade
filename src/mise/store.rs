@@ -175,6 +175,11 @@ fn newer_version(current: Option<String>, candidate: String) -> String {
 }
 
 fn is_executable(path: &Path) -> bool {
+    // X_OK also holds for a directory. The age release unpacks to `age/`,
+    // the same name as its binary.
+    if !path.is_file() {
+        return false;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -185,7 +190,7 @@ fn is_executable(path: &Path) -> bool {
     }
     #[cfg(not(unix))]
     {
-        path.is_file()
+        true
     }
 }
 
@@ -276,6 +281,17 @@ mod tests {
         write_exec(&bin.join("fish"));
         let found =
             find_bin_dir(dir.path(), "aqua-fish-shell-fish-shell", "4.9.3", "fish").unwrap();
+        assert_eq!(found, bin);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skips_a_folder_named_like_the_binary() {
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("age/1.3.2/age");
+        std::fs::create_dir_all(&bin).unwrap();
+        write_exec(&bin.join("age"));
+        let found = find_bin_dir(dir.path(), "age", "1.3.2", "age").unwrap();
         assert_eq!(found, bin);
     }
 

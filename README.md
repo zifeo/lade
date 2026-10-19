@@ -476,7 +476,10 @@ Image: `ghcr.io/zifeo/lade` (`linux` musl, `ENTRYPOINT` is `lade`).
 
 `age-plugin-lade` lets [age](https://github.com/FiloSottile/age)
 hydrate a secret through Lade. The plugin execs `lade eval`. Keep
-`lade` next to it or on `PATH`.
+`lade` next to it or on `PATH`. Post-quantum keys from age 1.3
+(`age1pq1`, `AGE-SECRET-KEY-PQ-1`) also need `age-plugin-pq` on
+`PATH`. The age 1.3.2 release and mise ship it. Homebrew's `age` does
+not.
 
 ```bash
 cargo install age-plugin-lade --locked
