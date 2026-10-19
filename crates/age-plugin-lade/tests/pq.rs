@@ -33,11 +33,14 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
+// Not env!("CARGO_BIN_EXE_age-plugin-lade"): .cargo/sccache-wrapper runs
+// rustc through /bin/sh, and dash (Ubuntu) drops env names with a hyphen.
+fn plugin_bin() -> PathBuf {
+    assert_cmd::cargo::cargo_bin("age-plugin-lade")
+}
+
 fn plugin_dir() -> PathBuf {
-    Path::new(env!("CARGO_BIN_EXE_age-plugin-lade"))
-        .parent()
-        .unwrap()
-        .to_path_buf()
+    plugin_bin().parent().unwrap().to_path_buf()
 }
 
 fn workspace_lade() -> PathBuf {
@@ -76,10 +79,7 @@ fn lade_keys(dir: &Path, secret: &str) -> (PathBuf, String) {
     let json = dir.join("key.json");
     std::fs::write(&json, format!(r#"{{"key":"{secret}"}}"#)).unwrap();
     let uri = format!("file://{}?query=.key", json.display());
-    let out = Command::new(env!("CARGO_BIN_EXE_age-plugin-lade"))
-        .arg(&uri)
-        .output()
-        .unwrap();
+    let out = Command::new(plugin_bin()).arg(&uri).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     let text = String::from_utf8(out.stdout).unwrap();
     let recipient = text
