@@ -7,6 +7,8 @@
   kubectl: mise://aqua/kubernetes/kubectl@>=1.27.0
   k3d: mise://aqua/k3d-io/k3d@>=5.0.0
   vault: mise://aqua/hashicorp/vault@>=1.15.0
+  # age-plugin-lade post-quantum tests run age, age-keygen, and age-plugin-pq.
+  age: mise://aqua/FiloSottile/age@1.3.2
 
 "^fish":
   fish: mise://aqua/fish-shell/fish-shell@>=4.0.0
