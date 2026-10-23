@@ -11,13 +11,37 @@ fn db_path_override_and_project_dirs() {
             assert_eq!(db_path(), override_path);
         },
     );
-    temp_env::with_var("LADE_EVENTS_PATH", None::<&str>, || {
-        let expected = directories::ProjectDirs::from("com", "zifeo", "lade")
-            .expect("cannot get directory for project")
-            .data_local_dir()
-            .join("events.db");
-        assert_eq!(db_path(), expected);
-    });
+    let home = tempfile::tempdir().unwrap();
+    temp_env::with_vars(
+        [
+            ("LADE_EVENTS_PATH", None),
+            ("HOME", Some(home.path().to_str().unwrap())),
+        ],
+        || {
+            let expected = directories::ProjectDirs::from("com", "zifeo", "lade")
+                .expect("cannot get directory for project")
+                .data_local_dir()
+                .join("events.db");
+            assert_eq!(db_path(), expected);
+        },
+    );
+}
+
+#[test]
+fn a_unit_test_on_the_real_home_never_reaches_its_diary() {
+    let real = nix::unistd::User::from_uid(nix::unistd::getuid())
+        .unwrap()
+        .unwrap()
+        .dir;
+    temp_env::with_vars(
+        [
+            ("LADE_EVENTS_PATH", None),
+            ("HOME", Some(real.to_str().unwrap())),
+        ],
+        || {
+            assert_eq!(db_path(), crate::test_state::dir().join("events.db"));
+        },
+    );
 }
 
 #[test]

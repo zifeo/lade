@@ -51,11 +51,12 @@ command, so `lade set` prints code that sets `PATH` to an empty
 directory and erases `LADE`, so the hook skips `lade unset`, which has
 nothing to undo. The command, its aliases, and the functions that wrap
 it find nothing to run, and the shell's command-not-found handler
-prints `Lade cancelled <command>.` `PATH` and the user's handler come
-back before the next hook in zsh and bash, and before the prompt in
-fish. In fish, the code first lets psub remove the file it was
-sourced from, since psub does that with `command rm`. A command typed with its full
-path still runs.
+prints `Lade cancelled <command>.` bash before 4.0, such as macOS's
+`/bin/bash`, has no such handler and prints its own `command not
+found`. `PATH` and the user's handler come back before the next hook
+in zsh and bash, and before the prompt in fish. In fish, the code
+first lets psub remove the file it was sourced from, since psub does
+that with `command rm`. A command typed with its full path still runs.
 
 Ctrl-C while Lade connects cancels the command the same way. fish
 aborts its pre-exec hook on SIGINT and runs the command anyway, so in

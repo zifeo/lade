@@ -22,6 +22,10 @@ pub fn checked_root() -> anyhow::Result<PathBuf> {
     {
         return Ok(PathBuf::from(path));
     }
+    #[cfg(test)]
+    if crate::test_state::uses_real_home() {
+        return Ok(crate::test_state::dir().join("cache"));
+    }
     directories::ProjectDirs::from(QUALIFIER, ORG, APP)
         .map(|project| project.cache_dir().to_path_buf())
         .ok_or_else(|| {

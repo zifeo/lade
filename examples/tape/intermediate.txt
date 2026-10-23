@@ -7,15 +7,11 @@
 > printenv Authorization user
 ⠋ Vault 127.0.0.1:8200: .password
 
-⠋ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
+⠋ sh: Authorization
 
--d "\n")": Authorization
+✔︎ sh: Authorization                                                     23 ms
 
-✔︎ Vault 127.0.0.1:8200: .password                                       13 ms
-
-✔︎ sh printf "Basic %s" "$(printf "%s:%s" "${user}" "${.password}" | base64 | tr
-
--d "\n")": Authorization 13 ms
+✔︎ Vault 127.0.0.1:8200: .password                                       23 ms
 
 Basic ZGVtby11c2VyOml0c2FzZWNyZXQ=
 

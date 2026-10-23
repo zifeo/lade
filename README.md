@@ -284,7 +284,8 @@ When a tunnel or a secret fails, the command is cancelled: it would
 run without what it needs, or reach the wrong listener. A human at a
 terminal first gets 5 s to press Enter and run it anyway, without
 Lade. In pre-exec, Lade empties `PATH` for that one command so the
-shell finds nothing to run and prints `Lade cancelled <command>.` A
+shell finds nothing to run and prints `Lade cancelled <command>.`
+(bash 3.2, macOS's `/bin/bash`, prints its own `command not found`). A
 command typed with its full path still runs.
 
 The kernel frees the port when its holder dies: no lock file. Every

@@ -31,6 +31,8 @@ mod prompt;
 mod provider_progress;
 mod redact;
 mod scrub;
+#[cfg(test)]
+mod test_state;
 mod ticket;
 mod window;
 mod wrap;

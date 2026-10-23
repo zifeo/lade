@@ -50,6 +50,23 @@ enum Failure {
     NoHub,
 }
 
+/// bash before 4.0 (macOS's /bin/bash) has no `command_not_found_handle`:
+/// it names the missing command itself, and the user's handler never runs.
+fn has_not_found_handler(shell: &str) -> bool {
+    if shell != "bash" {
+        return true;
+    }
+    let version = Command::new("bash")
+        .args(["-c", "echo ${BASH_VERSINFO[0]}"])
+        .output()
+        .unwrap();
+    let major: u32 = String::from_utf8_lossy(&version.stdout)
+        .trim()
+        .parse()
+        .unwrap();
+    major >= 4
+}
+
 fn run(shell: &str, script: &str, failure: Failure) {
     let home = tempdir().unwrap();
     let project = tempdir().unwrap();
@@ -102,21 +119,32 @@ fn run(shell: &str, script: &str, failure: Failure) {
         "{shell} ran the blocked command: {stderr}"
     );
     assert!(after.exists(), "{shell} kept the command blocked: {stderr}");
-    // Anything else run while blocked, such as the hook's `lade unset`
-    // or psub's `rm`, would add a line.
-    assert_eq!(
-        stderr.matches("Lade cancelled").collect::<Vec<_>>().len(),
-        1,
-        "{shell}: {stderr}"
-    );
-    assert!(
-        stderr.contains("Lade cancelled touch."),
-        "{shell}: {stderr}"
-    );
-    assert!(
-        stderr.contains("user handler: lade-missing-command"),
-        "{shell} lost the user's handler: {stderr}"
-    );
+    if has_not_found_handler(shell) {
+        // Anything else run while blocked, such as the hook's `lade unset`
+        // or psub's `rm`, would add a line.
+        assert_eq!(
+            stderr.matches("Lade cancelled").collect::<Vec<_>>().len(),
+            1,
+            "{shell}: {stderr}"
+        );
+        assert!(
+            stderr.contains("Lade cancelled touch."),
+            "{shell}: {stderr}"
+        );
+        assert!(
+            stderr.contains("user handler: lade-missing-command"),
+            "{shell} lost the user's handler: {stderr}"
+        );
+    } else {
+        assert!(
+            stderr.contains("touch: command not found"),
+            "{shell}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("lade: command not found"),
+            "{shell} hook ran lade while blocked: {stderr}"
+        );
+    }
     assert_eq!(
         std::fs::read_dir(&tmp).unwrap().count(),
         0,
