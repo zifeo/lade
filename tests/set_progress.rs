@@ -194,7 +194,7 @@ fn test_set_marks_hub_hit_cached_until_prune() {
     let listed = common::lade(home.path())
         .current_dir(dir.path())
         .env("LADE_WRAP_KEY", &wrap)
-        .args(["cache"])
+        .args(["ttl"])
         .assert()
         .success()
         .get_output()
@@ -283,14 +283,14 @@ fn test_cache_set_marks_hub_window() {
     let dir = tempdir().unwrap();
     common::lade(home.path())
         .current_dir(dir.path())
-        .args(["cache", "set", "2h"])
+        .args(["ttl", "set", "2h"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("cache ttl 2h"))
+        .stderr(predicates::str::contains("ttl 2h"))
         .stdout(predicates::str::contains("export").not());
     let listed = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["cache"])
+        .args(["ttl"])
         .assert()
         .success()
         .get_output()
@@ -300,17 +300,17 @@ fn test_cache_set_marks_hub_window() {
     assert!(listed.contains("window: 2h"), "{listed}");
     common::lade(home.path())
         .current_dir(dir.path())
-        .args(["cache", "unset"])
+        .args(["ttl", "unset"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("cache ttl cleared"));
+        .stderr(predicates::str::contains("ttl cleared"));
 }
 
 #[test]
 fn test_cache_set_rejects_over_24h() {
     let home = tempdir().unwrap();
     common::lade(home.path())
-        .args(["cache", "set", "25h"])
+        .args(["ttl", "set", "25h"])
         .assert()
         .failure()
         .stderr(predicates::str::contains("24h"));
@@ -334,7 +334,7 @@ fn assert_shell_cache(yml: &str, session_ttl: Option<&str>, expect_hit: bool) {
         common::lade(home.path())
             .current_dir(dir.path())
             .env("LADE_WRAP_KEY", &wrap)
-            .args(["cache", "set", ttl])
+            .args(["ttl", "set", ttl])
             .assert()
             .success();
     }

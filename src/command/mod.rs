@@ -1,9 +1,9 @@
 pub(crate) mod add;
 mod bench;
-mod cache;
 mod eval;
 mod notice;
 mod status;
+mod ttl;
 pub(crate) mod upgrade;
 mod user;
 
@@ -149,7 +149,7 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Status(opts) => status::run(opts).await.map(|()| None),
-        Command::Cache(opts) => cache::run(opts).map(|()| None),
+        Command::Ttl(opts) => ttl::run(opts).map(|()| None),
         Command::Log(opts) => {
             log_cmd::run_log(opts, ctx.audience == crate::config::Audience::Agent).map(|()| None)
         }
@@ -158,7 +158,20 @@ pub(crate) async fn run_standalone(
         Command::User { username, reset } => user::run(username, reset).await.map(|()| None),
         Command::Hub => {
             #[cfg(unix)]
-            crate::hub::serve().await?;
+            {
+                use tokio::signal::unix::{SignalKind, signal};
+                // Killed outright, the hub would leave its tunnels'
+                // providers running.
+                let mut term = signal(SignalKind::terminate())?;
+                let mut interrupt = signal(SignalKind::interrupt())?;
+                crate::hub::serve(async move {
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = interrupt.recv() => {}
+                    }
+                })
+                .await?;
+            }
             Ok(None)
         }
         other => Ok(Some(other)),

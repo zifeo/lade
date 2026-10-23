@@ -5,13 +5,14 @@ use std::path::PathBuf;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
+use crate::files::remove_files;
 use crate::hub::VersionLedger;
 use crate::network;
 use crate::preexec::Shell;
 use crate::prompt;
 use crate::ticket;
 
-use super::acquire::acquire_secrets_and_network;
+use super::acquire::{acquire_secrets_and_network, restore_default_signals};
 use super::pins::{apply_pins, select_tool_env};
 use super::work::{
     CacheScope, SecretHydrate, pre_event_from_work, resolve_provider_work, ticket_ready,
@@ -141,7 +142,8 @@ pub async fn handle_set(
     }
     let hydrate_started = std::time::Instant::now();
     let patterned = config.collect_for_with_pattern(&command, ctx.audience);
-    let ((mut env, files, _sources, _maskable, warnings, cached), detached) =
+    let tunnel_cwd = current_dir.clone();
+    let Some(((mut env, files, _sources, _maskable, warnings, cached), detached)) =
         acquire_secrets_and_network(
             ctx,
             SecretHydrate {
@@ -158,36 +160,66 @@ pub async fn handle_set(
             },
             work.network_bindings,
             work.log,
-            network::start_detached_network_session,
+            Some(shell),
+            move |bindings, sink, cancel| {
+                network::start_detached_network_session(bindings, sink, &tunnel_cwd, cancel)
+            },
         )
-        .await;
-    show_loader_warnings(ctx, &warnings).await;
-    merge_env_with_conflicts(&mut env, detached.env)?;
-    select_tool_env(&mut env, pins.env)?;
-    pre.network_pids = detached.pids;
-    pre.pending = false;
-    ticket::replace(&id, &pre)?;
-    crate::hub::put_t(&id);
-    let mut matches = work.matches;
-    event::mark_cached(&mut matches, &cached);
-    event::emit_if(
-        work.log,
-        Emit {
-            kind: event::logged_kind(&matches),
-            via: ctx.via,
-            audience: ctx.audience,
-            actor: event::actor(&saved_user),
-            cwd: current_dir.clone(),
-            command: command.clone(),
-            argv: None,
-            hydrated: Some(public_hydrate(&env, &files)),
-            matches,
-            hydrate_ms: Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
-            agent: crate::agent_meta::merge(work.agent.clone()),
-        },
-    );
-    println!("{}", stamp_preexec(shell, env, &id, original_path)?);
-    Ok(slot)
+        .await
+    else {
+        // The human chose to run it without Lade: the shell gets nothing.
+        return Ok(slot);
+    };
+    if show_loader_warnings(ctx, &warnings).await {
+        let _ = remove_files(&mut files.keys());
+        crate::hub::unlink_t(&id);
+        let _ = ticket::unlink(&id);
+        println!("{}", shell.block_command());
+        std::process::exit(crate::exit_codes::INTERRUPTED);
+    }
+    restore_default_signals();
+    let finish = || -> Result<String> {
+        merge_env_with_conflicts(&mut env, detached.env.clone())?;
+        select_tool_env(&mut env, pins.env)?;
+        pre.pending = false;
+        ticket::replace(&id, &pre)?;
+        crate::hub::put_t(&id);
+        let mut matches = work.matches;
+        event::mark_cached(&mut matches, &cached);
+        event::emit_if(
+            work.log,
+            Emit {
+                kind: event::logged_kind(&matches),
+                via: ctx.via,
+                audience: ctx.audience,
+                actor: event::actor(&saved_user),
+                cwd: current_dir.clone(),
+                command: command.clone(),
+                argv: None,
+                hydrated: Some(public_hydrate(&env, &files)),
+                matches,
+                hydrate_ms: Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
+                agent: crate::agent_meta::merge(work.agent.clone()),
+            },
+        );
+        let line = stamp_preexec(shell, env, &id, original_path)?;
+        // The shell gets LADE_T from this line, so `lade unset` can release.
+        detached.hand_to_shell(&id)?;
+        Ok(line)
+    };
+    match finish() {
+        Ok(line) => {
+            println!("{line}");
+            Ok(slot)
+        }
+        // No LADE_T reaches the shell, so `lade unset` never runs for it.
+        Err(e) => {
+            let _ = remove_files(&mut files.keys());
+            crate::hub::unlink_t(&id);
+            let _ = ticket::unlink(&id);
+            Err(e)
+        }
+    }
 }
 
 fn put_first_t(id: &str, notice: bool) -> Option<VersionLedger> {
@@ -221,7 +253,6 @@ fn empty_pre_event(
         matches: serde_json::json!([]),
         op_sa: None,
         agent: serde_json::Value::Null,
-        network_pids: Vec::new(),
         pending: false,
     }
 }

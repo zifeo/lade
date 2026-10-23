@@ -130,6 +130,14 @@ fn test_dispatch_gcpsm() {
 }
 
 #[test]
+fn test_host_less_uris_fail_instead_of_panicking() {
+    for uri in ["op://", "op://?x=1", "passbolt://", "doppler://"] {
+        let mut p = Providers::new();
+        assert!(p.add(uri.to_string()).is_err(), "{uri}");
+    }
+}
+
+#[test]
 fn test_empty_age_does_not_fall_back_to_raw() {
     let mut p = Providers::new();
     assert!(p.add("age://".to_string()).is_err());

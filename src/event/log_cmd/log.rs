@@ -202,7 +202,6 @@ fn run_prune(opts: &LogCommand, keep: Option<&str>, hub: bool) -> Result<()> {
         report = report.line(match crate::hub::stop() {
             crate::hub::HubStop::Stopped => "hub: stopped".to_string(),
             crate::hub::HubStop::Down => "hub: down".to_string(),
-            crate::hub::HubStop::Off => "hub: off".to_string(),
             crate::hub::HubStop::Stale => "hub: stale".to_string(),
         });
     }

@@ -63,17 +63,31 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
 
     let installs = tempdir().expect("mise installs");
     seed_workspace_pins(installs.path());
-    // `env -i` drops HOME and the shells fall back to the real one. The
-    // vault bodies here are cacheable, so keep the hub out of the user's
-    // cache dir and keychain. A temp HOME would also cold-start mise and
-    // the `cargo run` debug hook.
+    // A temp HOME keeps every Lade and mise write (diary, tickets, config,
+    // mise shims) off the developer's machine: with the real one, mise
+    // rewrote ~/.local/share/mise/shims from these seeded installs. The
+    // scripts call the built binary, so cargo needs no HOME. The hub socket
+    // path must stay under the 104-byte limit, and the wrap key keeps the
+    // keychain out.
+    let home = tempdir().expect("home");
+    let config = home.path().join("lade-config.json");
+    std::fs::write(&config, r#"{"user":null}"#).expect("write lade config");
     let cache = tempdir().expect("lade cache");
+    let mise_cache =
+        std::env::var("MISE_CACHE_DIR").expect("MISE_CACHE_DIR from .cargo/config.toml");
+    // `docker compose` is a plugin in the developer's docker config.
+    let docker_config = std::env::var("DOCKER_CONFIG")
+        .unwrap_or_else(|_| format!("{}/.docker", std::env::var("HOME").expect("developer HOME")));
     let env = [
         "-i".to_string(),
         format!("PATH={}", path_env()),
+        format!("HOME={}", home.path().display()),
+        format!("LADE_CONFIG_PATH={}", config.display()),
         format!("LADE_CACHE_DIR={}", cache.path().display()),
         format!("LADE_WRAP_KEY={}", "ab".repeat(32)),
         format!("MISE_INSTALLS_DIR={}", installs.path().display()),
+        format!("MISE_CACHE_DIR={mise_cache}"),
+        format!("DOCKER_CONFIG={docker_config}"),
         "VAULT_TOKEN=token".to_string(),
         "LADE_VAULT_HTTP=1".to_string(),
     ];

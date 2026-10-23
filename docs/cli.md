@@ -34,12 +34,12 @@ Example:
 
 | Store | See | Forget |
 |---|---|---|
-| RAM keys (this binary) | `lade cache` | `lade cache forget` |
+| RAM keys and tunnels (this binary) | `lade ttl` | `lade ttl forget` |
 | Diary | `lade log` | `lade log prune --keep 90d` |
 | On-disk isolation (mise, tickets) | `lade teardown --global` | same |
 
 A vault edit does not evict RAM. `status` prints a count.
-`lade cache` prints the names.
+`lade ttl` prints the names.
 
 ## Public commands
 
@@ -118,33 +118,42 @@ hub: pid 18432 (2 secrets, 0 tickets)
 `--json` extra `hub`: `state`, `pid`, `secrets`, `tickets`.
 `ok` is unchanged.
 
-### `lade cache`
+### `lade ttl`
 
-This binary's in-memory secret cache. Names only. Never values.
-Does not spawn.
+This binary's hub: cached secret names and tunnels. Names only.
+Never values. Does not spawn. Was `lade cache`.
 
 ```bash
-lade cache
-lade cache --global
-lade cache list
-lade cache list --json
-lade cache set 2h
-lade cache unset
-lade cache forget
-lade cache forget AWS_ACCESS_KEY_ID
+lade ttl
+lade ttl --global
+lade ttl list
+lade ttl list --json
+lade ttl set 2h
+lade ttl unset
+lade ttl forget
+lade ttl forget AWS_ACCESS_KEY_ID
+lade ttl forget 15432
 ```
 
-`lade cache set` marks this cwd on the hub. A parent cwd
-shares it. Vault and file stay in RAM 5m until then.
-`lade cache unset` clears this cwd.
-`lade cache forget` drops the RAM now.
+`lade ttl set` marks this cwd on the hub. A parent cwd
+shares it. Secrets and tunnels of matching rules keep that long.
+Vault and file stay in RAM 5m until then. Tunnels have no default.
+`lade ttl unset` clears this cwd.
+`lade ttl forget` drops the RAM and stops every tunnel now.
+`lade ttl forget KEY` drops that secret name or tunnel key.
 
 ```
 hub: pid 18432
 
 AWS_ACCESS_KEY_ID  ~/src/app  ~/src/app/lade.yml  3m left
-DATABASE_URL       terraform .*  ~/src/app/lade.yml  3m left
+
+15432  15432  kubectl://k8s.example.com:6443/prod/default/service/postgres/5432  in use (1)
+18080  API_PORT  ssh://jump.example.com/api.internal/8080  7h left
 ```
+
+Tunnel rows: local port, key, URI, then `starting`, `failed`,
+`in use (N)` leases, or the ttl left once idle. `--json` adds
+`tunnels`, each with `phase` (`starting`, `ready`, `failed`).
 
 Hub down / off / stale:
 
@@ -152,7 +161,7 @@ Hub down / off / stale:
 hub: down
 ```
 
-`lade log prune --hub` is an alias of `lade cache forget` (no
+`lade log prune --hub` is an alias of `lade ttl forget` (no
 names). Mechanics: [cache.md](cache.md).
 
 ### `lade log` / `lade usage`
@@ -201,6 +210,7 @@ lade bench --json --timeout 5s
 ## See also
 
 - [cache.md](cache.md) hub, TTL, wrap key
+- [tunnels.md](tunnels.md) hub tunnels, ports, leases
 - [observability.md](observability.md) diary
 - [env.md](env.md) overrides
 - [architecture.md](architecture.md) wrap flow

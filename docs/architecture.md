@@ -4,6 +4,7 @@ Match tickets (T) are specified in [protocol.md](protocol.md).
 Observability is specified in [observability.md](observability.md).
 Environment variables are listed in [env.md](env.md).
 Secret cache is in [cache.md](cache.md).
+Hub tunnels are in [tunnels.md](tunnels.md).
 The public CLI is in [cli.md](cli.md).
 
 ## 1. High-Level Flow (Shell Hooks)
@@ -34,7 +35,7 @@ sequenceDiagram
 
     Shell->>Shell: Executes `my-command`
     Shell->>Lade: Cleanup: `lade unset my-command`
-    Lade-->>Shell: Stops detached network providers and returns `unset VAR`
+    Lade-->>Shell: Releases the command's hub tunnels and returns `unset VAR`
     Shell->>Shell: Cleans up environment
 ```
 
@@ -238,13 +239,14 @@ forwards are owned by the invocation and cleaned up when the transport exits.
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
 | Release and hook notices | none | from `lade set`: at most one box an hour when the command uses the hub, and the started harness's hooks on every launch |
-| Loader/network error | error box + 5s wait when stderr is a TTY + exit 1 | error box + 5s wait + exit 1 |
-| Network providers | acquired by `lade set` as detached processes, stopped by `lade unset` | acquired before child command, released on exit |
+| Loader/network error | error box, command cancelled: exit 1, and pre-exec empties `PATH` for it | error box + 5s to press Enter and run it without Lade, else cancelled |
+| Tunnels | run in the hub; `lade set` leases them under T, `lade unset` releases them | run in the hub, leased to the `lade --` process |
 
 Secret resolution (`hydrate_secrets`) is UI-free. Presentation
 (`prepare_secrets`) applies the policy above. Network providers are acquired
-alongside secrets on both the shell-hook and inject paths; hook mode stores
-detached provider PIDs on the T ticket so `lade unset` can stop them.
+alongside secrets on both the shell-hook and inject paths, and always run in
+the hub. Hook mode leases them under the T ticket id, so `lade unset`
+releases them.
 
 ### Disclaimer Flow
 

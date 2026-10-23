@@ -1,5 +1,5 @@
 use super::resolve::{ResolvedEntry, resolve_entry, rule_sources};
-use super::{Audience, Config, LadeRule, NetworkBinding};
+use super::{Audience, Config, LadeRule, NetworkBinding, RuleTtl};
 
 impl Config {
     pub fn all_secret_sources(&self, saved_user: &Option<String>) -> Vec<String> {
@@ -130,7 +130,7 @@ impl Config {
         rules: &[(std::path::PathBuf, LadeRule)],
         saved_user: &Option<String>,
     ) -> Vec<NetworkBinding> {
-        let mut by_key = std::collections::HashMap::<String, String>::new();
+        let mut by_key = std::collections::HashMap::<String, (String, Option<RuleTtl>)>::new();
         for (_, rule) in rules {
             for (key, secret) in &rule.secrets {
                 match resolve_entry(key, secret, saved_user) {
@@ -143,7 +143,7 @@ impl Config {
                         by_key.remove(&key);
                     }
                     Some(ResolvedEntry::Tunnel { key, uri }) if !key.starts_with('.') => {
-                        by_key.insert(key, uri);
+                        by_key.insert(key, (uri, rule.ttl().cloned()));
                     }
                     _ => {}
                 }
@@ -151,7 +151,7 @@ impl Config {
         }
         by_key
             .into_iter()
-            .map(|(key, uri)| NetworkBinding { key, uri })
+            .map(|(key, (uri, ttl))| NetworkBinding { key, uri, ttl })
             .collect()
     }
 

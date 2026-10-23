@@ -1,7 +1,7 @@
 use super::crypto::{aad, open, seal};
-use super::server::{
-    age_ledger_for_test, empty_tables, handle_for_test, should_exit_for_test,
-    take_version_fetch_for_test,
+use super::server::should_exit_for_test;
+use super::tables::{
+    age_ledger_for_test, empty_tables, handle_for_test, take_version_fetch_for_test,
 };
 use super::wire::{self, InReq, Rep, Req};
 
@@ -369,7 +369,7 @@ fn ping_reports_table_counts() {
     assert_eq!(handle_for_test(&mut tables, Req::Quit), Rep::Ok);
 }
 
-fn put_secret(tables: &mut super::server::Tables, ttl_ms: u32) {
+fn put_secret(tables: &mut super::tables::Tables, ttl_ms: u32) {
     let put = Req::Put {
         cwd: "/c".into(),
         path: "/c/lade.yaml".into(),
@@ -429,7 +429,7 @@ fn put_t(notice: bool) -> Req {
     }
 }
 
-fn tick(tables: &mut super::server::Tables) -> (bool, wire::VersionLedger) {
+fn tick(tables: &mut super::tables::Tables) -> (bool, wire::VersionLedger) {
     match handle_for_test(tables, put_t(true)) {
         Rep::Notice { check, version } => (check, version),
         other => panic!("{other:?}"),
@@ -524,7 +524,10 @@ fn spawn_idle_hub(idle: std::time::Duration) -> std::sync::mpsc::Receiver<()> {
             .enable_all()
             .build()
             .unwrap();
-        let _ = rt.block_on(super::server::serve_until_idle(idle));
+        let _ = rt.block_on(super::server::serve_until_idle(
+            idle,
+            std::future::pending(),
+        ));
         let _ = done.send(());
     });
     finished
@@ -583,28 +586,22 @@ fn orphan_hub_keeps_the_socket_that_replaced_it() {
 fn a_silent_client_does_not_hold_the_hub() {
     let root = tempfile::tempdir().unwrap();
     let cache = root.path().to_string_lossy().into_owned();
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache.as_str())),
-            ("LADE_DAEMON", None),
-        ],
-        || {
-            let finished = spawn_idle_hub(std::time::Duration::from_secs(30));
-            let sock = super::server::socket_path();
-            wait_for(&sock);
-            let silent = std::os::unix::net::UnixStream::connect(&sock).unwrap();
-            let up = (0..300).any(|_| {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                super::client::probe().state == super::client::HubState::Up
-            });
-            assert!(up, "hub still serves while a client sends nothing");
-            drop(silent);
-            assert_eq!(super::client::stop(), super::client::HubStop::Stopped);
-            finished
-                .recv_timeout(std::time::Duration::from_secs(5))
-                .expect("hub quits");
-        },
-    );
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache.as_str()))], || {
+        let finished = spawn_idle_hub(std::time::Duration::from_secs(30));
+        let sock = super::server::socket_path();
+        wait_for(&sock);
+        let silent = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+        let up = (0..300).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            super::client::probe().state == super::client::HubState::Up
+        });
+        assert!(up, "hub still serves while a client sends nothing");
+        drop(silent);
+        assert_eq!(super::client::stop(), super::client::HubStop::Stopped);
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("hub quits");
+    });
 }
 
 #[test]
@@ -621,40 +618,6 @@ fn socket_and_lock_follow_the_image_token() {
     assert_eq!(
         lock.file_name().and_then(|n| n.to_str()),
         Some(want_lock.as_str())
-    );
-}
-
-#[test]
-fn probe_off_when_daemon_disabled() {
-    temp_env::with_var("LADE_DAEMON", Some("off"), || {
-        let info = crate::hub::probe();
-        assert_eq!(info.state, crate::hub::HubState::Off);
-        assert_eq!(info.pid, None);
-        assert_eq!(info.secrets, 0);
-        assert_eq!(info.tickets, 0);
-    });
-}
-
-#[test]
-fn daemon_off_skips_lookup() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("lade.yaml"),
-        "\"echo\":\n  KEY: op://v/i/f\n",
-    )
-    .unwrap();
-    temp_env::with_vars(
-        [
-            ("LADE_DAEMON", Some("off")),
-            ("LADE_WRAP_KEY", Some("ab".repeat(32).as_str())),
-        ],
-        || {
-            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let patterned =
-                config.collect_for_with_pattern("echo hi", crate::config::Audience::Human);
-            let hit = crate::hub::lookup(dir.path(), config.walk_hash(), &None, &patterned);
-            assert!(hit.values.is_empty());
-        },
     );
 }
 
@@ -676,7 +639,6 @@ fn log_then_shell_ttl_body_roundtrips_hub() {
         [
             ("LADE_CACHE_DIR", Some(cache_s.as_str())),
             ("LADE_WRAP_KEY", Some(wrap.as_str())),
-            ("LADE_DAEMON", None),
         ],
         || {
             let _server = std::thread::spawn(|| {
@@ -684,7 +646,7 @@ fn log_then_shell_ttl_body_roundtrips_hub() {
                     .enable_all()
                     .build()
                     .unwrap();
-                let _ = rt.block_on(crate::hub::serve());
+                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
             });
             let sock = super::server::socket_path();
             for _ in 0..80 {
@@ -742,7 +704,6 @@ fn user_map_shell_ttl_body_roundtrips_hub() {
         [
             ("LADE_CACHE_DIR", Some(cache_s.as_str())),
             ("LADE_WRAP_KEY", Some(wrap.as_str())),
-            ("LADE_DAEMON", None),
         ],
         || {
             let _server = std::thread::spawn(|| {
@@ -750,7 +711,7 @@ fn user_map_shell_ttl_body_roundtrips_hub() {
                     .enable_all()
                     .build()
                     .unwrap();
-                let _ = rt.block_on(crate::hub::serve());
+                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
             });
             let sock = super::server::socket_path();
             for _ in 0..80 {
@@ -807,7 +768,6 @@ fn wrap_key_roundtrip_via_hub() {
         [
             ("LADE_CACHE_DIR", Some(cache_s.as_str())),
             ("LADE_WRAP_KEY", Some(wrap.as_str())),
-            ("LADE_DAEMON", None),
         ],
         || {
             let _server = std::thread::spawn(|| {
@@ -815,7 +775,7 @@ fn wrap_key_roundtrip_via_hub() {
                     .enable_all()
                     .build()
                     .unwrap();
-                let _ = rt.block_on(crate::hub::serve());
+                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
             });
             let sock = super::server::socket_path();
             for _ in 0..80 {
@@ -878,7 +838,6 @@ fn denied_hub_unlinks_and_fresh_hub_serves() {
         [
             ("LADE_CACHE_DIR", Some(cache_s.as_str())),
             ("LADE_WRAP_KEY", Some(wrap.as_str())),
-            ("LADE_DAEMON", None),
         ],
         || {
             let stale = sock.clone();
@@ -936,7 +895,7 @@ fn denied_hub_unlinks_and_fresh_hub_serves() {
                     .enable_all()
                     .build()
                     .unwrap();
-                let _ = rt.block_on(crate::hub::serve());
+                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
             });
             for _ in 0..80 {
                 if sock.exists() {
@@ -970,20 +929,17 @@ fn cache_gap_when_ttl_and_no_key() {
         ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
     )
     .unwrap();
-    temp_env::with_vars(
-        [("LADE_WRAP_KEY", Some("zz")), ("LADE_DAEMON", None)],
-        || {
-            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            assert_eq!(
-                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
-                Some(
-                    "This rule has ttl. LADE_WRAP_KEY is not 64 hex chars. Hydrated this time."
-                        .to_string()
-                )
-            );
-        },
-    );
+    temp_env::with_vars([("LADE_WRAP_KEY", Some("zz"))], || {
+        let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+        assert_eq!(
+            crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
+            Some(
+                "This rule has ttl. LADE_WRAP_KEY is not 64 hex chars. Hydrated this time."
+                    .to_string()
+            )
+        );
+    });
 }
 
 #[test]
@@ -994,41 +950,14 @@ fn cache_gap_none_without_ttl() {
         ".:\n  SOCKET: sh://printf %s /tmp/sock\n",
     )
     .unwrap();
-    temp_env::with_vars(
-        [
-            ("LADE_WRAP_KEY", Some("ab".repeat(32).as_str())),
-            ("LADE_DAEMON", None),
-        ],
-        || {
-            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            assert_eq!(
-                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
-                None
-            );
-        },
-    );
-}
-
-#[test]
-fn cache_gap_none_when_daemon_off() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("lade.yml"),
-        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
-    )
-    .unwrap();
-    temp_env::with_vars(
-        [("LADE_WRAP_KEY", Some("zz")), ("LADE_DAEMON", Some("off"))],
-        || {
-            let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            assert_eq!(
-                crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
-                None
-            );
-        },
-    );
+    temp_env::with_vars([("LADE_WRAP_KEY", Some("ab".repeat(32).as_str()))], || {
+        let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+        assert_eq!(
+            crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
+            None
+        );
+    });
 }
 
 #[test]
@@ -1049,7 +978,6 @@ fn cache_gap_when_ttl_and_hub_down() {
         [
             ("LADE_CACHE_DIR", Some(cache_s.as_str())),
             ("LADE_WRAP_KEY", Some(wrap.as_str())),
-            ("LADE_DAEMON", None),
         ],
         || {
             let config = crate::config::LadeFile::build(proj.clone()).unwrap();
@@ -1062,6 +990,55 @@ fn cache_gap_when_ttl_and_hub_down() {
             );
         },
     );
+}
+
+/// A hub on the socket that answers each request after `delay`, or never.
+fn fake_hub(sock: &std::path::Path, delay: Option<std::time::Duration>) {
+    use std::io::{Read, Write};
+    let listener = std::os::unix::net::UnixListener::bind(sock).unwrap();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for incoming in listener.incoming() {
+            let Ok(mut stream) = incoming else {
+                break;
+            };
+            let mut header = [0u8; 8];
+            if stream.read_exact(&mut header).is_err() {
+                continue;
+            }
+            let Some(n) = wire::header_len(&header) else {
+                continue;
+            };
+            let mut body = vec![0u8; n as usize];
+            let _ = stream.read_exact(&mut body);
+            let Some(delay) = delay else {
+                held.push(stream);
+                continue;
+            };
+            std::thread::sleep(delay);
+            let rep = Rep::Stat {
+                pid: 1,
+                secrets: 0,
+                tickets: 0,
+            };
+            let _ = stream.write_all(&wire::encode_rep(&rep).unwrap());
+        }
+    });
+}
+
+#[test]
+fn a_slow_hub_is_not_stale_and_a_wedged_one_is() {
+    for (delay, stale) in [
+        (Some(std::time::Duration::from_millis(100)), false),
+        (None, true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().to_string_lossy().into_owned();
+        temp_env::with_vars([("LADE_CACHE_DIR", Some(cache.as_str()))], || {
+            fake_hub(&super::server::socket_path(), delay);
+            assert_eq!(super::transport::is_stale(&None, true), stale);
+        });
+    }
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use super::shell::shell_from_comm;
 use super::*;
 use std::collections::HashMap;
 

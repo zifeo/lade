@@ -83,7 +83,7 @@ files, or inline config only when needed.
 <td width="50%">
 
 **In-memory cache.** A second match reads the hub. Progress tags
-`(c)`. `lade cache` lists names. `lade cache forget` drops RAM.
+`(c)`. `lade ttl` lists names. `lade ttl forget` drops RAM.
 
 </td>
 <td width="50%">
@@ -233,11 +233,13 @@ var.
 Vault, file, sops, and age stay in RAM for **5 minutes** after the
 first hydrate. Set `ttl:` on that rule's `.` to turn it off or
 raise it, up to **24 hours**. Shell URIs stay off unless that body
-sets `ttl:`. Raw, tunnels, and packages never cache.
-`lade cache set 2h` marks this cwd on the hub. Parent folders
-share it. `ttl: off` on the body still wins. `lade cache unset`
+sets `ttl:`. Raw and packages never cache. Tunnels have no
+default: see [Tunnel](#tunnel).
+`lade ttl set 2h` marks this cwd on the hub. Parent folders
+share it. `ttl: off` on the body still wins. `lade ttl unset`
 clears this cwd.
-`lade cache forget` drops the RAM now.
+`lade ttl` lists cached names and tunnels. `lade ttl forget`
+drops the RAM and stops the tunnels now.
 
 ```yaml
 "^psql":
@@ -270,18 +272,49 @@ deletes it. That is output, not the file provider.
 A local forward for this process. An env-var key gets an ephemeral
 local port unless `local=` sets one. A numeric key is a fixed port.
 
+Lade binds the local port itself and relays to the provider, so
+holding the port is the claim. When a command uses another Lade
+tunnel to a different target on that fixed port, the new command
+waits up to 10 min for it to end, then gives up with a box. A tunnel
+kept only by its ttl gives the port up at once. A port another
+program holds, on any loopback or wildcard address, is refused with a
+box right away.
+
+When a tunnel or a secret fails, the command is cancelled: it would
+run without what it needs, or reach the wrong listener. A human at a
+terminal first gets 5 s to press Enter and run it anyway, without
+Lade. In pre-exec, Lade empties `PATH` for that one command so the
+shell finds nothing to run and prints `Lade cancelled <command>.` A
+command typed with its full path still runs.
+
+The kernel frees the port when its holder dies: no lock file. Every
+tunnel runs in the hub, which restarts the provider if it exits. `kubefwd://` is the exception: kubefwd binds its own
+addresses, so Lade only checks the port is free before it starts.
+
+A tunnel stops with its command. `ttl:` on the rule's `.`, or a
+`lade ttl set` window, keeps it that long after the last command
+that used it. The next command to the same target reuses it, with or
+without a ttl of its own. Ctrl-C while tunnels connect stops them
+and cancels the command.
+
 ```yaml
 "^psql":
+  .:
+    ttl: 8h
   DB_PORT: kubectl://k8s.example.com:6443/prod/default/service/postgres/5432
-  1223: ssh://jump.example.com:22/db.internal/5432
+  1223: ssh://jump.example.com/db.internal/5432
 ```
+
+An `ssh://` jump without a port takes it from `~/.ssh/config`. Lade
+runs its own ssh connection (`ControlPath=none`) and restarts it when
+the link dies. Mechanics: [docs/tunnels.md](docs/tunnels.md).
 
 | Provider | URI | Query |
 | --- | --- | --- |
 | `kubectl` | `kubectl://<host>:<port>/<context>/<ns>/<kind>/<name>/<remote-port>` | `local=HOST:PORT`, `pod-running-timeout=` |
 | `kubefwd` | `kubefwd://<host>:<port>/<context>/<ns>/<kind>/<name>/<service-port>` | `local=`, `domain=`, `selector=` |
 | `tsh` | `tsh://<proxy>:<port>/app/<app-name>[/<target-port>]` or `.../kube_cluster/<cluster>/<ns>/<kind>/<name>/<remote-port>` | `local=` |
-| `ssh` | `ssh://<jump>:<port>/<remote-host>/<remote-port>` | `local=` |
+| `ssh` | `ssh://<jump>[:<port>]/<remote-host>/<remote-port>` | `local=` |
 
 ### Package
 
@@ -418,7 +451,7 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | `lade bench` | Time parse, match, hydrate. Hidden from `lade --help`. `--json`, `--timeout`. |
 | `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
 | `lade status` | Version, hooks, mise, providers, hub counts. `--json`, `--all`. |
-| `lade cache` | RAM key names for this binary. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. |
+| `lade ttl` | This binary's hub: cached key names and tunnels. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. Was `lade cache`. |
 | `lade log` / `lade usage` | Diary queries. See [docs/observability.md](docs/observability.md). |
 | `lade mcp` | MCP bridge (below). |
 | `lade -- <cmd>` | One-shot wrap (same as documented inject path). |
@@ -426,10 +459,10 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 Progress tags: `(c)` cached from the hub, `(o)` overridden by a
 closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
 
-A vault edit does not evict RAM. `lade cache` lists names.
-`lade cache set 2h` raises the 5m default for this cwd on the
-hub. Parent folders share it. `lade cache unset` clears this
-cwd. `lade cache forget` (or
+A vault edit does not evict RAM. `lade ttl` lists names.
+`lade ttl set 2h` raises the 5m default for this cwd on the
+hub, and keeps its tunnels that long. Parent folders share it. `lade ttl unset` clears this
+cwd. `lade ttl forget` (or
 `lade log prune --hub`) drops this binary's hub. Next hydrate
 refetches. [docs/cache.md](docs/cache.md).
 

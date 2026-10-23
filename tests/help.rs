@@ -35,3 +35,15 @@ fn test_top_level_no_mask_remains_invalid() {
         .failure()
         .stderr(predicates::str::contains("unexpected argument '--no-mask'"));
 }
+
+#[test]
+fn test_cache_points_at_ttl() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["cache", "list"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("is now `lade ttl`"));
+}

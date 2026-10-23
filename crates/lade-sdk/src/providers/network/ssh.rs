@@ -22,8 +22,8 @@ impl NetworkProvider for SshProvider {
         reject_unknown_query(query, &["local"])?;
 
         let (jump_host, jump_port) = match authority.rsplit_once(':') {
-            Some((host, port)) => (host.to_string(), port.parse::<u16>()?),
-            None => (authority.to_string(), 22),
+            Some((host, port)) => (host.to_string(), Some(port.parse::<u16>()?)),
+            None => (authority.to_string(), None),
         };
 
         Ok(ProviderSpec::Ssh {
@@ -57,7 +57,7 @@ mod tests {
         } = spec
         {
             assert_eq!(jump_host, "jump.host");
-            assert_eq!(jump_port, 22);
+            assert_eq!(jump_port, None);
             assert_eq!(remote_host, "remote.host");
             assert_eq!(remote_port, 5432);
         } else {
@@ -69,7 +69,7 @@ mod tests {
             .parse("jump.host:2222", &["remote.host", "5432"], &query)
             .unwrap();
         if let ProviderSpec::Ssh { jump_port, .. } = spec {
-            assert_eq!(jump_port, 2222);
+            assert_eq!(jump_port, Some(2222));
         }
 
         // Rejections

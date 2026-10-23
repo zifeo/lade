@@ -18,6 +18,18 @@ pub fn uri_is_cacheable(uri: &str, ttl: Option<&RuleTtl>, session: Option<&RuleT
     cacheable_uri(uri, ttl, session)
 }
 
+/// How long a tunnel outlives its last command. No default, unlike secrets:
+/// a tunnel persists only when the body or a `lade ttl set` window asks.
+pub fn tunnel_ttl_ms(body: Option<&RuleTtl>, session: Option<&RuleTtl>) -> Option<u32> {
+    if matches!(body, Some(RuleTtl::Off)) {
+        return None;
+    }
+    match session {
+        Some(window) => window.ttl_ms(),
+        None => body.and_then(RuleTtl::ttl_ms),
+    }
+}
+
 fn put_ttl_ms(ttl: Option<&RuleTtl>, session: Option<&RuleTtl>) -> Option<u32> {
     if matches!(ttl, Some(RuleTtl::Off)) {
         return None;
@@ -78,6 +90,19 @@ mod tests {
         assert!(!uri_is_cacheable("raw://x", None, None));
         assert!(!uri_is_cacheable("kubectl://ctx", None, None));
         assert!(!uri_is_cacheable("mise://aqua/jqlang/jq@1.7.1", None, None));
+    }
+
+    #[test]
+    fn tunnels_persist_only_when_asked() {
+        let two_h = window("2h");
+        assert_eq!(tunnel_ttl_ms(None, None), None);
+        assert_eq!(tunnel_ttl_ms(Some(&window("8h")), None), Some(28_800_000));
+        assert_eq!(tunnel_ttl_ms(None, Some(&two_h)), Some(7_200_000));
+        assert_eq!(tunnel_ttl_ms(Some(&RuleTtl::Off), Some(&two_h)), None);
+        assert_eq!(
+            tunnel_ttl_ms(Some(&window("8h")), Some(&RuleTtl::Off)),
+            None
+        );
     }
 
     #[test]

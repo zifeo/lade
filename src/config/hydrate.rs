@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 
-use super::resolve::{ResolvedEntry, binding_name, resolve_entry};
+use super::resolve::{ResolvedEntry, binding_name, check_env_name, resolve_entry};
 use super::secret::resolve_lade_secret;
 use super::{Config, LadeRule, Output, is_shell_uri};
 use crate::ticket::TicketSecret;
@@ -57,6 +57,7 @@ async fn bindings_from_rules(
                 None => {}
                 Some(ResolvedEntry::Secret { key, value }) => {
                     let (name, private) = binding_name(&key)?;
+                    check_env_name(&name, output.is_some())?;
                     let binding = Binding {
                         private,
                         source: value,

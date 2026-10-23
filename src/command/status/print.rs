@@ -153,7 +153,6 @@ pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {
 
 fn print_hub(hub: &crate::hub::HubInfo) {
     match hub.state {
-        HubState::Off => println!("hub: off"),
         HubState::Down => println!("hub: down"),
         HubState::Stale => println!("hub: stale"),
         HubState::Up => match hub.pid {

@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, deserialize_output, host_with_port, run_cli};
+use super::{Provider, Warnings, add_host_url, deserialize_output, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Doppler {
@@ -33,7 +33,7 @@ struct DopplerExport {
 #[async_trait]
 impl Provider for Doppler {
     fn add(&mut self, value: String) -> Result<()> {
-        add_url(&mut self.urls, value, "doppler")
+        add_host_url(&mut self.urls, value, "doppler")
     }
 
     fn name(&self) -> &'static str {

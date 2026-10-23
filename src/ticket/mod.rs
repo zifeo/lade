@@ -21,6 +21,9 @@ pub struct TicketSecret {
 pub struct TicketNetwork {
     pub key: String,
     pub uri: String,
+    /// Rule body `ttl:` as [`crate::config::RuleTtl::to_raw`] writes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,9 +45,6 @@ pub struct PreEvent {
     /// Free-form hook metadata. Absent on older tickets.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub agent: Value,
-    /// Live tunnel pids after preexec acquire. Absent on pretool and withhold.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub network_pids: Vec<u32>,
     /// Set when preexec withheld a disclaimer. `lade approve` requires this.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pending: bool,
@@ -121,6 +121,21 @@ pub fn read(id: &str) -> Result<PreEvent> {
         .with_context(|| format!("failed to read ticket {}", file_path.display()))?;
     serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to parse ticket {}", file_path.display()))
+}
+
+/// Pre-exec provider pids in a ticket that a Lade before hub tunnels wrote.
+/// That Lade's `lade unset` stopped them; after an upgrade mid-command,
+/// this one must.
+pub fn legacy_network_pids(id: &str) -> Vec<u32> {
+    #[derive(Deserialize)]
+    struct Legacy {
+        #[serde(default)]
+        network_pids: Vec<u32>,
+    }
+    fs::read(path(id))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Legacy>(&bytes).ok())
+        .map_or_else(Vec::new, |legacy| legacy.network_pids)
 }
 
 /// Missing file is Ok.

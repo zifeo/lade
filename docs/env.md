@@ -13,8 +13,7 @@ See also [protocol.md](protocol.md) (T tickets), [architecture.md](architecture.
 | Variable | Purpose |
 | --- | --- |
 | `LADE_CONFIG_PATH` | Path to the global config file (`config.json`, the Lade user). Default: XDG config dir. |
-| `LADE_CACHE_DIR` | Override the hub socket / ticket / mise-env root. Tests and tape render set this. |
-| `LADE_DAEMON` | `off` skips the in-memory hub. No connect, no spawn, so no release check and no hourly shell notice. Starting a harness still checks its hooks. |
+| `LADE_CACHE_DIR` | Override the hub socket / ticket / mise-env root. Tests and tape render set this. Without it and without a home directory, Lade stops with a box. |
 | `LADE_WRAP_KEY` | 64 hex chars (32 bytes). Tests and CI only. Replaces Keychain / `@s`. Bad hex skips the hub. |
 
 ## Installer and CI

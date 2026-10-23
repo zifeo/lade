@@ -230,6 +230,14 @@ pub fn add_url(urls: &mut FxHashMap<Url, String>, value: String, scheme: &str) -
     }
 }
 
+/// For providers that fetch per host.
+pub fn add_host_url(urls: &mut FxHashMap<Url, String>, value: String, scheme: &str) -> Result<()> {
+    if Url::parse(&value).is_ok_and(|url| url.host().is_none()) {
+        bail!("{scheme} URI has no host: {value}");
+    }
+    add_url(urls, value, scheme)
+}
+
 pub async fn run_cli(
     cmd: &[&str],
     extra_env: &HashMap<String, String>,

@@ -163,12 +163,12 @@ pub fn handle(
             .map(|binding| TicketNetwork {
                 key: binding.key,
                 uri: binding.uri,
+                ttl: binding.ttl.map(|ttl| ttl.to_raw()),
             })
             .collect(),
         matches: work.matches.clone(),
         op_sa: work.op_sa,
         agent: agent.clone(),
-        network_pids: Vec::new(),
         pending: false,
     };
     let lade_bin = invoked_lade_bin();

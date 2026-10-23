@@ -18,7 +18,7 @@ pub(crate) use loader::{
 };
 pub(crate) use resolve::{ResolvedEntry, binding_name, resolve_entry};
 pub use secret::*;
-pub(crate) use ttl::{body_put_ttl_ms, is_shell_uri, uri_is_cacheable};
+pub(crate) use ttl::{body_put_ttl_ms, is_shell_uri, tunnel_ttl_ms, uri_is_cacheable};
 pub(crate) use walk::hash_yaml_files;
 
 use crate::global_config::GlobalConfig;
@@ -53,6 +53,8 @@ pub enum Audience {
 pub struct NetworkBinding {
     pub key: String,
     pub uri: String,
+    /// `ttl:` of the rule body that set this tunnel.
+    pub ttl: Option<RuleTtl>,
 }
 
 /// Pre-event payload built from already-matched rules. Secret values are

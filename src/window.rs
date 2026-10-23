@@ -30,14 +30,15 @@ pub fn parse_window(raw: &str) -> Result<Duration, String> {
     if amount <= 0 {
         return Err("duration must be greater than 0".to_string());
     }
-    Ok(match unit {
-        "s" => Duration::seconds(amount),
-        "m" => Duration::minutes(amount),
-        "h" => Duration::hours(amount),
-        "d" => Duration::days(amount),
-        "w" => Duration::weeks(amount),
+    match unit {
+        "s" => Duration::try_seconds(amount),
+        "m" => Duration::try_minutes(amount),
+        "h" => Duration::try_hours(amount),
+        "d" => Duration::try_days(amount),
+        "w" => Duration::try_weeks(amount),
         _ => unreachable!(),
-    })
+    }
+    .ok_or_else(|| format!("duration '{raw}' is too long"))
 }
 
 fn parse_amount<T: std::str::FromStr>(number: &str, raw: &str) -> Result<T, String> {
@@ -62,6 +63,12 @@ mod tests {
     fn minutes_are_not_months() {
         assert!(parse_window("30m").unwrap() < parse_window("1h").unwrap());
         assert!(parse_window("1month").unwrap() > parse_window("7d").unwrap());
+    }
+
+    #[test]
+    fn rejects_a_duration_too_long_to_represent() {
+        assert!(parse_window("9223372036854775807s").is_err());
+        assert!(parse_window("9223372036854775w").is_err());
     }
 
     #[test]

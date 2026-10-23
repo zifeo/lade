@@ -11,15 +11,24 @@ const QUALIFIER: &str = "com";
 const ORG: &str = "zifeo";
 const APP: &str = "lade";
 
+/// Checked once at startup, so a missing home fails there with a box.
 pub fn root() -> PathBuf {
+    checked_root().expect("cache root checked at startup")
+}
+
+pub fn checked_root() -> anyhow::Result<PathBuf> {
     if let Ok(path) = std::env::var("LADE_CACHE_DIR")
         && !path.is_empty()
     {
-        return PathBuf::from(path);
+        return Ok(PathBuf::from(path));
     }
     directories::ProjectDirs::from(QUALIFIER, ORG, APP)
         .map(|project| project.cache_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from(".lade-cache"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Lade found no home directory for its cache. Set HOME, or LADE_CACHE_DIR to a directory."
+            )
+        })
 }
 
 pub fn mise_env() -> PathBuf {
@@ -34,8 +43,9 @@ pub fn tickets() -> PathBuf {
     root().join("tickets")
 }
 
-pub fn network_logs() -> PathBuf {
-    root().join("network")
+/// Unix sockets of ssh tunnels. Short: macOS caps a socket path at 104 bytes.
+pub fn tunnel_sockets() -> PathBuf {
+    root().join("t")
 }
 
 pub fn scratch() -> PathBuf {

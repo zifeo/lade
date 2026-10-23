@@ -22,6 +22,18 @@ shellcheck installer.sh
 bash tests/installer_test.sh
 ```
 
+Tests share one mise cache, `target/mise-cache` (`.cargo/config.toml`).
+The first run downloads the CLIs some tests pin (kubectl, vault); later
+runs reuse them. CI persists it with `actions/cache`.
+
+Tests never write to the developer's real Lade or mise state. Every
+process a test spawns gets a temp `HOME`, or the matching `LADE_*` and
+`MISE_DATA_DIR` dirs. `env -i` without `HOME` falls back to the real
+one: the vault test did, rewrote `~/.local/share/mise/shims`, and broke
+every agent shell. `docker-tests` is a default feature, so a plain
+`cargo test` runs it. CI fails a test job that touched `$HOME`
+(`scripts/home-canary.sh`).
+
 The `age-plugin-lade` post-quantum tests run `age`, `age-keygen`, and
 `age-plugin-pq` from age 1.3.2 (pinned in `lade.yml`). Homebrew's `age`
 has no `age-plugin-pq`.

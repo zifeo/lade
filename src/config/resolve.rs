@@ -89,6 +89,17 @@ pub(super) fn split_scheme(value: &str) -> Option<&str> {
     value.split_once("://").map(|(scheme, _)| scheme)
 }
 
+/// A binding exported to the env lands in shell code the pre-exec hook
+/// evals. One written to a file can use any field name.
+pub(super) fn check_env_name(name: &str, to_file: bool) -> Result<()> {
+    if !to_file && !super::is_valid_env_key(name) {
+        bail!(
+            "binding '{name}' is not a valid env var name: use letters, digits, and _, not starting with a digit"
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn binding_name(key: &str) -> Result<(String, bool)> {
     if key == "." {
         bail!("'.' is reserved for rule configuration");

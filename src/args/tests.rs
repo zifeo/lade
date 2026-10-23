@@ -130,10 +130,10 @@ fn eval_access_command_is_hidden() {
 }
 
 #[test]
-fn cache_defaults_to_list() {
-    let args = Args::try_parse_from(["lade", "cache"]).unwrap();
+fn ttl_defaults_to_list() {
+    let args = Args::try_parse_from(["lade", "ttl"]).unwrap();
     match args.command {
-        Some(Command::Cache(cache)) => {
+        Some(Command::Ttl(cache)) => {
             assert!(cache.action.is_none());
             assert!(!cache.json);
             assert!(!cache.global);
@@ -143,10 +143,10 @@ fn cache_defaults_to_list() {
 }
 
 #[test]
-fn cache_global_lists_every_row() {
-    let args = Args::try_parse_from(["lade", "cache", "--global"]).unwrap();
+fn ttl_global_lists_every_row() {
+    let args = Args::try_parse_from(["lade", "ttl", "--global"]).unwrap();
     match args.command {
-        Some(Command::Cache(cache)) => {
+        Some(Command::Ttl(cache)) => {
             assert!(cache.global);
             assert!(cache.action.is_none());
         }
@@ -155,11 +155,11 @@ fn cache_global_lists_every_row() {
 }
 
 #[test]
-fn cache_forget_takes_names() {
-    let args = Args::try_parse_from(["lade", "cache", "forget", "AWS_ACCESS_KEY_ID"]).unwrap();
+fn ttl_forget_takes_names() {
+    let args = Args::try_parse_from(["lade", "ttl", "forget", "AWS_ACCESS_KEY_ID"]).unwrap();
     match args.command {
-        Some(Command::Cache(cache)) => match cache.action {
-            Some(crate::args::CacheAction::Forget { names }) => {
+        Some(Command::Ttl(cache)) => match cache.action {
+            Some(crate::args::TtlAction::Forget { names }) => {
                 assert_eq!(names, vec!["AWS_ACCESS_KEY_ID"]);
             }
             other => panic!("{other:?}"),
@@ -169,11 +169,11 @@ fn cache_forget_takes_names() {
 }
 
 #[test]
-fn cache_set_takes_ttl() {
-    let args = Args::try_parse_from(["lade", "cache", "set", "2h"]).unwrap();
+fn ttl_set_takes_ttl() {
+    let args = Args::try_parse_from(["lade", "ttl", "set", "2h"]).unwrap();
     match args.command {
-        Some(Command::Cache(cache)) => match cache.action {
-            Some(crate::args::CacheAction::Set { ttl }) => {
+        Some(Command::Ttl(cache)) => match cache.action {
+            Some(crate::args::TtlAction::Set { ttl }) => {
                 assert_eq!(ttl.as_deref(), Some("2h"));
             }
             other => panic!("{other:?}"),
@@ -183,20 +183,17 @@ fn cache_set_takes_ttl() {
 }
 
 #[test]
-fn cache_set_help_does_not_require_ttl() {
-    let args = Args::try_parse_from(["lade", "cache", "set", "--help"]).unwrap();
+fn ttl_set_help_does_not_require_ttl() {
+    let args = Args::try_parse_from(["lade", "ttl", "set", "--help"]).unwrap();
     assert!(args.help);
 }
 
 #[test]
-fn cache_unset_parses() {
-    let args = Args::try_parse_from(["lade", "cache", "unset"]).unwrap();
+fn ttl_unset_parses() {
+    let args = Args::try_parse_from(["lade", "ttl", "unset"]).unwrap();
     match args.command {
-        Some(Command::Cache(cache)) => {
-            assert!(matches!(
-                cache.action,
-                Some(crate::args::CacheAction::Unset)
-            ));
+        Some(Command::Ttl(cache)) => {
+            assert!(matches!(cache.action, Some(crate::args::TtlAction::Unset)));
         }
         other => panic!("{other:?}"),
     }
@@ -246,8 +243,8 @@ fn default_help_hides_internal_commands() {
         .render_long_help()
         .to_string();
     assert!(help.contains("Internal commands: lade --help -v"));
-    assert!(help.contains("lade cache forget"));
-    assert!(help.contains("lade cache set"));
+    assert!(help.contains("lade ttl forget"));
+    assert!(help.contains("lade ttl set"));
     assert!(help.contains("ttl: off"));
     assert!(!help.contains("\n  set "));
     assert!(!help.contains("\n  unset "));
@@ -255,7 +252,7 @@ fn default_help_hides_internal_commands() {
     assert!(!help.contains("\n  inject "));
     assert!(!help.contains("\n  hub "));
     assert!(!help.contains("\n  bench "));
-    assert!(help.contains("\n  cache"));
+    assert!(help.contains("\n  ttl"));
     assert!(!help.contains("--pretool"));
 }
 
@@ -289,7 +286,7 @@ fn public_verb_help_prints_examples() {
     let mut cmd = Args::command();
     for name in [
         "setup", "teardown", "add", "remove", "on", "off", "update", "upgrade", "eval", "mcp",
-        "approve", "user", "cache", "status",
+        "approve", "user", "ttl", "status",
     ] {
         let sub = cmd
             .find_subcommand_mut(name)

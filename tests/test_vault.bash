@@ -5,7 +5,9 @@ source tests/test_vault_setup.bash
 LADE_BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/lade"
 
 echo e $E1 $E2 $E3 $E4
-eval "$("$LADE_BIN" on)"
+# The test runs under a temp HOME without cargo's state: the debug hooks call
+# the built binary instead of `cargo run`.
+eval "$("$LADE_BIN" on | sed "s|cargo run -- |$LADE_BIN |g")"
 echo e $E1 $E2 $E3 $E4
 
 preexec_lade 'echo e $E1 $E2 $E3 $E4'
