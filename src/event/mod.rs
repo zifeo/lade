@@ -110,6 +110,10 @@ pub fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("LADE_EVENTS_PATH") {
         return PathBuf::from(p);
     }
+    #[cfg(test)]
+    if crate::test_state::uses_real_home() {
+        return crate::test_state::dir().join("events.db");
+    }
     let project = directories::ProjectDirs::from("com", "zifeo", "lade")
         .expect("cannot get directory for project");
     project.data_local_dir().join("events.db")

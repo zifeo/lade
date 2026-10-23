@@ -158,7 +158,7 @@ providers with no YAML.
 | `matches` | Diary shape: `[{file, rule, bindings: [{key, uri}]}]` |
 | `op_sa` | Optional 1Password service-account URI, not the token |
 | `agent` | Free-form hook metadata (`harness`, `model`, `session`, …). Absent if empty |
-| `network_pids` | Live tunnel pids after preexec acquire. Absent when empty |
+| `network_pids` | Legacy: provider pids from a Lade before hub tunnels. Never written; `lade unset` still stops them after an upgrade |
 | `pending` | `true` when preexec withheld a disclaimer. Absent otherwise |
 
 ## Event

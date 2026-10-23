@@ -9,7 +9,6 @@ use std::{
     path::PathBuf,
     time::Instant,
 };
-use tokio::{signal, time};
 
 use crate::config::{Config, Output, SecretSources};
 use crate::network::{
@@ -17,15 +16,6 @@ use crate::network::{
 };
 use crate::provider_progress::ProviderProgressSink;
 use crate::ticket::TicketSecret;
-
-pub async fn sleep_or_cancel(secs: u64) {
-    tokio::select! {
-        _ = time::sleep(time::Duration::from_secs(secs)) => {},
-        _ = signal::ctrl_c() => {
-            std::process::exit(130);
-        }
-    }
-}
 
 pub struct LoadedSecrets {
     pub vars: HashMap<Output, HashMap<String, String>>,
@@ -184,7 +174,9 @@ fn secret_progress_groups(
         entry.0.push(name);
         if !from_hub {
             entry.1 = true;
-            entry.2.insert(key.clone());
+            // The DAG reports a private `.name` binding by its bare name.
+            let (reported, _) = crate::config::binding_name(key).expect("planned binding name");
+            entry.2.insert(reported);
         }
     }
     for (key, source) in &plan.cancelled {

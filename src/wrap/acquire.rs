@@ -8,34 +8,61 @@ use crate::files::{
     LoadedSecrets, hydrate_secrets_from_ticket_with_progress, remove_files, split_env_files,
     write_files,
 };
+use crate::network::Stop;
+use crate::preexec::Shell;
 use crate::provider_progress::{
     ProviderProgressSink, start_provider_progress, stop_provider_progress,
 };
 use crate::ticket::{self, TicketSecret};
+use nix::sys::signal::{SigHandler, Signal};
 
+use super::keys::{self, Keys};
 use super::work::{CacheScope, SecretHydrate};
-use super::{Acquisition, SecretBundle, handle_provider_failure};
+use super::{Acquisition, FailureChoice, SecretBundle, handle_provider_failure};
 
 /// Shared orchestration for `run_inject`/`handle_set`: starts the provider
 /// progress renderer, hydrates secrets and acquires the network session
-/// concurrently, and applies the same fail-closed handling to either side
-/// failing. `start_network` is generic over the session kind
+/// concurrently. `start_network` is generic over the session kind
 /// (`network::start_attached_network_session` /
 /// `network::start_detached_network_session`) so callers don't need a
 /// runtime mode enum to get back the right session type.
+///
+/// Any failure goes through [`handle_provider_failure`]. `None`: a human
+/// chose to run the command without Lade. Otherwise the command is
+/// cancelled and Lade exits here.
 pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     ctx: &InvocationContext,
     secrets: SecretHydrate<'_>,
     network_bindings: Vec<NetworkBinding>,
     warmup: bool,
-    start_network: impl FnOnce(&[NetworkBinding], ProviderProgressSink) -> Result<N> + Send + 'static,
-) -> (SecretBundle, N) {
+    preexec: Option<&Shell>,
+    start_network: impl FnOnce(&[NetworkBinding], ProviderProgressSink, &Stop) -> Result<N>
+    + Send
+    + 'static,
+) -> Option<(SecretBundle, N)> {
+    // A shell hook cannot keep the shell from running the command, so a
+    // cancelled pre-exec command gets a PATH with nothing to run.
+    let cancel_command = |code: i32| -> ! {
+        if let Some(shell) = preexec {
+            println!("{}", shell.block_command());
+        }
+        std::process::exit(code);
+    };
     let provider_progress = start_provider_progress(ctx.stderr_is_terminal);
     let secret_sink = provider_progress.sink();
     let network_sink = provider_progress.sink();
     let mut provider_progress = Some(provider_progress);
     let warmup = warmup.then(|| tokio::task::spawn_blocking(event::warmup));
+    // zsh and bash cancel the command on SIGINT themselves.
+    let mut keys = matches!(preexec, Some(Shell::Fish))
+        .then(|| Keys::enter(ctx))
+        .flatten();
 
+    let cancel = Stop::default();
+    let network_cancel = cancel.clone();
+    let mut network = tokio::task::spawn_blocking(move || {
+        start_network(&network_bindings, network_sink, &network_cancel)
+    });
     let acquisition = {
         let secret_task = prepare_secrets(
             secrets.secrets,
@@ -45,38 +72,81 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
             secret_sink,
         );
         let network_task = async {
-            let result =
-                tokio::task::spawn_blocking(move || start_network(&network_bindings, network_sink))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("network task join error: {e}"))?;
+            let result = (&mut network)
+                .await
+                .map_err(|e| anyhow::anyhow!("network task join error: {e}"))?;
             result.map_err(|e| anyhow::anyhow!("tunnel error: {e}"))
         };
-        race_provider_tasks(secret_task, network_task).await
+        tokio::select! {
+            acquisition = race_provider_tasks(secret_task, network_task) => Some(acquisition),
+            () = interrupted() => None,
+            () = keys::ctrl_c(&mut keys) => None,
+        }
     };
-
+    let Some(acquisition) = acquisition else {
+        drop(keys);
+        // Stop the workers, so the hub releases their tunnels before exit.
+        cancel.stop();
+        while !network.is_finished() {
+            tokio::time::sleep(INTERRUPT_POLL).await;
+        }
+        drop(network);
+        stop_provider_progress(&mut provider_progress);
+        unlink_ticket_before_exit(secrets.ticket_unlink);
+        cancel_command(crate::exit_codes::INTERRUPTED);
+    };
     if let Some(warmup) = warmup {
         let _ = warmup.await;
     }
     stop_provider_progress(&mut provider_progress);
-    match acquisition {
-        Acquisition::Ready(secret_result, network_result) => (secret_result, network_result),
-        Acquisition::Failed(e) => {
-            handle_provider_failure(ctx, &e).await;
-            unlink_ticket_before_exit(secrets.ticket_unlink);
-            std::process::exit(crate::exit_codes::FAILURE);
+    let error = match acquisition {
+        Acquisition::Ready(secret_result, network_result) => {
+            return Some((secret_result, network_result));
         }
-        Acquisition::FailedWithFiles(e, files) => {
+        Acquisition::Failed(error) => error,
+        Acquisition::FailedWithFiles(error, files) => {
             let _ = remove_files(&mut files.keys());
-            handle_provider_failure(ctx, &e).await;
-            unlink_ticket_before_exit(secrets.ticket_unlink);
-            std::process::exit(crate::exit_codes::FAILURE);
+            error
         }
-        Acquisition::FailedWithNetwork(e, network_result) => {
+        Acquisition::FailedWithNetwork(error, network_result) => {
             drop(network_result);
-            handle_provider_failure(ctx, &e).await;
-            unlink_ticket_before_exit(secrets.ticket_unlink);
-            std::process::exit(crate::exit_codes::FAILURE);
+            error
         }
+    };
+    let choice = handle_provider_failure(ctx, &error, keys).await;
+    unlink_ticket_before_exit(secrets.ticket_unlink);
+    match choice {
+        FailureChoice::RunAnyway => None,
+        FailureChoice::Cancel => cancel_command(crate::exit_codes::FAILURE),
+        FailureChoice::Interrupted => cancel_command(crate::exit_codes::INTERRUPTED),
+    }
+}
+
+const INTERRUPT_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// tokio keeps its handlers for the life of the process: once nothing
+/// reads them, Ctrl-C, `kill`, and hangup must stop Lade again.
+pub(super) fn restore_default_signals() {
+    for signal in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGHUP] {
+        let _ = unsafe { nix::sys::signal::signal(signal, SigHandler::SigDfl) };
+    }
+}
+
+/// Ctrl-C, `kill`, or the terminal closing. Without a signal driver the
+/// signals keep their default action.
+pub(super) async fn interrupted() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let (Ok(mut interrupt), Ok(mut terminate), Ok(mut hangup)) = (
+        signal(SignalKind::interrupt()),
+        signal(SignalKind::terminate()),
+        signal(SignalKind::hangup()),
+    ) else {
+        return std::future::pending().await;
+    };
+    tokio::select! {
+        _ = interrupt.recv() => {}
+        _ = terminate.recv() => {}
+        _ = hangup.recv() => {}
     }
 }
 

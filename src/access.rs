@@ -95,8 +95,14 @@ pub async fn acquire_attached(
     let mut progress: Option<ProviderProgressRenderer> =
         Some(start_provider_progress(rich_progress));
     let network_sink = progress.as_ref().expect("progress renderer").sink();
+    let tunnel_cwd = cwd.to_path_buf();
     let network = tokio::task::spawn_blocking(move || {
-        network::start_attached_network_session(&network_bindings, network_sink)
+        network::start_attached_network_session(
+            &network_bindings,
+            network_sink,
+            &tunnel_cwd,
+            &crate::network::Stop::default(),
+        )
     });
     let network = network
         .await

@@ -217,21 +217,38 @@ pub fn extract_lade_t(set_stdout: &str) -> Option<String> {
     None
 }
 
-pub fn ticket_network_pid(ticket_dir: &Path, id: &str) -> Option<String> {
-    let path = ticket_dir.join(format!("{id}.json"));
-    let pre: serde_json::Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-    pre["network_pids"]
-        .as_array()?
-        .first()?
-        .as_u64()
-        .map(|pid| pid.to_string())
+/// POSTs to the echo service through a local tunnel port.
+pub fn echo_through(port: &str) -> bool {
+    Command::new("curl")
+        .args([
+            "-fsS",
+            "--max-time",
+            "5",
+            "-X",
+            "POST",
+            "-H",
+            "content-type:application/json",
+            "-d",
+            r#"{"ping":"pong"}"#,
+            &format!("http://127.0.0.1:{port}/"),
+        ])
+        .output()
+        .is_ok_and(|out| {
+            out.status.success() && String::from_utf8_lossy(&out.stdout).contains("pong")
+        })
 }
 
-pub fn is_pid_running(pid: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", pid])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+pub fn port_is_free(port: &str) -> bool {
+    std::net::TcpListener::bind(format!("127.0.0.1:{port}")).is_ok()
+}
+
+pub fn eventually(what: &str, check: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if check() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("{what} did not happen within 10s");
 }

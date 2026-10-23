@@ -83,8 +83,8 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
     },
-    /// This binary's RAM secret names. Never values.
-    Cache(CacheCommand),
+    /// This binary's hub: cached secret names and tunnels. Never values.
+    Ttl(TtlCommand),
     /// Local command diary.
     #[command(after_help = LOG_AFTER_HELP)]
     Log(LogCommand),
@@ -126,13 +126,14 @@ Examples:
   tofu apply
   lade -- tofu apply
   lade status
-  lade cache
-  lade cache set 2h
-  lade cache forget AWS_ACCESS_KEY_ID
+  lade ttl
+  lade ttl set 2h
+  lade ttl forget AWS_ACCESS_KEY_ID
   lade eval op://vault/item/field
 
 Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
-This cwd: lade cache set 2h. Ancestors share it. unset / forget drops it.
+Tunnels stop with their command unless ttl is set.
+This cwd: lade ttl set 2h. Ancestors share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 Next: lade <command> --help. Internal commands: lade --help -v.
 ";
@@ -143,13 +144,14 @@ Examples:
   tofu apply
   lade -- tofu apply
   lade status
-  lade cache
-  lade cache set 2h
-  lade cache forget AWS_ACCESS_KEY_ID
+  lade ttl
+  lade ttl set 2h
+  lade ttl forget AWS_ACCESS_KEY_ID
   lade eval op://vault/item/field
 
 Vault and file stay in RAM 5m. Rule `.` ttl: off | 30s | 1h | 24h (max).
-This cwd: lade cache set 2h. Ancestors share it. unset / forget drops it.
+Tunnels stop with their command unless ttl is set.
+This cwd: lade ttl set 2h. Ancestors share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 
 Protocol verbs (this list):
@@ -184,7 +186,7 @@ fn subcommand_name(command: &Command) -> Option<&'static str> {
         Command::Hook { .. } => Some("hook"),
         Command::Approve { .. } => Some("approve"),
         Command::User { .. } => Some("user"),
-        Command::Cache(_) => Some("cache"),
+        Command::Ttl(_) => Some("ttl"),
         Command::Log(_) => Some("log"),
         Command::Usage(_) => Some("usage"),
         Command::Hub => Some("hub"),

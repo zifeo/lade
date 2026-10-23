@@ -31,6 +31,8 @@ mod prompt;
 mod provider_progress;
 mod redact;
 mod scrub;
+#[cfg(test)]
+mod test_state;
 mod ticket;
 mod window;
 mod wrap;
@@ -49,6 +51,12 @@ pub fn cli_main() -> Result<()> {
         unsafe {
             signal::signal(signal::Signal::SIGPIPE, signal::SigHandler::SigDfl)?;
         }
+    }
+
+    // Spawned for every tunnel start: skip the runtime, logging, and clap.
+    let argv = std::env::args_os().collect::<Vec<_>>();
+    if argv.get(1).is_some_and(|verb| verb == network::GUARD_VERB) {
+        network::run_guard(&argv[2..]);
     }
 
     tokio::runtime::Builder::new_current_thread()
@@ -86,8 +94,23 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
+    if let Err(e) = cache::checked_root() {
+        message_box::MessageBox::new()
+            .error()
+            .paragraph(e.to_string())
+            .print_stderr();
+        std::process::exit(exit_codes::FAILURE);
+    }
+
     let pretool = args.pretool;
     let command = match args.command {
+        Some(Command::InjectAlias(commands)) if commands.first().is_some_and(|c| c == "cache") => {
+            message_box::MessageBox::new()
+                .error()
+                .paragraph("`lade cache` is now `lade ttl`. To run a program named cache, use `lade inject cache`.")
+                .print_stderr();
+            std::process::exit(exit_codes::FAILURE);
+        }
         Some(Command::InjectAlias(commands)) => Command::Inject(InjectCommand {
             no_mask: false,
             mask_format: DEFAULT_MASK_FORMAT.to_string(),

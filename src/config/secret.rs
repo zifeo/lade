@@ -70,6 +70,14 @@ impl RuleTtl {
             Self::Window(duration) => Some(duration_to_ttl_ms(*duration)),
         }
     }
+
+    /// Round-trips through [`Self::parse`]. Tickets carry tunnel ttls this way.
+    pub fn to_raw(&self) -> String {
+        match self {
+            Self::Off => "off".to_string(),
+            Self::Window(duration) => format!("{}s", duration.num_seconds().max(1)),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for RuleTtl {

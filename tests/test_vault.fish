@@ -7,7 +7,9 @@ bash tests/test_vault_setup.bash
 set lade_bin (cd (dirname (status filename))/.. && pwd)/target/debug/lade
 
 echo e $E1 $E2 $E3 $E4
-eval "$($lade_bin on)"
+# The test runs under a temp HOME without cargo's state: the debug hooks call
+# the built binary instead of `cargo run`.
+$lade_bin on | string replace -a 'cargo run -- ' "$lade_bin " | source
 echo e $E1 $E2 $E3 $E4
 
 preexec_lade 'echo e $E1 $E2 $E3 $E4'

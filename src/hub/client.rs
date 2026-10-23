@@ -1,20 +1,12 @@
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::process::Stdio;
-use std::time::{Duration, Instant};
-
 use serde::Serialize;
 
-use super::server::{lock_path, socket_path};
-use super::wire::{self, CacheRow, ERR_DENIED, Rep, Req, VersionLedger};
-
-const DEADLINE: Duration = Duration::from_millis(20);
+use super::server::socket_path;
+use super::transport::{COMMAND_DEADLINE, rpc, rpc_existing, rpc_within};
+use super::wire::{CacheRow, ERR_DENIED, Rep, Req, TunnelAsk, TunnelRep, TunnelRow, VersionLedger};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HubState {
-    Off,
     Down,
     Up,
     Stale,
@@ -29,15 +21,6 @@ pub struct HubInfo {
 }
 
 impl HubInfo {
-    fn off() -> Self {
-        Self {
-            state: HubState::Off,
-            pid: None,
-            secrets: 0,
-            tickets: 0,
-        }
-    }
-
     fn down() -> Self {
         Self {
             state: HubState::Down,
@@ -66,14 +49,7 @@ impl HubInfo {
     }
 }
 
-pub fn daemon_off() -> bool {
-    std::env::var("LADE_DAEMON").ok().as_deref() == Some("off")
-}
-
 pub fn probe() -> HubInfo {
-    if daemon_off() {
-        return HubInfo::off();
-    }
     match rpc_existing(Req::Ping) {
         Some(Rep::Stat {
             pid,
@@ -87,7 +63,6 @@ pub fn probe() -> HubInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HubStop {
-    Off,
     Down,
     Stale,
     Stopped,
@@ -99,24 +74,17 @@ pub struct CacheListing {
     pub pid: Option<u32>,
     pub tickets: u32,
     pub rows: Vec<CacheRow>,
+    pub tunnels: Vec<TunnelRow>,
 }
 
 impl CacheListing {
-    fn off() -> Self {
-        Self {
-            state: HubState::Off,
-            pid: None,
-            tickets: 0,
-            rows: Vec::new(),
-        }
-    }
-
     fn down() -> Self {
         Self {
             state: HubState::Down,
             pid: None,
             tickets: 0,
             rows: Vec::new(),
+            tunnels: Vec::new(),
         }
     }
 
@@ -126,25 +94,29 @@ impl CacheListing {
             pid: None,
             tickets: 0,
             rows: Vec::new(),
+            tunnels: Vec::new(),
         }
     }
 
-    fn up(pid: u32, tickets: u32, rows: Vec<CacheRow>) -> Self {
+    fn up(pid: u32, tickets: u32, rows: Vec<CacheRow>, tunnels: Vec<TunnelRow>) -> Self {
         Self {
             state: HubState::Up,
             pid: Some(pid),
             tickets,
             rows,
+            tunnels,
         }
     }
 }
 
 pub fn listing() -> CacheListing {
-    if daemon_off() {
-        return CacheListing::off();
-    }
     match rpc_existing(Req::List) {
-        Some(Rep::Listing { pid, tickets, rows }) => CacheListing::up(pid, tickets, rows),
+        Some(Rep::Listing {
+            pid,
+            tickets,
+            rows,
+            tunnels,
+        }) => CacheListing::up(pid, tickets, rows, tunnels),
         Some(Rep::Err(code)) if code == ERR_DENIED => CacheListing::stale(),
         _ => CacheListing::down(),
     }
@@ -155,20 +127,28 @@ pub fn scope(cwd: &std::path::Path) -> String {
 }
 
 pub fn set_window(scope: &str, ttl: &str) -> Option<()> {
-    match rpc(Req::SetWindow {
-        scope: scope.to_string(),
-        ttl: Some(ttl.to_string()),
-    }) {
+    match rpc_within(
+        Req::SetWindow {
+            scope: scope.to_string(),
+            ttl: Some(ttl.to_string()),
+        },
+        true,
+        COMMAND_DEADLINE,
+    ) {
         Some(Rep::Ok) => Some(()),
         _ => None,
     }
 }
 
 pub fn unset_window(scope: &str) -> Option<()> {
-    match rpc(Req::SetWindow {
-        scope: scope.to_string(),
-        ttl: None,
-    }) {
+    match rpc_within(
+        Req::SetWindow {
+            scope: scope.to_string(),
+            ttl: None,
+        },
+        true,
+        COMMAND_DEADLINE,
+    ) {
         Some(Rep::Ok) => Some(()),
         _ => None,
     }
@@ -184,21 +164,22 @@ pub fn window(scope: &str) -> Option<String> {
 }
 
 pub fn forget_names(names: &[String]) -> Option<()> {
-    if names.is_empty() || daemon_off() {
+    if names.is_empty() {
         return None;
     }
-    match rpc_existing(Req::Forget {
-        names: names.to_vec(),
-    }) {
+    match rpc_within(
+        Req::Forget {
+            names: names.to_vec(),
+        },
+        false,
+        COMMAND_DEADLINE,
+    ) {
         Some(Rep::Ok) => Some(()),
         _ => None,
     }
 }
 
 pub fn stop() -> HubStop {
-    if daemon_off() {
-        return HubStop::Off;
-    }
     let result = match rpc_existing(Req::Quit) {
         Some(Rep::Ok) => HubStop::Stopped,
         Some(Rep::Err(code)) if code == ERR_DENIED => HubStop::Stale,
@@ -214,169 +195,6 @@ pub fn version_ledger() -> Option<VersionLedger> {
         Some(Rep::Version(version)) => Some(version),
         _ => None,
     }
-}
-
-pub fn rpc(req: Req) -> Option<Rep> {
-    rpc_inner(req, true)
-}
-
-fn rpc_existing(req: Req) -> Option<Rep> {
-    rpc_inner(req, false)
-}
-
-fn rpc_inner(req: Req, spawn: bool) -> Option<Rep> {
-    if daemon_off() {
-        return None;
-    }
-    let started = Instant::now();
-    let mut stream = connect(started, false, spawn)?;
-    let (rep, after_write) = write_read(&mut stream, &req, started);
-    if spawn && is_stale(&rep, after_write) {
-        let _ = std::fs::remove_file(socket_path());
-        let started = Instant::now();
-        let mut stream = connect(started, true, true)?;
-        write_read(&mut stream, &req, started).0
-    } else {
-        rep
-    }
-}
-
-fn is_stale(rep: &Option<Rep>, after_write: bool) -> bool {
-    matches!(rep, Some(Rep::Err(code)) if *code == ERR_DENIED) || (after_write && rep.is_none())
-}
-
-fn connect(started: Instant, force_spawn: bool, allow_spawn: bool) -> Option<UnixStream> {
-    remaining(started)?;
-    let sock = socket_path();
-    if !force_spawn && let Ok(stream) = UnixStream::connect(&sock) {
-        apply_timeouts(&stream, started);
-        return Some(stream);
-    }
-    if matches!(
-        UnixStream::connect(&sock)
-            .map(|_| ())
-            .err()
-            .map(|e| e.kind()),
-        Some(std::io::ErrorKind::ConnectionRefused)
-    ) {
-        let _ = std::fs::remove_file(&sock);
-    }
-    if !force_spawn
-        && sock.exists()
-        && let Ok(stream) = UnixStream::connect(&sock)
-    {
-        apply_timeouts(&stream, started);
-        return Some(stream);
-    }
-    if !allow_spawn && !force_spawn {
-        return None;
-    }
-    spawn_hub()?;
-    loop {
-        remaining(started)?;
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            apply_timeouts(&stream, started);
-            return Some(stream);
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-}
-
-fn spawn_hub() -> Option<()> {
-    use nix::fcntl::{Flock, FlockArg};
-
-    let exe = hub_exe()?;
-    let file = lock_file()?;
-    let flock = Flock::lock(file, FlockArg::LockExclusive).ok()?;
-    if UnixStream::connect(socket_path()).is_ok() {
-        return Some(());
-    }
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("hub")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-    cmd.spawn().ok()?;
-    drop(flock);
-    Some(())
-}
-
-fn hub_exe() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_lade") {
-        return Some(PathBuf::from(path));
-    }
-    let exe = std::env::current_exe().ok()?;
-    let name = exe.file_name()?.to_string_lossy();
-    if name == "lade" || name == "lade.exe" {
-        Some(exe)
-    } else {
-        None
-    }
-}
-
-fn lock_file() -> Option<std::fs::File> {
-    let path = lock_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).ok()?;
-    }
-    std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .ok()
-}
-
-fn write_read(stream: &mut UnixStream, req: &Req, started: Instant) -> (Option<Rep>, bool) {
-    if remaining(started).is_none() {
-        return (None, false);
-    }
-    apply_timeouts(stream, started);
-    let Some(frame) = wire::encode_req(req) else {
-        return (None, false);
-    };
-    if stream.write_all(&frame).is_err() {
-        return (None, true);
-    }
-    if remaining(started).is_none() {
-        return (None, true);
-    }
-    let mut header = [0u8; 8];
-    if stream.read_exact(&mut header).is_err() {
-        return (None, true);
-    }
-    let Some(n) = wire::header_len(&header) else {
-        return (None, true);
-    };
-    let mut body = vec![0u8; n as usize];
-    if stream.read_exact(&mut body).is_err() {
-        return (None, true);
-    }
-    let mut frame = Vec::with_capacity(8 + body.len());
-    frame.extend_from_slice(&header);
-    frame.extend_from_slice(&body);
-    (wire::decode_rep(&frame), true)
-}
-
-fn apply_timeouts(stream: &UnixStream, started: Instant) {
-    if let Some(left) = remaining(started) {
-        let _ = stream.set_read_timeout(Some(left));
-        let _ = stream.set_write_timeout(Some(left));
-    }
-}
-
-fn remaining(started: Instant) -> Option<Duration> {
-    DEADLINE.checked_sub(started.elapsed())
 }
 
 pub fn put_t(id: &str) {
@@ -398,7 +216,7 @@ pub fn put_t_notice(id: &str) -> Option<VersionLedger> {
 }
 
 fn put_t_req(id: &str, notice: bool) -> Option<Req> {
-    if !crate::ticket::is_id(id) || daemon_off() {
+    if !crate::ticket::is_id(id) {
         return None;
     }
     let ticket = std::fs::read(crate::ticket::path(id)).ok()?;
@@ -408,10 +226,36 @@ fn put_t_req(id: &str, notice: bool) -> Option<Req> {
 }
 
 pub fn unlink_t(id: &str) {
-    if !crate::ticket::is_id(id) || daemon_off() {
+    if !crate::ticket::is_id(id) {
         return;
     }
     let mut t = [0u8; 4];
     t.copy_from_slice(id.as_bytes());
     let _ = rpc_existing(Req::UnlinkT { t });
+}
+
+/// Starts the hub when it is down. `None`: off, down, or stale.
+pub fn tunnel_open(ask: TunnelAsk) -> Option<TunnelRep> {
+    match rpc_within(Req::TunnelOpen(ask), true, COMMAND_DEADLINE) {
+        Some(Rep::Tunnel(rep)) => Some(rep),
+        _ => None,
+    }
+}
+
+pub fn tunnel_poll(id: u64) -> Option<TunnelRep> {
+    match rpc_within(Req::TunnelPoll { id }, false, COMMAND_DEADLINE) {
+        Some(Rep::Tunnel(rep)) => Some(rep),
+        _ => None,
+    }
+}
+
+/// Never starts a hub: a hub that is down holds no tunnel.
+pub fn tunnel_release(lease: &str) {
+    let _ = rpc_within(
+        Req::TunnelRelease {
+            lease: lease.to_string(),
+        },
+        false,
+        COMMAND_DEADLINE,
+    );
 }

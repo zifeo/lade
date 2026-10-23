@@ -23,6 +23,10 @@ impl GlobalConfig {
         if let std::result::Result::Ok(p) = std::env::var("LADE_CONFIG_PATH") {
             return PathBuf::from(p);
         }
+        #[cfg(test)]
+        if crate::test_state::uses_real_home() {
+            return crate::test_state::dir().join("config.json");
+        }
         let project = directories::ProjectDirs::from("com", "zifeo", "lade")
             .expect("cannot get directory for project");
         let config_path = project.config_local_dir().join("config.json");

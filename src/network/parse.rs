@@ -1,11 +1,10 @@
 use anyhow::{Result, bail};
 use lade_sdk::network::NetworkProviders;
 use std::collections::HashMap;
-use std::net::TcpListener;
 use url::Url;
 
 use crate::config::{NetworkBinding, is_valid_env_key};
-use crate::network::types::{LocalTarget, ParsedBinding};
+use crate::network::types::{LocalTarget, ParsedBinding, ProviderSpec};
 
 pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
     let target = parse_target(&binding.key)?;
@@ -32,6 +31,13 @@ pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
         .provider(scheme)
         .ok_or_else(|| anyhow::anyhow!("unsupported tunnel scheme '{}'", scheme))?;
     let spec = parser.parse(&authority, &segments, &query_map)?;
+    // The app proxy speaks with the user's Teleport identity.
+    if matches!(spec, ProviderSpec::TshApp { .. })
+        && local_host != "127.0.0.1"
+        && local_host != "localhost"
+    {
+        bail!("tsh app proxy supports only 127.0.0.1 or localhost local hosts");
+    }
 
     Ok(ParsedBinding {
         target,
@@ -41,11 +47,11 @@ pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
     })
 }
 
+/// `None`: an env-var key without `local=`. The claim takes a free port.
 pub(crate) fn reconcile_local_port(
     target: &LocalTarget,
     uri_local: Option<u16>,
-    local_host: &str,
-) -> Result<u16> {
+) -> Result<Option<u16>> {
     match target {
         LocalTarget::FixedPort(key_port) => {
             if let Some(uri_port) = uri_local
@@ -57,23 +63,10 @@ pub(crate) fn reconcile_local_port(
                     uri_port
                 );
             }
-            Ok(*key_port)
+            Ok(Some(*key_port))
         }
-        LocalTarget::EnvVar(_) => match uri_local {
-            Some(port) => Ok(port),
-            None => pick_free_local_port(local_host),
-        },
+        LocalTarget::EnvVar(_) => Ok(uri_local),
     }
-}
-
-fn pick_free_local_port(host: &str) -> Result<u16> {
-    let bind_host = if host == "localhost" {
-        "127.0.0.1"
-    } else {
-        host
-    };
-    let listener = TcpListener::bind((bind_host, 0))?;
-    Ok(listener.local_addr()?.port())
 }
 
 fn parse_target(key: &str) -> Result<LocalTarget> {
@@ -134,6 +127,7 @@ mod tests {
             key: "DB_PORT".to_string(),
             uri: "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432"
                 .to_string(),
+            ttl: None,
         };
         let parsed = parse_binding(&binding).expect("parsed");
         assert!(matches!(parsed.target, LocalTarget::EnvVar(ref key) if key == "DB_PORT"));
@@ -145,6 +139,7 @@ mod tests {
             key: "15432".to_string(),
             uri: "tsh://teleport.example.com:443/kube_cluster/my-cluster/dev/service/postgres/5432?local=127.0.0.1:15432"
                 .to_string(),
+            ttl: None,
         };
         let parsed = parse_binding(&binding).expect("parsed");
         assert!(matches!(parsed.target, LocalTarget::FixedPort(15432)));
@@ -159,6 +154,7 @@ mod tests {
             uri:
                 "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432?bad=value"
                     .to_string(),
+            ttl: None,
         };
         let err = parse_binding(&binding).expect_err("must reject unknown query");
         assert!(err.to_string().contains("unsupported query parameter"));
@@ -170,9 +166,21 @@ mod tests {
             key: "DB_PORT".to_string(),
             uri: "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432?local=localhost%3A15432"
                 .to_string(),
+            ttl: None,
         };
         let parsed = parse_binding(&binding).expect("parsed");
         assert_eq!(parsed.local_host, "localhost");
         assert_eq!(parsed.local_port, Some(15432));
+    }
+
+    #[test]
+    fn parse_binding_keeps_tsh_app_proxies_on_loopback() {
+        let binding = NetworkBinding {
+            key: "8080".to_string(),
+            uri: "tsh://teleport.example.com:443/app/acme-api?local=0.0.0.0:8080".to_string(),
+            ttl: None,
+        };
+        let err = parse_binding(&binding).expect_err("must reject host");
+        assert!(err.to_string().contains("supports only"));
     }
 }

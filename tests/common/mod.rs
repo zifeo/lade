@@ -228,3 +228,28 @@ pub fn fake_cli(dir: &tempfile::TempDir, name: &str, script_body: &str) {
     fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 }
+
+/// An `ssh` that serves the `-L` Unix socket and writes its pid to
+/// `$FAKE_SSH_PID`. Needs python3.
+#[cfg(unix)]
+pub fn write_fake_ssh(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("ssh");
+    fs::write(&path, FAKE_SSH).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+const FAKE_SSH: &str = r#"#!/usr/bin/env python3
+import os, socket, sys
+args = sys.argv[1:]
+path = args[args.index("-L") + 1].split(":")[0]
+server = socket.socket(socket.AF_UNIX)
+server.bind(path)
+server.listen(8)
+with open(os.environ["FAKE_SSH_PID"], "w") as out:
+    out.write(str(os.getpid()))
+while True:
+    client, _ = server.accept()
+    client.close()
+"#;

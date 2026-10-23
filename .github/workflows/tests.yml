@@ -66,10 +66,23 @@ jobs:
           command -v age-keygen
           command -v age-plugin-pq
 
+      # Pinned CLIs the tests install (kubectl, vault) and mise version
+      # lists. MISE_CACHE_DIR below overrides .cargo/config.toml.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/mise-test-cache
+          key: mise-test-cache-${{ runner.os }}-${{ hashFiles('lade.lock') }}
+          restore-keys: |
+            mise-test-cache-${{ runner.os }}-
+
       - name: Run native tests
+        env:
+          MISE_CACHE_DIR: ${{ runner.temp }}/mise-test-cache
         run: |
           cargo run --no-default-features -- --help
+          sh scripts/home-canary.sh mark "$RUNNER_TEMP/home.mark"
           cargo test --workspace --locked --no-default-features
+          sh scripts/home-canary.sh check "$RUNNER_TEMP/home.mark"
 
   test-docker:
     runs-on: ubuntu-24.04
@@ -112,8 +125,20 @@ jobs:
           k3d version
           kubectl version --client=true
 
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/mise-test-cache
+          key: mise-test-cache-${{ runner.os }}-docker-${{ hashFiles('lade.lock') }}
+          restore-keys: |
+            mise-test-cache-${{ runner.os }}-docker-
+
       - name: Run Docker tests
-        run: cargo test -p lade --locked --no-default-features --features docker-tests --test docker
+        env:
+          MISE_CACHE_DIR: ${{ runner.temp }}/mise-test-cache
+        run: |
+          sh scripts/home-canary.sh mark "$RUNNER_TEMP/home.mark"
+          cargo test -p lade --locked --no-default-features --features docker-tests --test docker
+          sh scripts/home-canary.sh check "$RUNNER_TEMP/home.mark"
 
   installer-unit:
     runs-on: ubuntu-24.04

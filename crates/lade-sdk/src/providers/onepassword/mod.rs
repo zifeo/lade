@@ -13,7 +13,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, search_cli};
+use super::{Provider, Warnings, add_host_url, search_cli};
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
@@ -103,7 +103,7 @@ impl Provider for OnePassword {
                          Use the item or field UUID instead (found with: op item get 'NAME' --format json)."
                     );
                 }
-                add_url(&mut self.urls, value, "op")
+                add_host_url(&mut self.urls, value, "op")
             }
             _ => bail!("Not an op scheme"),
         }

@@ -11,7 +11,9 @@ mod ssh;
 mod tsh;
 
 pub use cli::is_network_scheme;
-pub use command::{build_command, ensure_provider_preflight};
+pub use command::{
+    Listen, ListenKind, build_command, ensure_provider_preflight, kube_context, listen_kind,
+};
 pub use kubectl::compose_uri as compose_kubectl_uri;
 
 #[derive(Debug, Clone)]
@@ -50,7 +52,8 @@ pub enum ProviderSpec {
     },
     Ssh {
         jump_host: String,
-        jump_port: u16,
+        /// `None`: the port comes from `~/.ssh/config` for that host.
+        jump_port: Option<u16>,
         remote_host: String,
         remote_port: u16,
     },

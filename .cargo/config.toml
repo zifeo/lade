@@ -16,3 +16,8 @@ rustc-wrapper = ".cargo/sccache-wrapper"
 [env]
 SCCACHE_DIR = { value = "target/sccache", relative = true }
 SCCACHE_SERVER_UDS = { value = ".cargo/sccache.sock", relative = true }
+# Tests run mise under a throwaway HOME, so each one refetched version
+# lists and re-downloaded pinned CLIs (kubectl, vault). One cache keeps
+# mise's content-addressed downloads across tests and runs. An exported
+# MISE_CACHE_DIR wins: CI points it at a dir it persists.
+MISE_CACHE_DIR = { value = "target/mise-cache", relative = true }

@@ -1,81 +1,100 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
-use std::io::Read;
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::process::Command;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::{READINESS_POLL_INTERVAL, configure_child_process, tcp_connects};
+use super::child::{spawn_forward, stop_child, wait_forward_ready};
+use super::policy::{Policy, Step};
+use super::{Endpoint, Inner};
 
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
-const INITIAL_RESTART_BACKOFF: Duration = Duration::from_millis(250);
-const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(5);
+pub(crate) type EndpointSlot = Arc<Mutex<Option<Endpoint>>>;
+
+/// Stops a supervisor from another thread, also while its first start
+/// still blocks [`RunningForward::supervise`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Stop(Arc<(Mutex<bool>, Condvar)>);
+
+impl Stop {
+    pub(crate) fn stop(&self) {
+        let (stopped, wake) = &*self.0;
+        *stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        wake.notify_all();
+    }
+
+    pub(crate) fn is_stopped(&self) -> bool {
+        *self.0.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Sleeps for `delay` or until stopped. True when stopped.
+    pub(crate) fn sleep(&self, delay: Duration) -> bool {
+        let (stopped, wake) = &*self.0;
+        let guard = stopped.lock().unwrap_or_else(PoisonError::into_inner);
+        let (guard, _) = wake
+            .wait_timeout_while(guard, delay, |stopped| !*stopped)
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct RunningForward {
-    shutdown: Arc<AtomicBool>,
+    stop: Stop,
     child_pid: Arc<AtomicI32>,
-    shutdown_tx: mpsc::Sender<()>,
+    endpoint: EndpointSlot,
     supervisor: Option<JoinHandle<()>>,
 }
 
-struct SupervisorConfig {
-    name: String,
-    host: String,
-    port: u16,
-}
-
 impl RunningForward {
+    /// Blocks until the first child is ready, then keeps restarting it.
     pub(crate) fn supervise<F>(
         name: String,
-        host: String,
-        port: u16,
+        inner: Inner,
+        stop: Stop,
         command: F,
     ) -> Result<(Self, u32)>
     where
         F: Fn() -> Result<Command> + Send + 'static,
     {
-        let shutdown = Arc::new(AtomicBool::new(false));
         let child_pid = Arc::new(AtomicI32::new(0));
-        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let endpoint: EndpointSlot = Arc::new(Mutex::new(None));
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-        let supervisor_shutdown = Arc::clone(&shutdown);
-        let supervisor_pid = Arc::clone(&child_pid);
-        let supervisor = std::thread::spawn(move || {
-            supervise(
-                SupervisorConfig { name, host, port },
-                command,
-                supervisor_shutdown,
-                supervisor_pid,
-                shutdown_rx,
-                ready_tx,
-            )
-        });
+        let shared = Shared {
+            stop: stop.clone(),
+            child_pid: Arc::clone(&child_pid),
+            endpoint: Arc::clone(&endpoint),
+        };
+        let supervisor =
+            std::thread::spawn(move || supervise(&name, &inner, command, shared, ready_tx));
         let pid = ready_rx
             .recv()
             .map_err(|_| anyhow!("tunnel supervisor stopped before readiness"))??;
         Ok((
             Self {
-                shutdown,
+                stop,
                 child_pid,
-                shutdown_tx,
+                endpoint,
                 supervisor: Some(supervisor),
             },
             pid,
         ))
     }
+
+    /// `None` while the provider restarts.
+    pub(crate) fn endpoint(&self) -> EndpointSlot {
+        Arc::clone(&self.endpoint)
+    }
 }
 
 impl Drop for RunningForward {
     fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::Release);
-        let _ = self.shutdown_tx.send(());
+        self.stop.stop();
         let pid = self.child_pid.load(Ordering::Acquire);
         if pid > 0 {
-            let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
+            let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
         }
         if let Some(handle) = self.supervisor.take() {
             let _ = handle.join();
@@ -83,185 +102,121 @@ impl Drop for RunningForward {
     }
 }
 
-fn supervise<F>(
-    config: SupervisorConfig,
-    command: F,
-    shutdown: Arc<AtomicBool>,
+struct Shared {
+    stop: Stop,
     child_pid: Arc<AtomicI32>,
-    shutdown_rx: mpsc::Receiver<()>,
+    endpoint: EndpointSlot,
+}
+
+fn set_endpoint(slot: &EndpointSlot, value: Option<Endpoint>) {
+    *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = value;
+}
+
+fn supervise<F>(
+    name: &str,
+    inner: &Inner,
+    command: F,
+    shared: Shared,
     ready_tx: mpsc::SyncSender<Result<u32>>,
 ) where
     F: Fn() -> Result<Command>,
 {
-    let startup_deadline = Instant::now() + STARTUP_TIMEOUT;
-    let mut ready_sent = false;
-    let mut backoff = INITIAL_RESTART_BACKOFF;
+    let origin = Instant::now();
+    let mut policy = Policy::new();
     loop {
-        if shutdown.load(Ordering::Acquire) {
-            if !ready_sent {
+        if shared.stop.is_stopped() {
+            if policy.shutdown() {
                 let _ = ready_tx.send(Err(anyhow!("tunnel stopped before readiness")));
             }
             return;
         }
-        let mut child = match command().and_then(spawn_forward) {
-            Ok(child) => child,
-            Err(error) => {
-                if !ready_sent && Instant::now() >= startup_deadline {
+        let run = run_once(
+            name,
+            inner,
+            &command,
+            &shared,
+            &mut policy,
+            origin,
+            &ready_tx,
+        );
+        let delay = match run {
+            Run::Stopped => continue,
+            Run::Exited => policy.exited(),
+            Run::NotReady(phase, error) => match policy.not_ready(origin.elapsed()) {
+                Step::Fail => {
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
-                log::warn!("{} failed to start: {error}", config.name);
-                if !wait_restart(&shutdown_rx, backoff) {
-                    return;
+                Step::Retry(delay) => {
+                    log::warn!("{name} {phase}: {error}");
+                    delay
                 }
-                backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
-                continue;
-            }
+            },
         };
-        match wait_forward_ready(
-            &mut child,
-            &config.host,
-            config.port,
-            startup_deadline,
-            &shutdown_rx,
-        ) {
-            Ok(()) => {
-                child_pid.store(child.child.id() as i32, Ordering::Release);
-                if !ready_sent {
-                    let _ = ready_tx.send(Ok(child.child.id()));
-                    ready_sent = true;
-                }
-                backoff = INITIAL_RESTART_BACKOFF;
-                let status = child.child.wait();
-                child_pid.store(0, Ordering::Release);
-                child.join_readers();
-                if shutdown.load(Ordering::Acquire) {
-                    return;
-                }
-                log::warn!(
-                    "{} exited after readiness (status: {}): {}",
-                    config.name,
-                    status.map_or_else(|error| error.to_string(), |status| status.to_string()),
-                    child.logs_text()
-                );
+        // A stop during the wait is seen at the top of the loop.
+        shared.stop.sleep(delay);
+    }
+}
+
+/// How one provider run ended.
+enum Run {
+    NotReady(&'static str, anyhow::Error),
+    /// It was ready, then exited on its own.
+    Exited,
+    Stopped,
+}
+
+/// Spawns the provider and waits until it exits.
+fn run_once<F>(
+    name: &str,
+    inner: &Inner,
+    command: &F,
+    shared: &Shared,
+    policy: &mut Policy,
+    origin: Instant,
+    ready_tx: &mpsc::SyncSender<Result<u32>>,
+) -> Run
+where
+    F: Fn() -> Result<Command>,
+{
+    let mut child = match command().and_then(|command| spawn_forward(command, inner)) {
+        Ok(child) => child,
+        Err(error) => return Run::NotReady("failed to start", error),
+    };
+    shared
+        .child_pid
+        .store(child.child.id() as i32, Ordering::Release);
+    let deadline = origin + policy.listen_deadline(origin.elapsed());
+    let endpoint = match wait_forward_ready(&mut child, inner, deadline, &shared.stop) {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            stop_child(&mut child.child);
+            shared.child_pid.store(0, Ordering::Release);
+            child.join_readers();
+            if shared.stop.is_stopped() {
+                return Run::Stopped;
             }
-            Err(error) => {
-                stop_child(&mut child.child);
-                child_pid.store(0, Ordering::Release);
-                child.join_readers();
-                if shutdown.load(Ordering::Acquire) {
-                    return;
-                }
-                if !ready_sent && Instant::now() >= startup_deadline {
-                    let _ = ready_tx.send(Err(error));
-                    return;
-                }
-                log::warn!("{} failed before readiness: {error}", config.name);
-            }
+            return Run::NotReady("failed before readiness", error);
         }
-        if !wait_restart(&shutdown_rx, backoff) {
-            return;
-        }
-        backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
+    };
+    set_endpoint(&shared.endpoint, Some(endpoint));
+    if policy.ready() {
+        let _ = ready_tx.send(Ok(child.child.id()));
     }
-}
-
-fn wait_restart(shutdown_rx: &mpsc::Receiver<()>, delay: Duration) -> bool {
-    shutdown_rx.recv_timeout(delay).is_err()
-}
-
-struct ChildForward {
-    child: Child,
-    logs: Arc<Mutex<Vec<u8>>>,
-    stdout_join: Option<JoinHandle<()>>,
-    stderr_join: Option<JoinHandle<()>>,
-}
-
-fn spawn_forward(mut command: Command) -> Result<ChildForward> {
-    configure_child_process(&mut command);
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let logs = Arc::new(Mutex::new(Vec::new()));
-    let stdout_join = child
-        .stdout
-        .take()
-        .map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
-    let stderr_join = child
-        .stderr
-        .take()
-        .map(|pipe| spawn_pipe_reader(pipe, Arc::clone(&logs)));
-    Ok(ChildForward {
-        child,
-        logs,
-        stdout_join,
-        stderr_join,
-    })
-}
-
-impl ChildForward {
-    fn logs_text(&self) -> String {
-        String::from_utf8_lossy(&self.logs.lock().expect("logs mutex")).into_owned()
+    let status = child.child.wait();
+    // Helpers it left in its group (a ProxyCommand) would hold the log
+    // pipes open, and the readers would never let it restart.
+    let _ = killpg(Pid::from_raw(child.child.id() as i32), Signal::SIGKILL);
+    set_endpoint(&shared.endpoint, None);
+    shared.child_pid.store(0, Ordering::Release);
+    child.join_readers();
+    if shared.stop.is_stopped() {
+        return Run::Stopped;
     }
-
-    fn join_readers(&mut self) {
-        if let Some(handle) = self.stdout_join.take() {
-            let _ = handle.join();
-        }
-        if let Some(handle) = self.stderr_join.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn wait_forward_ready(
-    child: &mut ChildForward,
-    host: &str,
-    port: u16,
-    deadline: Instant,
-    shutdown_rx: &mpsc::Receiver<()>,
-) -> Result<()> {
-    loop {
-        if let Some(status) = child.child.try_wait()? {
-            bail!(
-                "process exited before becoming ready (status: {status}): {}",
-                child.logs_text()
-            );
-        }
-        if tcp_connects(host, port, Duration::from_millis(200)) {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            bail!(
-                "timeout waiting for readiness on {host}:{port}: {}",
-                child.logs_text()
-            );
-        }
-        if shutdown_rx.recv_timeout(READINESS_POLL_INTERVAL).is_ok() {
-            bail!("tunnel stopped before readiness");
-        }
-    }
-}
-
-fn stop_child(child: &mut Child) {
-    if let Ok(pid) = i32::try_from(child.id()) {
-        let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
-    }
-    if child.try_wait().ok().flatten().is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
-fn spawn_pipe_reader<R: Read + Send + 'static>(
-    mut reader: R,
-    logs: Arc<Mutex<Vec<u8>>>,
-) -> JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if reader.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
-            logs.lock().expect("logs mutex").extend(buf);
-        }
-    })
+    log::warn!(
+        "{name} exited after readiness (status: {}): {}",
+        status.map_or_else(|error| error.to_string(), |status| status.to_string()),
+        child.logs_text()
+    );
+    Run::Exited
 }

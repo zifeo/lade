@@ -227,7 +227,6 @@ fn finished_ticket_wrap_is_unchanged() {
                 matches: json!([]),
                 op_sa: None,
                 agent: json!({}),
-                network_pids: vec![],
                 pending: false,
             };
             let id = ticket::write(&pre).unwrap();

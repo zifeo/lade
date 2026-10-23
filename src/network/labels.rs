@@ -17,30 +17,55 @@ pub(super) fn connection_label(spec: &ProviderSpec, local_host: &str, local_port
     } else {
         format!("{local_host}:{local_port}")
     };
+    format!("{} on {local}", target_label(spec))
+}
+
+pub(super) fn target_label(spec: &ProviderSpec) -> String {
     match spec {
         ProviderSpec::Kubectl {
             name, remote_port, ..
-        } => format!("{name}:{remote_port} on {local}"),
+        } => format!("{name}:{remote_port}"),
         ProviderSpec::Kubefwd {
             name, service_port, ..
-        } => format!("{name}:{service_port} on {local}"),
+        } => format!("{name}:{service_port}"),
         ProviderSpec::TshKubeCluster {
             name, remote_port, ..
-        } => format!("{name}:{remote_port} on {local}"),
+        } => format!("{name}:{remote_port}"),
         ProviderSpec::TshApp {
             app_name,
             target_port,
             ..
         } => match target_port {
-            Some(target_port) => format!("{app_name}:{target_port} on {local}"),
-            None => format!("{app_name} on {local}"),
+            Some(target_port) => format!("{app_name}:{target_port}"),
+            None => app_name.clone(),
         },
         ProviderSpec::Ssh {
             remote_host,
             remote_port,
             ..
-        } => format!("{remote_host}:{remote_port} on {local}"),
+        } => format!("{remote_host}:{remote_port}"),
     }
+}
+
+/// How long a command waits for another Lade tunnel to free its port.
+pub(super) const PORT_WAIT_MINUTES: u64 = 10;
+
+/// `holder`: another Lade tunnel's key and URI, still there after the wait.
+pub(super) fn port_held(port: u16, label: &str, holder: Option<(&str, &str)>) -> anyhow::Error {
+    anyhow::anyhow!(match holder {
+        Some((key, uri)) => format!(
+            "Local port {port} was still held by another Lade tunnel to {uri} after {PORT_WAIT_MINUTES} min. {label} was not started: the command would reach that tunnel's target. Run `lade ttl forget {key}`, or key this tunnel by an env var so it gets a free port."
+        ),
+        None => format!(
+            "Local port {port} is already in use. {label} was not started: the command would reach that listener instead. Stop it, or key this tunnel by an env var so it gets a free port."
+        ),
+    })
+}
+
+pub(super) fn port_wait_message(port: u16, label: &str, key: &str, uri: &str) -> String {
+    format!(
+        "{label}: port {port} is held by another Lade tunnel to {uri} ({key}). Waiting up to {PORT_WAIT_MINUTES} min, Ctrl-C to cancel."
+    )
 }
 
 pub(super) fn provider_label(spec: &ProviderSpec) -> &'static str {

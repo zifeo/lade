@@ -8,8 +8,8 @@ use crate::ticket;
 
 /// Clap verbs except `inject`, which is a vehicle.
 const VERBS: &[&str] = &[
-    "add", "approve", "bench", "cache", "eval", "help", "hook", "hub", "log", "mcp", "off", "on",
-    "remove", "set", "setup", "status", "teardown", "unset", "update", "upgrade", "usage", "user",
+    "add", "approve", "bench", "eval", "help", "hook", "hub", "log", "mcp", "off", "on", "remove",
+    "set", "setup", "status", "teardown", "ttl", "unset", "update", "upgrade", "usage", "user",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -3,7 +3,9 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use crate::audience::Via;
-use crate::config::{Audience, Config, LadeRule, NetworkBinding, PreEventWork, SecretSources};
+use crate::config::{
+    Audience, Config, LadeRule, NetworkBinding, PreEventWork, RuleTtl, SecretSources,
+};
 use crate::ticket::{self, PreEvent, TicketSecret};
 
 pub(super) struct ProviderWork {
@@ -94,29 +96,37 @@ pub(super) fn pre_event_from_work(
             .map(|binding| ticket::TicketNetwork {
                 key: binding.key.clone(),
                 uri: binding.uri.clone(),
+                ttl: binding.ttl.as_ref().map(RuleTtl::to_raw),
             })
             .collect(),
         matches: work.matches.clone(),
         op_sa: work.op_sa.clone(),
         agent: work.agent.clone(),
-        network_pids: Vec::new(),
         pending: false,
     }
 }
 
-fn try_ticket_work(pre: &PreEvent) -> ProviderWork {
-    ProviderWork {
+fn try_ticket_work(pre: &PreEvent) -> Result<ProviderWork> {
+    Ok(ProviderWork {
         disclaimers: pre.disclaimers.clone(),
         secrets: pre.secrets.clone(),
         op_sa: pre.op_sa.clone(),
         network_bindings: pre
             .network
             .iter()
-            .map(|binding| NetworkBinding {
-                key: binding.key.clone(),
-                uri: binding.uri.clone(),
+            .map(|binding| {
+                Ok(NetworkBinding {
+                    key: binding.key.clone(),
+                    uri: binding.uri.clone(),
+                    ttl: binding
+                        .ttl
+                        .as_deref()
+                        .map(RuleTtl::parse)
+                        .transpose()
+                        .map_err(|e| anyhow::anyhow!("ticket tunnel ttl: {e}"))?,
+                })
             })
-            .collect(),
+            .collect::<Result<_>>()?,
         matches: pre.matches.clone(),
         log: pre.log,
         agent: pre.agent.clone(),
@@ -128,7 +138,7 @@ fn try_ticket_work(pre: &PreEvent) -> ProviderWork {
                 .collect(),
             ..SecretSources::default()
         },
-    }
+    })
 }
 
 fn walk_work(work: PreEventWork) -> ProviderWork {
@@ -156,7 +166,7 @@ pub(super) async fn resolve_provider_work(
         && let Some(id) = ticket_id
         && let Ok(pre) = ticket::read(id)
     {
-        return Ok(Some(try_ticket_work(&pre)));
+        return Ok(Some(try_ticket_work(&pre)?));
     }
 
     let patterned = config.collect_for_with_pattern(command, audience);

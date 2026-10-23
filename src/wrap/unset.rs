@@ -1,4 +1,6 @@
 use anyhow::Result;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -6,7 +8,6 @@ use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::files::{remove_files, split_env_files};
 use crate::message_box;
-use crate::network;
 use crate::preexec::Shell;
 use crate::ticket;
 
@@ -36,6 +37,15 @@ async fn unset_output_files(
     Ok(files.into_keys().map(|path| (path, ())).collect())
 }
 
+/// Each provider led its own session, so its pid is its group.
+fn stop_legacy_providers(id: &str) {
+    for pid in ticket::legacy_network_pids(id) {
+        if let Ok(pid) = i32::try_from(pid) {
+            let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
+        }
+    }
+}
+
 pub async fn handle_unset(
     ctx: &InvocationContext,
     shell: &Shell,
@@ -45,9 +55,8 @@ pub async fn handle_unset(
     let command = commands.join(" ");
     let files = unset_output_files(config, ctx, &command).await?;
     if let Some(id) = ctx.ticket_id.as_deref().filter(|id| ticket::is_id(id)) {
-        if let Ok(pre) = ticket::read(id) {
-            network::stop_network_pids_list(&pre.network_pids);
-        }
+        stop_legacy_providers(id);
+        crate::hub::tunnel_release(id);
         crate::hub::unlink_t(id);
         let _ = ticket::unlink(id);
     }

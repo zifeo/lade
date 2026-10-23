@@ -66,6 +66,90 @@ pub enum Req {
     },
     /// Read the version ledger. Starts nothing.
     Version,
+    /// Reuse or start a tunnel. `launch: None` only reuses.
+    TunnelOpen(TunnelAsk),
+    TunnelPoll {
+        id: u64,
+    },
+    /// Drops this lease from every tunnel.
+    TunnelRelease {
+        lease: String,
+    },
+}
+
+/// Who keeps a tunnel open: `id` is a ticket or `p<pid>`. `started` tells a
+/// live `pid` from a reused one.
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Lease {
+    pub id: String,
+    pub pid: u32,
+    pub started: u64,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TunnelAsk {
+    pub key: String,
+    pub uri: String,
+    pub host: String,
+    /// `None`: an env-var key without `local=`. Reuse matches on `key`.
+    pub port: Option<u16>,
+    /// Two asks with the same fingerprint reach the same target.
+    pub fingerprint: String,
+    /// How long the tunnel outlives its last lease. `None`: it stops then.
+    pub ttl_ms: Option<u32>,
+    pub lease: Lease,
+    pub launch: Option<TunnelLaunch>,
+}
+
+/// Built where the user's env lives: the provider runs with this env.
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TunnelLaunch {
+    pub context: Option<String>,
+    pub env: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum TunnelRep {
+    /// Nothing to reuse. Ask again with a launch.
+    Absent,
+    Starting {
+        id: u64,
+        port: u16,
+    },
+    Ready {
+        id: u64,
+        port: u16,
+        pid: u32,
+        reused: bool,
+    },
+    Failed {
+        error: String,
+    },
+    /// `holder`: key and URI of the hub tunnel on that port. `None`: another
+    /// process holds it.
+    Conflict {
+        port: u16,
+        holder: Option<(String, String)>,
+    },
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TunnelRow {
+    pub key: String,
+    pub uri: String,
+    pub port: u16,
+    pub leases: u32,
+    /// `None` while a command uses it, or when it stops with its last lease.
+    pub ttl_left_ms: Option<u32>,
+    pub phase: TunnelPhase,
+}
+
+/// A failed start stays listed until the commands that asked for it let go.
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelPhase {
+    Starting,
+    Ready,
+    Failed,
 }
 
 /// What this hub knows about the latest release. RAM only.
@@ -97,6 +181,7 @@ pub enum Rep {
         pid: u32,
         tickets: u32,
         rows: Vec<CacheRow>,
+        tunnels: Vec<TunnelRow>,
     },
     Window {
         ttl: Option<String>,
@@ -108,6 +193,7 @@ pub enum Rep {
         version: VersionLedger,
     },
     Version(VersionLedger),
+    Tunnel(TunnelRep),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

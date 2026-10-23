@@ -1,265 +1,117 @@
-use anyhow::Result;
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::process::Command;
-use std::time::{Duration, Instant};
+use anyhow::{Result, anyhow};
+use std::path::Path;
+use std::sync::mpsc::{self, RecvTimeoutError};
 
-use crate::config::NetworkBinding;
-use crate::network::labels::{
-    connection_label, env_entry_for, provider_label, send_failed, send_progress,
-};
-use crate::network::parse::{parse_binding, reconcile_local_port};
-use crate::network::process::{
-    ChildOutputFiles, RunningForward, configure_child_process, stop_network_pids_list,
-    wait_child_ready,
-};
-use crate::network::progress::ProviderProgressKind;
-use crate::network::types::{AcquiredNetwork, DetachedNetworkSession, ParsedBinding};
+use crate::config::{NetworkBinding, RuleTtl};
+use crate::hub::Lease;
+use crate::network::Stop;
+use crate::network::binding::{Acquired, HUB_POLL, acquire_binding};
+use crate::network::lease::own_lease;
+use crate::network::types::{AcquiredNetwork, DetachedNetworkSession, HubLease};
 use crate::provider_progress::ProviderProgressSink;
-use lade_sdk::network::{build_command, ensure_provider_preflight};
 
-const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(20);
-
+/// The hub holds every tunnel under this process's lease, so a tunnel stops
+/// with the command, or with its ttl once the last command is done.
 pub fn start_attached_network_session(
     bindings: &[NetworkBinding],
     progress: ProviderProgressSink,
+    cwd: &Path,
+    cancel: &Stop,
 ) -> Result<AcquiredNetwork> {
+    let mut network = AcquiredNetwork::empty();
     if bindings.is_empty() {
-        return Ok(AcquiredNetwork::empty());
+        return Ok(network);
     }
-    let mut env = HashMap::new();
-    let mut guards = Vec::new();
-    let handles = bindings
-        .iter()
-        .cloned()
-        .map(|binding| {
-            let progress = progress.clone();
-            std::thread::spawn(move || acquire_attached_binding(binding, progress))
-        })
-        .collect::<Vec<_>>();
-    for handle in handles {
-        let attached = handle
-            .join()
-            .map_err(|_| anyhow::anyhow!("tunnel worker panicked"))
-            .and_then(|inner| inner)?;
-        if let Some((key, value)) = attached.env_entry {
-            env.insert(key, value);
+    let lease = own_lease()?;
+    network._lease = Some(HubLease(lease.id.clone()));
+    let session = crate::hub::session_ttl(cwd);
+    for acquired in run_workers(bindings, &lease, session, progress, cancel)? {
+        if let Some((key, value)) = acquired.env_entry {
+            network.env.insert(key, value);
         }
-        guards.push(attached.guard);
     }
-    Ok(AcquiredNetwork {
-        env,
-        _guards: guards,
-    })
+    Ok(network)
 }
 
+/// `lade set` holds the tunnels under its own lease until
+/// [`DetachedNetworkSession::hand_to_shell`], so a Ctrl-C before that leaves
+/// nothing behind.
 pub fn start_detached_network_session(
     bindings: &[NetworkBinding],
     progress: ProviderProgressSink,
+    cwd: &Path,
+    cancel: &Stop,
 ) -> Result<DetachedNetworkSession> {
+    let mut session = DetachedNetworkSession::empty();
     if bindings.is_empty() {
-        return Ok(DetachedNetworkSession::empty());
+        return Ok(session);
     }
-    let mut env = HashMap::new();
-    let mut pids = Vec::new();
-    let handles = bindings
+    let lease = own_lease()?;
+    session.lease = Some(HubLease(lease.id.clone()));
+    let ttl = crate::hub::session_ttl(cwd);
+    for acquired in run_workers(bindings, &lease, ttl, progress, cancel)? {
+        if let Some((key, value)) = acquired.env_entry {
+            session.env.insert(key, value);
+        }
+        session.asks.push(acquired.ask);
+    }
+    Ok(session)
+}
+
+/// Stops the other workers at the first error or on `cancel`, then joins
+/// them all: Lade exits right after, and a worker still waiting on the hub
+/// would keep its lease open.
+fn run_workers(
+    bindings: &[NetworkBinding],
+    lease: &Lease,
+    session: Option<RuleTtl>,
+    progress: ProviderProgressSink,
+    cancel: &Stop,
+) -> Result<Vec<Acquired>> {
+    let (done, results) = mpsc::channel();
+    let stops = bindings.iter().map(|_| Stop::default()).collect::<Vec<_>>();
+    let workers = bindings
         .iter()
         .cloned()
-        .map(|binding| {
+        .zip(stops.iter().cloned())
+        .enumerate()
+        .map(|(index, (binding, stop))| {
+            let lease = lease.clone();
+            let session = session.clone();
             let progress = progress.clone();
-            std::thread::spawn(move || acquire_detached_binding(binding, progress))
+            let done = done.clone();
+            std::thread::spawn(move || {
+                let result = acquire_binding(binding, lease, session, progress, &stop);
+                let _ = done.send((index, result));
+            })
         })
         .collect::<Vec<_>>();
-    for handle in handles {
-        let outcome = handle
-            .join()
-            .map_err(|_| anyhow::anyhow!("tunnel worker panicked"))
-            .and_then(|inner| inner);
-        let (env_entry, pid) = match outcome {
-            Ok(value) => value,
-            Err(e) => {
-                if !pids.is_empty() {
-                    stop_network_pids_list(&pids);
-                }
-                return Err(e);
+    drop(done);
+    let mut acquired = bindings.iter().map(|_| None).collect::<Vec<_>>();
+    let mut failure = None;
+    loop {
+        match results.recv_timeout(HUB_POLL) {
+            Ok((index, Ok(binding))) => acquired[index] = Some(binding),
+            Ok((_, Err(error))) => {
+                failure.get_or_insert(error);
+                stops.iter().for_each(Stop::stop);
             }
-        };
-        if let Some((key, value)) = env_entry {
-            env.insert(key, value);
-        }
-        pids.push(pid);
-    }
-    Ok(DetachedNetworkSession { env, pids })
-}
-
-struct PreparedBinding {
-    parsed: ParsedBinding,
-    local_host: String,
-    local_port: u16,
-    command: CommandTemplate,
-    progress_id: String,
-    display: String,
-    started: Instant,
-}
-
-#[derive(Clone)]
-struct CommandTemplate {
-    program: OsString,
-    args: Vec<OsString>,
-}
-
-impl CommandTemplate {
-    fn from_command(command: Command) -> Self {
-        Self {
-            program: command.get_program().to_owned(),
-            args: command.get_args().map(OsString::from).collect(),
+            Err(RecvTimeoutError::Timeout) => {
+                if cancel.is_stopped() {
+                    failure.get_or_insert_with(|| anyhow!("interrupted"));
+                    stops.iter().for_each(Stop::stop);
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
-
-    fn command(&self) -> Command {
-        let mut command = Command::new(&self.program);
-        command.args(&self.args);
-        command
+    for worker in workers {
+        if worker.join().is_err() {
+            failure.get_or_insert_with(|| anyhow!("tunnel worker panicked"));
+        }
     }
-}
-
-fn prepare_binding(
-    binding: NetworkBinding,
-    progress: &ProviderProgressSink,
-) -> Result<PreparedBinding> {
-    let started = Instant::now();
-    let parsed = parse_binding(&binding)?;
-    let local_port = reconcile_local_port(&parsed.target, parsed.local_port, &parsed.local_host)?;
-    let local_host = parsed.local_host.clone();
-    let progress_id = format!("{}|{}", binding.key, binding.uri);
-    let display = connection_label(&parsed.spec, &local_host, local_port);
-    send_progress(
-        progress,
-        &progress_id,
-        display.clone(),
-        ProviderProgressKind::Connecting,
-    );
-    if let Err(e) = ensure_provider_preflight(&parsed.spec) {
-        send_failed(progress, progress_id, display, started);
-        return Err(e);
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(acquired.into_iter().flatten().collect()),
     }
-    let command = match build_command(&parsed.spec, &local_host, local_port) {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            send_failed(progress, progress_id, display, started);
-            return Err(e);
-        }
-    };
-    Ok(PreparedBinding {
-        parsed,
-        local_host,
-        local_port,
-        command: CommandTemplate::from_command(command),
-        progress_id,
-        display,
-        started,
-    })
-}
-
-struct AttachedBinding {
-    env_entry: Option<(String, String)>,
-    guard: RunningForward,
-}
-
-fn acquire_attached_binding(
-    binding: NetworkBinding,
-    progress: ProviderProgressSink,
-) -> Result<AttachedBinding> {
-    let PreparedBinding {
-        parsed,
-        local_host,
-        local_port,
-        command,
-        progress_id,
-        display,
-        started,
-    } = prepare_binding(binding, &progress)?;
-    let label = provider_label(&parsed.spec);
-    let (process, pid) = match RunningForward::supervise(
-        label.to_string(),
-        local_host.clone(),
-        local_port,
-        move || Ok(command.command()),
-    ) {
-        Ok(process) => process,
-        Err(e) => {
-            send_failed(&progress, progress_id, display, started);
-            return Err(e);
-        }
-    };
-    let env_entry = env_entry_for(&parsed.target, local_port);
-    let connected = format!(
-        "{} pid={} {} ms",
-        connection_label(&parsed.spec, &local_host, local_port),
-        pid,
-        started.elapsed().as_millis()
-    );
-    send_progress(
-        &progress,
-        &progress_id,
-        connected,
-        ProviderProgressKind::Connected,
-    );
-    Ok(AttachedBinding {
-        env_entry,
-        guard: process,
-    })
-}
-
-fn acquire_detached_binding(
-    binding: NetworkBinding,
-    progress: ProviderProgressSink,
-) -> Result<(Option<(String, String)>, u32)> {
-    let PreparedBinding {
-        parsed,
-        local_host,
-        local_port,
-        command,
-        progress_id,
-        display,
-        started,
-    } = prepare_binding(binding, &progress)?;
-    let mut command = command.command();
-    configure_child_process(&mut command);
-    let logs = ChildOutputFiles::capture(&mut command)?;
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            logs.cleanup();
-            send_failed(&progress, progress_id, display, started);
-            return Err(e.into());
-        }
-    };
-    if let Err(e) = wait_child_ready(&mut child, &local_host, local_port, DEFAULT_READY_TIMEOUT) {
-        let _ = child.kill();
-        let _ = child.wait();
-        let log_text = logs.read_text();
-        logs.cleanup();
-        send_failed(&progress, progress_id, display, started);
-        if log_text.is_empty() {
-            return Err(e);
-        }
-        return Err(anyhow::anyhow!("{e}\n{log_text}"));
-    }
-    logs.cleanup();
-    let pid = child.id();
-    let env_entry = env_entry_for(&parsed.target, local_port);
-    let connected = format!(
-        "{} pid={} {} ms",
-        connection_label(&parsed.spec, &local_host, local_port),
-        pid,
-        started.elapsed().as_millis()
-    );
-    send_progress(
-        &progress,
-        &progress_id,
-        connected,
-        ProviderProgressKind::Connected,
-    );
-    Ok((env_entry, pid))
 }

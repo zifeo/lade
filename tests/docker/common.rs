@@ -91,11 +91,15 @@ pub fn command_path(name: &str) -> Option<PathBuf> {
 }
 
 pub fn lade(home: &std::path::Path) -> Command {
+    Command::from_std(lade_std(home))
+}
+
+pub fn lade_std(home: &std::path::Path) -> StdCommand {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
         std::fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("lade"));
+    let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
     cmd.env("LADE_SHELL", "bash")
         .env("HOME", home)
         .env("LADE_CONFIG_PATH", config_path)

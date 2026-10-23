@@ -32,11 +32,11 @@ fn sample_pre_event() -> PreEvent {
         network: vec![TicketNetwork {
             key: "db".to_string(),
             uri: "k8s://cluster/ns/svc".to_string(),
+            ttl: Some("8h".to_string()),
         }],
         matches: json!([]),
         op_sa: None,
         agent: json!({"harness": "cursor"}),
-        network_pids: Vec::new(),
         pending: false,
     }
 }
@@ -167,11 +167,23 @@ fn replace_updates_same_id() {
         let mut pre = sample_pre_event();
         let id = write(&pre).unwrap();
         pre.pending = true;
-        pre.network_pids = vec![42];
         replace(&id, &pre).unwrap();
         let read_back = read(&id).unwrap();
         assert!(read_back.pending);
-        assert_eq!(read_back.network_pids, vec![42]);
+        unlink(&id).unwrap();
+    });
+}
+
+#[test]
+fn legacy_network_pids_come_from_older_tickets_only() {
+    with_ticket_dir(|| {
+        let id = write(&sample_pre_event()).unwrap();
+        assert!(legacy_network_pids(&id).is_empty());
+        let mut older = serde_json::to_value(sample_pre_event()).unwrap();
+        older["network_pids"] = serde_json::json!([4242]);
+        std::fs::write(path(&id), serde_json::to_vec(&older).unwrap()).unwrap();
+        assert_eq!(legacy_network_pids(&id), vec![4242]);
+        assert!(read(&id).is_ok());
         unlink(&id).unwrap();
     });
 }

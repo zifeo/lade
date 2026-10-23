@@ -5,14 +5,14 @@
   TOKEN: "sh://sleep 1; echo token-42"
 
 > echo cache $TOKEN
-⠋ sh sleep 1; echo token-42: TOKEN
+⠋ sh: TOKEN
 
-✔︎ sh sleep 1; echo token-42: TOKEN                                    1014 ms
+✔︎ sh: TOKEN                                                           1019 ms
 
 cache token-42
 
 > echo cache $TOKEN
-✔︎ sh sleep 1; echo token-42: TOKEN (c)                                   0 ms
+✔︎ sh: TOKEN (c)                                                          0 ms
 
 cache token-42
 

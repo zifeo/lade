@@ -1,21 +1,96 @@
 use anyhow::{Result, bail};
+use std::path::Path;
 use std::process::Command;
 
 use super::ProviderSpec;
 use super::kubeconfig::resolve_kube_context;
 
-pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> Result<Command> {
+/// Where the provider process listens. Lade binds the user-facing port
+/// itself and relays to this, except for [`ListenKind::Direct`].
+#[derive(Debug, Clone, Copy)]
+pub enum Listen<'a> {
+    /// The provider picks a free loopback port and prints it.
+    Printed,
+    Tcp {
+        host: &'a str,
+        port: u16,
+    },
+    Unix(&'a Path),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListenKind {
+    Printed,
+    Unix,
+    /// The provider binds the user-facing port itself: kubefwd maps
+    /// services to their own loopback addresses.
+    Direct,
+}
+
+pub fn listen_kind(spec: &ProviderSpec) -> ListenKind {
+    match spec {
+        ProviderSpec::Kubectl { .. }
+        | ProviderSpec::TshKubeCluster { .. }
+        | ProviderSpec::TshApp { .. } => ListenKind::Printed,
+        ProviderSpec::Ssh { .. } => ListenKind::Unix,
+        ProviderSpec::Kubefwd { .. } => ListenKind::Direct,
+    }
+}
+
+/// `kubectl port-forward` arguments: `:remote` lets kubectl pick the local
+/// port, so no other process can race for it.
+fn port_forward_args(listen: Listen<'_>, remote_port: &str) -> Result<[String; 3]> {
+    let Listen::Printed = listen else {
+        bail!("kubectl port-forward picks its own port");
+    };
+    Ok([
+        format!(":{remote_port}"),
+        "--address".to_string(),
+        "127.0.0.1".to_string(),
+    ])
+}
+
+/// The kube context a kubectl or kubefwd URI points at, read with this
+/// process's env (`KUBECONFIG`). `None` for providers without one.
+pub fn kube_context(spec: &ProviderSpec) -> Result<Option<String>> {
     match spec {
         ProviderSpec::Kubectl {
             cluster_endpoint,
             context_selector,
+            ..
+        }
+        | ProviderSpec::Kubefwd {
+            cluster_endpoint,
+            context_selector,
+            ..
+        } => resolve_kube_context(cluster_endpoint, Some(context_selector.as_str())).map(Some),
+        ProviderSpec::TshKubeCluster { .. }
+        | ProviderSpec::TshApp { .. }
+        | ProviderSpec::Ssh { .. } => Ok(None),
+    }
+}
+
+fn required_context(context: Option<&str>) -> Result<&str> {
+    context.ok_or_else(|| anyhow::anyhow!("kube context was not resolved"))
+}
+
+/// `context` is [`kube_context`] for the same spec: the caller resolves it
+/// where the user's env lives, the command may run elsewhere.
+pub fn build_command(
+    spec: &ProviderSpec,
+    context: Option<&str>,
+    listen: Listen<'_>,
+) -> Result<Command> {
+    match spec {
+        ProviderSpec::Kubectl {
             namespace,
             kind,
             name,
             remote_port,
             pod_running_timeout,
+            ..
         } => {
-            let context = resolve_kube_context(cluster_endpoint, Some(context_selector.as_str()))?;
+            let context = required_context(context)?;
             let mut cmd = Command::new("kubectl");
             cmd.arg("--context")
                 .arg(context)
@@ -23,28 +98,31 @@ pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> 
                 .arg(namespace)
                 .arg("port-forward")
                 .arg(format!("{kind}/{name}"))
-                .arg(format!("{local_port}:{remote_port}"))
-                .arg("--address")
-                .arg(local_host);
+                .args(port_forward_args(listen, remote_port)?);
             if let Some(timeout) = pod_running_timeout {
                 cmd.arg("--pod-running-timeout").arg(timeout);
             }
             Ok(cmd)
         }
         ProviderSpec::Kubefwd {
-            cluster_endpoint,
-            context_selector,
             namespace,
             kind,
             name,
             service_port,
             domain,
             selector,
+            ..
         } => {
             if kind != "service" {
                 bail!("kubefwd currently supports only resource kind 'service'");
             }
-            let context = resolve_kube_context(cluster_endpoint, Some(context_selector.as_str()))?;
+            let Listen::Tcp {
+                port: local_port, ..
+            } = listen
+            else {
+                bail!("kubefwd binds its own local port");
+            };
+            let context = required_context(context)?;
             let mut cmd = Command::new("kubefwd");
             cmd.arg("svc")
                 .arg("-n")
@@ -78,9 +156,7 @@ pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> 
                 .arg(namespace)
                 .arg("port-forward")
                 .arg(format!("{kind}/{name}"))
-                .arg(format!("{local_port}:{remote_port}"))
-                .arg("--address")
-                .arg(local_host);
+                .args(port_forward_args(listen, &remote_port.to_string())?);
             Ok(cmd)
         }
         ProviderSpec::TshApp {
@@ -88,18 +164,19 @@ pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> 
             app_name,
             target_port,
         } => {
-            if local_host != "127.0.0.1" && local_host != "localhost" {
-                bail!("tsh app proxy supports only 127.0.0.1 or localhost local hosts");
-            }
-            let port = target_port
-                .map(|target_port| format!("{local_port}:{target_port}"))
-                .unwrap_or_else(|| local_port.to_string());
+            // Without a local port, tsh binds localhost:0 and prints
+            // `Proxying connections to APP on HOST:PORT`.
+            let Listen::Printed = listen else {
+                bail!("tsh app proxy picks its own port");
+            };
             let mut cmd = Command::new("tsh");
             cmd.arg(format!("--proxy={teleport_proxy}"))
                 .arg("proxy")
-                .arg("app")
-                .arg(format!("--port={port}"))
-                .arg(app_name);
+                .arg("app");
+            if let Some(target_port) = target_port {
+                cmd.arg(format!("--port=0:{target_port}"));
+            }
+            cmd.arg(app_name);
             Ok(cmd)
         }
         ProviderSpec::Ssh {
@@ -108,17 +185,28 @@ pub fn build_command(spec: &ProviderSpec, local_host: &str, local_port: u16) -> 
             remote_host,
             remote_port,
         } => {
+            let Listen::Unix(socket) = listen else {
+                bail!("ssh forwards listen on a Unix socket");
+            };
             let mut cmd = Command::new("ssh");
+            // ControlPath=none: a shared master from ~/.ssh/config would own
+            // the forward, so killing this ssh would not close it.
+            // ServerAlive*: a dead link (sleep, network change) makes ssh
+            // exit and get restarted instead of hanging.
+            // StreamLocalBindUnlink: a restart reuses the socket path the
+            // previous ssh left behind.
             cmd.arg("-N")
-                .arg("-o")
-                .arg("ExitOnForwardFailure=yes")
+                .args(["-o", "ExitOnForwardFailure=yes"])
+                .args(["-o", "ControlPath=none"])
+                .args(["-o", "StreamLocalBindUnlink=yes"])
+                .args(["-o", "ServerAliveInterval=15"])
+                .args(["-o", "ServerAliveCountMax=3"])
                 .arg("-L")
-                .arg(format!(
-                    "{local_host}:{local_port}:{remote_host}:{remote_port}"
-                ))
-                .arg("-p")
-                .arg(jump_port.to_string())
-                .arg(jump_host);
+                .arg(format!("{}:{remote_host}:{remote_port}", socket.display()));
+            if let Some(port) = jump_port {
+                cmd.arg("-p").arg(port.to_string());
+            }
+            cmd.arg(jump_host);
             Ok(cmd)
         }
     }
@@ -168,7 +256,7 @@ mod tests {
             app_name: "example-app".to_string(),
             target_port: None,
         };
-        let command = build_command(&spec, "127.0.0.1", 18000).expect("command");
+        let command = build_command(&spec, None, Listen::Printed).expect("command");
         let args = command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -180,10 +268,30 @@ mod tests {
                 "--proxy=teleport.example.com:443",
                 "proxy",
                 "app",
-                "--port=18000",
                 "example-app"
             ]
         );
+    }
+
+    #[test]
+    fn ssh_forwards_to_a_unix_socket_and_keeps_the_config_port() {
+        let spec = ProviderSpec::Ssh {
+            jump_host: "jump.example.com".to_string(),
+            jump_port: None,
+            remote_host: "db.internal".to_string(),
+            remote_port: 5432,
+        };
+        let command =
+            build_command(&spec, None, Listen::Unix(Path::new("/tmp/t/s.sock"))).expect("command");
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(args.contains(&"/tmp/t/s.sock:db.internal:5432".to_string()));
+        assert!(args.contains(&"ServerAliveInterval=15".to_string()));
+        assert!(!args.contains(&"-p".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("jump.example.com"));
     }
 
     #[test]
@@ -193,7 +301,7 @@ mod tests {
             app_name: "example-app".to_string(),
             target_port: Some(3000),
         };
-        let command = build_command(&spec, "127.0.0.1", 18000).expect("command");
+        let command = build_command(&spec, None, Listen::Printed).expect("command");
         let args = command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -205,23 +313,10 @@ mod tests {
                 "--proxy=teleport.example.com:443",
                 "proxy",
                 "app",
-                "--port=18000:3000",
+                "--port=0:3000",
                 "example-app"
             ]
         );
-    }
-
-    #[test]
-    fn rejects_non_loopback_app_proxy_host() {
-        let spec = ProviderSpec::TshApp {
-            teleport_proxy: "teleport.example.com:443".to_string(),
-            app_name: "example-app".to_string(),
-            target_port: None,
-        };
-
-        let err = build_command(&spec, "0.0.0.0", 18000).expect_err("must reject host");
-
-        assert!(err.to_string().contains("supports only"));
     }
 
     #[test]

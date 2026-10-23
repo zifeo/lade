@@ -207,7 +207,7 @@ pub struct McpCommand {
 Examples:
   lade status
   lade status --json
-  lade cache
+  lade ttl
 ")]
 pub struct StatusCommand {
     /// Check all supported secret providers, not only those referenced in lade.yaml.
@@ -303,7 +303,7 @@ pub enum LogAction {
         /// Keep this window. Ns | Nm | Nh | Nd | Nw | Nmonth.
         #[clap(long, help = DURATION_HELP)]
         keep: Option<String>,
-        /// Alias of `lade cache forget`. Stops this binary's hub. Combinable with `--keep`.
+        /// Alias of `lade ttl forget`. Stops this binary's hub. Combinable with `--keep`.
         #[clap(long)]
         hub: bool,
     },
@@ -317,29 +317,32 @@ pub enum LogAction {
     Verify,
 }
 
-pub const CACHE_AFTER_HELP: &str = "\
+pub const TTL_AFTER_HELP: &str = "\
 Examples:
-  lade cache
-  lade cache --global
-  lade cache list --json
-  lade cache set 2h
-  lade cache unset
-  lade cache forget
-  lade cache forget AWS_ACCESS_KEY_ID
+  lade ttl
+  lade ttl --global
+  lade ttl list --json
+  lade ttl set 2h
+  lade ttl unset
+  lade ttl forget
+  lade ttl forget AWS_ACCESS_KEY_ID
+  lade ttl forget 15432
 
 Names only. Never values. This binary's hub only.
-`lade cache` lists this cwd and related paths. `--global` lists every row.
-`lade cache set` marks this cwd on the hub. Ancestors share it.
-`unset` clears this cwd.
-Vault and file stay in RAM 5m. `forget` drops them now.
-`lade log prune --hub` is an alias of `lade cache forget`.
+`lade ttl` lists this cwd and related paths, then the hub's tunnels.
+`--global` lists every row.
+`lade ttl set` marks this cwd on the hub. Ancestors share it. Secrets and
+tunnels of matching rules keep that long. `unset` clears this cwd.
+Vault and file stay in RAM 5m. Tunnels stop with their command unless the
+rule or a window sets ttl. `forget` drops them now.
+`lade log prune --hub` is an alias of `lade ttl forget`.
 Loader marks: (c) cached, (o) overridden, (u) unset. See docs/cli.md.
 ";
 
-/// This binary's in-memory secret cache. Names only.
+/// This binary's hub: cached secrets and tunnels. Names only.
 #[derive(Parser, Debug)]
-#[command(after_help = CACHE_AFTER_HELP)]
-pub struct CacheCommand {
+#[command(after_help = TTL_AFTER_HELP)]
+pub struct TtlCommand {
     /// Emit the listing as JSON.
     #[clap(long, default_value_t = false, global = true)]
     pub json: bool,
@@ -347,16 +350,17 @@ pub struct CacheCommand {
     #[clap(long, default_value_t = false, global = true)]
     pub global: bool,
     #[command(subcommand)]
-    pub action: Option<CacheAction>,
+    pub action: Option<TtlAction>,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum CacheAction {
-    /// List cached key names, cwd, yaml path, ttl left.
+pub enum TtlAction {
+    /// List cached key names, cwd, yaml path, ttl left, then tunnels.
     List,
-    /// Forget all keys, or the named keys. Does not spawn.
+    /// Forget all keys and tunnels, or the named ones. Does not spawn.
     Forget {
-        /// Binding names to drop. Empty forgets every key and stops the hub.
+        /// Binding names to drop: secret names or tunnel keys. Empty forgets
+        /// everything and stops the hub.
         names: Vec<String>,
     },
     /// Mark this cwd's hub window. Ancestors share it. `off` or up to 24h.

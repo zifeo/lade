@@ -5,7 +5,8 @@ In-memory hub for hydrated secrets. `terraform plan` then
 round trip. The hub stores ciphertext only. Tickets stay in
 [protocol.md](protocol.md). The diary stays in
 [observability.md](observability.md). Env overrides are in
-[env.md](env.md).
+[env.md](env.md). The tunnels the hub runs are in
+[tunnels.md](tunnels.md).
 
 ## Opt in
 
@@ -27,10 +28,11 @@ the same pattern: the second refetches. It does not fail.
 |---|---|---|
 | Vault / `op` / cloud / file / sops / age | 5m | `ttl: off` disables. `ttl: 1h` … `ttl: 24h` (max) |
 | `sh` / `bash` / `zsh` / `fish` | off | that body writes `ttl:` (same max) |
-| This cwd (hub window) | yaml / 5m | `lade cache set 2h` marks this cwd. Ancestors and children share it. `ttl: off` on the body still wins. Shell URIs opt in. `lade cache unset` clears this cwd. |
-| `raw://`, tunnel, package | off | never |
+| This cwd (hub window) | yaml / 5m | `lade ttl set 2h` marks this cwd. Ancestors and children share it. `ttl: off` on the body still wins. Shell URIs opt in. `lade ttl unset` clears this cwd. |
+| Tunnel | off | `ttl:` on the body or a `lade ttl set` window. Counts from the last command that used it |
+| `raw://`, package | off | never |
 
-A body `ttl:` longer than 24h fails at load. `lade cache forget`
+A body `ttl:` longer than 24h fails at load. `lade ttl forget`
 drops the RAM now. The next match refetches.
 
 One matching command can hit several patterns. One `Get` / `Put`
@@ -68,7 +70,7 @@ every time, without the hub.
 connect. The pretool handler (`lade hook` on stdin) writes the T
 file only.
 
-`LADE_DAEMON=off` skips connect and spawn. `CI` is not a signal.
+`CI` is not a signal.
 
 ## Lookup
 
@@ -169,8 +171,8 @@ crate version mismatch drop it. Crash is always cold. Nothing
 is serialized.
 
 After 1h with no request, it prunes expired rows. It exits when
-no secret, ticket, or `lade cache set` window is left. A window
-keeps it up until `lade cache unset`. Every minute it also checks
+no secret, ticket, tunnel, or `lade ttl set` window is left. A window
+keeps it up until `lade ttl unset`. Every minute it also checks
 that clients can still reach it, and exits, rows or not, when its
 socket path is gone or holds another hub's socket, or when a
 reinstall put another file at its binary path (new clients hash
@@ -187,7 +189,7 @@ A client that may use the hub:
    socket. `cargo run` and an install can both be up.
 2. No full reply in 20 ms: miss, hydrate, at most one later
    `Put`. Ignore a late `Hit`.
-3. Socket absent and `LADE_DAEMON` is not `off`: `flock`
+3. Socket absent: `flock`
    `$CACHE/hub-{token}.lock`, spawn `lade hub`, exclusive
    `bind`. The bind loser connects once to the winner. Spawn
    fail: hydrate as usual.
@@ -235,7 +237,7 @@ that silent drop is a stale hub (unlink + spawn once).
 `user` is `saved_user` or `""`. `path` is that body's yaml
 file. `ttl_ms` is that body's duration, or 300000 when the
 body used the vault default, or this cwd's hub window when
-`lade cache set` marked one. `ttl: off` bodies are not put.
+`lade ttl set` marked one. `ttl: off` bodies are not put.
 `Err` 4 is denied (wrong peer or version).
 
 ## CLI
@@ -244,14 +246,14 @@ body used the vault default, or this cwd's hub window when
 `down` / `off` / `stale`. `--json` adds extra `hub` (`state`,
 `pid`, `secrets`, `tickets`) and leaves `ok` unchanged.
 
-`lade cache` lists this cwd's key names, the cwd the row is
+`lade ttl` lists this cwd's key names, the cwd the row is
 valid for, yaml path, and ttl left. `--global` lists every row
-on this hub. Never values. `lade cache set 2h` marks this cwd on
+on this hub. Never values. `lade ttl set 2h` marks this cwd on
 the hub. A parent or child cwd shares that window (nearest
-path wins). `lade cache unset` clears this cwd.
-`lade cache forget` and `lade cache forget KEY` drop
+path wins). `lade ttl unset` clears this cwd.
+`lade ttl forget` and `lade ttl forget KEY` drop
 rows. List and forget do not spawn. Set and unset spawn.
-`lade log prune --hub` is an alias of `lade cache forget`.
+`lade log prune --hub` is an alias of `lade ttl forget`.
 Combinable with `--keep`. Other `hub-*.sock` leftovers stay.
 The next matching command refetches. A vault edit does not
 evict a live row.
@@ -276,7 +278,7 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Hub dies mid-`Put` | This command uses its hydrate. Next misses |
 | Hub dies, leftover T files | Files still work |
 | Yaml edit between plan and apply | Miss, refetch |
-| Provider value changed, hub still live | Same row until TTL or `lade cache forget` |
+| Provider value changed, hub still live | Same row until TTL or `lade ttl forget` |
 | Keychain ACL prompt | One dialog (wrap-key.lock). Always Allow: later gets are silent. Deny: skip hub |
 | Keychain locked (`Lock after` / sleep lock) | Skip hub if the user cancels |
 | `@s` gone after logout | Unwrap fail, then miss |
@@ -288,7 +290,6 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Table at cap, all TTLs live | Evict oldest insert |
 | Machine sleeps past a TTL | Row is due at wake |
 | Client connects and sends nothing | Dropped after 500 ms, next client served |
-| `LADE_DAEMON=off` | No hub. Hydrate as usual |
 | Idle 1h, no row, no window | Exit, unlink own socket and lock |
 | Idle 1h, rows or a window left | Stay on `accept` |
 | Socket path gone or replaced (checked every minute) | Exit, leave the path alone |

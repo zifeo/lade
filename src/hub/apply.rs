@@ -6,10 +6,11 @@ use crate::config::{
     uri_is_cacheable, when_label,
 };
 
-use super::client::{HubState, daemon_off, probe, rpc};
+use super::client::{HubState, probe};
 use super::crypto::{aad, open, seal, zero_key};
 use super::key::{wrap_gap, wrap_key};
 use super::server::socket_path;
+use super::transport::rpc;
 use super::wire::{Rep, Req};
 
 pub struct CacheHit {
@@ -47,11 +48,8 @@ pub fn lookup(
         values: HashMap::new(),
         keys: HashSet::new(),
     };
-    if daemon_off() {
-        return hit;
-    }
     let user = saved_user.clone().unwrap_or_default();
-    let session = session_for(cwd);
+    let session = session_ttl(cwd);
     let cwd = cwd.to_string_lossy().into_owned();
     let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
     if planned.is_empty() {
@@ -83,11 +81,8 @@ pub fn store(
     hydrated: &HashMap<String, String>,
     already_cached: &HashSet<String>,
 ) {
-    if daemon_off() {
-        return;
-    }
     let user = saved_user.clone().unwrap_or_default();
-    let session = session_for(cwd);
+    let session = session_ttl(cwd);
     let cwd = cwd.to_string_lossy().into_owned();
     let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
     if planned.is_empty() {
@@ -163,11 +158,8 @@ pub fn cache_gap(
     saved_user: &Option<String>,
     patterned: &[(PathBuf, String, LadeRule)],
 ) -> Option<String> {
-    if daemon_off() {
-        return None;
-    }
     let user = saved_user.clone().unwrap_or_default();
-    let session = session_for(cwd);
+    let session = session_ttl(cwd);
     let cwd = cwd.to_string_lossy().into_owned();
     let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
     if planned.is_empty() {
@@ -189,11 +181,12 @@ pub fn cache_gap(
             "This rule has ttl. The secret cache is stale (other lade binary). Hydrated this time."
                 .to_string(),
         ),
-        HubState::Off | HubState::Up => None,
+        HubState::Up => None,
     }
 }
 
-fn session_for(cwd: &Path) -> Option<RuleTtl> {
+/// The `lade ttl set` window over `cwd`. Never starts a hub.
+pub(crate) fn session_ttl(cwd: &Path) -> Option<RuleTtl> {
     let raw = crate::hub::window(&crate::hub::scope(cwd))?;
     RuleTtl::parse(&raw).ok()
 }

@@ -13,11 +13,11 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 - **Secret cache:** an in-memory hub keeps hydrated vault ciphertext
   for a rule body (`ttl:` on `.`, 5m default for vault and file).
-  `lade cache` lists this cwd's key names, cwd, yaml path, and
-  time left. `lade cache --global` lists every row on this hub.
-  `lade cache forget` and `lade cache forget KEY` drop this binary's
-  RAM. `lade cache set 2h` marks this cwd on the hub. Parent
-  and child folders share it. `lade cache unset` clears this
+  `lade ttl` lists this cwd's key names, cwd, yaml path, and
+  time left. `lade ttl --global` lists every row on this hub.
+  `lade ttl forget` and `lade ttl forget KEY` drop this binary's
+  RAM. `lade ttl set 2h` marks this cwd on the hub. Parent
+  and child folders share it. `lade ttl unset` clears this
   cwd. `lade log prune --hub`
   is an alias.
   `lade status` reports hub pid and counts. Progress marks `(c)`
@@ -25,6 +25,12 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   up to 24h. See [docs/cache.md](docs/cache.md) and
   [docs/cli.md](docs/cli.md). `lade --help` lists examples and
   the ttl. `-v` lists protocol verbs.
+- **Persistent tunnels:** `ttl:` on a rule's `.`, or a `lade ttl set`
+  window, keeps its tunnels that long after the last command that
+  used them. The next command to the same target reuses them, with or
+  without a ttl of its own. Tunnels have no default ttl. The hub runs
+  every pre-exec tunnel and restarts the provider when it exits.
+  `lade ttl` lists them, `lade ttl forget KEY` stops one.
 - **age plugin post-quantum keys:** `age-plugin-lade` wraps and
   unwraps with Go age 1.3 keys (`age1pq1`, `AGE-SECRET-KEY-PQ-1`)
   through `age-plugin-pq` on `PATH`. The age 1.3.2 release and mise
@@ -33,6 +39,26 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Changed
 
+- **`lade cache` is now `lade ttl`** (`list`, `set`, `unset`, `forget`),
+  since the window and `forget` also cover tunnels. Breaking:
+  `lade cache` fails with a box naming `lade ttl`.
+- **`tsh://` app tunnels:** `tsh proxy app` picks its own port and
+  prints it, like `kubectl port-forward`, so no other process can take
+  the port between Lade choosing it and tsh binding it.
+- **`ssh://` tunnels:** a jump without a port takes it from
+  `~/.ssh/config` instead of `-p 22`. Lade runs its own connection
+  (`ControlPath=none`) with `ServerAliveInterval=15`, so a dead link
+  exits and restarts instead of hanging.
+- **`LADE_DAEMON` is gone.** The hub always serves, and every tunnel
+  runs in it. Breaking.
+- **A failed secret or tunnel cancels the command.** A human at a
+  terminal gets 5 s to press Enter and run it anyway, without Lade.
+  No terminal, no answer, or Ctrl-C cancels it, in pre-exec too. It
+  replaces the 5 s wait after which a pre-exec command ran anyway.
+  Ctrl-C while Lade connects cancels the command in fish too, which
+  used to run it.
+- **No home directory** stops Lade with a box instead of caching in
+  `.lade-cache` under the current directory.
 - **`lade upgrade`**: after a successful update, a box says this terminal
   still has the previous wrap and prints the reload command
   (`eval "$(lade on)"` on zsh).
@@ -69,6 +95,47 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
+- **fish quoting:** a value with a `\` broke the code `lade set` and
+  `lade unset` print for fish, and a value ending in `\'` could run
+  commands when the hook sourced it. fish now gets `\\` and `\'`.
+- **Binding names:** a binding exported to the env must be a valid env
+  var name (letters, digits, `_`, not starting with a digit). A name
+  like `X;touch f` was pasted into the shell code the hook evals. A
+  binding written to a file keeps any field name.
+- **Panics:** a huge `ttl:` or `lade ttl set` / `--since` duration, and
+  an `op://`, `passbolt://`, or `doppler://` URI without a host, now
+  fail with an error instead of crashing.
+- **Tunnel start errors:** a provider that exits at once, such as `tsh`
+  when logged out, reported an empty "timeout waiting for the tunnel to
+  listen" after a last retry started past the 60 s deadline. It now
+  fails with the provider's own output.
+- **Tunnel port clash:** two commands on one fixed local port shared
+  the first tunnel. The second reported ready by connecting to the
+  first, and reached the first one's target, for example a stg apply
+  reaching the prd database. Lade now binds the port itself and
+  relays to the provider. A second target waits up to 10 min for the
+  first command to end, and a tunnel kept only by its ttl gives the
+  port up at once. A port another program holds is refused with a box.
+  On macOS, where `127.0.0.1:P` binds while `0.0.0.0:P` or `[::]:P`
+  listens, a fixed port counts as held when any of those is taken.
+  When Lade gives up, the command does not run, in pre-exec too: the
+  shell gets an empty `PATH` for that one command and prints
+  `Lade cancelled <command>.`, unless a human presses Enter within 5 s.
+- **Tunnel restarts:** a provider that exited more than 60 s after the
+  tunnel started was never restarted, since each restart only had
+  what was left of the startup deadline. Each restart now gets a full
+  60 s, and a helper the provider left behind (a `ProxyCommand`) no
+  longer blocks it.
+- **Tunnel cleanup:** when one tunnel failed, the others still starting
+  outlived the command. They now stop at the first error, so it shows
+  at once. Ctrl-C, `kill`, or closing the terminal while tunnels
+  connect stops them before Lade exits; their providers run in their
+  own sessions and used to survive. A provider whose helpers ignore
+  `SIGTERM` is killed with its whole process group.
+- **Orphan providers:** a `kubectl`, `ssh`, or `tsh` started for a
+  tunnel kept running when its Lade or hub was killed (`SIGKILL`,
+  crash). Each one now runs under `lade tunnel-guard`, which kills it
+  once its Lade is gone.
 - **Pins in the wrap:** a `fish` or `zsh` mise shim on `PATH` removed
   every pinned CLI from `PATH` before a wrapped command or a
   `fish://` / `zsh://` / `bash://` / `sh://` snippet ran. The script now
@@ -109,7 +176,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   Clap verbs still match the full line. Walk `log` follows the
   current audience. See [docs/protocol.md](docs/protocol.md).
 - **Hub lifetime:** after 1h with no request, a hub with no secret,
-  ticket, or `lade cache set` window exits. A hub whose socket was
+  ticket, or `lade ttl set` window exits. A hub whose socket was
   replaced or removed, or whose binary a reinstall replaced, exits
   within a minute, so orphans no longer pile up. On
   exit a hub unlinks its socket and lock only if the socket path is

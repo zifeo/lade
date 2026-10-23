@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use super::resolve::{ResolvedEntry, binding_name, resolve_entry};
+use super::resolve::{ResolvedEntry, binding_name, check_env_name, resolve_entry};
 use super::secret::resolve_lade_secret;
 use super::{Config, LadeRule, Output, SecretSources};
 use crate::ticket::TicketSecret;
@@ -30,6 +30,7 @@ pub(super) fn secrets_from_rules(
                 None => {}
                 Some(ResolvedEntry::Secret { key, value }) => {
                     let (name, private) = binding_name(&key)?;
+                    check_env_name(&name, output.is_some())?;
                     let ticket = TicketSecret {
                         key: name.clone(),
                         source: value,

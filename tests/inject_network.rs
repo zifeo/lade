@@ -36,6 +36,28 @@ fn test_inject_network_provider_error_is_boxed() {
 }
 
 #[test]
+fn test_inject_network_refuses_a_port_already_in_use() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    fs::write(
+        dir.path().join("lade.yml"),
+        format!("\"curl.*\":\n  {port}: ssh://jump.example.com:22/db.internal/5432\n"),
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "curl http://127.0.0.1:18080/"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Could not start tunnels:"))
+        .stderr(predicates::str::contains(format!(
+            "Local port {port} is already in use"
+        )));
+}
+
+#[test]
 fn test_inject_network_parse_error_is_boxed() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

@@ -27,7 +27,6 @@ fn set_exports_lade_t() {
         serde_json::from_slice(&fs::read(tmp.path().join(format!("{id}.json"))).unwrap()).unwrap();
     assert_eq!(pre["via"], "preexec");
     assert_eq!(pre["pending"], serde_json::Value::Null);
-    assert!(pre["network_pids"].is_null() || pre["network_pids"].as_array().unwrap().is_empty());
 }
 
 #[test]

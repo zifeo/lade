@@ -1,19 +1,19 @@
+mod child;
 mod forward;
 mod logs;
+mod policy;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use forward::RunningForward;
-pub(crate) use logs::ChildOutputFiles;
+pub(crate) use forward::{EndpointSlot, RunningForward, Stop};
 
-use anyhow::{Result, bail};
-use nix::errno::Errno;
-use nix::sys::signal::{Signal, kill, killpg};
-use nix::unistd::Pid;
-use std::net::{TcpStream, ToSocketAddrs};
-use std::process::{Child, Command};
-use std::time::{Duration, Instant};
+use std::io::{self, Read, Write};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
 
 /// Delay between readiness checks while waiting for a forwarded port to
 /// accept connections. Kept short for snappier detection; the dominant cost
@@ -33,46 +33,81 @@ pub(crate) fn configure_child_process(command: &mut Command) {
     }
 }
 
-fn tcp_connects(host: &str, port: u16, timeout: Duration) -> bool {
-    let target = format!("{host}:{port}");
-    let Ok(addrs) = target.to_socket_addrs() else {
-        return false;
-    };
-    addrs
-        .into_iter()
-        .any(|addr| TcpStream::connect_timeout(&addr, timeout).is_ok())
+/// Where a provider listens once it is ready.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Endpoint {
+    Tcp { host: String, port: u16 },
+    Unix(PathBuf),
 }
 
-pub(crate) fn wait_child_ready(
-    child: &mut Child,
-    host: &str,
-    port: u16,
-    timeout: Duration,
-) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            bail!("process exited before becoming ready (status: {status})");
+/// What the supervisor waits for before the provider counts as ready.
+#[derive(Debug, Clone)]
+pub(crate) enum Inner {
+    /// The provider picks the port and prints it on stdout.
+    Printed,
+    Fixed(Endpoint),
+}
+
+impl Endpoint {
+    pub(crate) fn connect(&self, timeout: Duration) -> io::Result<Stream> {
+        match self {
+            Self::Tcp { host, port } => {
+                let mut last = io::Error::other(format!("{host}:{port} did not resolve"));
+                for addr in (host.as_str(), *port).to_socket_addrs()? {
+                    match TcpStream::connect_timeout(&addr, timeout) {
+                        Ok(stream) => return Ok(Stream::Tcp(stream)),
+                        Err(e) => last = e,
+                    }
+                }
+                Err(last)
+            }
+            Self::Unix(path) => UnixStream::connect(path).map(Stream::Unix),
         }
-        if tcp_connects(host, port, Duration::from_millis(200)) {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            bail!("timeout waiting for readiness on {host}:{port}");
-        }
-        std::thread::sleep(READINESS_POLL_INTERVAL);
     }
 }
 
-pub fn stop_network_pids_list(pids: &[u32]) {
-    for pid in pids.iter().filter_map(|pid| i32::try_from(*pid).ok()) {
-        match killpg(Pid::from_raw(pid), Signal::SIGTERM) {
-            Ok(_) | Err(Errno::ESRCH) => {}
-            Err(_) => {}
+pub(crate) enum Stream {
+    Tcp(TcpStream),
+    Unix(UnixStream),
+}
+
+impl Stream {
+    pub(crate) fn try_clone(&self) -> io::Result<Self> {
+        match self {
+            Self::Tcp(stream) => stream.try_clone().map(Self::Tcp),
+            Self::Unix(stream) => stream.try_clone().map(Self::Unix),
         }
-        match kill(Pid::from_raw(pid), Signal::SIGTERM) {
-            Ok(_) | Err(Errno::ESRCH) => {}
-            Err(_) => {}
+    }
+
+    pub(crate) fn shutdown_write(&self) {
+        let _ = match self {
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
+            Self::Unix(stream) => stream.shutdown(Shutdown::Write),
+        };
+    }
+}
+
+impl Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(stream) => stream.read(buf),
+            Self::Unix(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Stream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(stream) => stream.write(buf),
+            Self::Unix(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.flush(),
+            Self::Unix(stream) => stream.flush(),
         }
     }
 }

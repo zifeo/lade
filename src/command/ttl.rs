@@ -2,18 +2,18 @@ use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::Path;
 
-use crate::args::{CacheAction, CacheCommand};
+use crate::args::{TtlAction, TtlCommand};
 use crate::config::RuleTtl;
-use crate::hub::{self, CacheListing, CacheRow, HubState};
+use crate::hub::{self, CacheListing, CacheRow, HubState, TunnelPhase, TunnelRow};
 use crate::message_box::Report;
 
-pub fn run(opts: CacheCommand) -> Result<()> {
+pub fn run(opts: TtlCommand) -> Result<()> {
     match opts.action {
-        None | Some(CacheAction::List) => print_list(opts.json, opts.global),
-        Some(CacheAction::Forget { names }) if names.is_empty() => forget_all(),
-        Some(CacheAction::Forget { names }) => forget_named(&names),
-        Some(CacheAction::Set { ttl }) => set_window(ttl.as_deref()),
-        Some(CacheAction::Unset) => clear_window(),
+        None | Some(TtlAction::List) => print_list(opts.json, opts.global),
+        Some(TtlAction::Forget { names }) if names.is_empty() => forget_all(),
+        Some(TtlAction::Forget { names }) => forget_named(&names),
+        Some(TtlAction::Set { ttl }) => set_window(ttl.as_deref()),
+        Some(TtlAction::Unset) => clear_window(),
     }
 }
 
@@ -28,7 +28,7 @@ fn set_window(ttl: Option<&str>) -> Result<()> {
         Some(()) => {
             Report::new()
                 .line(format!(
-                    "cache ttl {raw}  {}",
+                    "ttl {raw}  {}",
                     crate::preexec::path_for_display(Path::new(&scope))
                 ))
                 .print();
@@ -44,7 +44,7 @@ fn clear_window() -> Result<()> {
         Some(()) => {
             Report::new()
                 .line(format!(
-                    "cache ttl cleared  {}",
+                    "ttl cleared  {}",
                     crate::preexec::path_for_display(Path::new(&scope))
                 ))
                 .print();
@@ -61,7 +61,6 @@ fn current_scope() -> Result<String> {
 
 fn hub_unavailable() -> Result<()> {
     anyhow::bail!(match hub::probe().state {
-        HubState::Off => "hub: off",
         HubState::Stale => "hub: stale",
         _ => "hub: down",
     })
@@ -85,7 +84,6 @@ fn print_list(as_json: bool, global: bool) -> Result<()> {
         return Ok(());
     }
     match listing.state {
-        HubState::Off => println!("hub: off"),
         HubState::Down => println!("hub: down"),
         HubState::Stale => println!("hub: stale"),
         HubState::Up => match listing.pid {
@@ -96,25 +94,56 @@ fn print_list(as_json: bool, global: bool) -> Result<()> {
     if let Some(ttl) = &window {
         println!("window: {ttl}");
     }
-    if rows.is_empty() {
-        return Ok(());
+    if !rows.is_empty() {
+        println!();
+        for row in rows {
+            let cwd = crate::preexec::path_for_display(Path::new(&row.cwd));
+            let path = crate::preexec::path_for_display(Path::new(&row.path));
+            let ttl = format_ttl_left(row.ttl_left_ms);
+            println!("{}  {cwd}  {path}  {ttl}", row.name);
+        }
     }
-    println!();
-    for row in rows {
-        let cwd = crate::preexec::path_for_display(Path::new(&row.cwd));
-        let path = crate::preexec::path_for_display(Path::new(&row.path));
-        let ttl = format_ttl_left(row.ttl_left_ms);
-        println!("{}  {cwd}  {path}  {ttl}", row.name);
+    if !listing.tunnels.is_empty() {
+        println!();
+        for tunnel in &listing.tunnels {
+            println!(
+                "{}  {}  {}  {}",
+                tunnel.port,
+                tunnel.key,
+                tunnel.uri,
+                tunnel_state(tunnel)
+            );
+        }
     }
     Ok(())
+}
+
+fn phase_name(phase: TunnelPhase) -> &'static str {
+    match phase {
+        TunnelPhase::Starting => "starting",
+        TunnelPhase::Ready => "ready",
+        TunnelPhase::Failed => "failed",
+    }
+}
+
+fn tunnel_state(tunnel: &TunnelRow) -> String {
+    if tunnel.phase != TunnelPhase::Ready {
+        return phase_name(tunnel.phase).to_string();
+    }
+    if tunnel.leases > 0 {
+        return format!("in use ({})", tunnel.leases);
+    }
+    match tunnel.ttl_left_ms {
+        Some(ms) => format_ttl_left(ms),
+        None => "stopping".to_string(),
+    }
 }
 
 fn forget_all() -> Result<()> {
     Report::new()
         .line(match hub::stop() {
-            hub::HubStop::Stopped => "forgot all keys".to_string(),
+            hub::HubStop::Stopped => "forgot all keys and tunnels".to_string(),
             hub::HubStop::Down => "hub: down".to_string(),
-            hub::HubStop::Off => "hub: off".to_string(),
             hub::HubStop::Stale => "hub: stale".to_string(),
         })
         .print();
@@ -126,7 +155,6 @@ fn forget_named(names: &[String]) -> Result<()> {
         Some(()) if names.len() == 1 => format!("forgot {}", names[0]),
         Some(()) => format!("forgot {} keys", names.len()),
         None => match hub::probe().state {
-            HubState::Off => "hub: off".to_string(),
             HubState::Stale => "hub: stale".to_string(),
             _ => "hub: down".to_string(),
         },
@@ -166,6 +194,16 @@ fn listing_json(
                 "when": row.when,
                 "user": row.user,
                 "ttl_left_ms": row.ttl_left_ms,
+            })
+        }).collect::<Vec<_>>(),
+        "tunnels": listing.tunnels.iter().map(|tunnel| {
+            json!({
+                "key": tunnel.key,
+                "uri": tunnel.uri,
+                "port": tunnel.port,
+                "leases": tunnel.leases,
+                "ttl_left_ms": tunnel.ttl_left_ms,
+                "phase": phase_name(tunnel.phase),
             })
         }).collect::<Vec<_>>(),
     })
