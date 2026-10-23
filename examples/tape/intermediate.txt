@@ -9,9 +9,9 @@
 
 ⠋ sh: Authorization
 
-✔︎ sh: Authorization                                                     23 ms
+✔︎ Vault 127.0.0.1:8200: .password                                       11 ms
 
-✔︎ Vault 127.0.0.1:8200: .password                                       23 ms
+✔︎ sh: Authorization                                                     25 ms
 
 Basic ZGVtby11c2VyOml0c2FzZWNyZXQ=
 

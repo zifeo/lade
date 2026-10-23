@@ -103,6 +103,25 @@ fn secret_progress_groups_omit_silent_keys() {
 }
 
 #[test]
+fn a_private_intermediate_line_waits_for_the_name_the_dag_reports() {
+    let groups = secret_progress_groups(
+        &SecretSources {
+            sources: HashMap::from([
+                (".first".to_string(), "bash://printf one".to_string()),
+                ("SECOND".to_string(), "sh://printf two".to_string()),
+            ]),
+            ..SecretSources::default()
+        },
+        &HashSet::new(),
+    );
+    let first = groups
+        .iter()
+        .find(|group| group.display == "bash: .first")
+        .expect("bash group");
+    assert_eq!(first.keys, HashSet::from(["first".to_string()]));
+}
+
+#[test]
 fn secret_progress_groups_omit_silent_cancelled_keys() {
     let groups = secret_progress_groups(
         &SecretSources {

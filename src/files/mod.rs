@@ -174,7 +174,9 @@ fn secret_progress_groups(
         entry.0.push(name);
         if !from_hub {
             entry.1 = true;
-            entry.2.insert(key.clone());
+            // The DAG reports a private `.name` binding by its bare name.
+            let (reported, _) = crate::config::binding_name(key).expect("planned binding name");
+            entry.2.insert(reported);
         }
     }
     for (key, source) in &plan.cancelled {
