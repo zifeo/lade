@@ -74,7 +74,6 @@ impl Policy {
         delay
     }
 
-    #[cfg(test)]
     pub(super) fn reported(&self) -> bool {
         self.reported
     }

@@ -46,6 +46,23 @@ fn stop_legacy_providers(id: &str) {
     }
 }
 
+fn protocol_keys() -> Vec<String> {
+    vec![
+        crate::preexec::LADE_RESTORE.to_string(),
+        crate::preexec::LADE_T.to_string(),
+        crate::mise::LADE_MISE_CONFIG.to_string(),
+    ]
+}
+
+fn ticket_secret_keys(ctx: &InvocationContext) -> Vec<String> {
+    let Some(id) = ctx.ticket_id.as_deref() else {
+        return Vec::new();
+    };
+    ticket::read(id)
+        .map(|pre| pre.secrets.into_iter().map(|secret| secret.key).collect())
+        .unwrap_or_default()
+}
+
 pub async fn handle_unset(
     ctx: &InvocationContext,
     shell: &Shell,
@@ -54,6 +71,25 @@ pub async fn handle_unset(
 ) -> Result<()> {
     let command = commands.join(" ");
     let files = unset_output_files(config, ctx, &command).await?;
+    let restore = match std::env::var(crate::preexec::LADE_RESTORE) {
+        Err(_) => None,
+        Ok(raw) => match crate::preexec::RestorePayload::decode(&raw) {
+            Ok(payload) => Some(Ok(payload)),
+            Err(_) => Some(Err(())),
+        },
+    };
+    let smashed = matches!(restore, Some(Err(())));
+    if smashed {
+        message_box::MessageBox::new()
+            .error()
+            .line("The previous environment snapshot is corrupted. Re-run the command.")
+            .print_stderr();
+    }
+    let smash_keys = smashed.then(|| {
+        let mut keys = ticket_secret_keys(ctx);
+        keys.extend(protocol_keys());
+        keys
+    });
     if let Some(id) = ctx.ticket_id.as_deref().filter(|id| ticket::is_id(id)) {
         stop_legacy_providers(id);
         crate::hub::tunnel_release(id);
@@ -64,28 +100,16 @@ pub async fn handle_unset(
     if let Ok(path) = std::env::var(crate::mise::LADE_MISE_CONFIG) {
         crate::mise::unlink_config(std::path::Path::new(&path));
     }
-    let restore = match std::env::var(crate::preexec::LADE_RESTORE) {
-        Err(_) => None,
-        Ok(raw) => match crate::preexec::RestorePayload::decode(&raw) {
-            Ok(payload) => Some(payload),
-            Err(_) => {
-                message_box::MessageBox::new()
-                    .error()
-                    .line("The previous environment snapshot is corrupted. Re-run the command.")
-                    .print_stderr();
-                std::process::exit(crate::exit_codes::FAILURE);
-            }
-        },
+    let env_line = match (restore, smash_keys) {
+        (Some(Ok(payload)), _) => shell.restore(payload.env),
+        (_, Some(keys)) => shell.unset(keys),
+        _ => String::new(),
     };
-    let env_line = restore
-        .map(|payload| shell.restore(payload.env))
-        .unwrap_or_default();
-    let unset_keys = vec![
-        crate::preexec::LADE_RESTORE.to_string(),
-        crate::preexec::LADE_T.to_string(),
-        crate::mise::LADE_MISE_CONFIG.to_string(),
-    ];
-    let meta = shell.unset(unset_keys);
+    let meta = if smashed {
+        String::new()
+    } else {
+        shell.unset(protocol_keys())
+    };
     let line = [env_line, meta]
         .into_iter()
         .filter(|part| !part.is_empty())

@@ -3,6 +3,7 @@ use crate::providers::{Transport, Warnings};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
+use std::sync::mpsc;
 use std::thread;
 
 fn http_env(host: &str, token: &str) -> HashMap<String, String> {
@@ -33,6 +34,37 @@ fn serve_kv(status: u16, body: &str, hits: usize) -> (String, thread::JoinHandle
     (host, handle)
 }
 
+fn serve_kv_capture(
+    status: u16,
+    body: &str,
+) -> (String, mpsc::Receiver<String>, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = listener.local_addr().unwrap().to_string();
+    let body = body.to_string();
+    let (tx, rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 8192];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]);
+        let target = req
+            .lines()
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("")
+            .to_string();
+        let _ = tx.send(target);
+        let resp = format!(
+            "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(resp.as_bytes());
+    });
+    (host, rx, handle)
+}
+
 #[test]
 fn test_add_routing() {
     let mut p = Vault::new();
@@ -51,6 +83,39 @@ fn kv_v2_url_encodes_nested_key() {
         kv_v2_url("http://127.0.0.1:8200", "secret", "org/team"),
         "http://127.0.0.1:8200/v1/secret/data/org/team"
     );
+}
+
+#[test]
+fn path_parts_nested_key() {
+    let url = Url::parse("vault://127.0.0.1:8200/secret/org/team/password").unwrap();
+    let parts = path_parts(&url).unwrap();
+    assert_eq!(parts.mount, "secret");
+    assert_eq!(parts.key, "org/team");
+    assert_eq!(parts.field, "password");
+}
+
+#[test]
+fn path_parts_rejects_empty_key_or_field() {
+    let missing_key = Url::parse("vault://127.0.0.1:8200/secret/password").unwrap();
+    assert!(path_parts(&missing_key).is_err());
+    let empty_key = Url::parse("vault://127.0.0.1:8200/secret//password").unwrap();
+    assert!(path_parts(&empty_key).is_err());
+    let empty_field = Url::parse("vault://127.0.0.1:8200/secret/org/team/").unwrap();
+    assert!(path_parts(&empty_field).is_err());
+}
+
+#[test]
+fn compose_add_uri_nested_key_round_trips() {
+    let extras = HashMap::from([
+        ("field".to_string(), "password".to_string()),
+        ("host".to_string(), "127.0.0.1:8200".to_string()),
+    ]);
+    let uri = compose_add_uri("org/team", &extras);
+    let parts = path_parts(&Url::parse(&uri).unwrap()).unwrap();
+    assert_eq!(parts.mount, "secret");
+    assert_eq!(parts.key, "org/team");
+    assert_eq!(parts.field, "password");
+    assert_eq!(uri, parts.uri("127.0.0.1:8200"));
 }
 
 #[tokio::test]
@@ -73,6 +138,26 @@ async fn test_resolve_single_field() {
             .unwrap(),
         "s3cret"
     );
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn test_resolve_nested_key() {
+    let (host, path_rx, server) =
+        serve_kv_capture(200, r#"{"data":{"data":{"password":"s3cret"}}}"#);
+    let mut p = Vault::new();
+    let uri = format!("vault://{host}/secret/org/team/password");
+    p.add(uri.clone()).unwrap();
+    let result = p
+        .resolve(
+            Path::new("."),
+            &http_env(&host, "s.token"),
+            &Warnings::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.get(&uri).unwrap(), "s3cret");
+    assert_eq!(path_rx.recv().unwrap(), "/v1/secret/data/org/team");
     server.join().unwrap();
 }
 

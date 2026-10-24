@@ -12,9 +12,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::guard::GUARD_VERB;
 use super::labels::provider_label;
+use super::outer::Outer;
 use super::parse::parse_binding;
-use super::process::{Endpoint, Inner, RunningForward, Stop};
-use super::relay::{Outer, Relay};
+use super::process::{Direct, Endpoint, Inner, RunningForward, Stop};
+use super::relay::Relay;
 use crate::config::NetworkBinding;
 
 // macOS `sun_path` is 104 bytes.
@@ -33,10 +34,17 @@ pub(crate) struct TunnelRequest {
     pub(crate) env: Option<Vec<(OsString, OsString)>>,
 }
 
+/// What frees the user-facing port on [`Tunnel::release_port`].
+#[derive(Debug)]
+enum Front {
+    Relay(Relay),
+    Direct,
+}
+
 /// Fields drop in order: stop accepting, stop the provider, remove its socket.
 #[derive(Debug)]
 pub(crate) struct Tunnel {
-    _relay: Option<Relay>,
+    front: Front,
     _forward: RunningForward,
     _socket: Option<SocketFile>,
 }
@@ -44,20 +52,30 @@ pub(crate) struct Tunnel {
 /// What still runs once [`Tunnel::release_port`] freed the port.
 #[derive(Debug)]
 pub(crate) struct Provider {
-    _forward: RunningForward,
+    _forward: Option<RunningForward>,
     _socket: Option<SocketFile>,
 }
 
 impl Tunnel {
-    /// Frees the local port now. Stopping the provider takes longer.
+    /// Frees the local port now. A relayed provider stops later. Direct
+    /// listens on that port, so it is stopped here.
     pub(crate) fn release_port(self) -> Provider {
-        let Tunnel {
-            _relay,
-            _forward,
-            _socket,
-        } = self;
-        drop(_relay);
-        Provider { _forward, _socket }
+        match self.front {
+            Front::Relay(relay) => {
+                drop(relay);
+                Provider {
+                    _forward: Some(self._forward),
+                    _socket: self._socket,
+                }
+            }
+            Front::Direct => {
+                drop(self._forward);
+                Provider {
+                    _forward: None,
+                    _socket: self._socket,
+                }
+            }
+        }
     }
 }
 
@@ -82,12 +100,9 @@ pub(crate) fn start_tunnel(
             (Inner::Fixed(endpoint), Some(outer))
         }
         ListenKind::Direct => {
-            let endpoint = Endpoint::Tcp {
-                host: outer.host.clone(),
-                port: outer.port,
-            };
-            drop(outer);
-            (Inner::Fixed(endpoint), None)
+            let host = outer.host.clone();
+            let port = outer.port;
+            (Inner::Direct(Direct::holding(outer, host, port)), None)
         }
     };
     let command = build_command(&parsed.spec, request.context.as_deref(), listen(&inner))?;
@@ -98,13 +113,13 @@ pub(crate) fn start_tunnel(
         stop,
         move || Ok(template.command()),
     )?;
-    let relay = match outer {
-        Some(outer) => Some(Relay::start(outer, forward.endpoint())?),
-        None => None,
+    let front = match outer {
+        Some(outer) => Front::Relay(Relay::start(outer, forward.endpoint())?),
+        None => Front::Direct,
     };
     Ok((
         Tunnel {
-            _relay: relay,
+            front,
             _forward: forward,
             _socket: socket,
         },
@@ -115,7 +130,9 @@ pub(crate) fn start_tunnel(
 fn listen(inner: &Inner) -> Listen<'_> {
     match inner {
         Inner::Printed => Listen::Printed,
-        Inner::Fixed(Endpoint::Tcp { host, port }) => Listen::Tcp { host, port: *port },
+        Inner::Fixed(Endpoint::Tcp { host, port }) | Inner::Direct(Direct { host, port, .. }) => {
+            Listen::Tcp { host, port: *port }
+        }
         Inner::Fixed(Endpoint::Unix(path)) => Listen::Unix(path),
     }
 }
@@ -218,6 +235,7 @@ fn sweep_stale_sockets(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn sweep_removes_sockets_of_dead_runners_only() {
@@ -247,5 +265,79 @@ mod tests {
             drop(file);
             assert!(!path.exists());
         });
+    }
+
+    fn write_script(dir: &Path, name: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn kubefwd_request(dir: &Path) -> TunnelRequest {
+        let path = format!("{}:/bin:/usr/bin", dir.display());
+        TunnelRequest {
+            key: "db".to_string(),
+            uri: "kubefwd://kube.example.com:443/acme/default/service/db/5432".to_string(),
+            context: Some("acme".to_string()),
+            env: Some(vec![(OsString::from("PATH"), OsString::from(path))]),
+        }
+    }
+
+    #[test]
+    fn direct_does_not_ready_when_a_stranger_binds() {
+        let dir = tempfile::tempdir().unwrap();
+        write_script(dir.path(), "kubefwd", "exec sleep 60");
+        let outer = Outer::claim("127.0.0.1", None).unwrap();
+        let port = outer.port;
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while std::time::Instant::now() < deadline {
+                if let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port)) {
+                    std::thread::park();
+                    drop(listener);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let err = start_tunnel(outer, &kubefwd_request(dir.path()), Stop::default()).unwrap_err();
+        assert!(
+            err.to_string().contains("another process is listening"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn release_port_frees_a_direct_port() {
+        let dir = tempfile::tempdir().unwrap();
+        write_script(
+            dir.path(),
+            "kubefwd",
+            r#"port=0
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-m" ]; then
+    port="${2##*:}"
+    shift 2
+    continue
+  fi
+  shift
+done
+exec /usr/bin/python3 -c 'import socket,sys,time
+s=socket.socket()
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen()
+time.sleep(60)
+' "$port""#,
+        );
+        let freed = (0..8).any(|_| {
+            let outer = Outer::claim("127.0.0.1", None).unwrap();
+            let port = outer.port;
+            let (tunnel, _) = start_tunnel(outer, &kubefwd_request(dir.path()), Stop::default())
+                .expect("direct start");
+            drop(tunnel.release_port());
+            Outer::claim("127.0.0.1", Some(port)).is_ok()
+        });
+        assert!(freed);
     }
 }

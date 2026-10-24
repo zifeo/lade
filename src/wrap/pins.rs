@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::mise::{self, Outcome as PinOutcome};
+use crate::preexec::Shell;
 
 pub(super) struct PinCleanup(pub(super) Vec<PathBuf>);
 
@@ -21,6 +22,7 @@ pub(super) async fn apply_pins(
     cwd: &std::path::Path,
     saved_user: &Option<String>,
     audience: crate::config::Audience,
+    preexec: Option<&Shell>,
 ) -> Result<PinOutcome> {
     match mise::prepare(config, command, cwd, saved_user, audience).await {
         Ok(out) => {
@@ -36,7 +38,10 @@ pub(super) async fn apply_pins(
         }
         Err(error) => {
             error.emit();
-            std::process::exit(crate::exit_codes::FAILURE);
+            match preexec {
+                Some(shell) => super::refuse_preexec(shell, crate::exit_codes::FAILURE),
+                None => std::process::exit(crate::exit_codes::FAILURE),
+            }
         }
     }
 }

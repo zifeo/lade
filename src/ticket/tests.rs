@@ -28,6 +28,7 @@ fn sample_pre_event() -> PreEvent {
             private: true,
             output: None,
             cwd: PathBuf::from("/tmp/proj"),
+            op_sa: None,
         }],
         network: vec![TicketNetwork {
             key: "db".to_string(),

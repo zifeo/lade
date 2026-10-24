@@ -231,6 +231,7 @@ fn test_pre_event_work_resolves_user_maps_and_private_keys() {
             private: true,
             output: None,
             cwd: dir.path().to_path_buf(),
+            op_sa: None,
         }
     );
     let token = work
@@ -290,6 +291,7 @@ async fn test_hydrate_work_plain_source() {
         private: false,
         output: None,
         cwd: cwd.clone(),
+        op_sa: None,
     }];
     let (vars, sources, _, _) = Config::hydrate_work_on_group(&secrets, None, |_| {})
         .await
@@ -312,6 +314,7 @@ async fn test_hydrate_work_private_and_file_output() {
             private: false,
             output: Some(cwd.join("out.json")),
             cwd: cwd.clone(),
+            op_sa: None,
         },
         TicketSecret {
             key: "HIDDEN".to_string(),
@@ -319,6 +322,7 @@ async fn test_hydrate_work_private_and_file_output() {
             private: true,
             output: None,
             cwd: cwd.clone(),
+            op_sa: None,
         },
     ];
     let (vars, _, maskable, _) = Config::hydrate_work_on_group(&secrets, None, |_| {})
@@ -344,6 +348,7 @@ async fn hydrate_work_notifies_shell_and_raw_apart() {
             private: false,
             output: None,
             cwd: cwd.clone(),
+            op_sa: None,
         },
         TicketSecret {
             key: "SOCKET".to_string(),
@@ -351,6 +356,7 @@ async fn hydrate_work_notifies_shell_and_raw_apart() {
             private: false,
             output: None,
             cwd,
+            op_sa: None,
         },
     ];
     let waves = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
@@ -366,4 +372,49 @@ async fn hydrate_work_notifies_shell_and_raw_apart() {
     assert_eq!(waves.len(), 2, "{waves:?}");
     assert!(waves.iter().any(|wave| wave == &["PLAIN".to_string()]));
     assert!(waves.iter().any(|wave| wave == &["SOCKET".to_string()]));
+}
+
+#[tokio::test]
+async fn ticket_hydrate_keeps_per_rule_op_sa() {
+    let parent = tempdir().unwrap();
+    let child = parent.path().join("app");
+    std::fs::create_dir(&child).unwrap();
+    std::fs::write(
+        parent.path().join("lade.yml"),
+        "\"cmd\":\n  \".\":\n    1password_service_account: raw://token-a\n  A: sh://printenv OP_SERVICE_ACCOUNT_TOKEN\n",
+    )
+    .unwrap();
+    std::fs::write(
+        child.join("lade.yml"),
+        "\"cmd\":\n  \".\":\n    1password_service_account: raw://token-b\n  B: sh://printenv OP_SERVICE_ACCOUNT_TOKEN\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(child).unwrap();
+    let (live_vars, _, _, _) = config.collect_hydrate("cmd").await.unwrap();
+    let live = live_vars.get(&None::<std::path::PathBuf>).unwrap();
+    assert_ne!(live.get("A"), live.get("B"), "{live:?}");
+
+    let rules = config.collect_for_with_pattern("cmd", Audience::Human);
+    let work = Config::pre_event_work(&rules, &None).unwrap();
+    let a = work
+        .secrets
+        .iter()
+        .find(|secret| secret.key == "A")
+        .expect("A");
+    let b = work
+        .secrets
+        .iter()
+        .find(|secret| secret.key == "B")
+        .expect("B");
+    assert_eq!(a.op_sa.as_deref(), Some("raw://token-a"));
+    assert_eq!(b.op_sa.as_deref(), Some("raw://token-b"));
+    assert_eq!(work.op_sa.as_deref(), Some("raw://token-b"));
+
+    let (ticket_vars, _, _, _) =
+        Config::hydrate_work_on_group(&work.secrets, work.op_sa.as_deref(), |_| {})
+            .await
+            .unwrap();
+    let ticket = ticket_vars.get(&None::<std::path::PathBuf>).unwrap();
+    assert_eq!(ticket.get("A"), live.get("A"), "{ticket:?} {live:?}");
+    assert_eq!(ticket.get("B"), live.get("B"), "{ticket:?} {live:?}");
 }

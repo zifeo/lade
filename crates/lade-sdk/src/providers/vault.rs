@@ -35,27 +35,47 @@ struct VaultExport {
     data: VaultGetKVData,
 }
 
-fn path_parts(url: &Url) -> Result<(String, String, String)> {
-    let mount = url
-        .path()
-        .split('/')
-        .nth(1)
+struct VaultPath {
+    mount: String,
+    key: String,
+    field: String,
+}
+
+impl VaultPath {
+    fn uri(&self, host: &str) -> String {
+        format!("vault://{host}/{}/{}/{}", self.mount, self.key, self.field)
+    }
+}
+
+fn decode_seg(raw: &str) -> Result<String> {
+    Ok(urlencoding::decode(raw)?.into_owned())
+}
+
+fn path_parts(url: &Url) -> Result<VaultPath> {
+    let segs = url
+        .path_segments()
         .ok_or_else(|| anyhow!("Vault URI missing mount"))?;
-    let key = url
-        .path()
-        .split('/')
-        .nth(2)
-        .ok_or_else(|| anyhow!("Vault URI missing key"))?;
-    let field = url
-        .path()
-        .split('/')
-        .nth(3)
+    let decoded = segs.map(decode_seg).collect::<Result<Vec<_>>>()?;
+    let mount = decoded
+        .first()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| anyhow!("Vault URI missing mount"))?;
+    let field = decoded
+        .last()
+        .cloned()
         .ok_or_else(|| anyhow!("Vault URI missing field"))?;
-    Ok((
-        urlencoding::decode(mount)?.into_owned(),
-        urlencoding::decode(key)?.into_owned(),
-        urlencoding::decode(field)?.into_owned(),
-    ))
+    if decoded.len() < 3 {
+        return Err(anyhow!("Vault URI missing key"));
+    }
+    let key = decoded[1..decoded.len() - 1].join("/");
+    if key.is_empty() {
+        return Err(anyhow!("Vault URI missing key"));
+    }
+    if field.is_empty() {
+        return Err(anyhow!("Vault URI missing field"));
+    }
+    Ok(VaultPath { mount, key, field })
 }
 
 fn vault_scheme(extra_env: &HashMap<String, String>) -> &'static str {
@@ -195,61 +215,50 @@ impl Provider for Vault {
             .map_err(|e| anyhow!("Vault error: {e}"))?;
         let client = Arc::new(client);
 
-        let fetches = self
+        let parsed = self
             .urls
             .iter()
-            .into_group_map_by(|(url, _)| host_with_port(url))
+            .map(|(url, value)| {
+                let parts = path_parts(url)?;
+                Ok::<_, anyhow::Error>((url, value, parts))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let fetches = parsed
+            .into_iter()
+            .into_group_map_by(|(url, _, _)| host_with_port(url))
             .into_iter()
             .flat_map(|(host, group)| {
                 group
                     .into_iter()
-                    .into_group_map_by(|(url, _)| {
-                        url.path().split('/').nth(1).unwrap_or("").to_string()
-                    })
+                    .into_group_map_by(|(_, _, parts)| (parts.mount.clone(), parts.key.clone()))
                     .into_iter()
-                    .flat_map(|(mount, group)| {
-                        group
-                            .into_iter()
-                            .into_group_map_by(|(url, _)| {
-                                url.path().split('/').nth(2).unwrap_or("").to_string()
-                            })
-                            .into_iter()
-                            .map(|(key, group)| {
-                                let host = host.clone();
-                                let mount = mount.clone();
-                                let token = token.clone();
-                                let namespace = namespace.clone();
-                                let client = Arc::clone(&client);
-                                async move {
-                                    let address = format!("{scheme}://{host}");
-                                    let mount = urlencoding::decode(&mount)
-                                        .map_err(|e| anyhow!("Vault error: {e}"))?
-                                        .into_owned();
-                                    let key = urlencoding::decode(&key)
-                                        .map_err(|e| anyhow!("Vault error: {e}"))?
-                                        .into_owned();
-                                    let loaded = kv_get(
-                                        &client,
-                                        &address,
-                                        &token,
-                                        namespace.as_deref(),
-                                        &mount,
-                                        &key,
-                                    )
-                                    .await?;
-                                    let mut hydration = Hydration::default();
-                                    for (url, value) in group {
-                                        let (_, _, field) = path_parts(url)?;
-                                        let secret =
-                                            loaded.data.data.get(&field).ok_or_else(|| {
-                                                anyhow!("Variable not found in Vault: {field}")
-                                            })?;
-                                        hydration.insert(value.clone(), secret.clone());
-                                    }
-                                    Ok::<_, anyhow::Error>(hydration)
-                                }
-                            })
-                            .collect::<Vec<_>>()
+                    .map(|((mount, key), group)| {
+                        let host = host.clone();
+                        let token = token.clone();
+                        let namespace = namespace.clone();
+                        let client = Arc::clone(&client);
+                        async move {
+                            let address = format!("{scheme}://{host}");
+                            let loaded = kv_get(
+                                &client,
+                                &address,
+                                &token,
+                                namespace.as_deref(),
+                                &mount,
+                                &key,
+                            )
+                            .await?;
+                            let mut hydration = Hydration::default();
+                            for (_url, value, parts) in group {
+                                let secret =
+                                    loaded.data.data.get(&parts.field).ok_or_else(|| {
+                                        anyhow!("Variable not found in Vault: {}", parts.field)
+                                    })?;
+                                hydration.insert(value.clone(), secret.clone());
+                            }
+                            Ok::<_, anyhow::Error>(hydration)
+                        }
                     })
                     .collect::<Vec<_>>()
             })
@@ -281,7 +290,9 @@ pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) ->
         .get("host")
         .map(String::as_str)
         .unwrap_or("127.0.0.1:8200");
-    format!("vault://{host}/secret/{picked}/{field}")
+    let url =
+        Url::parse(&format!("vault://{host}/secret/{picked}/{field}")).expect("vault add URI");
+    path_parts(&url).expect("vault add URI path").uri(host)
 }
 
 #[cfg(test)]

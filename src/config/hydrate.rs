@@ -82,15 +82,16 @@ async fn bindings_from_ticket(
     secrets: &[TicketSecret],
     op_sa: Option<&str>,
 ) -> Result<HashMap<String, Binding>> {
-    let mut op_tokens = HashMap::<PathBuf, String>::new();
+    let mut op_tokens = HashMap::<(PathBuf, String), String>::new();
     let mut bindings = HashMap::<String, Binding>::new();
     for secret in secrets {
-        let extra_env = if let Some(uri) = op_sa {
-            let token = if let Some(token) = op_tokens.get(&secret.cwd) {
+        let extra_env = if let Some(uri) = secret.op_sa.as_deref().or(op_sa) {
+            let key = (secret.cwd.clone(), uri.to_string());
+            let token = if let Some(token) = op_tokens.get(&key) {
                 token.clone()
             } else {
                 let token = hydrate_one(uri.to_string(), &secret.cwd, &HashMap::new()).await?;
-                op_tokens.insert(secret.cwd.clone(), token.clone());
+                op_tokens.insert(key, token.clone());
                 token
             };
             HashMap::from([("OP_SERVICE_ACCOUNT_TOKEN".to_string(), token)])

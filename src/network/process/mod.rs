@@ -1,4 +1,5 @@
 mod child;
+mod direct;
 mod forward;
 mod logs;
 mod policy;
@@ -6,6 +7,7 @@ mod policy;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use direct::Direct;
 pub(crate) use forward::{EndpointSlot, RunningForward, Stop};
 
 use std::io::{self, Read, Write};
@@ -41,11 +43,12 @@ pub(crate) enum Endpoint {
 }
 
 /// What the supervisor waits for before the provider counts as ready.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum Inner {
     /// The provider picks the port and prints it on stdout.
     Printed,
     Fixed(Endpoint),
+    Direct(Direct),
 }
 
 impl Endpoint {

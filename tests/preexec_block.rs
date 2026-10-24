@@ -112,8 +112,89 @@ fn run(shell: &str, script: &str, failure: Failure) {
         .env("TMPDIR", &tmp)
         .output()
         .unwrap();
+    assert_command_blocked(shell, &output, &marker, &after, &tmp, &expected);
+}
+
+fn write_fake_mise(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join("mise");
+    std::fs::write(
+        &path,
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' "mise 2024.8.12"
+  exit 0
+fi
+exit 0
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn run_pin(shell: &str, script: &str) {
+    let home = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    std::fs::write(
+        project.path().join("lade.yml"),
+        "\"touch.*\":\n  touch: mise://core/not-a-real-tool@0.0.0\n",
+    )
+    .unwrap();
+    let config = home.path().join("lade-config.json");
+    std::fs::write(&config, r#"{"user":null}"#).unwrap();
+    let marker = home.path().join("ran");
+    let after = home.path().join("after");
+    let tmp = home.path().join("tmp");
+    std::fs::create_dir(&tmp).unwrap();
+    let mise_bin = home.path().join("bin");
+    write_fake_mise(&mise_bin);
+    let lade_dir = Path::new(env!("CARGO_BIN_EXE_lade")).parent().unwrap();
+    let path = format!(
+        "{}:{}:{}",
+        lade_dir.display(),
+        mise_bin.display(),
+        std::env::var("PATH").unwrap()
+    );
+    let output = Command::new(shell)
+        .args(["-c", script])
+        .current_dir(project.path())
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", home.path())
+        .env("LADE_CONFIG_PATH", &config)
+        .env("LADE_CACHE_DIR", home.path().join("c"))
+        .env("LADE_EVENTS_PATH", home.path().join("events.db"))
+        .env("LADE_TICKET_DIR", home.path().join("t"))
+        .env("MISE_DATA_DIR", home.path().join("mise-data"))
+        .env("MISE_INSTALLS_DIR", home.path().join("mise-installs"))
+        .env("MARKER", &marker)
+        .env("AFTER", &after)
+        .env("TMPDIR", &tmp)
+        .output()
+        .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains(&expected), "{shell}: {stderr}");
+    assert!(stderr.contains("mise did not install"), "{shell}: {stderr}");
+    assert_command_blocked(
+        shell,
+        &output,
+        &marker,
+        &after,
+        &tmp,
+        "Could not run the locked touch",
+    );
+}
+
+fn assert_command_blocked(
+    shell: &str,
+    output: &std::process::Output,
+    marker: &Path,
+    after: &Path,
+    tmp: &Path,
+    expected: &str,
+) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(expected), "{shell}: {stderr}");
     assert!(
         !marker.exists(),
         "{shell} ran the blocked command: {stderr}"
@@ -146,7 +227,7 @@ fn run(shell: &str, script: &str, failure: Failure) {
         );
     }
     assert_eq!(
-        std::fs::read_dir(&tmp).unwrap().count(),
+        std::fs::read_dir(tmp).unwrap().count(),
         0,
         "{shell} left temp files: {stderr}"
     );
@@ -170,4 +251,19 @@ fn fish_does_not_run_a_command_whose_port_is_held() {
 #[test]
 fn without_a_hub_a_command_with_a_tunnel_does_not_run() {
     run("zsh", ZSH, Failure::NoHub);
+}
+
+#[test]
+fn zsh_does_not_run_a_command_whose_pin_refuses() {
+    run_pin("zsh", ZSH);
+}
+
+#[test]
+fn bash_does_not_run_a_command_whose_pin_refuses() {
+    run_pin("bash", BASH);
+}
+
+#[test]
+fn fish_does_not_run_a_command_whose_pin_refuses() {
+    run_pin("fish", FISH);
 }

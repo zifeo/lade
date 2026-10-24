@@ -15,6 +15,10 @@ pub struct TicketSecret {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<PathBuf>,
     pub cwd: PathBuf,
+    /// Per-rule `1password_service_account` URI. Last-wins overlay still
+    /// applies per key; ticket replay must not reuse one SA for every secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_sa: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,10 +92,12 @@ pub fn path(id: &str) -> PathBuf {
     dir().join(format!("{id}.json"))
 }
 
+const WRITE_TRIES: u32 = 16;
+
 /// create_new the file. Retry new_id if exists. No fsync. Return id.
 pub fn write(pre: &PreEvent) -> Result<String> {
     let json = serde_json::to_vec(pre).context("failed to serialize pre-event")?;
-    loop {
+    for _ in 0..WRITE_TRIES {
         fs::create_dir_all(dir()).context("failed to create ticket directory")?;
         let id = new_id();
         let file_path = path(&id);
@@ -113,6 +119,7 @@ pub fn write(pre: &PreEvent) -> Result<String> {
             }
         }
     }
+    anyhow::bail!("could not create a ticket after {WRITE_TRIES} tries")
 }
 
 pub fn read(id: &str) -> Result<PreEvent> {
@@ -149,10 +156,10 @@ pub fn replace(id: &str, pre: &PreEvent) -> Result<()> {
         anyhow::bail!("invalid ticket id");
     }
     let json = serde_json::to_vec(pre).context("failed to serialize pre-event")?;
-    fs::create_dir_all(dir()).context("failed to create ticket directory")?;
     let file_path = path(id);
-    fs::write(&file_path, json)
-        .with_context(|| format!("failed to write ticket {}", file_path.display()))
+    crate::cache::write_if_changed(&file_path, &json)
+        .with_context(|| format!("failed to write ticket {}", file_path.display()))?;
+    Ok(())
 }
 
 /// Keep `existing` when that file is already there. Otherwise `write`.

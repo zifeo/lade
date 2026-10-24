@@ -1,14 +1,13 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-
-use crate::message_box::MessageBox;
+use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
+use super::locate::project_dest;
 use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short_path};
 use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
-use super::write::{Scope, hook_path, write_hook};
+use super::write::{Scope, hook_path, refuse_double_plane, write_hook};
 
 pub(crate) struct PlannedSetup {
     home: std::path::PathBuf,
@@ -53,7 +52,7 @@ pub(crate) fn confirm_plan(
         return Ok(());
     }
     planned.agents = ask_harnesses(&pending)?;
-    refuse_double_plane(&planned.agents, &planned.home, &planned.dest)
+    refuse_stacked_planes(&planned.agents, &planned.home, &planned.dest)
 }
 
 pub(super) fn setup_at(
@@ -77,8 +76,7 @@ fn plan_at(
     home: &Path,
     cwd: &Path,
 ) -> Result<Option<PlannedSetup>> {
-    let git_root = crate::catalog::git_root(cwd);
-    let Some(dest) = git_root else {
+    let Some(dest) = project_dest(home, cwd) else {
         return Ok(None);
     };
     let flagged = !only.is_empty();
@@ -95,7 +93,7 @@ fn plan_at(
     } else {
         detected
     };
-    refuse_double_plane(&agents, home, &dest)?;
+    refuse_stacked_planes(&agents, home, &dest)?;
     Ok(Some(PlannedSetup {
         home: home.to_path_buf(),
         dest: dest.to_path_buf(),
@@ -150,7 +148,7 @@ fn apply_project(agents: &[Agent], home: &Path, dest: &Path) -> Result<PretoolRe
     })
 }
 
-fn refuse_double_plane(agents: &[Agent], home: &Path, dest: &Path) -> Result<()> {
+fn refuse_stacked_planes(agents: &[Agent], home: &Path, dest: &Path) -> Result<()> {
     let stacked: Vec<&str> = agents
         .iter()
         .copied()
@@ -160,20 +158,7 @@ fn refuse_double_plane(agents: &[Agent], home: &Path, dest: &Path) -> Result<()>
         })
         .map(Agent::name)
         .collect();
-    if stacked.is_empty() {
-        return Ok(());
-    }
-    let mut mb = MessageBox::new()
-        .error()
-        .line("These harnesses have Lade hooks in this repo and under the home directory:");
-    for name in &stacked {
-        mb = mb.line(format!("- {name}"));
-    }
-    mb = mb
-        .line("Both will run. Remove the home hooks first:")
-        .line("`lade hook disable --global --harness <slug>`");
-    mb.print_stderr();
-    bail!("home and repo hooks both present");
+    refuse_double_plane(&stacked)
 }
 
 pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<PretoolReport> {

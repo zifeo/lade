@@ -115,16 +115,37 @@ pub fn tool_key(key: &str, spec: &Spec) -> String {
     }
 }
 
+fn isolate_home(home: &Path, out: &mut Vec<PathBuf>) {
+    out.extend([
+        home.join(".config/mise"),
+        home.join(".config/mise.toml"),
+        home.join("mise.toml"),
+        home.join(".mise.toml"),
+    ]);
+    out.extend(ignored_config_paths(home));
+}
+
+fn passwd_home() -> Option<PathBuf> {
+    let user = nix::unistd::User::from_uid(nix::unistd::getuid()).ok()??;
+    Some(user.dir)
+}
+
 pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
     let mut out = ignored_config_paths(cwd);
+    let mut homes = Vec::new();
     if let Some(home) = directories::UserDirs::new().map(|user| user.home_dir().to_path_buf()) {
-        out.extend([
-            home.join(".config/mise"),
-            home.join(".config/mise.toml"),
-            home.join("mise.toml"),
-            home.join(".mise.toml"),
-        ]);
-        out.extend(ignored_config_paths(&home));
+        homes.push(home);
+    }
+    if let Ok(home) = std::env::var("HOME")
+        && !home.is_empty()
+    {
+        homes.push(PathBuf::from(home));
+    }
+    if let Some(home) = passwd_home() {
+        homes.push(home);
+    }
+    for home in homes {
+        isolate_home(&home, &mut out);
     }
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
         && !xdg.is_empty()

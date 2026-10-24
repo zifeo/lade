@@ -103,6 +103,29 @@ fn setup_outside_git_writes_no_pretool_files() {
 }
 
 #[test]
+fn setup_from_nested_cwd_writes_git_root() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    git_dir(cwd.path());
+    std::fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    let nested = cwd.path().join("src").join("app");
+    std::fs::create_dir_all(&nested).unwrap();
+    let report = setup_at(false, &["cursor"], home.path(), &nested).unwrap();
+    assert!(report.where_line.starts_with("this repo"));
+    let hook = cwd.path().join(".cursor").join("hooks.json");
+    assert!(
+        Agent::Cursor
+            .hook_uses_command(
+                &std::fs::read_to_string(&hook).unwrap(),
+                "lade hook --harness cursor"
+            )
+            .unwrap()
+    );
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
+    assert!(!home.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
 fn setup_in_git_writes_project_hooks_only() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();

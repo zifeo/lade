@@ -1,10 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+
+use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
-use super::locate::{canonical_project_path, find_project, leftover_json_hook};
+use super::locate::{
+    canonical_project_path, find_project, hook_state, leftover_claude_local, leftover_json_hook,
+    project_dest,
+};
 use super::opencode::{OpenCodeApi, is_pristine, plugin};
 use super::paths::{
     ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
@@ -55,15 +60,26 @@ pub(crate) fn write_scoped(
 ) -> Result<String> {
     let agent =
         Agent::from_slug(harness).with_context(|| format!("unknown harness '{harness}'"))?;
+    let dest = match (scope, project_dest(home, cwd)) {
+        (Scope::Project, None) => bail!("not a git repo, pre-tool skipped"),
+        (_, Some(dest)) => dest,
+        (Scope::User, None) => cwd.to_path_buf(),
+    };
     let path = match scope {
         Scope::User => agent.config_path(home),
-        Scope::Project => canonical_project_path(agent, cwd),
+        Scope::Project => canonical_project_path(agent, &dest),
     };
     let command = match scope {
         Scope::User => hook_command(agent),
         Scope::Project => project_hook_command(agent),
     };
     if install {
+        if project_dest(home, cwd).is_some() {
+            refuse_if_other_plane(agent, scope, home, &dest)?;
+        }
+        if let Some((legacy_path, content)) = leftover_for(agent, home, &dest, scope)? {
+            fs::write(&legacy_path, agent.remove(&content)?)?;
+        }
         let out = write_hook(agent, &path, &command)?;
         Ok(format!(
             "{}: hook {} in {}",
@@ -72,7 +88,7 @@ pub(crate) fn write_scoped(
             tilde(&out.path, home)
         ))
     } else {
-        remove_hook(agent, &path, home, scope)
+        remove_hook(agent, &path, home, scope, &dest)
     }
 }
 
@@ -105,12 +121,57 @@ pub(super) fn write_hook(agent: Agent, path: &Path, command: &str) -> Result<Wri
     })
 }
 
-fn remove_hook(agent: Agent, path: &Path, home: &Path, scope: Scope) -> Result<String> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
-    let legacy = match scope {
-        Scope::User => leftover_json_hook(agent, home)?,
-        Scope::Project => None,
+fn leftover_for(
+    agent: Agent,
+    home: &Path,
+    dest: &Path,
+    scope: Scope,
+) -> Result<Option<(PathBuf, String)>> {
+    match (scope, agent) {
+        (Scope::User, _) => leftover_json_hook(agent, home),
+        (Scope::Project, Agent::Claude) => leftover_claude_local(dest),
+        (Scope::Project, _) => Ok(None),
+    }
+}
+
+fn refuse_if_other_plane(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<()> {
+    let other = match scope {
+        Scope::User => Scope::Project,
+        Scope::Project => Scope::User,
     };
+    let existing = fs::read_to_string(hook_path(agent, other, home, dest)).unwrap_or_default();
+    if !agent.has_hook(&existing).unwrap_or(false) {
+        return Ok(());
+    }
+    refuse_double_plane(&[agent.name()])
+}
+
+pub(super) fn refuse_double_plane(names: &[&str]) -> Result<()> {
+    if names.is_empty() {
+        return Ok(());
+    }
+    let mut mb = MessageBox::new()
+        .error()
+        .line("These harnesses have Lade hooks in this repo and under the home directory:");
+    for name in names {
+        mb = mb.line(format!("- {name}"));
+    }
+    mb = mb
+        .line("Both will run. Remove the home hooks first:")
+        .line("`lade hook disable --global --harness <slug>`");
+    mb.print_stderr();
+    bail!("home and repo hooks both present");
+}
+
+fn remove_hook(
+    agent: Agent,
+    path: &Path,
+    home: &Path,
+    scope: Scope,
+    dest: &Path,
+) -> Result<String> {
+    let existing = fs::read_to_string(path).unwrap_or_default();
+    let legacy = leftover_for(agent, home, dest, scope)?;
     if !agent.has_hook(&existing)? && legacy.is_none() {
         return Ok(format!(
             "{}: hook not present in {}",
@@ -155,14 +216,17 @@ pub(super) fn hook_path(agent: Agent, scope: Scope, home: &Path, dest: &Path) ->
 pub fn teardown() -> Result<PretoolReport> {
     let home = home_dir()?;
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
-    let git_root = crate::catalog::git_root(&cwd);
-    let Some(dest) = git_root else {
+    teardown_at(&home, &cwd)
+}
+
+pub(super) fn teardown_at(home: &Path, cwd: &Path) -> Result<PretoolReport> {
+    let Some(dest) = project_dest(home, cwd) else {
         return Ok(PretoolReport {
             where_line: "not a git repo, pre-tool skipped".to_string(),
             rows: Vec::new(),
         });
     };
-    uninstall_plane(Scope::Project, &home, &dest)
+    uninstall_plane(Scope::Project, home, &dest)
 }
 
 pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<PretoolReport> {
@@ -170,10 +234,7 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
     for agent in AGENTS {
         let path = hook_path(agent, scope, home, dest);
         let existing = fs::read_to_string(&path).unwrap_or_default();
-        let legacy = match scope {
-            Scope::User => leftover_json_hook(agent, home)?,
-            Scope::Project => None,
-        };
+        let legacy = leftover_for(agent, home, dest, scope)?;
         if agent.has_hook(&existing)? || legacy.is_some() {
             strip_hook_files(agent, &path, &existing, legacy)?;
             rows.push(PretoolRow {
@@ -195,7 +256,12 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
 /// edited by hand. Errors are ignored: `health` reports what is left.
 pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
     for &agent in agents {
-        refresh_path(agent, &agent.config_path(home), &hook_command(agent));
+        let home_path = agent.config_path(home);
+        let home_installed = hook_state(&home_path, agent, None).0;
+        refresh_path(agent, &home_path, &hook_command(agent));
+        if home_installed {
+            continue;
+        }
         if let Ok((project_path, true)) = find_project(agent, home, cwd) {
             refresh_path(agent, &project_path, &project_hook_command(agent));
         }

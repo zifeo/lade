@@ -264,3 +264,25 @@ fn isolate_includes_home_global_and_parent_config_dir() {
         },
     );
 }
+
+#[test]
+fn isolate_ignores_passwd_home_when_home_is_overridden() {
+    let tmp = tempdir().unwrap();
+    let Some(passwd) = nix::unistd::User::from_uid(nix::unistd::getuid())
+        .ok()
+        .flatten()
+        .map(|user| user.dir)
+    else {
+        return;
+    };
+    if passwd == tmp.path() {
+        return;
+    }
+    temp_env::with_var("HOME", Some(tmp.path()), || {
+        let isolated = isolate_config_paths(tmp.path());
+        assert!(
+            isolated.contains(&passwd.join(".config/mise")),
+            "{isolated:?}"
+        );
+    });
+}

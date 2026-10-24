@@ -7,6 +7,7 @@ use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
 use crate::files::remove_files;
 use crate::hub::VersionLedger;
+use crate::message_box::MessageBox;
 use crate::network;
 use crate::preexec::Shell;
 use crate::prompt;
@@ -35,11 +36,39 @@ pub async fn handle_set(
         "{}",
         shell.unset(vec![crate::preexec::LADE_RESTORE.to_string()])
     );
+    match set_env(ctx, config, shell, commands, current_dir, notice).await {
+        Ok(slot) => Ok(slot),
+        Err(error) => {
+            MessageBox::new()
+                .error()
+                .paragraph(error.to_string())
+                .print_stderr();
+            super::refuse_preexec(shell, crate::exit_codes::FAILURE);
+        }
+    }
+}
+
+async fn set_env(
+    ctx: &InvocationContext,
+    config: &Config,
+    shell: &Shell,
+    commands: Vec<String>,
+    current_dir: PathBuf,
+    notice: bool,
+) -> Result<Option<VersionLedger>> {
     let command = commands.join(" ");
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
     let saved_user = crate::config::saved_user().await?;
     let original_path = std::env::var("PATH").ok();
-    let pins = apply_pins(config, &command, &current_dir, &saved_user, ctx.audience).await?;
+    let pins = apply_pins(
+        config,
+        &command,
+        &current_dir,
+        &saved_user,
+        ctx.audience,
+        Some(shell),
+    )
+    .await?;
     let work = resolve_provider_work(
         config,
         &command,
@@ -174,8 +203,7 @@ pub async fn handle_set(
         let _ = remove_files(&mut files.keys());
         crate::hub::unlink_t(&id);
         let _ = ticket::unlink(&id);
-        println!("{}", shell.block_command());
-        std::process::exit(crate::exit_codes::INTERRUPTED);
+        super::refuse_preexec(shell, crate::exit_codes::INTERRUPTED);
     }
     restore_default_signals();
     let finish = || -> Result<String> {

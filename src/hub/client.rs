@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use super::server::socket_path;
-use super::transport::{COMMAND_DEADLINE, rpc, rpc_existing, rpc_within};
+use super::transport::{COMMAND_DEADLINE, rpc_existing, rpc_within};
 use super::wire::{CacheRow, ERR_DENIED, Rep, Req, TunnelAsk, TunnelRep, TunnelRow, VersionLedger};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -185,7 +185,10 @@ pub fn stop() -> HubStop {
         Some(Rep::Err(code)) if code == ERR_DENIED => HubStop::Stale,
         _ => HubStop::Down,
     };
-    let _ = std::fs::remove_file(socket_path());
+    // A timeout is not Quit. Unlinking that socket orphans a live hub.
+    if matches!(result, HubStop::Stopped | HubStop::Stale) {
+        let _ = std::fs::remove_file(socket_path());
+    }
     result
 }
 
@@ -206,7 +209,7 @@ pub fn put_t(id: &str) {
 /// `put_t` that also asks for the hourly notice slot. Starts the hub when it
 /// is down. `Some` only when this caller owns the slot.
 pub fn put_t_notice(id: &str) -> Option<VersionLedger> {
-    match rpc(put_t_req(id, true)?) {
+    match rpc_within(put_t_req(id, true)?, true, COMMAND_DEADLINE) {
         Some(Rep::Notice {
             check: true,
             version,

@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::{
@@ -6,7 +6,7 @@ use std::{
     ffi::OsStr,
     fs,
     io::{ErrorKind, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Instant,
 };
 
@@ -212,20 +212,38 @@ fn progress_binding_name(key: &str, overridden: bool, cached: bool) -> String {
     }
 }
 
+enum FileFormat {
+    Json,
+    Yaml,
+}
+
+fn file_format(path: &Path) -> Result<FileFormat> {
+    match path.extension().and_then(OsStr::to_str) {
+        Some("json") => Ok(FileFormat::Json),
+        Some("yaml" | "yml") => Ok(FileFormat::Yaml),
+        Some(ext) => bail!(
+            "cannot write {}: unsupported extension .{ext}",
+            path.display()
+        ),
+        None => bail!("cannot write {}: path has no extension", path.display()),
+    }
+}
+
+fn remove_created(paths: &[&PathBuf]) {
+    for path in paths {
+        let _ = fs::remove_file(path);
+    }
+}
+
 pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Result<Vec<String>> {
     let mut names = vec![];
     let mut files = Vec::new();
     for (path, vars) in hydration {
         names.extend(vars.keys().cloned());
         debug!("writing file: {:?}", path);
-        let mut content: String = match path
-            .extension()
-            .and_then(OsStr::to_str)
-            .unwrap_or_else(|| panic!("cannot get extension of file: {:?}", path.display()))
-        {
-            "json" => serde_json::to_string(&vars)?,
-            "yaml" | "yml" => serde_yaml::to_string(&vars)?,
-            _ => bail!("unsupported file extension: {:?}", path.extension()),
+        let mut content = match file_format(path)? {
+            FileFormat::Json => serde_json::to_string(&vars)?,
+            FileFormat::Yaml => serde_yaml::to_string(&vars)?,
         };
         if !content.ends_with('\n') {
             content.push('\n');
@@ -235,6 +253,17 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
 
     let mut written = Vec::new();
     for (path, content) in files {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            remove_created(&written);
+            return Err(error).context(format!(
+                "cannot write {}: failed to create parent directory",
+                path.display()
+            ));
+        }
         let mut file = match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -242,21 +271,17 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
         {
             Ok(file) => file,
             Err(error) => {
-                for path in written {
-                    let _ = fs::remove_file(path);
-                }
+                remove_created(&written);
                 if error.kind() == ErrorKind::AlreadyExists {
-                    bail!("file already exists: {:?}", path);
+                    bail!("cannot write {}: file already exists", path.display());
                 }
-                return Err(error.into());
+                bail!("cannot write {}: {error}", path.display());
             }
         };
         if let Err(error) = file.write_all(content.as_bytes()) {
             let _ = fs::remove_file(path);
-            for path in written {
-                let _ = fs::remove_file(path);
-            }
-            return Err(error.into());
+            remove_created(&written);
+            bail!("cannot write {}: {error}", path.display());
         }
         written.push(path);
     }

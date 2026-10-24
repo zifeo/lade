@@ -26,6 +26,7 @@ use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event::{self, Emit, Kind};
 use crate::message_box;
+use crate::preexec::Shell;
 use keys::Keys;
 
 fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
@@ -34,6 +35,11 @@ fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
         .line("Could not load secrets from one provider:")
         .line("")
         .paragraph(e.to_string())
+}
+
+pub(super) fn refuse_preexec(shell: &Shell, code: i32) -> ! {
+    println!("{}", shell.block_command());
+    std::process::exit(code);
 }
 
 pub(super) type SecretBundle = (
@@ -168,9 +174,11 @@ pub(super) async fn show_loader_warnings(ctx: &InvocationContext, warnings: &[St
     if !ctx.stderr_is_terminal {
         return false;
     }
+    let mut keys = Keys::enter(ctx);
     tokio::select! {
         () = tokio::time::sleep(std::time::Duration::from_secs(2)) => false,
         () = acquire::interrupted() => true,
+        () = keys::ctrl_c(&mut keys) => true,
     }
 }
 

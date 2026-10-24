@@ -2,10 +2,24 @@ use super::*;
 use crate::config::LadeFile;
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Instant,
 };
 use tempfile::tempdir;
+
+fn assert_sentence_refuses(message: &str, path: &Path, why: &str) {
+    assert!(message.contains(why), "expected {why:?} in {message}");
+    let shown = path.display().to_string();
+    assert!(
+        message.contains(&shown),
+        "expected displayed path {shown:?} in {message}"
+    );
+    let dumped = format!("{path:?}");
+    assert!(
+        !message.contains(&dumped),
+        "Debug path dump {dumped} in {message}"
+    );
+}
 
 #[test]
 fn test_split_env_only() {
@@ -347,7 +361,10 @@ fn test_write_files_already_exists_error() {
         path.clone(),
         HashMap::from([("KEY".to_string(), "value".to_string())]),
     )]);
-    assert!(write_files(&hydration).is_err());
+    let message = write_files(&hydration)
+        .expect_err("existing file should be refused")
+        .to_string();
+    assert_sentence_refuses(&message, &path, "already exists");
 }
 
 #[test]
@@ -358,7 +375,58 @@ fn test_write_files_unsupported_extension_error() {
         path.clone(),
         HashMap::from([("KEY".to_string(), "value".to_string())]),
     )]);
-    assert!(write_files(&hydration).is_err());
+    let message = write_files(&hydration)
+        .expect_err("unsupported extension should be refused")
+        .to_string();
+    assert_sentence_refuses(&message, &path, "unsupported extension");
+}
+
+#[test]
+fn test_write_files_dot_env_no_extension() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".env");
+    let hydration = HashMap::from([(
+        path.clone(),
+        HashMap::from([("KEY".to_string(), "value".to_string())]),
+    )]);
+    let message = write_files(&hydration)
+        .expect_err("dotfile without an extension should be refused")
+        .to_string();
+    assert_sentence_refuses(&message, &path, "no extension");
+    assert!(!path.exists());
+}
+
+#[test]
+fn test_write_files_extensionless_path() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("output").join("path");
+    let hydration = HashMap::from([(
+        path.clone(),
+        HashMap::from([("KEY".to_string(), "value".to_string())]),
+    )]);
+    let message = write_files(&hydration)
+        .expect_err("extensionless path should be refused")
+        .to_string();
+    assert_sentence_refuses(&message, &path, "no extension");
+    assert!(!path.exists());
+    assert!(!path.parent().unwrap().exists());
+}
+
+#[test]
+fn test_write_files_creates_missing_parent_json() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("nested").join("out.json");
+    assert!(!path.parent().unwrap().exists());
+    let hydration = HashMap::from([(
+        path.clone(),
+        HashMap::from([("KEY".to_string(), "value".to_string())]),
+    )]);
+    let names = write_files(&hydration).unwrap();
+    assert!(names.contains(&"KEY".to_string()));
+    assert!(path.exists());
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(parsed["KEY"].as_str().unwrap(), "value");
 }
 
 #[test]
