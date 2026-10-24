@@ -44,6 +44,7 @@ fn hook_install_and_uninstall_cover_both_scopes() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    common::init_git(dir.path());
     let path = path_with_opencode(&home.path().join("bin"), "opencode v2.0.29");
 
     let cases = [
@@ -94,6 +95,30 @@ fn hook_install_and_uninstall_cover_both_scopes() {
             .env("PATH", &path)
             .args(["hook", "enable", "--harness", harness])
             .assert()
+            .failure()
+            .stderr(predicates::str::contains("Both will run"));
+        assert!(
+            !project.exists(),
+            "{harness} project wrote while home exists"
+        );
+
+        let pretool = status_pretool(home.path(), dir.path());
+        assert_eq!(pretool[harness]["global"]["installed"], true);
+        assert_eq!(pretool[harness]["global"]["current"], true);
+        assert_eq!(pretool[harness]["project"]["installed"], false);
+
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .env("PATH", &path)
+            .args(["hook", "disable", "--global", "--harness", harness])
+            .assert()
+            .success();
+
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .env("PATH", &path)
+            .args(["hook", "enable", "--harness", harness])
+            .assert()
             .success();
         let project_body = fs::read_to_string(&project).unwrap();
         assert!(
@@ -102,17 +127,10 @@ fn hook_install_and_uninstall_cover_both_scopes() {
         );
 
         let pretool = status_pretool(home.path(), dir.path());
-        assert_eq!(pretool[harness]["global"]["installed"], true);
-        assert_eq!(pretool[harness]["global"]["current"], true);
+        assert_eq!(pretool[harness]["global"]["installed"], false);
         assert_eq!(pretool[harness]["project"]["installed"], true);
         assert_eq!(pretool[harness]["project"]["current"], true);
 
-        common::lade(home.path())
-            .current_dir(dir.path())
-            .env("PATH", &path)
-            .args(["hook", "disable", "--global", "--harness", harness])
-            .assert()
-            .success();
         common::lade(home.path())
             .current_dir(dir.path())
             .env("PATH", &path)
@@ -135,6 +153,7 @@ fn hook_install_preserves_claude_permissions_and_model() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    common::init_git(dir.path());
     let path = dir.path().join(".claude").join("settings.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(
@@ -173,6 +192,7 @@ fn opencode_plugin_follows_the_installed_opencode() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    common::init_git(dir.path());
     let plugin = dir
         .path()
         .join(".opencode")

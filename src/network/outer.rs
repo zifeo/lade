@@ -144,6 +144,10 @@ fn probe(ip: IpAddr, port: u16) -> Result<(), ClaimError> {
     );
     let _ = setsockopt(&fd, sockopt::ReuseAddr, &true);
     let _ = setsockopt(&fd, sockopt::ReusePort, &true);
+    // Dual-stack [::] would see our own 127.0.0.1 holder as InUse.
+    if family == AddressFamily::Inet6 {
+        let _ = setsockopt(&fd, sockopt::Ipv6V6Only, &true);
+    }
     let addr = SockaddrStorage::from(SocketAddr::new(ip, port));
     match nix::sys::socket::bind(fd.as_raw_fd(), &addr) {
         Err(Errno::EADDRINUSE) => Err(ClaimError::InUse { port }),
