@@ -144,33 +144,28 @@ pub fn handle(
         return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let pre = PreEvent {
-        command: command.clone(),
-        cwd: cwd.clone(),
-        via: "pretool".to_string(),
-        audience: match audience {
-            Audience::Agent => "agent",
-            Audience::Human => "human",
-        }
-        .to_string(),
-        actor: event::actor(&saved_user),
-        log: work.log,
-        disclaimers: work.disclaimers,
-        secrets: work.secrets,
-        network: work
-            .network
-            .into_iter()
-            .map(|binding| TicketNetwork {
-                key: binding.key,
-                uri: binding.uri,
-                ttl: binding.ttl.map(|ttl| ttl.to_raw()),
-            })
-            .collect(),
-        matches: work.matches.clone(),
-        op_sa: work.op_sa,
-        agent: agent.clone(),
-        pending: false,
-    };
+    let mut pre = PreEvent::new(
+        &command,
+        cwd.clone(),
+        Via::Pretool,
+        audience,
+        event::actor(&saved_user),
+    );
+    pre.log = work.log;
+    pre.disclaimers = work.disclaimers;
+    pre.secrets = work.secrets;
+    pre.network = work
+        .network
+        .into_iter()
+        .map(|binding| TicketNetwork {
+            key: binding.key,
+            uri: binding.uri,
+            ttl: binding.ttl.map(|ttl| ttl.to_raw()),
+        })
+        .collect();
+    pre.matches = work.matches.clone();
+    pre.op_sa = work.op_sa;
+    pre.agent = agent.clone();
     let lade_bin = invoked_lade_bin();
     let wrapped = match write_ticket(&pre) {
         Ok(id) => wrap_ticket(&lade_bin, &id, &command),

@@ -6,7 +6,7 @@ use crate::args::InjectCommand;
 use crate::audience::Via;
 use crate::config::Config;
 use crate::context::InvocationContext;
-use crate::event::{self, Emit, Kind};
+use crate::event::{self, Kind};
 use crate::files::remove_files;
 use crate::masking;
 use crate::network;
@@ -20,6 +20,7 @@ use super::pins::{PinCleanup, apply_pins, select_tool_env};
 use super::work::{CacheScope, SecretHydrate, TicketCleanup, resolve_provider_work, ticket_ready};
 use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
+    work_event,
 };
 
 pub async fn run_inject(
@@ -75,19 +76,17 @@ pub async fn run_inject(
     if !work.needs_providers() {
         event::emit_if(
             work.log,
-            Emit {
-                kind: event::logged_kind(&work.matches),
-                via: ctx.via,
-                audience: ctx.audience,
-                actor: event::actor(&saved_user),
-                cwd: current_dir.to_path_buf(),
-                command: command.clone(),
-                argv: None,
-                hydrated: None,
-                matches: work.matches,
-                hydrate_ms: None,
-                agent: crate::agent_meta::merge(work.agent),
-            },
+            work_event(
+                ctx,
+                &saved_user,
+                current_dir.to_path_buf(),
+                command.clone(),
+                work.agent,
+                event::logged_kind(&work.matches),
+                work.matches,
+                None,
+                None,
+            ),
         );
         return run_command_without_providers(&command, &opts, ctx, shell, current_dir, pins.env);
     }
@@ -96,19 +95,17 @@ pub async fn run_inject(
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
             event::emit_if(
                 work.log,
-                Emit {
-                    kind: Kind::Denied,
-                    via: ctx.via,
-                    audience: ctx.audience,
-                    actor: event::actor(&saved_user),
-                    cwd: current_dir.to_path_buf(),
-                    command: command.clone(),
-                    argv: None,
-                    hydrated: None,
-                    matches: work.matches.clone(),
-                    hydrate_ms: None,
-                    agent: crate::agent_meta::merge(work.agent.clone()),
-                },
+                work_event(
+                    ctx,
+                    &saved_user,
+                    current_dir.to_path_buf(),
+                    command.clone(),
+                    work.agent.clone(),
+                    Kind::Denied,
+                    work.matches.clone(),
+                    None,
+                    None,
+                ),
             );
         }
         return Err(e);
@@ -180,19 +177,17 @@ pub async fn run_inject(
     event::mark_cached(&mut matches, &cached);
     event::emit_if(
         work.log,
-        Emit {
-            kind: event::logged_kind(&matches),
-            via: ctx.via,
-            audience: ctx.audience,
-            actor: event::actor(&saved_user),
-            cwd: current_dir.to_path_buf(),
-            command: command.clone(),
-            argv: None,
-            hydrated,
+        work_event(
+            ctx,
+            &saved_user,
+            current_dir.to_path_buf(),
+            command.clone(),
+            work.agent.clone(),
+            event::logged_kind(&matches),
             matches,
+            hydrated,
             hydrate_ms,
-            agent: crate::agent_meta::merge(work.agent.clone()),
-        },
+        ),
     );
     let code = exec::run(ctx, shell, &command, env.clone(), current_dir, redactor);
     let _ = remove_files(&mut files.keys());

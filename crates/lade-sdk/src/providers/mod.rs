@@ -4,19 +4,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::de::DeserializeOwned;
-use std::process::Stdio;
-use tokio::process::Command;
-use url::Url;
 
 use crate::Hydration;
 
 pub mod add;
 pub mod compat;
+#[cfg(feature = "network")]
 pub mod network;
 
 #[derive(Clone, Default)]
@@ -45,7 +42,10 @@ mod passbolt;
 mod raw;
 mod sh;
 mod sops;
+mod support;
 mod vault;
+
+pub(crate) use support::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
@@ -71,6 +71,11 @@ pub trait Provider: Sync {
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
         let _ = extra_env;
         Ok(Vec::new())
+    }
+
+    /// URI the `lade add` wizard suggests for a picked secret.
+    fn compose_add_uri(&self, _picked: &str, _extras: &HashMap<String, String>) -> Option<String> {
+        None
     }
 
     /// The key this provider groups on before one I/O call.
@@ -210,136 +215,9 @@ pub fn compose_secret_add_uri(
     picked: &str,
     extras: &HashMap<String, String>,
 ) -> Option<String> {
-    match scheme {
-        "op" => Some(onepassword::compose_add_uri(picked, extras)),
-        "vault" => Some(vault::compose_add_uri(picked, extras)),
-        "awssm" => Some(awssm::compose_add_uri(picked, extras)),
-        "azurekv" => Some(azurekv::compose_add_uri(picked, extras)),
-        "gcpsm" => Some(gcpsm::compose_add_uri(picked, extras)),
-        _ => None,
-    }
-}
-
-pub fn add_url(urls: &mut FxHashMap<Url, String>, value: String, scheme: &str) -> Result<()> {
-    match Url::parse(&value) {
-        Ok(url) if url.scheme() == scheme => {
-            urls.insert(url, value);
-            Ok(())
-        }
-        _ => bail!("Not a {scheme} scheme"),
-    }
-}
-
-/// For providers that fetch per host.
-pub fn add_host_url(urls: &mut FxHashMap<Url, String>, value: String, scheme: &str) -> Result<()> {
-    if Url::parse(&value).is_ok_and(|url| url.host().is_none()) {
-        bail!("{scheme} URI has no host: {value}");
-    }
-    add_url(urls, value, scheme)
-}
-
-pub async fn run_cli(
-    cmd: &[&str],
-    extra_env: &HashMap<String, String>,
-    name: &str,
-    install_url: &str,
-    cwd: Option<&Path>,
-) -> Result<std::process::Output> {
-    let mut c = Command::new(cmd[0]);
-    c.args(&cmd[1..])
-        .envs(extra_env.iter())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    // bash -c sources $BASH_ENV even though it does not read .bashrc.
-    if cmd[0] == "bash" {
-        c.env_remove("BASH_ENV");
-    }
-    if let Some(dir) = cwd {
-        c.current_dir(dir);
-    }
-    c.output().await.map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => anyhow!(
-            "{name} CLI not found. Make sure the binary is in your PATH or install it from {install_url}."
-        ),
-        _ => anyhow!("{name} error: {e}"),
-    })
-}
-
-pub(crate) fn search_cli(
-    bin: &str,
-    args: &[&str],
-    extra_env: &HashMap<String, String>,
-) -> Result<std::process::Output> {
-    std::process::Command::new(bin)
-        .args(args)
-        .envs(extra_env)
-        .output()
-        .map_err(|e| anyhow!("{bin} error: {e}"))
-}
-
-pub fn require_cli_ok(output: &std::process::Output, name: &str) -> Result<()> {
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = if !stderr.trim().is_empty() {
-        stderr
-    } else {
-        stdout
-    };
-    bail!("{name} error: {detail}")
-}
-
-pub fn deserialize_output<T: DeserializeOwned>(
-    output: &std::process::Output,
-    name: &str,
-) -> Result<T> {
-    serde_json::from_slice(&output.stdout).map_err(|err| {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow!("{name} error: {err} (stderr: {stderr})")
-    })
-}
-
-pub fn env_lookup(extra_env: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
-    for key in keys {
-        if let Some(value) = extra_env.get(*key)
-            && !value.is_empty()
-        {
-            return Some(value.clone());
-        }
-        if let Ok(value) = std::env::var(key)
-            && !value.is_empty()
-        {
-            return Some(value);
-        }
-    }
-    None
-}
-
-pub fn json_query_string(raw: &str, query: Option<&str>) -> Result<String> {
-    let Some(query) = query.filter(|q| !q.is_empty()) else {
-        return Ok(raw.to_string());
-    };
-    let json: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| anyhow!("JSON query {query} failed: value is not JSON ({e})"))?;
-    let compiled = access_json::JSONQuery::parse(query)
-        .map_err(|e| anyhow!("cannot compile query {query}: {e}"))?;
-    let res = compiled
-        .execute(&json)
-        .map_err(|e| anyhow!("query {query} failed: {e}"))?
-        .ok_or_else(|| anyhow!("no query result for {query}"))?;
-    Ok(match res {
-        serde_json::Value::String(s) => s,
-        other => other.to_string(),
-    })
-}
-
-pub fn host_with_port(url: &Url) -> String {
-    match url.port() {
-        Some(port) => format!("{}:{}", url.host().expect("Missing host"), port),
-        None => url.host().expect("Missing host").to_string(),
-    }
+    Providers::new()
+        .provider(scheme)?
+        .compose_add_uri(picked, extras)
 }
 
 #[cfg(test)]

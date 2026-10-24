@@ -1,14 +1,13 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use rustc_hash::FxHashMap;
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, json_query_string, require_cli_ok, run_cli, search_cli};
+use super::{Provider, Warnings, add_url, fetch_grouped, query_param, search_cli_ok};
 
 const DOCS: &str = "https://learn.microsoft.com/en-us/cli/azure/keyvault/secret";
 
@@ -63,12 +62,6 @@ fn vault_and_name(url: &Url) -> Result<(String, String)> {
     Ok((vault, name))
 }
 
-fn query(url: &Url) -> Option<String> {
-    url.query_pairs()
-        .find(|(k, _)| k == "query")
-        .map(|(_, v)| v.into_owned())
-}
-
 fn secret_value(raw: &str, name: &str) -> Result<String> {
     let json: serde_json::Value = serde_json::from_str(raw)
         .map_err(|e| anyhow!("Azure Key Vault error: {e}. See {DOCS}."))?;
@@ -99,7 +92,7 @@ impl Provider for AzureKv {
         let Some(vault) = extra_env.get("LADE_SEARCH_SCOPE") else {
             return Ok(Vec::new());
         };
-        let output = search_cli(
+        let output = search_cli_ok(
             "az",
             &[
                 "keyvault",
@@ -113,10 +106,8 @@ impl Provider for AzureKv {
                 "tsv",
             ],
             extra_env,
+            "az login required",
         )?;
-        if !output.status.success() {
-            return Err(anyhow!("az login required"));
-        }
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::trim)
@@ -139,9 +130,6 @@ impl Provider for AzureKv {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
-        let name = self.name();
-        let install_url = self.install_url();
         let mut by_secret: HashMap<(String, String), Vec<(String, Option<String>)>> =
             HashMap::new();
         for (url, raw) in &self.urls {
@@ -149,41 +137,35 @@ impl Provider for AzureKv {
             by_secret
                 .entry((vault, secret))
                 .or_default()
-                .push((raw.clone(), query(url)));
+                .push((raw.clone(), query_param(url, "query")));
         }
-        let fetches = by_secret.into_iter().map(|((vault, secret), uris)| {
-            let extra_env = Arc::clone(&extra_env);
-            async move {
-                let output = run_cli(
-                    &[
-                        "az",
-                        "keyvault",
-                        "secret",
-                        "show",
-                        "--vault-name",
-                        &vault,
-                        "--name",
-                        &secret,
-                        "-o",
-                        "json",
-                    ],
-                    &extra_env,
-                    name,
-                    install_url,
-                    None,
-                )
-                .await?;
-                require_cli_ok(&output, name)?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let value = secret_value(&stdout, &secret)?;
-                let mut hydration = Hydration::default();
-                for (raw, q) in uris {
-                    hydration.insert(raw, json_query_string(&value, q.as_deref())?);
-                }
-                Ok::<_, anyhow::Error>(hydration)
-            }
-        });
-        Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
+        fetch_grouped(
+            by_secret,
+            extra_env,
+            self.name(),
+            self.install_url(),
+            |(vault, secret)| {
+                vec![
+                    "az".to_string(),
+                    "keyvault".to_string(),
+                    "secret".to_string(),
+                    "show".to_string(),
+                    "--vault-name".to_string(),
+                    vault.clone(),
+                    "--name".to_string(),
+                    secret.clone(),
+                    "-o".to_string(),
+                    "json".to_string(),
+                ]
+            },
+            |stdout, (_, secret)| secret_value(stdout, secret),
+        )
+        .await
+    }
+
+    fn compose_add_uri(&self, picked: &str, extras: &HashMap<String, String>) -> Option<String> {
+        let vault = extras.get("vault").map(String::as_str).unwrap_or("vault");
+        Some(format!("azurekv://{vault}/{picked}"))
     }
 }
 
@@ -194,11 +176,6 @@ pub(super) const SEARCH_SCOPE: super::add::AddField = super::add::AddField {
 };
 
 pub(super) const ADD_FIELDS: &[super::add::AddField] = &[];
-
-pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
-    let vault = extras.get("vault").map(String::as_str).unwrap_or("vault");
-    format!("azurekv://{vault}/{picked}")
-}
 
 #[cfg(test)]
 mod tests;

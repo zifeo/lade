@@ -1,6 +1,6 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
-use anyhow::{Ok, Result};
+use anyhow::{Ok, Result, anyhow};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -51,7 +51,6 @@ impl Provider for Passbolt {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
         let name = self.name();
         let install_url = self.install_url();
         let fetches = self
@@ -60,7 +59,6 @@ impl Provider for Passbolt {
             .into_group_map_by(|(url, _)| url.host().expect("Missing host"))
             .into_iter()
             .flat_map(|(host, group)| {
-                let extra_env = Arc::clone(&extra_env);
                 group
                     .into_iter()
                     .into_group_map_by(|(url, _)| {
@@ -69,7 +67,6 @@ impl Provider for Passbolt {
                     .into_iter()
                     .map(move |(resource_id, group)| {
                         let host = host.clone();
-                        let extra_env = Arc::clone(&extra_env);
                         async move {
                             let cmd = [
                                 "passbolt",
@@ -81,27 +78,19 @@ impl Provider for Passbolt {
                             ];
                             debug!("Lade run: {}", cmd.join(" "));
 
-                            let child = run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                            let child = run_cli(&cmd, extra_env, name, install_url, None).await?;
                             let loaded: HashMap<String, String> = deserialize_output(&child, name)?;
 
                             let hydration = group
                                 .into_iter()
                                 .map(|(url, value)| {
                                     let var = url.path().split('/').nth(2).expect("Missing field");
-                                    (
-                                        value.clone(),
-                                        loaded
-                                            .get(var)
-                                            .unwrap_or_else(|| {
-                                                panic!(
-                                                    "Variable not found in Passbolt: {}",
-                                                    resource_id
-                                                )
-                                            })
-                                            .clone(),
-                                    )
+                                    let secret = loaded.get(var).ok_or_else(|| {
+                                        anyhow!("Variable not found in Passbolt: {resource_id}")
+                                    })?;
+                                    Ok((value.clone(), secret.clone()))
                                 })
-                                .collect::<Hydration>();
+                                .collect::<Result<Hydration>>()?;
 
                             debug!("hydration: {:?}", hydration);
                             Ok(hydration)

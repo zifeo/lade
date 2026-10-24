@@ -77,33 +77,23 @@ pub(super) fn pre_event_from_work(
     actor: Option<String>,
     work: &ProviderWork,
 ) -> PreEvent {
-    PreEvent {
-        command: command.to_string(),
-        cwd,
-        via: via.child_stamp().unwrap_or("unknown").to_string(),
-        audience: match audience {
-            Audience::Agent => "agent",
-            Audience::Human => "human",
-        }
-        .to_string(),
-        actor,
-        log: work.log,
-        disclaimers: work.disclaimers.clone(),
-        secrets: work.secrets.clone(),
-        network: work
-            .network_bindings
-            .iter()
-            .map(|binding| ticket::TicketNetwork {
-                key: binding.key.clone(),
-                uri: binding.uri.clone(),
-                ttl: binding.ttl.as_ref().map(RuleTtl::to_raw),
-            })
-            .collect(),
-        matches: work.matches.clone(),
-        op_sa: work.op_sa.clone(),
-        agent: work.agent.clone(),
-        pending: false,
-    }
+    let mut pre = PreEvent::new(command, cwd, via, audience, actor);
+    pre.log = work.log;
+    pre.disclaimers = work.disclaimers.clone();
+    pre.secrets = work.secrets.clone();
+    pre.network = work
+        .network_bindings
+        .iter()
+        .map(|binding| ticket::TicketNetwork {
+            key: binding.key.clone(),
+            uri: binding.uri.clone(),
+            ttl: binding.ttl.as_ref().map(RuleTtl::to_raw),
+        })
+        .collect();
+    pre.matches = work.matches.clone();
+    pre.op_sa = work.op_sa.clone();
+    pre.agent = work.agent.clone();
+    pre
 }
 
 fn try_ticket_work(pre: &PreEvent) -> Result<ProviderWork> {

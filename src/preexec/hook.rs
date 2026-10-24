@@ -23,8 +23,7 @@ macro_rules! import {
 pub(crate) const MARKER: &str = "lade-do-not-edit";
 
 pub fn profile_config_file(shell: &Shell) -> PathBuf {
-    let user = directories::UserDirs::new().expect("cannot get HOME location");
-    let home_dir = user.home_dir();
+    let home_dir = crate::home_dir().expect("cannot get HOME location");
     match shell {
         Shell::Bash => home_dir.join(".bashrc"),
         Shell::Zsh => home_dir.join(".zshrc"),

@@ -1,14 +1,13 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use rustc_hash::FxHashMap;
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, json_query_string, require_cli_ok, run_cli, search_cli};
+use super::{Provider, Warnings, add_url, fetch_grouped, query_param, search_cli_ok};
 
 const DOCS: &str =
     "https://docs.aws.amazon.com/cli/latest/reference/secretsmanager/get-secret-value.html";
@@ -39,12 +38,6 @@ fn region(url: &Url) -> Result<String> {
         Some(s) if !s.is_empty() => Ok(s.to_string()),
         _ => bail!("AWS Secrets Manager URI missing region"),
     }
-}
-
-fn query_param(url: &Url, key: &str) -> Option<String> {
-    url.query_pairs()
-        .find(|(k, _)| k == key)
-        .map(|(_, v)| v.into_owned())
 }
 
 fn secret_string(raw: &str, id: &str) -> Result<String> {
@@ -79,7 +72,7 @@ impl Provider for AwsSm {
     }
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
-        let output = search_cli(
+        let output = search_cli_ok(
             "aws",
             &[
                 "secretsmanager",
@@ -90,10 +83,8 @@ impl Provider for AwsSm {
                 "text",
             ],
             extra_env,
+            "aws login required",
         )?;
-        if !output.status.success() {
-            return Err(anyhow!("aws login required"));
-        }
         Ok(String::from_utf8_lossy(&output.stdout)
             .split_whitespace()
             .map(str::to_string)
@@ -114,9 +105,6 @@ impl Provider for AwsSm {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
-        let name = self.name();
-        let install_url = self.install_url();
         let mut by_secret: HashMap<
             (String, String, Option<String>, Option<String>),
             Vec<(String, Option<String>)>,
@@ -132,10 +120,12 @@ impl Provider for AwsSm {
                 .or_default()
                 .push((raw.clone(), query_param(url, "query")));
         }
-        let fetches = by_secret.into_iter().map(|(key, uris)| {
-            let extra_env = Arc::clone(&extra_env);
-            async move {
-                let (region, id, version, stage) = key;
+        fetch_grouped(
+            by_secret,
+            extra_env,
+            self.name(),
+            self.install_url(),
+            |(region, id, version, stage)| {
                 let mut args = vec![
                     "aws".to_string(),
                     "secretsmanager".to_string(),
@@ -143,31 +133,31 @@ impl Provider for AwsSm {
                     "--secret-id".to_string(),
                     id.clone(),
                     "--region".to_string(),
-                    region,
+                    region.clone(),
                     "--output".to_string(),
                     "json".to_string(),
                 ];
                 if let Some(version) = version {
                     args.push("--version-id".to_string());
-                    args.push(version);
+                    args.push(version.clone());
                 }
                 if let Some(stage) = stage {
                     args.push("--version-stage".to_string());
-                    args.push(stage);
+                    args.push(stage.clone());
                 }
-                let cmd: Vec<&str> = args.iter().map(String::as_str).collect();
-                let output = run_cli(&cmd, &extra_env, name, install_url, None).await?;
-                require_cli_ok(&output, name)?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let value = secret_string(&stdout, &id)?;
-                let mut hydration = Hydration::default();
-                for (raw, q) in uris {
-                    hydration.insert(raw, json_query_string(&value, q.as_deref())?);
-                }
-                Ok::<_, anyhow::Error>(hydration)
-            }
-        });
-        Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
+                args
+            },
+            |stdout, (_, id, _, _)| secret_string(stdout, id),
+        )
+        .await
+    }
+
+    fn compose_add_uri(&self, picked: &str, extras: &HashMap<String, String>) -> Option<String> {
+        let region = extras
+            .get("region")
+            .map(String::as_str)
+            .unwrap_or("us-east-1");
+        Some(format!("awssm://{region}/{picked}"))
     }
 }
 
@@ -176,14 +166,6 @@ pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
     prompt: "Region (us-east-1): ",
     default: Some("us-east-1"),
 }];
-
-pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
-    let region = extras
-        .get("region")
-        .map(String::as_str)
-        .unwrap_or("us-east-1");
-    format!("awssm://{region}/{picked}")
-}
 
 #[cfg(test)]
 mod tests;

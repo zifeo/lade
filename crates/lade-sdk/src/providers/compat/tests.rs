@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "network")]
 use crate::providers::network::NetworkProviders;
 use semver::Version;
 
@@ -35,6 +36,7 @@ fn test_all_supported_schemes_includes_secret_and_network() {
     assert!(schemes.contains(&"tsh".to_string()));
 }
 
+#[cfg(feature = "network")]
 #[test]
 fn tunnel_specs_match_network_providers() {
     let providers = NetworkProviders::new();

@@ -113,6 +113,34 @@ pub(crate) fn public_hydrate(
     out
 }
 
+/// The wrap emission points share every Emit field but these.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn work_event(
+    ctx: &InvocationContext,
+    saved_user: &Option<String>,
+    cwd: PathBuf,
+    command: String,
+    agent: Value,
+    kind: Kind,
+    matches: Value,
+    hydrated: Option<HashMap<String, String>>,
+    hydrate_ms: Option<f64>,
+) -> Emit {
+    Emit {
+        kind,
+        via: ctx.via,
+        audience: ctx.audience,
+        actor: event::actor(saved_user),
+        cwd,
+        command,
+        argv: None,
+        hydrated,
+        matches,
+        hydrate_ms,
+        agent: crate::agent_meta::merge(agent),
+    }
+}
+
 /// What a failed acquisition leads to.
 pub(super) enum FailureChoice {
     RunAnyway,

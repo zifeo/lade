@@ -3,9 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Ok, Result};
+use anyhow::{Ok, Result, bail};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+#[cfg(feature = "mcp")]
 pub mod mcp;
 mod providers;
 mod resolve;
@@ -17,6 +18,7 @@ pub use providers::Warnings;
 pub use providers::add::{AddField, secret_add_fields, secret_search_scope};
 pub use providers::compat;
 pub use providers::compose_secret_add_uri;
+#[cfg(feature = "network")]
 pub use providers::network;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -24,12 +26,21 @@ pub use resolve::{Dag, Template, resolve, resolve_one};
 
 type Hydration = FxHashMap<String, String>;
 
-pub async fn hydrate(
+/// Warnings are returned, not printed: a caller decides how to surface them.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Hydrated {
+    pub values: HashMap<String, String>,
+    pub warnings: Vec<String>,
+}
+
+/// Duplicate sources are resolved once, distinct ones concurrently.
+pub async fn hydrate_many(
     env: HashMap<String, String>,
     cwd: PathBuf,
     extra_env: HashMap<String, String>,
-) -> Result<HashMap<String, String>> {
-    Ok(hydrate_with_maskable(env, cwd, extra_env).await?.0)
+) -> Result<Hydrated> {
+    let (values, _maskable, warnings) = hydrate_with_maskable(env, cwd, extra_env).await?;
+    Ok(Hydrated { values, warnings })
 }
 
 pub async fn hydrate_with_maskable(
@@ -44,23 +55,21 @@ pub async fn hydrate_with_maskable(
     let warnings = Warnings::default();
     let (hydration, maskable) = providers.resolve(&cwd, &extra_env, &warnings).await?;
 
-    let values = env
-        .into_iter()
-        .map(|(key, value_or_uri)| {
-            let value = hydration.get(&value_or_uri).cloned().unwrap_or_else(|| {
-                panic!(
-                    "Cannot find {} in {}",
-                    value_or_uri,
-                    hydration
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
-            });
-            (key, value)
-        })
-        .collect();
+    let mut values = HashMap::with_capacity(env.len());
+    for (key, value_or_uri) in env {
+        let Some(value) = hydration.get(&value_or_uri) else {
+            bail!(
+                "Cannot find {} in {}",
+                value_or_uri,
+                hydration
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+        };
+        values.insert(key, value.clone());
+    }
 
     Ok((values, maskable, warnings.take()))
 }
@@ -75,13 +84,30 @@ pub async fn hydrate_one(
     let (hydration, _) = providers
         .resolve(cwd, extra_env, &Warnings::default())
         .await?;
-    Ok(hydration.get(&value).unwrap().to_owned())
+    let Some(value) = hydration.get(&value) else {
+        bail!("Cannot find {value} in the resolved providers");
+    };
+    Ok(value.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_hydrate_many_returns_values_and_warnings() {
+        let env = HashMap::from([
+            ("KEY1".to_string(), "value1".to_string()),
+            ("KEY2".to_string(), "value2".to_string()),
+        ]);
+        let hydrated = hydrate_many(env, PathBuf::from("."), HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(hydrated.values.get("KEY1").unwrap(), "value1");
+        assert_eq!(hydrated.values.get("KEY2").unwrap(), "value2");
+        assert!(hydrated.warnings.is_empty());
+    }
 
     #[tokio::test]
     async fn test_hydrate_raw_values_with_empty_extra_env() {

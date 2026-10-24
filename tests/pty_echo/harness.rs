@@ -96,7 +96,7 @@ fn spawn(lade_bin: &Path, project: &Path) -> Harness {
     spawn_with(
         lade_bin,
         project,
-        &format!("printf '{CHILD_READY}\\n'; sleep 2"),
+        &format!("printf '{CHILD_READY}\\n'; sleep 0.3"),
     )
 }
 

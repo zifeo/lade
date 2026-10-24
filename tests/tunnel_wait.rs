@@ -86,7 +86,7 @@ fn a_second_target_waits_for_the_first_command_to_end() {
     let prd = setup.project("prd-db", false);
     let stg = setup.project("stg-db", false);
     let mut first = setup
-        .inject(prd.path(), "sleep 3")
+        .inject(prd.path(), "sleep 1.5")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

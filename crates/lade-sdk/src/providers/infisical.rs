@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, host_with_port, run_cli};
+use super::{Provider, Warnings, add_url, decode_seg, host_with_port, run_cli};
 
 #[derive(Default)]
 pub struct Infisical {
@@ -30,25 +30,22 @@ struct InfisicalExport {
     value: String,
 }
 
-fn decode_seg(raw: &str) -> Result<String> {
-    urlencoding::decode(raw)
-        .map_err(|e| anyhow!("invalid percent-encoding in infisical:// URL: {e}"))
-        .map(|s| s.into_owned())
-}
-
 fn secret_path_and_var(url: &Url) -> Result<(String, String)> {
     let segs: Vec<&str> = url.path().split('/').collect();
     if segs.len() < 4 || segs.last().is_some_and(|s| s.is_empty()) {
         bail!("Infisical URI must be infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME");
     }
-    let variable = decode_seg(segs.last().ok_or_else(|| anyhow!("Missing variable"))?)?;
+    let variable = decode_seg(
+        segs.last().ok_or_else(|| anyhow!("Missing variable"))?,
+        "infisical",
+    )?;
     if variable.is_empty() {
         bail!("Infisical URI must be infisical://DOMAIN/PROJECT_ID/ENV_NAME/SECRET_NAME");
     }
     let path = if segs.len() > 4 {
         let folders = segs[3..segs.len() - 1]
             .iter()
-            .map(|s| decode_seg(s))
+            .map(|s| decode_seg(s, "infisical"))
             .collect::<Result<Vec<_>>>()?;
         format!("/{}", folders.join("/"))
     } else {

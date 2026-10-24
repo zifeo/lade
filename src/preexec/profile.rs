@@ -17,7 +17,7 @@ pub(super) fn configure_auto_launch(shell: &Shell, install: bool) -> Result<Path
 }
 
 pub(crate) fn path_for_display(path: &Path) -> String {
-    let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) else {
+    let Some(home) = crate::home_dir() else {
         return path.display().to_string();
     };
     match path.strip_prefix(&home) {
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_path_for_display_under_home() {
-        if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
+        if let Some(home) = crate::home_dir() {
             let cfg = home.join(".zshrc");
             assert_eq!(path_for_display(&cfg), "~/.zshrc");
         }

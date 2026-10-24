@@ -82,33 +82,15 @@ impl Tables {
     }
 
     fn evict_secrets_if_full(&mut self) {
-        while self.secrets.len() > SECRET_CAP {
-            let oldest = self
-                .secrets
-                .iter()
-                .min_by_key(|(_, row)| row.inserted)
-                .map(|(key, _)| key.clone());
-            if let Some(key) = oldest {
-                self.secrets.remove(&key);
-            } else {
-                break;
-            }
-        }
+        evict_oldest(&mut self.secrets, SECRET_CAP, |row: &SecretRow| {
+            row.inserted
+        });
     }
 
     fn evict_tickets_if_full(&mut self) {
-        while self.tickets.len() > TICKET_CAP {
-            let oldest = self
-                .tickets
-                .iter()
-                .min_by_key(|(_, row)| row.inserted)
-                .map(|(key, _)| *key);
-            if let Some(key) = oldest {
-                self.tickets.remove(&key);
-            } else {
-                break;
-            }
-        }
+        evict_oldest(&mut self.tickets, TICKET_CAP, |row: &TicketRow| {
+            row.inserted
+        });
     }
 
     pub(super) fn handle(&mut self, req: Req) -> Rep {
@@ -298,6 +280,22 @@ fn is_path_prefix(child: &str, parent: &str) -> bool {
 fn ttl_left_ms(row: &SecretRow) -> u32 {
     let elapsed = u32::try_from(since(row.inserted).as_millis()).unwrap_or(u32::MAX);
     row.ttl_ms.saturating_sub(elapsed)
+}
+
+fn evict_oldest<K, V>(map: &mut HashMap<K, V>, cap: usize, inserted: impl Fn(&V) -> Duration)
+where
+    K: std::hash::Hash + Eq + Clone,
+{
+    while map.len() > cap {
+        let Some(oldest) = map
+            .iter()
+            .min_by_key(|(_, row)| inserted(row))
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        map.remove(&oldest);
+    }
 }
 
 #[cfg(test)]

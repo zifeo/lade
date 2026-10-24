@@ -82,8 +82,10 @@ fn test_killed_lade_leaves_no_provider_behind() {
         .spawn()
         .unwrap();
     let provider = read_pid(&pid_file);
-    std::thread::sleep(Duration::from_secs(1));
-    assert!(pid_alive(provider), "provider died with Lade alive");
+    for _ in 0..15 {
+        assert!(pid_alive(provider), "provider died with Lade alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     lade.kill().unwrap();
     lade.wait().unwrap();

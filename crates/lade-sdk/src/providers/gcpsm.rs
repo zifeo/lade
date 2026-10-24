@@ -1,14 +1,13 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use rustc_hash::FxHashMap;
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, json_query_string, require_cli_ok, run_cli, search_cli};
+use super::{Provider, Warnings, add_url, fetch_grouped, query_param, search_cli_ok};
 
 const DOCS: &str = "https://cloud.google.com/sdk/gcloud/reference/secrets/versions/access";
 
@@ -41,12 +40,6 @@ fn project_and_name(url: &Url) -> Result<(String, String, Option<String>)> {
     Ok((project.to_string(), name, location))
 }
 
-fn query(url: &Url) -> Option<String> {
-    url.query_pairs()
-        .find(|(k, _)| k == "query")
-        .map(|(_, v)| v.into_owned())
-}
-
 #[async_trait]
 impl Provider for GcpSm {
     fn add(&mut self, value: String) -> Result<()> {
@@ -65,14 +58,12 @@ impl Provider for GcpSm {
     }
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
-        let output = search_cli(
+        let output = search_cli_ok(
             "gcloud",
             &["secrets", "list", "--format=value(name)"],
             extra_env,
+            "gcloud login required",
         )?;
-        if !output.status.success() {
-            return Err(anyhow!("gcloud login required"));
-        }
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::trim)
@@ -95,9 +86,6 @@ impl Provider for GcpSm {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
-        let name = self.name();
-        let install_url = self.install_url();
         let mut by_secret: HashMap<
             (String, String, Option<String>),
             Vec<(String, Option<String>)>,
@@ -107,12 +95,14 @@ impl Provider for GcpSm {
             by_secret
                 .entry((project, secret, location))
                 .or_default()
-                .push((raw.clone(), query(url)));
+                .push((raw.clone(), query_param(url, "query")));
         }
-        let fetches = by_secret.into_iter().map(|(key, uris)| {
-            let extra_env = Arc::clone(&extra_env);
-            async move {
-                let (project, secret, location) = key;
+        fetch_grouped(
+            by_secret,
+            extra_env,
+            self.name(),
+            self.install_url(),
+            |(project, secret, location)| {
                 let mut args = vec![
                     "gcloud".to_string(),
                     "secrets".to_string(),
@@ -125,18 +115,19 @@ impl Provider for GcpSm {
                 if let Some(location) = location {
                     args.push(format!("--location={location}"));
                 }
-                let cmd: Vec<&str> = args.iter().map(String::as_str).collect();
-                let output = run_cli(&cmd, &extra_env, name, install_url, None).await?;
-                require_cli_ok(&output, name)?;
-                let value = String::from_utf8_lossy(&output.stdout).to_string();
-                let mut hydration = Hydration::default();
-                for (raw, q) in uris {
-                    hydration.insert(raw, json_query_string(&value, q.as_deref())?);
-                }
-                Ok::<_, anyhow::Error>(hydration)
-            }
-        });
-        Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
+                args
+            },
+            |stdout, _| Ok(stdout.to_string()),
+        )
+        .await
+    }
+
+    fn compose_add_uri(&self, picked: &str, extras: &HashMap<String, String>) -> Option<String> {
+        let project = extras
+            .get("project")
+            .map(String::as_str)
+            .unwrap_or("project");
+        Some(format!("gcpsm://{project}/{picked}"))
     }
 }
 
@@ -145,14 +136,6 @@ pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
     prompt: "Project: ",
     default: None,
 }];
-
-pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
-    let project = extras
-        .get("project")
-        .map(String::as_str)
-        .unwrap_or("project");
-    format!("gcpsm://{project}/{picked}")
-}
 
 #[cfg(test)]
 mod tests;
