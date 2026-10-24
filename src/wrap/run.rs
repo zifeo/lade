@@ -39,7 +39,15 @@ pub async fn run_inject(
         None
     };
     let saved_user = crate::config::saved_user().await?;
-    let pins = apply_pins(config, &command, current_dir, &saved_user, ctx.audience).await?;
+    let pins = apply_pins(
+        config,
+        &command,
+        current_dir,
+        &saved_user,
+        ctx.audience,
+        None,
+    )
+    .await?;
     let _pin_cleanup = PinCleanup(pins.cleanup.clone());
     let work = resolve_provider_work(
         config,

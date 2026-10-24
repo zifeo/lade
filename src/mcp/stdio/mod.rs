@@ -33,7 +33,6 @@ struct Session<R> {
     forwarded_initialize: bool,
     backoff: Duration,
     startup_deadline: Instant,
-    ready_once: bool,
     client_line: String,
     watch: ChildWatch,
 }
@@ -46,7 +45,6 @@ impl<R: AsyncRead + Unpin> Session<R> {
             forwarded_initialize: false,
             backoff: INITIAL_RESTART_BACKOFF,
             startup_deadline: Instant::now() + STARTUP_TIMEOUT,
-            ready_once: false,
             client_line: String::new(),
             watch: ChildWatch::new(),
         }
@@ -110,7 +108,6 @@ where
         .await?;
         session.watch.clear_pid();
         if spawned_at.elapsed() > INITIAL_RESTART_BACKOFF {
-            session.ready_once = true;
             session.backoff = INITIAL_RESTART_BACKOFF;
         }
         if let Some(code) = restart_or_exit(outcome, &mut session, &mut output).await? {
@@ -205,7 +202,7 @@ where
     if client_eof {
         return Ok(Some(exit_code(status)));
     }
-    if !session.ready_once && Instant::now() >= session.startup_deadline {
+    if Instant::now() >= session.startup_deadline {
         MessageBox::new()
             .error()
             .line("MCP server exited before initialize.")

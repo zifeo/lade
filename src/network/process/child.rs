@@ -10,9 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use super::direct::{PortListen, STRANGER_LISTEN, port_listen};
 use super::forward::Stop;
 use super::logs::{dedupe_lines, printed_addr};
-use super::{Endpoint, Inner, READINESS_POLL_INTERVAL, configure_child_process};
+use super::{Direct, Endpoint, Inner, READINESS_POLL_INTERVAL, configure_child_process};
 
 // A persistent kubectl logs a line per connection for hours.
 const MAX_LOG_BYTES: usize = 64 * 1024;
@@ -81,6 +82,7 @@ impl ChildForward {
     fn endpoint(&self, inner: &Inner) -> Option<Endpoint> {
         match inner {
             Inner::Fixed(endpoint) => Some(endpoint.clone()),
+            Inner::Direct(_) => None,
             Inner::Printed => {
                 let addr = (*self.printed.lock().expect("printed mutex"))?;
                 Some(Endpoint::Tcp {
@@ -98,6 +100,9 @@ pub(super) fn wait_forward_ready(
     deadline: Instant,
     stop: &Stop,
 ) -> Result<Endpoint> {
+    if let Inner::Direct(direct) = inner {
+        return wait_direct_ready(child, direct, deadline, stop);
+    }
     loop {
         if let Some(status) = child.child.try_wait()? {
             // Read its log to the end first: the readers may lag behind.
@@ -112,6 +117,40 @@ pub(super) fn wait_forward_ready(
             && endpoint.connect(Duration::from_millis(200)).is_ok()
         {
             return Ok(endpoint);
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "timeout waiting for the tunnel to listen: {}",
+                child.logs_text()
+            );
+        }
+        if stop.sleep(READINESS_POLL_INTERVAL) {
+            bail!("tunnel stopped before readiness");
+        }
+    }
+}
+
+fn wait_direct_ready(
+    child: &mut ChildForward,
+    direct: &Direct,
+    deadline: Instant,
+    stop: &Stop,
+) -> Result<Endpoint> {
+    loop {
+        if let Some(status) = child.child.try_wait()? {
+            stop_child(&mut child.child);
+            child.join_readers();
+            bail!(
+                "process exited before becoming ready (status: {status}): {}",
+                child.logs_text()
+            );
+        }
+        match port_listen(direct.port, child.child.id()) {
+            PortListen::Ours => return Ok(direct.endpoint()),
+            PortListen::Stranger => {
+                bail!("{STRANGER_LISTEN} on {}:{}", direct.host, direct.port);
+            }
+            PortListen::Vacant => {}
         }
         if Instant::now() >= deadline {
             bail!(

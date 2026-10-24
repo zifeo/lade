@@ -126,6 +126,7 @@ fn test_status_reports_project_pretool_hook() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    common::init_git(dir.path());
     fs::create_dir_all(dir.path().join(".claude")).unwrap();
     fs::write(
         dir.path().join(".claude").join("settings.json"),
@@ -176,6 +177,7 @@ fn test_status_reports_project_codex_pretool_hook() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
+    common::init_git(dir.path());
     fs::create_dir_all(dir.path().join(".codex")).unwrap();
     fs::write(
         dir.path().join(".codex").join("hooks.json"),

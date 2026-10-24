@@ -9,8 +9,20 @@ pub(super) fn leftover_json_hook(agent: Agent, home: &Path) -> Result<Option<(Pa
     let Some(path) = agent.legacy_json_path(home) else {
         return Ok(None);
     };
-    match fs::read_to_string(&path) {
-        Ok(content) if Agent::Claude.has_hook(&content)? => Ok(Some((path, content))),
+    leftover_hook_file(Agent::Claude, &path)
+}
+
+/// Claude still loads this file. Lade never writes it; disable/teardown strip it.
+pub(super) fn leftover_claude_local(dest: &Path) -> Result<Option<(PathBuf, String)>> {
+    leftover_hook_file(
+        Agent::Claude,
+        &dest.join(".claude").join("settings.local.json"),
+    )
+}
+
+fn leftover_hook_file(agent: Agent, path: &Path) -> Result<Option<(PathBuf, String)>> {
+    match fs::read_to_string(path) {
+        Ok(content) if agent.has_hook(&content)? => Ok(Some((path.to_path_buf(), content))),
         _ => Ok(None),
     }
 }
@@ -26,56 +38,44 @@ pub(super) fn hook_state(path: &Path, agent: Agent, expected: Option<&str>) -> (
     (installed, current)
 }
 
-/// Walk from `cwd` toward `$HOME` looking for a project-local hook file.
-/// Home-level agent configs stay in `global`.
+/// One project dest: the git root. Home is never a dest.
+pub(super) fn project_dest(home: &Path, cwd: &Path) -> Option<PathBuf> {
+    let root = crate::catalog::git_root(cwd)?;
+    if same_path(&root, home) {
+        None
+    } else {
+        Some(root)
+    }
+}
+
+/// Project hook file at `project_dest`. Home configs stay global.
 pub(super) fn find_project(agent: Agent, home: &Path, cwd: &Path) -> Result<(PathBuf, bool)> {
-    let under_home = cwd.starts_with(home);
-    let mut dir = cwd.to_path_buf();
-    loop {
-        if dir == home {
-            break;
-        }
-        let files = project_files(agent, &dir);
-        for path in &files {
-            if path.is_file() && hook_state(path, agent, None).0 {
-                return Ok((path.clone(), true));
-            }
-        }
-        if let Some(found) = files.into_iter().find(|path| path.is_file()) {
-            return Ok((found, false));
-        }
-        match dir.parent() {
-            Some(parent) if under_home => dir = parent.to_path_buf(),
-            _ => break,
-        }
-    }
-    Ok((canonical_project_path(agent, cwd), false))
+    let Some(dest) = project_dest(home, cwd) else {
+        return Ok((canonical_project_path(agent, cwd), false));
+    };
+    let path = canonical_project_path(agent, &dest);
+    let installed = path.is_file() && hook_state(&path, agent, None).0;
+    Ok((path, installed))
 }
 
-pub(super) fn project_files(agent: Agent, dir: &Path) -> Vec<PathBuf> {
+pub(super) fn canonical_project_path(agent: Agent, dest: &Path) -> PathBuf {
     match agent {
-        Agent::Cursor => vec![dir.join(".cursor").join("hooks.json")],
-        Agent::Claude => vec![
-            dir.join(".claude").join("settings.local.json"),
-            dir.join(".claude").join("settings.json"),
-        ],
-        Agent::Codex => vec![dir.join(".codex").join("hooks.json")],
-        Agent::OpenCode => vec![
-            dir.join(".opencode")
-                .join("plugins")
-                .join("lade-pretool.js"),
-        ],
-    }
-}
-
-pub(super) fn canonical_project_path(agent: Agent, cwd: &Path) -> PathBuf {
-    match agent {
-        Agent::Cursor => cwd.join(".cursor").join("hooks.json"),
-        Agent::Claude => cwd.join(".claude").join("settings.json"),
-        Agent::Codex => cwd.join(".codex").join("hooks.json"),
-        Agent::OpenCode => cwd
+        Agent::Cursor => dest.join(".cursor").join("hooks.json"),
+        Agent::Claude => dest.join(".claude").join("settings.json"),
+        Agent::Codex => dest.join(".codex").join("hooks.json"),
+        Agent::OpenCode => dest
             .join(".opencode")
             .join("plugins")
             .join("lade-pretool.js"),
+    }
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }

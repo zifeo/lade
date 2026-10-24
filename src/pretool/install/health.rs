@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::locate::find_project;
+use super::locate::{find_project, hook_state, leftover_claude_local, project_dest};
 use super::opencode::OpenCodeApi;
 use super::paths::{home_dir, hook_command, project_hook_command, tilde};
 use super::write::refresh_at;
@@ -61,6 +61,23 @@ pub(crate) fn report_at(
             Ok((path, true)) => Some((path, project_hook_command(agent), false)),
             _ => None,
         };
+        let home_has = hook_state(&agent.config_path(home), agent, None).0;
+        if home_has && project.is_some() {
+            lines.push(format!(
+                "{}: hooks in this repo and under the home directory. Both will run. Remove the home hooks first: `lade hook disable --global --harness {}`",
+                agent.name(),
+                agent.slug()
+            ));
+        }
+        if let Some(dest) = project_dest(home, cwd)
+            && let Ok(Some((path, _))) = leftover_claude_local(&dest)
+            && agent == Agent::Claude
+        {
+            lines.push(format!(
+                "Claude Code (this repo, {}): leftover hook in settings.local.json. `lade hook disable --harness claude` removes it.",
+                tilde(&path, home)
+            ));
+        }
         for (path, command, global) in std::iter::once(global).chain(project) {
             let Ok(content) = fs::read_to_string(&path) else {
                 continue;

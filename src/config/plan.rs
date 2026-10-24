@@ -14,6 +14,11 @@ pub(super) fn secrets_from_rules(
     let mut bindings = HashMap::<String, TicketSecret>::new();
     for (cwd, rule) in rules {
         let output = rule.config.as_ref().and_then(|config| config.file.clone());
+        let rule_op_sa = rule
+            .config
+            .as_ref()
+            .and_then(|config| config.onepassword_service_account.as_ref())
+            .and_then(|secret| resolve_lade_secret(secret, saved_user));
         for (key, secret) in &rule.secrets {
             match resolve_entry(key, secret, saved_user) {
                 Some(ResolvedEntry::Unset { key })
@@ -37,6 +42,7 @@ pub(super) fn secrets_from_rules(
                         private,
                         output: output.as_ref().map(|path| cwd.join(path)),
                         cwd: cwd.clone(),
+                        op_sa: rule_op_sa.clone(),
                     };
                     if let Some(existing) = bindings.get(&name)
                         && existing.private != ticket.private

@@ -158,3 +158,34 @@ async fn after_initialize_answers_in_flight_ids_and_does_not_restart() {
     assert!(output.contains("MCP server exited"), "{output}");
     assert_eq!(std::fs::read_to_string(&starts).unwrap(), "x");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stdout_eof_while_child_lives_honors_stop() {
+    let _lock = crate::child_signals::SUPERVISE_TEST_LOCK.lock().await;
+    crate::child_signals::reset_for_test();
+    let dir = tempfile::tempdir().unwrap();
+    let (input_writer, input_reader) = tokio::io::duplex(1024);
+    let (output_writer, _output_reader) = tokio::io::duplex(1024);
+    let supervise = tokio::spawn(supervise_stdio(
+        vec![
+            OsString::from("sh"),
+            OsString::from("-c"),
+            OsString::from("exec 1>&-; sleep 30"),
+        ],
+        HashMap::new(),
+        dir.path().to_path_buf(),
+        input_reader,
+        output_writer,
+    ));
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    crate::child_signals::request_stop_for_test();
+    let code = timeout(Duration::from_secs(2), supervise)
+        .await
+        .expect("supervise busy-looped after stdout EOF")
+        .unwrap()
+        .unwrap();
+    drop(input_writer);
+    crate::child_signals::reset_for_test();
+    assert!(code.is_none() || code == Some(1), "got {code:?}");
+}

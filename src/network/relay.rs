@@ -1,152 +1,16 @@
 use anyhow::Result;
-use nix::errno::Errno;
-use nix::sys::socket::{
-    AddressFamily, SockFlag, SockType, SockaddrStorage, setsockopt, socket, sockopt,
-};
 use std::io::{self, ErrorKind};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use super::outer::Outer;
 use super::process::{EndpointSlot, Stream};
 
 const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// The user-facing port, bound by Lade. Holding it is the claim: a second
-/// tunnel gets `AddrInUse` at once, and the kernel frees the port when the
-/// holder dies. No lock file.
-#[derive(Debug)]
-pub(crate) struct Outer {
-    listeners: Vec<TcpListener>,
-    pub(crate) host: String,
-    pub(crate) port: u16,
-}
-
-#[derive(Debug)]
-pub(crate) enum ClaimError {
-    InUse { port: u16 },
-    Other(anyhow::Error),
-}
-
-impl Outer {
-    /// `port: None` takes a free port.
-    pub(crate) fn claim(host: &str, port: Option<u16>) -> Result<Self, ClaimError> {
-        if let Some(port) = port {
-            return Self::claim_port(host, port);
-        }
-        // The kernel's pick only avoids the identical address, so it may be
-        // held on another one: check it like a fixed port.
-        let ip = resolve(host, 0)?[0].ip();
-        for _ in 0..EPHEMERAL_TRIES {
-            let picked = TcpListener::bind((ip, 0))
-                .and_then(|listener| listener.local_addr())
-                .map_err(|e| ClaimError::Other(anyhow::anyhow!("no free port on {ip}: {e}")))?
-                .port();
-            match Self::claim_port(host, picked) {
-                Err(ClaimError::InUse { .. }) => continue,
-                claimed => return claimed,
-            }
-        }
-        Err(ClaimError::Other(anyhow::anyhow!(
-            "no free local port on {host} after {EPHEMERAL_TRIES} tries"
-        )))
-    }
-
-    fn claim_port(host: &str, port: u16) -> Result<Self, ClaimError> {
-        let addrs = resolve(host, port)?;
-        for ip in PROBES {
-            if !addrs.iter().any(|addr| addr.ip() == ip) {
-                probe(ip, port)?;
-            }
-        }
-        let mut listeners = Vec::new();
-        let mut unbound = None;
-        for addr in &addrs {
-            match bind(*addr, port) {
-                Ok(listener) => listeners.push(listener),
-                Err(ClaimError::InUse { port }) => return Err(ClaimError::InUse { port }),
-                // `localhost` may resolve to ::1 first on a host without IPv6.
-                Err(other) => unbound = unbound.or(Some(other)),
-            }
-        }
-        if listeners.is_empty() {
-            return Err(unbound.expect("resolve returns at least one address"));
-        }
-        Ok(Self {
-            listeners,
-            host: host.to_string(),
-            port,
-        })
-    }
-}
-
-const EPHEMERAL_TRIES: usize = 16;
-
-/// At least one address.
-fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, ClaimError> {
-    let addrs = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| ClaimError::Other(e.into()))?
-        .collect::<Vec<_>>();
-    if addrs.is_empty() {
-        return Err(ClaimError::Other(anyhow::anyhow!(
-            "local host '{host}' did not resolve"
-        )));
-    }
-    Ok(addrs)
-}
-
-/// With SO_REUSEADDR, macOS refuses only the identical address:
-/// `127.0.0.1:P` binds while `0.0.0.0:P` or `[::]:P` listens, and a
-/// `localhost` client may reach either. So a port is held when any of
-/// these is taken.
-const PROBES: [IpAddr; 4] = [
-    IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-    IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-    IpAddr::V4(Ipv4Addr::LOCALHOST),
-    IpAddr::V6(Ipv6Addr::LOCALHOST),
-];
-
-/// Binds without listening, with SO_REUSEPORT: two claims probing one port
-/// at once pass each other, and only a real holder refuses the bind.
-fn probe(ip: IpAddr, port: u16) -> Result<(), ClaimError> {
-    let family = match ip {
-        IpAddr::V4(_) => AddressFamily::Inet,
-        IpAddr::V6(_) => AddressFamily::Inet6,
-    };
-    // A provider another hub thread spawns meanwhile must not inherit a
-    // socket bound to the port: it would hold the port for its whole life.
-    #[cfg(target_os = "linux")]
-    let flags = SockFlag::SOCK_CLOEXEC;
-    #[cfg(not(target_os = "linux"))]
-    let flags = SockFlag::empty();
-    // A host without IPv6 cannot open or bind `::`.
-    let Ok(fd) = socket(family, SockType::Stream, flags, None) else {
-        return Ok(());
-    };
-    #[cfg(not(target_os = "linux"))]
-    let _ = nix::fcntl::fcntl(
-        &fd,
-        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-    );
-    let _ = setsockopt(&fd, sockopt::ReuseAddr, &true);
-    let _ = setsockopt(&fd, sockopt::ReusePort, &true);
-    let addr = SockaddrStorage::from(SocketAddr::new(ip, port));
-    match nix::sys::socket::bind(fd.as_raw_fd(), &addr) {
-        Err(Errno::EADDRINUSE) => Err(ClaimError::InUse { port }),
-        _ => Ok(()),
-    }
-}
-
-fn bind(addr: SocketAddr, port: u16) -> Result<TcpListener, ClaimError> {
-    TcpListener::bind(addr).map_err(|e| match e.kind() {
-        ErrorKind::AddrInUse => ClaimError::InUse { port },
-        _ => ClaimError::Other(anyhow::anyhow!("could not listen on {addr}: {e}")),
-    })
-}
 
 /// Accepts on [`Outer`] and pipes each connection to whatever the provider
 /// listens on right now, so a provider restart keeps the port.
@@ -253,14 +117,9 @@ fn pipe(client: TcpStream, upstream: Stream) {
     let _ = back.join();
 }
 
-/// A port no address holds right now, for a test to claim by number.
-#[cfg(test)]
-pub(crate) fn free_fixed_port() -> u16 {
-    Outer::claim("127.0.0.1", None).expect("free port").port
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::outer::{ClaimError, Outer};
     use super::*;
     use crate::network::process::Endpoint;
     use std::io::{Read, Write};

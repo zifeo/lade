@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -181,12 +181,41 @@ fn hex_prefix(bytes: &[u8], n: usize) -> String {
 }
 
 fn atomic_write(path: &Path, body: &[u8]) -> io::Result<()> {
-    let tmp = match path.file_name() {
-        Some(name) => path.with_file_name(format!("{}.tmp", name.to_string_lossy())),
-        None => path.with_extension("tmp"),
-    };
-    fs::write(&tmp, body)?;
-    fs::rename(&tmp, path)
+    // Scratch rename is atomic on the same mount. EXDEV writes a unique sibling, then renames.
+    match write_via_scratch(path, body) {
+        Ok(()) => Ok(()),
+        Err(err) if is_cross_device(&err) => write_via_sibling(path, body),
+        Err(err) => Err(err),
+    }
+}
+
+fn write_via_scratch(path: &Path, body: &[u8]) -> io::Result<()> {
+    let dir = scratch();
+    fs::create_dir_all(&dir)?;
+    persist_temp(&dir, path, body)
+}
+
+fn write_via_sibling(path: &Path, body: &[u8]) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    persist_temp(parent, path, body)
+}
+
+fn persist_temp(dir: &Path, dest: &Path, body: &[u8]) -> io::Result<()> {
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!("lade-{}-", std::process::id()))
+        .suffix(".tmp")
+        .tempfile_in(dir)?;
+    tmp.write_all(body)?;
+    tmp.flush()?;
+    tmp.persist(dest).map(|_| ()).map_err(|err| err.error)
+}
+
+fn is_cross_device(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::CrossesDevices
 }
 
 fn replace_link(link: &Path, target: &Path) -> io::Result<()> {
@@ -266,6 +295,79 @@ mod tests {
             assert!(write_if_changed(&path, b"a = 2\n").unwrap());
             assert_eq!(fs::read_to_string(&path).unwrap(), "a = 2\n");
         });
+    }
+
+    #[test]
+    fn write_renames_from_scratch_and_leaves_no_fixed_tmp() {
+        with_cache(|cache| {
+            let dest_dir = tempdir().unwrap();
+            let dest = dest_dir.path().join("mise.toml");
+            assert!(write_if_changed(&dest, b"from-scratch\n").unwrap());
+            assert_eq!(fs::read_to_string(&dest).unwrap(), "from-scratch\n");
+            assert!(!dest.with_file_name("mise.toml.tmp").exists());
+            assert_no_tmp_leftovers(cache.join("tmp").as_path());
+        });
+    }
+
+    #[test]
+    fn concurrent_writers_leave_one_complete_body() {
+        with_cache(|_| {
+            let dest_dir = tempdir().unwrap();
+            let dest = dest_dir.path().join("mise.toml");
+            let a = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nrepeat-a\n";
+            let b = b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nrepeat-b\n";
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    for _ in 0..80 {
+                        write_if_changed(&dest, a).unwrap();
+                    }
+                });
+                s.spawn(|| {
+                    for _ in 0..80 {
+                        write_if_changed(&dest, b).unwrap();
+                    }
+                });
+            });
+            let got = fs::read(&dest).unwrap();
+            assert!(
+                got == a || got == b,
+                "dest was a mix of concurrent writers: {got:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn cross_device_fallback_replaces_with_complete_body() {
+        with_cache(|cache| {
+            let dest = cache.join("mise.toml");
+            fs::write(&dest, b"old-partial-would-be-bad\n").unwrap();
+            write_via_sibling(&dest, b"new-complete-body\n").unwrap();
+            assert_eq!(fs::read_to_string(&dest).unwrap(), "new-complete-body\n");
+            assert!(!dest.with_file_name("mise.toml.tmp").exists());
+            assert_no_tmp_leftovers(cache);
+        });
+    }
+
+    #[test]
+    fn cross_device_kind_does_not_treat_other_errors_as_exdev() {
+        assert!(is_cross_device(&io::Error::new(
+            io::ErrorKind::CrossesDevices,
+            "exdev"
+        )));
+        assert!(!is_cross_device(&io::Error::other("permission")));
+    }
+
+    fn assert_no_tmp_leftovers(dir: &Path) {
+        if !dir.exists() {
+            return;
+        }
+        let leftovers: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .map(|entry| entry.path())
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temps: {leftovers:?}");
     }
 
     #[cfg(unix)]

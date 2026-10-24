@@ -32,6 +32,7 @@ where
     let mut in_flight = Vec::new();
     let mut child_line = String::new();
     let mut client_eof = false;
+    let mut child_stdout_eof = false;
     let mut broken_pipe = false;
 
     while !pending.is_empty() {
@@ -91,8 +92,9 @@ where
                         Err(error) => return Err(error),
                     }
                 }
-                read = child_stdout.read_line(&mut child_line) => {
+                read = child_stdout.read_line(&mut child_line), if !child_stdout_eof => {
                     if read? == 0 {
+                        child_stdout_eof = true;
                         if let Some(status) = child.try_wait()? {
                             break status;
                         }

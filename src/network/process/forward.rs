@@ -8,6 +8,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::child::{spawn_forward, stop_child, wait_forward_ready};
+use super::direct::STRANGER_LISTEN;
 use super::policy::{Policy, Step};
 use super::{Endpoint, Inner};
 
@@ -142,6 +143,12 @@ fn supervise<F>(
         let delay = match run {
             Run::Stopped => continue,
             Run::Exited => policy.exited(),
+            Run::LostPort(error) => {
+                if !policy.reported() {
+                    let _ = ready_tx.send(Err(error));
+                }
+                return;
+            }
             Run::NotReady(phase, error) => match policy.not_ready(origin.elapsed()) {
                 Step::Fail => {
                     let _ = ready_tx.send(Err(error));
@@ -164,6 +171,7 @@ enum Run {
     /// It was ready, then exited on its own.
     Exited,
     Stopped,
+    LostPort(anyhow::Error),
 }
 
 /// Spawns the provider and waits until it exits.
@@ -179,6 +187,9 @@ fn run_once<F>(
 where
     F: Fn() -> Result<Command>,
 {
+    if let Inner::Direct(direct) = inner {
+        direct.yield_port();
+    }
     let mut child = match command().and_then(|command| spawn_forward(command, inner)) {
         Ok(child) => child,
         Err(error) => return Run::NotReady("failed to start", error),
@@ -195,6 +206,9 @@ where
             child.join_readers();
             if shared.stop.is_stopped() {
                 return Run::Stopped;
+            }
+            if error.to_string().contains(STRANGER_LISTEN) {
+                return Run::LostPort(error);
             }
             return Run::NotReady("failed before readiness", error);
         }

@@ -8,7 +8,11 @@ use std::{
     os::fd::{AsRawFd, OwnedFd},
     path::Path,
     process::Stdio,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
 };
 
 #[cfg(unix)]
@@ -42,19 +46,19 @@ pub fn run(
         .spawn()?;
     watch.set_pid(child.id(), false);
 
-    let master_fd = master.as_raw_fd();
     drop(slave);
 
-    setup_sigwinch_resize(master_fd);
+    let _resize = setup_sigwinch_resize(&master);
 
     // Cloning the master fd decouples the redactor read loop from the
-    // signal-handler resize thread's borrow of `master`.
+    // resize thread's own clone of `master`.
     let master_for_read = master.try_clone()?;
     let mut master_reader = File::from(master_for_read);
     let _ = redactor.stream(&mut master_reader, &mut std::io::stdout().lock());
 
     let status = child.wait()?;
     watch.clear_pid();
+    drop(_resize);
     drop(master);
     Ok(status.code().unwrap_or(1))
 }
@@ -82,9 +86,8 @@ fn pty_winsize() -> nix::pty::Winsize {
 }
 
 #[cfg(unix)]
-fn setup_sigwinch_resize(master_fd: std::os::fd::RawFd) {
+fn setup_sigwinch_resize(master: &OwnedFd) -> ResizeWatch {
     use nix::sys::signal::{SigHandler, Signal};
-    use std::sync::atomic::{AtomicBool, Ordering};
 
     static SIGWINCH_PENDING: AtomicBool = AtomicBool::new(false);
 
@@ -93,20 +96,41 @@ fn setup_sigwinch_resize(master_fd: std::os::fd::RawFd) {
     }
     unsafe { nix::sys::signal::signal(Signal::SIGWINCH, SigHandler::Handler(handler)).ok() };
 
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            if SIGWINCH_PENDING.swap(false, Ordering::Relaxed) {
-                let mut ws: nix::libc::winsize = unsafe { std::mem::zeroed() };
-                if unsafe {
-                    nix::libc::ioctl(nix::libc::STDOUT_FILENO, nix::libc::TIOCGWINSZ, &mut ws)
-                } == 0
-                {
-                    unsafe { nix::libc::ioctl(master_fd, nix::libc::TIOCSWINSZ, &ws) };
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+    let thread = master.try_clone().ok().map(|fd| {
+        std::thread::spawn(move || {
+            while !stop_thread.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                if SIGWINCH_PENDING.swap(false, Ordering::Relaxed) {
+                    let mut ws: nix::libc::winsize = unsafe { std::mem::zeroed() };
+                    if unsafe {
+                        nix::libc::ioctl(nix::libc::STDOUT_FILENO, nix::libc::TIOCGWINSZ, &mut ws)
+                    } == 0
+                    {
+                        unsafe { nix::libc::ioctl(fd.as_raw_fd(), nix::libc::TIOCSWINSZ, &ws) };
+                    }
                 }
             }
-        }
+        })
     });
+    ResizeWatch { stop, thread }
+}
+
+#[cfg(unix)]
+struct ResizeWatch {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl Drop for ResizeWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -117,13 +141,15 @@ struct RawStdinGuard {
 #[cfg(unix)]
 impl RawStdinGuard {
     fn enter() -> Self {
-        use nix::sys::termios::{SetArg, cfmakeraw, tcgetattr, tcsetattr};
+        use nix::sys::termios::{LocalFlags, SetArg, cfmakeraw, tcgetattr, tcsetattr};
         let stdin = std::io::stdin();
         let Ok(original) = tcgetattr(&stdin) else {
             return Self { original: None };
         };
         let mut raw = original.clone();
         cfmakeraw(&mut raw);
+        // cfmakeraw clears ISIG. Keep Ctrl-C as SIGINT so ChildWatch stops the child.
+        raw.local_flags |= LocalFlags::ISIG;
         if tcsetattr(stdin, SetArg::TCSANOW, &raw).is_err() {
             return Self { original: None };
         }

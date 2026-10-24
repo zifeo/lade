@@ -69,7 +69,7 @@ impl DetachedNetworkSession {
                 ..ask.clone()
             };
             let key = ask.key.clone();
-            if !matches!(crate::hub::tunnel_open(ask), Some(TunnelRep::Ready { .. })) {
+            if !handover_ready(ask) {
                 crate::hub::tunnel_release(ticket);
                 bail!("the Lade hub lost the tunnel for {key} before the shell took it over");
             }
@@ -86,4 +86,15 @@ impl Drop for HubLease {
     fn drop(&mut self) {
         crate::hub::tunnel_release(&self.0);
     }
+}
+
+fn handover_ready(ask: TunnelAsk) -> bool {
+    for _ in 0..3 {
+        match crate::hub::tunnel_open(ask.clone()) {
+            Some(TunnelRep::Ready { .. }) => return true,
+            Some(_) => return false,
+            None => {}
+        }
+    }
+    false
 }

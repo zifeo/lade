@@ -15,7 +15,32 @@ fn repo_with_plugin(home: &Path, content: &str) -> (PathBuf, PathBuf) {
         .join("lade-pretool.js");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, content).unwrap();
+    fs::create_dir(repo.join(".git")).unwrap();
     (repo, path)
+}
+
+#[test]
+fn report_from_nested_cwd_sees_git_root_hook() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join(".git")).unwrap();
+    let dest = repo.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    fs::write(
+        &dest,
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook"}]}}"#,
+    )
+    .unwrap();
+    let nested = repo.path().join("src").join("app");
+    fs::create_dir_all(&nested).unwrap();
+    let lines = report_at(home.path(), &nested, &[Agent::Cursor], &|| None);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("Cursor (this repo"), "{lines:?}");
+    assert!(
+        lines[0].contains("differs from what this Lade writes"),
+        "{lines:?}"
+    );
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
 }
 
 #[test]
@@ -122,6 +147,39 @@ fn a_launch_checks_only_the_harness_it_starts() {
     );
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].starts_with("Cursor (this machine"), "{lines:?}");
+}
+
+#[test]
+fn stacked_current_hooks_still_warn() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join(".git")).unwrap();
+    let home_hook = home.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(home_hook.parent().unwrap()).unwrap();
+    fs::write(
+        &home_hook,
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook --harness cursor"}]}}"#,
+    )
+    .unwrap();
+    let project_hook = repo.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(project_hook.parent().unwrap()).unwrap();
+    fs::write(
+        &project_hook,
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook"}]}}"#,
+    )
+    .unwrap();
+    refresh_at(home.path(), repo.path(), &[Agent::Cursor]);
+    assert!(
+        fs::read_to_string(&project_hook)
+            .unwrap()
+            .contains("\"lade hook\""),
+        "refresh must not hide a stack by rewriting the repo hook"
+    );
+    let lines = report_at(home.path(), repo.path(), &[Agent::Cursor], &|| None);
+    assert!(
+        lines.iter().any(|line| line.contains("Both will run")),
+        "{lines:?}"
+    );
 }
 
 #[test]

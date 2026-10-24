@@ -3,7 +3,9 @@ use serde_json::Value;
 use super::super::agent::{AGENTS, Agent};
 use super::super::offer::{Plan, apply_plan};
 use super::super::paths::{ItemVerb, hook_command, install_bin_from, project_hook_command};
-use super::super::write::{Scope, refresh_at, refresh_path, uninstall_plane, write_scoped};
+use super::super::write::{
+    Scope, refresh_at, refresh_path, teardown_at, uninstall_plane, write_scoped,
+};
 
 #[test]
 fn hook_command_never_writes_a_test_binary() {
@@ -147,9 +149,177 @@ fn uninstall_plane_removes_project_hook_only() {
 }
 
 #[test]
+fn write_scoped_from_nested_cwd_updates_git_root() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let nested = repo.path().join("src").join("app");
+    std::fs::create_dir_all(&nested).unwrap();
+    write_scoped(Scope::Project, "cursor", home.path(), &nested, true).unwrap();
+    let dest = repo.path().join(".cursor").join("hooks.json");
+    let body = std::fs::read_to_string(&dest).unwrap();
+    assert!(body.contains("lade hook --harness cursor"));
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
+    write_scoped(Scope::Project, "cursor", home.path(), &nested, false).unwrap();
+    let cleaned = std::fs::read_to_string(&dest).unwrap();
+    assert!(!Agent::Cursor.has_hook(&cleaned).unwrap());
+}
+
+#[test]
+fn write_scoped_from_nested_home_subdir_updates_git_root() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("src").join("app");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir(repo.join(".git")).unwrap();
+    let nested = repo.join("crate");
+    std::fs::create_dir_all(&nested).unwrap();
+    write_scoped(Scope::Project, "cursor", home.path(), &nested, true).unwrap();
+    assert!(repo.join(".cursor").join("hooks.json").is_file());
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn write_scoped_enable_refuses_when_the_other_plane_exists() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    write_scoped(Scope::User, "cursor", home.path(), repo.path(), true).unwrap();
+    let err = write_scoped(Scope::Project, "cursor", home.path(), repo.path(), true).unwrap_err();
+    assert!(
+        err.to_string().contains("home and repo hooks both present"),
+        "{err}"
+    );
+    assert!(!repo.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn write_scoped_enable_strips_claude_settings_local() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let leftover = repo.path().join(".claude").join("settings.local.json");
+    std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
+    std::fs::write(
+        &leftover,
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
+    )
+    .unwrap();
+    write_scoped(Scope::Project, "claude", home.path(), repo.path(), true).unwrap();
+    let cleaned = std::fs::read_to_string(&leftover).unwrap();
+    assert!(!Agent::Claude.has_hook(&cleaned).unwrap());
+    assert!(
+        Agent::Claude
+            .has_hook(
+                &std::fs::read_to_string(repo.path().join(".claude").join("settings.json"))
+                    .unwrap()
+            )
+            .unwrap()
+    );
+}
+
+#[test]
+fn write_scoped_project_without_git_is_skipped() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let err = write_scoped(Scope::Project, "cursor", home.path(), cwd.path(), true).unwrap_err();
+    assert!(err.to_string().contains("not a git repo"), "{err}");
+    assert!(!cwd.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn write_scoped_disable_strips_claude_settings_local() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let leftover = repo.path().join(".claude").join("settings.local.json");
+    std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
+    std::fs::write(
+        &leftover,
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
+    )
+    .unwrap();
+    write_scoped(Scope::Project, "claude", home.path(), repo.path(), false).unwrap();
+    let cleaned = std::fs::read_to_string(&leftover).unwrap();
+    assert!(!Agent::Claude.has_hook(&cleaned).unwrap());
+}
+
+#[test]
+fn write_scoped_claude_never_writes_settings_local() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let nested = repo.path().join("src");
+    std::fs::create_dir_all(&nested).unwrap();
+    write_scoped(Scope::Project, "claude", home.path(), &nested, true).unwrap();
+    assert!(repo.path().join(".claude").join("settings.json").is_file());
+    assert!(
+        !repo
+            .path()
+            .join(".claude")
+            .join("settings.local.json")
+            .exists()
+    );
+    assert!(!nested.join(".claude").join("settings.local.json").exists());
+}
+
+#[test]
+fn refresh_at_from_nested_cwd_updates_git_root() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let dest = repo.path().join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    std::fs::write(
+        &dest,
+        r#"{"version":1,"hooks":{"preToolUse":[{"command":"lade hook"}]}}"#,
+    )
+    .unwrap();
+    let nested = repo.path().join("src");
+    std::fs::create_dir_all(&nested).unwrap();
+    refresh_at(home.path(), &nested, &[Agent::Cursor]);
+    let updated = std::fs::read_to_string(&dest).unwrap();
+    assert!(
+        Agent::Cursor
+            .hook_uses_command(&updated, "lade hook --harness cursor")
+            .unwrap()
+    );
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn teardown_at_from_nested_cwd_clears_git_root() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    write_scoped(Scope::Project, "cursor", home.path(), repo.path(), true).unwrap();
+    let dest = repo.path().join(".cursor").join("hooks.json");
+    assert!(
+        Agent::Cursor
+            .has_hook(&std::fs::read_to_string(&dest).unwrap())
+            .unwrap()
+    );
+    let nested = repo.path().join("src");
+    std::fs::create_dir_all(&nested).unwrap();
+    let report = teardown_at(home.path(), &nested).unwrap();
+    assert!(
+        report
+            .rows
+            .iter()
+            .any(|row| row.verb == ItemVerb::Removed && row.path == ".cursor/hooks.json")
+    );
+    assert!(
+        !Agent::Cursor
+            .has_hook(&std::fs::read_to_string(&dest).unwrap())
+            .unwrap()
+    );
+    assert!(!nested.join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
 fn write_scoped_project_and_uninstall_round_trip() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
+    std::fs::create_dir(cwd.path().join(".git")).unwrap();
     write_scoped(Scope::Project, "cursor", home.path(), cwd.path(), true).unwrap();
     let path = cwd.path().join(".cursor").join("hooks.json");
     let body = std::fs::read_to_string(&path).unwrap();

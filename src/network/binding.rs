@@ -129,7 +129,7 @@ fn via_hub(
     loop {
         match rep {
             TunnelRep::Absent if ask.launch.is_none() => {
-                match launch_for(parsed) {
+                match launch_for(parsed, stop) {
                     Ok(launch) => ask.launch = Some(launch),
                     Err(e) => return Some(Err(e)),
                 }
@@ -166,14 +166,44 @@ fn via_hub(
     }
 }
 /// Preflight runs here, where the terminal is: `tsh kube login` may prompt.
-fn launch_for(parsed: &ParsedBinding) -> Result<TunnelLaunch> {
-    ensure_provider_preflight(&parsed.spec)?;
+fn launch_for(parsed: &ParsedBinding, stop: &Stop) -> Result<TunnelLaunch> {
+    match &parsed.spec {
+        crate::network::types::ProviderSpec::TshKubeCluster {
+            teleport_proxy,
+            kube_cluster,
+            ..
+        } => login_tsh(teleport_proxy, kube_cluster, stop)?,
+        spec => ensure_provider_preflight(spec)?,
+    }
     Ok(TunnelLaunch {
         context: kube_context(&parsed.spec)?,
         env: std::env::vars_os()
             .map(|(key, value)| (key.as_bytes().to_vec(), value.as_bytes().to_vec()))
             .collect(),
     })
+}
+
+fn login_tsh(proxy: &str, cluster: &str, stop: &Stop) -> Result<()> {
+    let mut child = std::process::Command::new("tsh")
+        .arg(format!("--proxy={proxy}"))
+        .arg("kube")
+        .arg("login")
+        .arg(cluster)
+        .spawn()?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) => bail!("tsh kube login failed for cluster '{cluster}'"),
+            Ok(None) => {
+                if stop.sleep(HUB_POLL) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    bail!("stopped while logging in to the tunnel provider");
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// Polls a hub tunnel until it is ready. Returns its port, pid, and whether
