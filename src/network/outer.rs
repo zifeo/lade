@@ -27,22 +27,17 @@ impl Outer {
     /// `port: None` takes a free port.
     pub(crate) fn claim(host: &str, port: Option<u16>) -> Result<Self, ClaimError> {
         if let Some(port) = port {
-            return Self::assemble(host, port, Vec::new());
+            return Self::assemble(host, port);
         }
-        Self::claim_ephemeral(host)
-    }
-
-    fn claim_ephemeral(host: &str) -> Result<Self, ClaimError> {
-        // Keep the kernel's pick. Dropping it and rebinding is a hole.
+        // The kernel's pick only avoids the identical address, so it may be
+        // held on another one: check it like a fixed port.
         let ip = resolve(host, 0)?[0].ip();
         for _ in 0..EPHEMERAL_TRIES {
-            let first = TcpListener::bind((ip, 0))
-                .map_err(|e| ClaimError::Other(anyhow::anyhow!("no free port on {ip}: {e}")))?;
-            let port = first
-                .local_addr()
+            let picked = TcpListener::bind((ip, 0))
+                .and_then(|listener| listener.local_addr())
                 .map_err(|e| ClaimError::Other(anyhow::anyhow!("no free port on {ip}: {e}")))?
                 .port();
-            match Self::assemble(host, port, vec![first]) {
+            match Self::assemble(host, picked) {
                 Err(ClaimError::InUse { .. }) => continue,
                 claimed => return claimed,
             }
@@ -52,29 +47,16 @@ impl Outer {
         )))
     }
 
-    fn assemble(
-        host: &str,
-        port: u16,
-        mut listeners: Vec<TcpListener>,
-    ) -> Result<Self, ClaimError> {
+    fn assemble(host: &str, port: u16) -> Result<Self, ClaimError> {
         let addrs = resolve(host, port)?;
-        let held: Vec<SocketAddr> = listeners
-            .iter()
-            .filter_map(|listener| listener.local_addr().ok())
-            .collect();
         for ip in PROBES {
-            if held.iter().any(|addr| addr.ip() == ip) {
-                continue;
-            }
             if !addrs.iter().any(|addr| addr.ip() == ip) {
                 probe(ip, port)?;
             }
         }
+        let mut listeners = Vec::new();
         let mut unbound = None;
         for addr in &addrs {
-            if held.iter().any(|held| held == addr) {
-                continue;
-            }
             match bind(*addr, port) {
                 Ok(listener) => listeners.push(listener),
                 Err(ClaimError::InUse { port }) => return Err(ClaimError::InUse { port }),
@@ -144,10 +126,6 @@ fn probe(ip: IpAddr, port: u16) -> Result<(), ClaimError> {
     );
     let _ = setsockopt(&fd, sockopt::ReuseAddr, &true);
     let _ = setsockopt(&fd, sockopt::ReusePort, &true);
-    // Dual-stack [::] would see our own 127.0.0.1 holder as InUse.
-    if family == AddressFamily::Inet6 {
-        let _ = setsockopt(&fd, sockopt::Ipv6V6Only, &true);
-    }
     let addr = SockaddrStorage::from(SocketAddr::new(ip, port));
     match nix::sys::socket::bind(fd.as_raw_fd(), &addr) {
         Err(Errno::EADDRINUSE) => Err(ClaimError::InUse { port }),

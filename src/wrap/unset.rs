@@ -116,5 +116,8 @@ pub async fn handle_unset(
         .collect::<Vec<_>>()
         .join(";");
     println!("{line}");
+    if smashed {
+        std::process::exit(crate::exit_codes::FAILURE);
+    }
     Ok(())
 }
