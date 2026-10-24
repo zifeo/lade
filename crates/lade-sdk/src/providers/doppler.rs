@@ -1,8 +1,8 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 use rustc_hash::FxHashMap;
 
-use anyhow::{Ok, Result};
+use anyhow::{Ok, Result, anyhow};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -58,7 +58,6 @@ impl Provider for Doppler {
         extra_env: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
         let name = self.name();
         let install_url = self.install_url();
         let fetches = self
@@ -91,7 +90,6 @@ impl Provider for Doppler {
                                     })
                                     .collect::<HashMap<_, _>>();
                                 let host = host.clone();
-                                let extra_env = Arc::clone(&extra_env);
                                 async move {
                                     let cmd = [
                                         "doppler",
@@ -106,27 +104,18 @@ impl Provider for Doppler {
                                     ];
                                     debug!("Lade run: {}", cmd.join(" "));
                                     let child =
-                                        run_cli(&cmd, &extra_env, name, install_url, None).await?;
+                                        run_cli(&cmd, extra_env, name, install_url, None).await?;
                                     let loaded: HashMap<String, DopplerExport> =
                                         deserialize_output(&child, name)?;
                                     let hydration = vars
                                         .into_iter()
                                         .map(|(key, value)| {
-                                            (
-                                                value,
-                                                loaded
-                                                    .get(key)
-                                                    .unwrap_or_else(|| {
-                                                        panic!(
-                                                            "Variable not found in Doppler: {}",
-                                                            key
-                                                        )
-                                                    })
-                                                    .computed
-                                                    .clone(),
-                                            )
+                                            let secret = loaded.get(key).ok_or_else(|| {
+                                                anyhow!("Variable not found in Doppler: {key}")
+                                            })?;
+                                            Ok((value, secret.computed.clone()))
                                         })
-                                        .collect::<Hydration>();
+                                        .collect::<Result<Hydration>>()?;
                                     debug!("hydration: {:?}", hydration);
                                     Ok(hydration)
                                 }

@@ -20,7 +20,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: lint
-      - uses: pre-commit/action@v3.0.1
+      # The lint job installs only hk, not the full lock: the lock also
+      # pins core:rust, whose mise shims shadow the toolchain below, and
+      # mise's rust ships without the clippy component.
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+          experimental: true
+          mise_toml: |
+            [tools]
+            hk = "2.4.0"
+      - name: Hooks
+        run: hk check --all
       - uses: rhysd/actionlint@v1.7.12
 
   test-native:
@@ -39,6 +51,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ runner.os }}-native
+
+      # Test shells are installed here on purpose, not pinned in lade.yml:
+      # a repo pin spreads to every dev machine that runs that shell, as a
+      # global mise install plus shims that shadow the system shell.
+      - name: Install test shells
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y fish zsh
+          else
+            brew install fish
+          fi
 
       - name: Mise toml from lade.lock
         id: lock
@@ -96,6 +119,12 @@ jobs:
 
       - name: Set up Docker
         uses: docker/setup-docker-action@v5
+
+      # Test shells are installed here on purpose, not pinned in lade.yml:
+      # a repo pin spreads to every dev machine that runs that shell, as a
+      # global mise install plus shims that shadow the system shell.
+      - name: Install test shells
+        run: sudo apt-get update && sudo apt-get install -y fish zsh
 
       - name: Mise toml from lade.lock
         id: lock

@@ -75,41 +75,6 @@ url = "https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-wi
 url_api = "https://api.github.com/repos/FiloSottile/age/releases/assets/535541937"
 provenance = "github-attestations"
 
-[[tools."aqua:fish-shell/fish-shell"]]
-version = "4.9.3"
-backend = "aqua:fish-shell/fish-shell"
-specifiers = ["4.9.3"]
-
-[tools."aqua:fish-shell/fish-shell"."platforms.linux-arm64"]
-checksum = "sha256:57349f0111728c64b703a84e611aa97ff4d1fa8466385d64e67bd5bc3ffa49fc"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3-linux-aarch64.tar.xz"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551107872"
-
-[tools."aqua:fish-shell/fish-shell"."platforms.linux-arm64-musl"]
-checksum = "sha256:57349f0111728c64b703a84e611aa97ff4d1fa8466385d64e67bd5bc3ffa49fc"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3-linux-aarch64.tar.xz"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551107872"
-
-[tools."aqua:fish-shell/fish-shell"."platforms.linux-x64"]
-checksum = "sha256:8f643d10ad1abb0ef7072764c01ceb5cf61b2d373fda400cf60f0bad69b7e095"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3-linux-x86_64.tar.xz"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551107873"
-
-[tools."aqua:fish-shell/fish-shell"."platforms.linux-x64-musl"]
-checksum = "sha256:8f643d10ad1abb0ef7072764c01ceb5cf61b2d373fda400cf60f0bad69b7e095"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3-linux-x86_64.tar.xz"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551107873"
-
-[tools."aqua:fish-shell/fish-shell"."platforms.macos-arm64"]
-checksum = "sha256:fb489929e25e66b8c026a1da8935f68f828134e115a1706f360ed73149b843a9"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3.pkg"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551147059"
-
-[tools."aqua:fish-shell/fish-shell"."platforms.macos-x64"]
-checksum = "sha256:fb489929e25e66b8c026a1da8935f68f828134e115a1706f360ed73149b843a9"
-url = "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3.pkg"
-url_api = "https://api.github.com/repos/fish-shell/fish-shell/releases/assets/551147059"
-
 [[tools."aqua:hashicorp/vault"]]
 version = "1.21.4"
 backend = "aqua:hashicorp/vault"
@@ -142,6 +107,41 @@ url = "https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_darwin_amd64.zip
 [tools."aqua:hashicorp/vault"."platforms.windows-x64"]
 checksum = "sha256:eaee599df806d467c14f572fdede45c7a5ae3948386343e9db0fe5ce921d4e0a"
 url = "https://releases.hashicorp.com/vault/1.21.4/vault_1.21.4_windows_amd64.zip"
+
+[[tools."aqua:jdx/hk"]]
+version = "2.4.0"
+backend = "aqua:jdx/hk"
+specifiers = ["2.4.0"]
+
+[tools."aqua:jdx/hk"."platforms.linux-arm64"]
+checksum = "sha256:836235bd8aa06f25e7ff28591b32efb5297abe55366e912095636a49ffe4d363"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327179"
+
+[tools."aqua:jdx/hk"."platforms.linux-arm64-musl"]
+checksum = "sha256:836235bd8aa06f25e7ff28591b32efb5297abe55366e912095636a49ffe4d363"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327179"
+
+[tools."aqua:jdx/hk"."platforms.linux-x64"]
+checksum = "sha256:6efabe30aeabc4611a42ce6cf0fd46b9a19478e2cfd9acfd1bd93998736f3153"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327200"
+
+[tools."aqua:jdx/hk"."platforms.linux-x64-musl"]
+checksum = "sha256:6efabe30aeabc4611a42ce6cf0fd46b9a19478e2cfd9acfd1bd93998736f3153"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327200"
+
+[tools."aqua:jdx/hk"."platforms.macos-arm64"]
+checksum = "sha256:6e1c970b9de7ab4ee52c85869b2ea9cfe8769d25a0fe9536062e0ba62366ec59"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327181"
+
+[tools."aqua:jdx/hk"."platforms.windows-x64"]
+checksum = "sha256:028931e00fd670ad891a428bf44e14ac8e2726a8f72b7fae80b27b6502af2be3"
+url = "https://github.com/jdx/hk/releases/download/v2.4.0/hk-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/594327180"
 
 [[tools."aqua:k3d-io/k3d"]]
 version = "5.9.0"
@@ -215,39 +215,6 @@ url = "https://dl.k8s.io/v1.37.0/bin/darwin/amd64/kubectl"
 [tools."aqua:kubernetes/kubectl"."platforms.windows-x64"]
 checksum = "sha256:4721b614a67bb4932a0369e61f4a323d8c6ca00943d3a2ff14837c124da06f0e"
 url = "https://dl.k8s.io/v1.37.0/bin/windows/amd64/kubectl.exe"
-
-[[tools."github:romkatv/zsh-bin"]]
-version = "6.1.1"
-backend = "github:romkatv/zsh-bin"
-specifiers = ["6.1.1"]
-
-[tools."github:romkatv/zsh-bin"."platforms.linux-arm64"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-linux-aarch64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969748"
-
-[tools."github:romkatv/zsh-bin"."platforms.linux-arm64-musl"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-linux-aarch64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969748"
-
-[tools."github:romkatv/zsh-bin"."platforms.linux-x64"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-linux-x86_64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969730"
-
-[tools."github:romkatv/zsh-bin"."platforms.linux-x64-musl"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-linux-x86_64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969730"
-
-[tools."github:romkatv/zsh-bin"."platforms.macos-arm64"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-arm64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969741"
-
-[tools."github:romkatv/zsh-bin"."platforms.macos-x64"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-x86_64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969743"
-
-[tools."github:romkatv/zsh-bin"."platforms.windows-x64"]
-url = "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-freebsd-amd64.tar.gz"
-url_api = "https://api.github.com/repos/romkatv/zsh-bin/releases/assets/67969745"
 
 [[tools.rust]]
 version = "1.96.0"

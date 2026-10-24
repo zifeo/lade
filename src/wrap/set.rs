@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::context::InvocationContext;
-use crate::event::{self, Emit, Kind};
+use crate::event::{self, Kind};
 use crate::files::remove_files;
 use crate::hub::VersionLedger;
 use crate::message_box::MessageBox;
@@ -20,6 +20,7 @@ use super::work::{
 };
 use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
+    work_event,
 };
 
 /// `notice`: ask the hub for the hourly notice slot, only when this command
@@ -86,45 +87,55 @@ async fn set_env(
                 println!("{}", shell.set(HashMap::new()));
                 return Ok(None);
             }
-            let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
-            let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-            let slot = put_first_t(&id, notice);
-            println!(
-                "{}",
-                stamp_preexec(shell, pins.env, &id, original_path.clone())?
+            return stamp_pins_and_return(
+                ctx,
+                shell,
+                pins.env,
+                ticket::PreEvent::new(
+                    &command,
+                    current_dir.clone(),
+                    ctx.via,
+                    ctx.audience,
+                    event::actor(&saved_user),
+                ),
+                original_path,
+                notice,
             );
-            return Ok(slot);
         }
     };
     if !work.needs_providers() {
         event::emit_if(
             work.log,
-            Emit {
-                kind: event::logged_kind(&work.matches),
-                via: ctx.via,
-                audience: ctx.audience,
-                actor: event::actor(&saved_user),
-                cwd: current_dir.clone(),
-                command: command.clone(),
-                argv: None,
-                hydrated: None,
-                matches: work.matches,
-                hydrate_ms: None,
-                agent: crate::agent_meta::merge(work.agent),
-            },
+            work_event(
+                ctx,
+                &saved_user,
+                current_dir.clone(),
+                command.clone(),
+                work.agent,
+                event::logged_kind(&work.matches),
+                work.matches,
+                None,
+                None,
+            ),
         );
         if pins.is_empty() {
             println!("{}", shell.set(HashMap::new()));
             return Ok(None);
         }
-        let pre = empty_pre_event(&command, current_dir.clone(), ctx, &saved_user);
-        let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
-        let slot = put_first_t(&id, notice);
-        println!(
-            "{}",
-            stamp_preexec(shell, pins.env, &id, original_path.clone())?
+        return stamp_pins_and_return(
+            ctx,
+            shell,
+            pins.env,
+            ticket::PreEvent::new(
+                &command,
+                current_dir.clone(),
+                ctx.via,
+                ctx.audience,
+                event::actor(&saved_user),
+            ),
+            original_path,
+            notice,
         );
-        return Ok(slot);
     }
 
     let mut pre = pre_event_from_work(
@@ -142,19 +153,17 @@ async fn set_env(
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
             event::emit_if(
                 work.log,
-                Emit {
-                    kind: Kind::Denied,
-                    via: ctx.via,
-                    audience: ctx.audience,
-                    actor: event::actor(&saved_user),
-                    cwd: current_dir.clone(),
-                    command: command.clone(),
-                    argv: None,
-                    hydrated: None,
-                    matches: work.matches.clone(),
-                    hydrate_ms: None,
-                    agent: crate::agent_meta::merge(work.agent.clone()),
-                },
+                work_event(
+                    ctx,
+                    &saved_user,
+                    current_dir.clone(),
+                    command.clone(),
+                    work.agent.clone(),
+                    Kind::Denied,
+                    work.matches.clone(),
+                    None,
+                    None,
+                ),
             );
             pre.pending = true;
             ticket::replace(&id, &pre)?;
@@ -216,19 +225,17 @@ async fn set_env(
         event::mark_cached(&mut matches, &cached);
         event::emit_if(
             work.log,
-            Emit {
-                kind: event::logged_kind(&matches),
-                via: ctx.via,
-                audience: ctx.audience,
-                actor: event::actor(&saved_user),
-                cwd: current_dir.clone(),
-                command: command.clone(),
-                argv: None,
-                hydrated: Some(public_hydrate(&env, &files)),
+            work_event(
+                ctx,
+                &saved_user,
+                current_dir.clone(),
+                command.clone(),
+                work.agent.clone(),
+                event::logged_kind(&matches),
                 matches,
-                hydrate_ms: Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
-                agent: crate::agent_meta::merge(work.agent.clone()),
-            },
+                Some(public_hydrate(&env, &files)),
+                Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
+            ),
         );
         let line = stamp_preexec(shell, env, &id, original_path)?;
         // The shell gets LADE_T from this line, so `lade unset` can release.
@@ -258,31 +265,20 @@ fn put_first_t(id: &str, notice: bool) -> Option<VersionLedger> {
     None
 }
 
-fn empty_pre_event(
-    command: &str,
-    cwd: PathBuf,
+/// Pins only: a ticket with no provider work, so a later `lade unset` still
+/// finds a file to release.
+fn stamp_pins_and_return(
     ctx: &InvocationContext,
-    saved_user: &Option<String>,
-) -> ticket::PreEvent {
-    ticket::PreEvent {
-        command: command.to_string(),
-        cwd,
-        via: ctx.via.child_stamp().unwrap_or("unknown").to_string(),
-        audience: match ctx.audience {
-            crate::config::Audience::Agent => "agent",
-            crate::config::Audience::Human => "human",
-        }
-        .to_string(),
-        actor: event::actor(saved_user),
-        log: false,
-        disclaimers: Vec::new(),
-        secrets: Vec::new(),
-        network: Vec::new(),
-        matches: serde_json::json!([]),
-        op_sa: None,
-        agent: serde_json::Value::Null,
-        pending: false,
-    }
+    shell: &Shell,
+    pins_env: HashMap<String, String>,
+    pre: ticket::PreEvent,
+    original_path: Option<String>,
+    notice: bool,
+) -> Result<Option<VersionLedger>> {
+    let id = ticket::write_or_replace(ctx.ticket_id.as_deref(), &pre)?;
+    let slot = put_first_t(&id, notice);
+    println!("{}", stamp_preexec(shell, pins_env, &id, original_path)?);
+    Ok(slot)
 }
 
 fn stamp_preexec(

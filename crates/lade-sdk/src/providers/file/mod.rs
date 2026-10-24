@@ -73,21 +73,21 @@ impl Provider for File {
         _: &HashMap<String, String>,
         _: &Warnings,
     ) -> Result<Hydration> {
-        let fetches = self
+        let resolved = self
             .urls
             .iter()
-            .into_group_map_by(|(raw_url, value)| {
+            .map(|(raw_url, value)| {
                 let query = raw_url.query().expect("file:// url accepted without query");
                 let url = urlencoding::decode(
                     &value
                         .replace("file://", "")
                         .replace(&format!("?{query}"), ""),
                 )
-                .unwrap_or_else(|_| panic!("invalid percent-encoding in file:// URL"))
+                .map_err(|_| anyhow::anyhow!("invalid percent-encoding in file:// URL"))?
                 .into_owned();
                 let user = directories::UserDirs::new().expect("cannot get HOME location");
 
-                if url.starts_with("~/") {
+                let path = if url.starts_with("~/") {
                     user.home_dir()
                         .join(url.chars().skip(2).collect::<String>())
                 } else if url.starts_with("$HOME/") {
@@ -95,8 +95,13 @@ impl Provider for File {
                         .join(url.chars().skip(6).collect::<String>())
                 } else {
                     cwd.join(url)
-                }
+                };
+                Ok::<_, anyhow::Error>((path, raw_url, value))
             })
+            .collect::<Result<Vec<_>>>()?;
+        let fetches = resolved
+            .into_iter()
+            .into_group_map_by(|(path, _, _)| path.clone())
             .into_iter()
             .map(|(mut path, group)| async move {
                 if !path.starts_with(PathBuf::from_str("/")?) {
@@ -120,7 +125,7 @@ impl Provider for File {
                 };
 
                 let mut hydration = Hydration::default();
-                for (url, value) in group {
+                for (_, url, value) in group {
                     let query = url
                         .query_pairs()
                         .find(|(k, _v)| k == "query")

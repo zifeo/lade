@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use chrono::{DateTime, Local, Utc};
 
 use crate::hub::HubState;
@@ -29,7 +27,10 @@ pub(super) fn print_human(report: &StatusReport) {
     }
 
     match &report.age_plugin.path {
-        Some(path) => println!("age-plugin-lade: {}", display_path(path)),
+        Some(path) => println!(
+            "age-plugin-lade: {}",
+            crate::preexec::path_for_display(path)
+        ),
         None => println!(
             "age-plugin-lade: missing (run `lade upgrade` or `cargo install age-plugin-lade`)"
         ),
@@ -37,7 +38,7 @@ pub(super) fn print_human(report: &StatusReport) {
 
     println!(
         "global config: {}",
-        display_path(&report.global_config.path)
+        crate::preexec::path_for_display(&report.global_config.path)
     );
     match &report.global_config.user {
         Some(user) => println!("  user: {user}"),
@@ -45,7 +46,10 @@ pub(super) fn print_human(report: &StatusReport) {
     }
 
     println!("pre-exec (this shell) ({})", report.hooks.preexec.shell);
-    println!("  profile: {}", display_path(&report.hooks.preexec.profile));
+    println!(
+        "  profile: {}",
+        crate::preexec::path_for_display(&report.hooks.preexec.profile)
+    );
     if report.hooks.preexec.installed {
         println!("  installed: yes");
     } else {
@@ -82,7 +86,7 @@ pub(super) fn print_human(report: &StatusReport) {
     let pc = &report.project_config;
     println!(
         "log: {} ({} events, {})",
-        display_path(&report.log.path),
+        crate::preexec::path_for_display(&report.log.path),
         report.log.events,
         format_bytes(report.log.bytes)
     );
@@ -167,19 +171,10 @@ fn print_hub(hub: &crate::hub::HubInfo) {
 
 fn print_pretool_line(label: &str, location: &pretool::install::HookLocation) {
     let flag = pretool_flag(location.installed, location.current);
-    println!("  {label}: {} ({flag})", display_path(&location.path));
-}
-
-fn display_path(path: &Path) -> String {
-    if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf())
-        && let Ok(stripped) = path.strip_prefix(&home)
-    {
-        if stripped.as_os_str().is_empty() {
-            return "~".to_string();
-        }
-        return format!("~/{}", stripped.display());
-    }
-    path.display().to_string()
+    println!(
+        "  {label}: {} ({flag})",
+        crate::preexec::path_for_display(&location.path)
+    );
 }
 
 pub(super) fn format_bytes(n: u64) -> String {

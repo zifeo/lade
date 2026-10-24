@@ -9,16 +9,12 @@
   vault: mise://aqua/hashicorp/vault@>=1.15.0
   # age-plugin-lade post-quantum tests run age, age-keygen, and age-plugin-pq.
   age: mise://aqua/FiloSottile/age@1.3.2
-
-"^fish":
-  fish: mise://aqua/fish-shell/fish-shell@>=4.0.0
-
-"^zsh":
-  zsh: mise://github/romkatv/zsh-bin@>=6.0.0
+  # hk runs the git hooks and the CI lint job.
+  hk: mise://aqua/jdx/hk@2.4.0
 
 "^git ":
   - .:
-      when: agent
+    when: agent
     SSH_AUTH_SOCK: sh://launchctl getenv SSH_AUTH_SOCK
 
 # Vault docker tests run `echo e` from the repo root.

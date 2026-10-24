@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::Path, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -10,7 +10,9 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Transport, Warnings, add_url, env_lookup, host_with_port, search_cli};
+use super::{
+    Provider, Transport, Warnings, add_url, decode_seg, env_lookup, host_with_port, search_cli_ok,
+};
 
 const DOCS: &str = "https://developer.hashicorp.com/vault/docs/commands/kv/get";
 
@@ -47,15 +49,13 @@ impl VaultPath {
     }
 }
 
-fn decode_seg(raw: &str) -> Result<String> {
-    Ok(urlencoding::decode(raw)?.into_owned())
-}
-
 fn path_parts(url: &Url) -> Result<VaultPath> {
     let segs = url
         .path_segments()
         .ok_or_else(|| anyhow!("Vault URI missing mount"))?;
-    let decoded = segs.map(decode_seg).collect::<Result<Vec<_>>>()?;
+    let decoded = segs
+        .map(|seg| decode_seg(seg, "vault"))
+        .collect::<Result<Vec<_>>>()?;
     let mount = decoded
         .first()
         .filter(|s| !s.is_empty())
@@ -167,14 +167,12 @@ impl Provider for Vault {
     }
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
-        let output = search_cli(
+        let output = search_cli_ok(
             "vault",
             &["kv", "list", "-format=json", "secret"],
             extra_env,
+            "vault login required",
         )?;
-        if !output.status.success() {
-            return Err(anyhow!("vault login required"));
-        }
         let paths: Vec<String> = match serde_json::from_slice::<Vec<String>>(&output.stdout) {
             Ok(json) => json,
             Err(_) => String::from_utf8_lossy(&output.stdout)
@@ -213,7 +211,6 @@ impl Provider for Vault {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| anyhow!("Vault error: {e}"))?;
-        let client = Arc::new(client);
 
         let parsed = self
             .urls
@@ -237,7 +234,7 @@ impl Provider for Vault {
                         let host = host.clone();
                         let token = token.clone();
                         let namespace = namespace.clone();
-                        let client = Arc::clone(&client);
+                        let client = client.clone();
                         async move {
                             let address = format!("{scheme}://{host}");
                             let loaded = kv_get(
@@ -266,6 +263,20 @@ impl Provider for Vault {
 
         Ok(try_join_all(fetches).await?.into_iter().flatten().collect())
     }
+
+    fn compose_add_uri(&self, picked: &str, extras: &HashMap<String, String>) -> Option<String> {
+        let field = extras
+            .get("field")
+            .map(String::as_str)
+            .unwrap_or("password");
+        let host = extras
+            .get("host")
+            .map(String::as_str)
+            .unwrap_or("127.0.0.1:8200");
+        let url =
+            Url::parse(&format!("vault://{host}/secret/{picked}/{field}")).expect("vault add URI");
+        Some(path_parts(&url).expect("vault add URI path").uri(host))
+    }
 }
 
 pub(super) const ADD_FIELDS: &[super::add::AddField] = &[
@@ -280,20 +291,6 @@ pub(super) const ADD_FIELDS: &[super::add::AddField] = &[
         default: Some("127.0.0.1:8200"),
     },
 ];
-
-pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
-    let field = extras
-        .get("field")
-        .map(String::as_str)
-        .unwrap_or("password");
-    let host = extras
-        .get("host")
-        .map(String::as_str)
-        .unwrap_or("127.0.0.1:8200");
-    let url =
-        Url::parse(&format!("vault://{host}/secret/{picked}/{field}")).expect("vault add URI");
-    path_parts(&url).expect("vault add URI path").uri(host)
-}
 
 #[cfg(test)]
 mod tests;

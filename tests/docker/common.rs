@@ -60,8 +60,6 @@ pub fn seed_stub_bin(installs: &Path, tool: &str, version: &str, bin: &str) {
 pub fn seed_workspace_pins(installs: &Path) {
     let pins = [
         ("op", "1password/cli"),
-        ("fish", "fish-shell"),
-        ("zsh", "zsh-bin"),
         ("kubectl", "kubectl"),
         ("k3d", "k3d"),
         ("vault", "vault"),

@@ -8,7 +8,7 @@ use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_url, deserialize_output, run_cli};
+use super::{Provider, Warnings, add_url, decode_seg, deserialize_output, run_cli};
 
 const DOCS: &str = "https://bitwarden.com/help/cli/";
 
@@ -53,16 +53,11 @@ struct BwField {
     value: Option<String>,
 }
 
-fn decode_seg(raw: &str) -> Result<String> {
-    urlencoding::decode(raw)
-        .map_err(|e| anyhow!("invalid percent-encoding in bw:// URL: {e}"))
-        .map(|s| s.into_owned())
-}
-
 fn item_and_field(url: &Url) -> Result<(String, String)> {
     let item = decode_seg(
         url.host_str()
             .ok_or_else(|| anyhow!("Bitwarden URI must be bw://<item>/<field>"))?,
+        "bw",
     )?;
     if item.is_empty() {
         bail!("Bitwarden URI must be bw://<item>/<field>");
@@ -71,7 +66,7 @@ fn item_and_field(url: &Url) -> Result<(String, String)> {
     let field = if field.is_empty() {
         "password".to_string()
     } else {
-        decode_seg(field)?
+        decode_seg(field, "bw")?
     };
     if field.is_empty() || field.contains('/') {
         bail!("Bitwarden URI must be bw://<item>/<field>");

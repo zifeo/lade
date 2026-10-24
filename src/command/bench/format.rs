@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::{ERROR_MAX_CHARS, Incompressible, RuleReport};
@@ -38,7 +37,7 @@ pub(super) fn format_rule_line(rule: &RuleReport) -> String {
     };
     let line = format!(
         "  {}  {}  {}  {}  {providers}",
-        display_path(&rule.file),
+        crate::preexec::path_for_display(&rule.file),
         rule.pattern,
         rule.when,
         format_ms(rule.hydrate_ms),
@@ -88,16 +87,4 @@ pub(super) fn truncate_chars(text: &str, max: usize) -> String {
 
 pub(super) fn format_ms(ms: f64) -> String {
     format!("{ms:.3} ms")
-}
-
-fn display_path(path: &Path) -> String {
-    if let Some(home) = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf())
-        && let Ok(stripped) = path.strip_prefix(&home)
-    {
-        if stripped.as_os_str().is_empty() {
-            return "~".to_string();
-        }
-        return format!("~/{}", stripped.display());
-    }
-    path.display().to_string()
 }

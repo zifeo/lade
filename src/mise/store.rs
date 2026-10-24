@@ -8,8 +8,8 @@ pub fn data_dir() -> PathBuf {
     {
         return PathBuf::from(path);
     }
-    directories::UserDirs::new()
-        .map(|user| user.home_dir().join(".local/share/mise"))
+    crate::home_dir()
+        .map(|home| home.join(".local/share/mise"))
         .unwrap_or_else(|| PathBuf::from(".local/share/mise"))
 }
 

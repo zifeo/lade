@@ -54,6 +54,34 @@ pub struct PreEvent {
     pub pending: bool,
 }
 
+impl PreEvent {
+    /// The fields every surface agrees on, before any provider work is
+    /// attached.
+    pub(crate) fn new(
+        command: &str,
+        cwd: PathBuf,
+        via: crate::audience::Via,
+        audience: crate::config::Audience,
+        actor: Option<String>,
+    ) -> Self {
+        Self {
+            command: command.to_string(),
+            cwd,
+            via: via.child_stamp().unwrap_or("unknown").to_string(),
+            audience: audience.as_str().to_string(),
+            actor,
+            log: false,
+            disclaimers: Vec::new(),
+            secrets: Vec::new(),
+            network: Vec::new(),
+            matches: Value::Array(Vec::new()),
+            op_sa: None,
+            agent: Value::Null,
+            pending: false,
+        }
+    }
+}
+
 pub const RESERVED: &[&str] = &["eval", "help", "hook", "user"];
 
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

@@ -32,6 +32,11 @@ url = "2.5"
 urlencoding = "2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream", "json", "query"] }
 
+[features]
+default = ["network", "mcp"]
+mcp = []
+network = []
+
 [dev-dependencies]
 semver = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }

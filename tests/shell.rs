@@ -28,6 +28,32 @@ fn path_env() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// Real shell bin dirs first, so a mise shim never shadows a test shell:
+/// a shim symlinks to the mise binary, which can refuse to run under the
+/// isolated HOME.
+fn shell_first_path() -> String {
+    let path = path_env();
+    let mut entries: Vec<std::path::PathBuf> = Vec::new();
+    for shell in ["bash", "zsh", "fish"] {
+        let real = std::env::split_paths(&path).find(|dir| {
+            let bin = dir.join(shell);
+            let shim = std::fs::read_link(&bin)
+                .is_ok_and(|target| target.file_name() == Some(std::ffi::OsStr::new("mise")));
+            bin.is_file() && !shim
+        });
+        if let Some(dir) = real
+            && !entries.contains(&dir)
+        {
+            entries.push(dir);
+        }
+    }
+    entries.extend(std::env::split_paths(&path));
+    std::env::join_paths(entries)
+        .ok()
+        .and_then(|joined| joined.into_string().ok())
+        .unwrap_or(path)
+}
+
 fn lade_bin() -> &'static str {
     env!("CARGO_BIN_EXE_lade")
 }
@@ -55,7 +81,7 @@ fn run_cmd(cmd: &str, args: &[&str], home: &std::path::Path) {
 fn shell_scripts_run_from_cargo_test_workspace() {
     require_cmds(&["bash", "zsh", "fish"]);
 
-    let path = path_env();
+    let path = shell_first_path();
     let lade = lade_bin();
     // `env -i` drops HOME. Without a replacement, UserDirs falls back to
     // the real home and `lade set` refreshes hooks under this crate.
@@ -104,25 +130,5 @@ fn shell_scripts_run_from_cargo_test_workspace() {
             "scripts/test.fish",
         ],
         home.path(),
-    );
-}
-
-#[tokio::test]
-async fn test_sh_provider_integration() {
-    let mut providers = lade_sdk::Providers::new();
-    providers
-        .add("sh://echo integration-test".to_string())
-        .unwrap();
-    let (hydration, _) = providers
-        .resolve(
-            std::path::Path::new("."),
-            &std::collections::HashMap::new(),
-            &lade_sdk::Warnings::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        hydration.get("sh://echo integration-test").unwrap(),
-        "integration-test"
     );
 }

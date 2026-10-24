@@ -49,6 +49,15 @@ pub enum Audience {
     Agent,
 }
 
+impl Audience {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Audience::Human => "human",
+            Audience::Agent => "agent",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkBinding {
     pub key: String,

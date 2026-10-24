@@ -37,6 +37,12 @@ mod ticket;
 mod window;
 mod wrap;
 
+/// Home from the OS user database. `pretool::install::paths::home_dir`
+/// prefers `$HOME`, so the two are not interchangeable.
+pub(crate) fn home_dir() -> Option<std::path::PathBuf> {
+    directories::UserDirs::new().map(|u| u.home_dir().to_path_buf())
+}
+
 use args::{Args, Command, DEFAULT_MASK_FORMAT, InjectCommand};
 use clap::Parser;
 use command::{run_config_verbs, run_standalone};

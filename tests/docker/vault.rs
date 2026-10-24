@@ -39,6 +39,32 @@ fn path_env() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// Real shell bin dirs first, so a mise shim never shadows a test shell:
+/// a shim symlinks to the mise binary, which can refuse to run under the
+/// isolated HOME.
+fn shell_first_path() -> String {
+    let path = path_env();
+    let mut entries: Vec<std::path::PathBuf> = Vec::new();
+    for shell in ["bash", "zsh", "fish"] {
+        let real = std::env::split_paths(&path).find(|dir| {
+            let bin = dir.join(shell);
+            let shim = std::fs::read_link(&bin)
+                .is_ok_and(|target| target.file_name() == Some(std::ffi::OsStr::new("mise")));
+            bin.is_file() && !shim
+        });
+        if let Some(dir) = real
+            && !entries.contains(&dir)
+        {
+            entries.push(dir);
+        }
+    }
+    entries.extend(std::env::split_paths(&path));
+    std::env::join_paths(entries)
+        .ok()
+        .and_then(|joined| joined.into_string().ok())
+        .unwrap_or(path)
+}
+
 fn run_cmd(cmd: &str, args: &[&str]) {
     let output = Command::new(cmd)
         .args(args)
@@ -80,7 +106,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         .unwrap_or_else(|_| format!("{}/.docker", std::env::var("HOME").expect("developer HOME")));
     let env = [
         "-i".to_string(),
-        format!("PATH={}", path_env()),
+        format!("PATH={}", shell_first_path()),
         format!("HOME={}", home.path().display()),
         format!("LADE_CONFIG_PATH={}", config.display()),
         format!("LADE_CACHE_DIR={}", cache.path().display()),

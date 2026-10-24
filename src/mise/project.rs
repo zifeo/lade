@@ -133,7 +133,7 @@ fn passwd_home() -> Option<PathBuf> {
 pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
     let mut out = ignored_config_paths(cwd);
     let mut homes = Vec::new();
-    if let Some(home) = directories::UserDirs::new().map(|user| user.home_dir().to_path_buf()) {
+    if let Some(home) = crate::home_dir() {
         homes.push(home);
     }
     if let Ok(home) = std::env::var("HOME")

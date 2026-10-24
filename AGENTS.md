@@ -22,6 +22,15 @@ shellcheck installer.sh
 bash tests/installer_test.sh
 ```
 
+Git hooks and the CI lint run through `hk` (hk.pkl; `hk install` once
+per clone, `hk check --all` to check by hand). hk is a pinned tool in
+lade.yml, installed by `lade setup` like every CLI the repo wraps.
+PR titles follow the conventional regex in
+`.github/pr-title-checker-config.json`, PR bodies the template in
+`.github/PULL_REQUEST_TEMPLATE.md`: three blocks under two headings, a
+motivation lead, What changed, and How to test with open boxes the
+reviewer ticks. The user reviews the body before every push.
+
 Tests share one mise cache, `target/mise-cache` (`.cargo/config.toml`).
 The first run downloads the CLIs some tests pin (kubectl, vault); later
 runs reuse them. CI persists it with `actions/cache`.

@@ -93,7 +93,7 @@ impl LadeFile {
 }
 
 pub(crate) fn at_user_home(path: &Path) -> bool {
-    directories::UserDirs::new().is_some_and(|u| u.home_dir() == path)
+    crate::home_dir().is_some_and(|home| home == path)
 }
 
 pub(crate) fn config_in_dir(dir: &Path) -> Result<Option<PathBuf>> {

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -6,14 +6,11 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use log::{debug, warn};
 use rustc_hash::FxHashMap;
-use std::process::Stdio;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 use url::Url;
 
 use crate::Hydration;
 
-use super::{Provider, Warnings, add_host_url, search_cli};
+use super::{Provider, Warnings, add_host_url, run_cli, run_cli_stdin, search_cli_ok};
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
@@ -62,25 +59,26 @@ async fn read_one(
         _ => bail!("1Password: invalid reference (need vault/item/field): {secret_ref}"),
     };
 
-    let process = Command::new("op")
-        .args([
-            "item", "get", item,
-            "--vault", vault,
-            "--account", account,
-            "--fields", &field_filter,
+    let output = run_cli(
+        &[
+            "op",
+            "item",
+            "get",
+            item,
+            "--vault",
+            vault,
+            "--account",
+            account,
+            "--fields",
+            &field_filter,
             "--reveal",
-        ])
-        .envs(extra_env.iter())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => anyhow::anyhow!(
-                "1Password CLI not found. Make sure the binary is in your PATH or install it from https://1password.com/downloads/command-line/."
-            ),
-            _ => anyhow::anyhow!("1Password error: {e}"),
-        })?;
-    let output = process.wait_with_output().await?;
+        ],
+        extra_env,
+        "1Password",
+        "https://1password.com/downloads/command-line/",
+        None,
+    )
+    .await?;
     if !output.status.success() {
         bail!(
             "1Password error: {}",
@@ -118,10 +116,12 @@ impl Provider for OnePassword {
     }
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
-        let output = search_cli("op", &["item", "list", "--format=json"], extra_env)?;
-        if !output.status.success() {
-            return Err(anyhow::anyhow!("op signin required"));
-        }
+        let output = search_cli_ok(
+            "op",
+            &["item", "list", "--format=json"],
+            extra_env,
+            "op signin required",
+        )?;
         let items: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
             .map_err(|_| anyhow::anyhow!("could not parse `op item list`"))?;
         Ok(items
@@ -151,7 +151,8 @@ impl Provider for OnePassword {
         extra_env: &HashMap<String, String>,
         warnings: &Warnings,
     ) -> Result<Hydration> {
-        let extra_env = Arc::new(extra_env.clone());
+        let name = self.name();
+        let install_url = self.install_url();
         let fetches = self
             .urls
             .iter()
@@ -165,12 +166,11 @@ impl Provider for OnePassword {
                     .collect::<HashMap<_, _>>();
 
                 let account = host.to_string();
-                let extra_env = Arc::clone(&extra_env);
                 let warnings = warnings.clone();
                 async move {
                     let refs = vars.into_values().collect::<Vec<_>>();
                     if refs.is_empty() {
-                        return Ok(Hydration::default());
+                        return Ok::<Hydration, anyhow::Error>(Hydration::default());
                     }
 
                     let input = refs
@@ -178,34 +178,12 @@ impl Provider for OnePassword {
                         .map(|v| strip_account_host(v, &account))
                         .collect::<Vec<_>>()
                         .join(SEP);
-                    let cmd = &["op", "inject", "--account", &account];
+                    let cmd = ["op", "inject", "--account", &account];
                     debug!("Lade run: {}", cmd.join(" "));
+                    debug!("stdin: {input:?}");
 
-                    let mut process = Command::new(cmd[0])
-                        .args(&cmd[1..])
-                        .envs(extra_env.iter())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .stdin(Stdio::piped())
-                        .spawn()?;
-
-                    debug!("stdin: {:?}", input);
-
-                    let mut stdin = process.stdin.take().expect("Failed to open stdin");
-                    if let Err(e) = stdin.write_all(input.as_bytes()).await
-                        && e.kind() != std::io::ErrorKind::BrokenPipe
-                    {
-                        bail!("1Password error: {e}");
-                    }
-                    drop(stdin);
-
-                    let child = match process.wait_with_output().await {
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                            bail!("1Password CLI not found. Make sure the binary is in your PATH or install it from https://1password.com/downloads/command-line/.")
-                        },
-                        Err(e) => bail!("1Password error: {e}"),
-                        Ok(child) => child,
-                    };
+                    let child =
+                        run_cli_stdin(&cmd, &input, extra_env, name, install_url, None).await?;
 
                     let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
                     let errors = String::from_utf8_lossy(&child.stderr);
@@ -242,7 +220,7 @@ impl Provider for OnePassword {
                         ));
                         let mut hydration = Hydration::default();
                         for secret_ref in &refs {
-                            let value = read_one(&account, secret_ref, &extra_env).await?;
+                            let value = read_one(&account, secret_ref, extra_env).await?;
                             hydration.insert(secret_ref.clone(), value);
                         }
                         hydration
@@ -260,6 +238,14 @@ impl Provider for OnePassword {
             .flatten()
             .collect::<Hydration>())
     }
+
+    fn compose_add_uri(&self, picked: &str, extras: &HashMap<String, String>) -> Option<String> {
+        let field = extras
+            .get("field")
+            .map(String::as_str)
+            .unwrap_or("password");
+        Some(format!("op://{picked}/{field}"))
+    }
 }
 
 pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
@@ -267,14 +253,6 @@ pub(super) const ADD_FIELDS: &[super::add::AddField] = &[super::add::AddField {
     prompt: "Field (password): ",
     default: Some("password"),
 }];
-
-pub(super) fn compose_add_uri(picked: &str, extras: &HashMap<String, String>) -> String {
-    let field = extras
-        .get("field")
-        .map(String::as_str)
-        .unwrap_or("password");
-    format!("op://{picked}/{field}")
-}
 
 #[cfg(test)]
 mod tests;

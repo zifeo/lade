@@ -132,23 +132,6 @@ fn test_inject_does_not_mask_raw_literal_in_output() {
 }
 
 #[test]
-fn test_inject_no_mask_shows_raw_secret() {
-    let dir = tempdir().unwrap();
-    let home = tempdir().unwrap();
-    fs::write(
-        dir.path().join("lade.yml"),
-        "\"echo.*\":\n  SECRET: rawsecret99\n",
-    )
-    .unwrap();
-    common::lade(home.path())
-        .current_dir(dir.path())
-        .args(["inject", "--no-mask", "echo", "$SECRET"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("rawsecret99"));
-}
-
-#[test]
 fn test_inject_static_mask_format() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

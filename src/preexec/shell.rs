@@ -72,7 +72,7 @@ impl Shell {
     /// Startup file `inject` skips when present. `None` for bash/sh: those
     /// `-c` invocations do not read a user file unless `$BASH_ENV` is set.
     pub fn wrap_startup_file(&self) -> Option<PathBuf> {
-        let home = directories::UserDirs::new()?.home_dir().to_path_buf();
+        let home = crate::home_dir()?;
         match self {
             Shell::Fish => Some(home.join(".config/fish/config.fish")),
             Shell::Zsh => Some(home.join(".zshenv")),

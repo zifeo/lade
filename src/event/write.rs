@@ -4,7 +4,6 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::audience::Via;
-use crate::config::Audience;
 use crate::scrub;
 
 use super::{Emit, Event, chain, git_stamp, open};
@@ -180,13 +179,7 @@ fn event_from_emit(e: Emit) -> Event {
             }
             .to_string(),
         ),
-        audience: Some(
-            match e.audience {
-                Audience::Human => "human",
-                Audience::Agent => "agent",
-            }
-            .to_string(),
-        ),
+        audience: Some(e.audience.as_str().to_string()),
         actor: e.actor,
         repo,
         git_commit,

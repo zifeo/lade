@@ -110,7 +110,8 @@ fn compose_add_uri_nested_key_round_trips() {
         ("field".to_string(), "password".to_string()),
         ("host".to_string(), "127.0.0.1:8200".to_string()),
     ]);
-    let uri = compose_add_uri("org/team", &extras);
+    let p = Vault::new();
+    let uri = p.compose_add_uri("org/team", &extras).unwrap();
     let parts = path_parts(&Url::parse(&uri).unwrap()).unwrap();
     assert_eq!(parts.mount, "secret");
     assert_eq!(parts.key, "org/team");

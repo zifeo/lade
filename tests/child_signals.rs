@@ -28,14 +28,16 @@ fn inject_ignores_hangup_and_keeps_child() {
     wait_ready(dir.path(), &mut lade);
     let child = read_pid(&dir.path().join("pid"));
     lade.signal(Signal::SIGHUP);
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(lade.running(), "lade exited on SIGHUP");
-    assert!(pid_alive(child), "inject child died on wrapper SIGHUP");
-    let log = fs::read_to_string(dir.path().join("log")).unwrap_or_default();
-    assert!(
-        !log.lines().any(|line| line == "HUP"),
-        "HUP was forwarded: {log}"
-    );
+    for _ in 0..10 {
+        assert!(lade.running(), "lade exited on SIGHUP");
+        assert!(pid_alive(child), "inject child died on wrapper SIGHUP");
+        let log = fs::read_to_string(dir.path().join("log")).unwrap_or_default();
+        assert!(
+            !log.lines().any(|line| line == "HUP"),
+            "HUP was forwarded: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]
