@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use serde::Deserialize;
-use std::process::Command;
+use std::collections::HashMap;
 
 /// Resolves a kube context for `cluster_endpoint`. `kubectl config view` is a
 /// local, read-only, idempotent operation (no network call, no write), so
@@ -11,9 +11,12 @@ pub(crate) fn resolve_kube_context(
     cluster_endpoint: &str,
     selector: Option<&str>,
 ) -> Result<String> {
-    let output = Command::new("kubectl")
-        .args(["config", "view", "-o", "json"])
-        .output()?;
+    let output = crate::providers::search_cli(
+        "kubectl",
+        &["config", "view", "-o", "json"],
+        &HashMap::new(),
+        crate::providers::PROVIDER_TIMEOUT,
+    )?;
     if !output.status.success() {
         bail!(
             "could not resolve kube context for '{}': {}",

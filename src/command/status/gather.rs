@@ -11,9 +11,11 @@ use crate::pretool;
 use lade_sdk::Transport;
 use lade_sdk::compat::spec_for;
 
+use crate::command::ttl;
+
 use super::{
-    AgePluginInfo, GlobalConfigInfo, HooksInfo, PreexecHooks, ProjectConfig, ProviderInfo,
-    StatusReport, VaultClis, VersionInfo,
+    AgePluginInfo, GlobalConfigInfo, HooksInfo, HubKey, HubStatus, HubTunnel, PreexecHooks,
+    ProjectConfig, ProviderInfo, StatusReport, VaultClis, VersionInfo,
 };
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
@@ -29,9 +31,13 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     };
 
     let global = GlobalConfig::load().await?;
+    let max_cache = crate::global_config::max_cache_ms(global.max_cache.as_ref());
     let global_config = GlobalConfigInfo {
         path: GlobalConfig::path(),
         user: global.user.clone(),
+        max_cache: global.max_cache.clone(),
+        max_cache_ms: max_cache.clone().ok().flatten(),
+        max_cache_error: max_cache.err(),
     };
 
     let shell = Shell::detect()?;
@@ -97,7 +103,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
 
     let mise_status = crate::mise::status_info().await;
     let saved = saved_user.clone();
-    let tools = match LadeFile::build(cwd.clone()) {
+    let mut tools = match LadeFile::build(cwd.clone()) {
         Ok(config) => crate::mise::locked_tools(&cwd, &config, &saved)
             .into_iter()
             .map(|tool| super::LockedTool {
@@ -108,6 +114,7 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             .collect(),
         Err(_) => Vec::new(),
     };
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
     let tools_ok = tools.iter().all(|tool| tool.present);
     let mise = super::MiseInfo {
         needed: mise_status.needed,
@@ -118,7 +125,10 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     };
     // A failed GitHub check stays in the hub ledger until the next one, a
     // day later. It says nothing about this machine's setup.
-    let ok = project_config.error.is_none() && (!mise.needed || mise.in_range) && tools_ok;
+    let ok = project_config.error.is_none()
+        && (!mise.needed || mise.in_range)
+        && tools_ok
+        && global_config.max_cache_error.is_none();
 
     let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
@@ -128,11 +138,57 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         hooks,
         project_config,
         log: event::info_for_repo(repo.as_deref()),
-        hub: crate::hub::probe(),
+        hub: hub_status(&cwd),
         mise,
         ok,
         hook_notices: pretool::install::health_report()?,
     })
+}
+
+/// Never starts a hub: every call only talks to one already up.
+fn hub_status(cwd: &std::path::Path) -> HubStatus {
+    let info = crate::hub::probe();
+    if info.state != crate::hub::HubState::Up {
+        return HubStatus {
+            info,
+            window: None,
+            keys: Vec::new(),
+            key_count: 0,
+            tunnels: Vec::new(),
+            max_cache_ms: None,
+        };
+    }
+    let listing = crate::hub::listing();
+    let scope = crate::hub::scope(cwd);
+    let keys = ttl::rows_for_scope(&listing.rows, Some(&scope), false)
+        .into_iter()
+        .map(|row| HubKey {
+            name: row.name.clone(),
+            cwd: row.cwd.clone(),
+            ttl_left_ms: row.ttl_left_ms,
+        })
+        .collect();
+    let tunnels = listing
+        .tunnels
+        .iter()
+        .map(|tunnel| HubTunnel {
+            key: tunnel.key.clone(),
+            uri: tunnel.uri.clone(),
+            port: tunnel.port,
+            leases: tunnel.leases,
+            ttl_left_ms: tunnel.ttl_left_ms,
+            phase: ttl::phase_name(tunnel.phase),
+            state: ttl::tunnel_state(tunnel),
+        })
+        .collect();
+    HubStatus {
+        info,
+        window: crate::hub::window(&scope),
+        keys,
+        key_count: listing.rows.len(),
+        tunnels,
+        max_cache_ms: listing.max_cache_ms,
+    }
 }
 
 const AGE_PLUGIN_BIN: &str = "age-plugin-lade";
@@ -193,6 +249,7 @@ fn provider_info(schemes: &[String]) -> Vec<ProviderInfo> {
                 transport,
                 batch_unit: provider.batch_unit().to_string(),
                 version,
+                timeout_s: provider.timeout().as_secs(),
             })
         })
         .collect();

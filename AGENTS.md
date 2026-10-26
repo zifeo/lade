@@ -69,8 +69,9 @@ has no `age-plugin-pq`.
 - **`lade status` latest**: the hub runs the GitHub check (at most daily,
   started by a human shell command that uses the hub) and keeps the tag in
   RAM, one ledger per Lade
-  binary. `config.json` holds only `user`, and unknown keys are written back
-  for older binaries. Status reads the ledger without starting a hub. A
+  binary. `config.json` holds only `user` and `max_cache` (kept raw, so a
+  bad value never stops `user` from loading), and unknown keys are written
+  back for older binaries. Status reads the ledger without starting a hub. A
   failed fetch keeps the last known tag; print when we last tried (`tried
   today at 14:25`, `tried yesterday at 09:05`). Do not print `not checked
   recently` when a check was attempted. `version` in `--json` includes

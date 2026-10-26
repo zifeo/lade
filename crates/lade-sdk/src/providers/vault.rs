@@ -154,6 +154,10 @@ impl Provider for Vault {
         add_url(&mut self.urls, value, "vault")
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "Vault"
     }
@@ -171,6 +175,7 @@ impl Provider for Vault {
             "vault",
             &["kv", "list", "-format=json", "secret"],
             extra_env,
+            self.timeout(),
             "vault login required",
         )?;
         let paths: Vec<String> = match serde_json::from_slice::<Vec<String>>(&output.stdout) {
@@ -208,7 +213,7 @@ impl Provider for Vault {
         let namespace = env_lookup(&extra_env, &["VAULT_NAMESPACE", "LADE_VAULT_NAMESPACE"]);
         let scheme = vault_scheme(&extra_env);
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(self.timeout())
             .build()
             .map_err(|e| anyhow!("Vault error: {e}"))?;
 

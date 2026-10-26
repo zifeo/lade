@@ -47,6 +47,10 @@ impl Provider for File {
         }
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "File"
     }

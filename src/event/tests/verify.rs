@@ -24,6 +24,25 @@ fn concurrent_first_open_keeps_every_row() {
 }
 
 #[test]
+fn verify_during_appends_never_reports_a_tampered_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        emit(seen_emit("first"));
+        let writer = std::thread::spawn(|| {
+            for i in 0..150 {
+                emit(seen_emit(&format!("cmd{i}")));
+            }
+        });
+        while !writer.is_finished() {
+            let status = verify_live().unwrap();
+            assert!(status.ok, "{status:?}");
+        }
+        writer.join().unwrap();
+    });
+}
+
+#[test]
 fn sqlite_edit_breaks_verify() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.db");

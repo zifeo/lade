@@ -15,18 +15,36 @@ fn test_status_reports_version_and_project() {
         .current_dir(dir.path())
         .arg("status")
         .assert()
-        .stdout(predicates::str::contains("lade version:"))
-        .stdout(predicates::str::contains("age-plugin-lade:"))
-        .stdout(predicates::str::contains(
-            "latest: (unknown, the hub is not running)",
-        ))
-        .stdout(predicates::str::contains("project config: ok"))
-        .stdout(predicates::str::contains(
-            "inject wrap: skips startup files",
-        ))
-        .stdout(predicates::str::contains("log:"))
+        .stdout(predicates::str::starts_with("Lade "))
+        .stdout(predicates::str::is_match(r"age plugin +").unwrap())
+        .stdout(predicates::str::is_match(r"latest +\(unknown, the hub is not running\)").unwrap())
+        .stdout(predicates::str::is_match(r"config +ok \(\d+ rules\)").unwrap())
+        .stdout(predicates::str::is_match(r"inject wrap +skips startup files").unwrap())
+        .stdout(predicates::str::is_match(r"log +").unwrap())
         .stdout(predicates::str::contains("0 events, 0 B"))
-        .stdout(predicates::str::contains("hub:"));
+        .stdout(predicates::str::is_match(r"\nHub\n +state +down").unwrap());
+}
+
+#[test]
+fn test_status_fails_on_an_invalid_max_cache() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    fs::write(
+        home.path().join("lade-config.json"),
+        r#"{"user":null,"max_cache":"forever"}"#,
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .stdout(predicates::str::is_match(r"max cache +invalid, cache off: ").unwrap());
 }
 
 #[test]
@@ -137,8 +155,16 @@ fn test_status_reports_project_pretool_hook() {
         .current_dir(dir.path())
         .arg("status")
         .assert()
-        .stdout(predicates::str::contains("pre-exec (this shell)"))
-        .stdout(predicates::str::contains("pre-tool (harnesses)"))
+        .stdout(predicates::str::contains("\nPre-exec ("))
+        .stdout(
+            predicates::str::is_match(r"\nPre-tool\n +HARNESS +SCOPE +STATE +PATH\n").unwrap(),
+        )
+        .stdout(
+            predicates::str::is_match(
+                r"\n +Claude Code +machine +missing +\S+\n +Claude Code +repo +not current +\S*\.claude/settings\.json\n",
+            )
+            .unwrap(),
+        )
         .stdout(predicates::str::contains("! Claude Code (this repo, "))
         .stdout(predicates::str::contains(
             "the Lade hook differs from what this Lade writes. `lade hook enable --harness claude` rewrites it.",
@@ -220,7 +246,8 @@ fn test_status_names_present_fish_startup_file() {
         .env("LADE_SHELL", "fish")
         .arg("status")
         .assert()
-        .stdout(predicates::str::contains(
-            "inject wrap: skips startup files (config.fish present)",
-        ));
+        .stdout(
+            predicates::str::is_match(r"inject wrap +skips startup files \(config\.fish present\)")
+                .unwrap(),
+        );
 }

@@ -228,7 +228,12 @@ var.
 | SOPS | `sops://PATH?query=.field` | `?plugin=` remaps env into the SOPS child. |
 | File | `file://PATH?query=.fields[0].field` | `?query=` required. INI, JSON, YAML, TOML. |
 | Shell | `sh://gcloud auth print-access-token` | Also `bash://`, `zsh://`, `fish://`. |
-| Raw | `"visible-in-the-yaml"` | Not a secret. `!` forces raw, `!!` keeps a leading `!`. |
+| Raw | `"visible-in-the-yaml"` | Not a secret. An unknown scheme, like `https://`, is raw. `!` forces raw, `!!` keeps a leading `!`. |
+
+Every provider answers within **10 seconds**, or the command stops
+with an error naming it. A locked or logged-out vault fails fast.
+1Password, age, and SOPS get **30 seconds**: they can wait on Touch
+ID or a hardware key touch. `lade status` lists each timeout.
 
 Vault, file, sops, and age stay in RAM for **5 minutes** after the
 first hydrate. Set `ttl:` on that rule's `.` to turn it off or
@@ -240,6 +245,18 @@ share it. `ttl: off` on the body still wins. `lade ttl unset`
 clears this cwd.
 `lade ttl` lists cached names and tunnels. `lade ttl forget`
 drops the RAM and stops the tunnels now.
+
+`max_cache` in `config.json` caps every secret and tunnel ttl, and
+every window, for this user: `"1h"`, or `"0"` to turn the cache
+off. The hub watches the file. Any change, up or down, drops every
+cached secret and stops every tunnel no command holds, so a raised
+cap never extends what is already there. Durations go up to 24h.
+An invalid value, longer ones included, turns the cache off, and
+`lade status` says so.
+
+```json
+{ "max_cache": "1h" }
+```
 
 ```yaml
 "^psql":

@@ -37,6 +37,15 @@ fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
         .paragraph(e.to_string())
 }
 
+/// Where a slow hydrate went: `LADE_LOG=lade::timing=info`, or `-vv`.
+pub(super) fn log_phase(phase: &str, started: std::time::Instant) {
+    log::info!(
+        target: "lade::timing",
+        "{phase}: {:.0} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+}
+
 pub(super) fn refuse_preexec(shell: &Shell, code: i32) -> ! {
     println!("{}", shell.block_command());
     std::process::exit(code);

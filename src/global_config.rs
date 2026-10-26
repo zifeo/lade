@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use log::debug;
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,10 @@ use tokio::fs;
 #[derive(Deserialize, Serialize)]
 pub struct GlobalConfig {
     pub user: Option<String>,
+    /// Cap on what the hub keeps after a command. Kept raw: a bad value must
+    /// not stop `user` from loading. See [`max_cache_ms`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cache: Option<serde_json::Value>,
     /// Keys this binary does not read, written back untouched. Lade 0.15
     /// fails to load the file without its `update_check`, and older
     /// binaries still share it.
@@ -20,7 +24,7 @@ impl GlobalConfig {
     pub fn path() -> PathBuf {
         // Allow tests to override the config path without relying on OS-specific
         // path resolution (e.g. SHGetKnownFolderPath on Windows ignores env vars).
-        if let std::result::Result::Ok(p) = std::env::var("LADE_CONFIG_PATH") {
+        if let Ok(p) = std::env::var("LADE_CONFIG_PATH") {
             return PathBuf::from(p);
         }
         #[cfg(test)]
@@ -59,6 +63,7 @@ impl GlobalConfig {
         } else {
             Ok(GlobalConfig {
                 user: None,
+                max_cache: None,
                 rest: serde_json::Map::new(),
             })
         }
@@ -86,9 +91,59 @@ impl GlobalConfig {
     }
 }
 
+/// `max_cache` in ms. `None`: no field, nothing capped. `Some(0)`: the cache
+/// is off. The hub reads an `Err` as off too.
+pub fn max_cache_ms(value: Option<&serde_json::Value>) -> Result<Option<u32>, String> {
+    const HINT: &str = "max_cache is a duration like \"1h\", or \"0\" to turn the cache off";
+    let raw = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(raw)) => raw.trim(),
+        Some(serde_json::Value::Number(n)) if n.as_u64() == Some(0) => return Ok(Some(0)),
+        Some(other) => return Err(format!("{HINT}, not {other}")),
+    };
+    if raw == "0" {
+        return Ok(Some(0));
+    }
+    match crate::config::RuleTtl::parse(raw) {
+        Ok(crate::config::RuleTtl::Off) => Ok(Some(0)),
+        Ok(crate::config::RuleTtl::Window(duration)) => {
+            Ok(Some(crate::config::duration_to_ttl_ms(duration)))
+        }
+        Err(e) => Err(format!("{HINT}, not {raw:?}: {e}")),
+    }
+}
+
+/// [`max_cache_ms`] from the raw `config.json` text.
+pub fn max_cache_from_text(text: &str) -> Result<Option<u32>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("config.json: {e}"))?;
+    let serde_json::Value::Object(map) = value else {
+        return Err("config.json is not a JSON object".to_string());
+    };
+    max_cache_ms(map.get("max_cache"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn max_cache_parses_off_durations_and_rejects_the_rest() {
+        assert_eq!(max_cache_from_text("{}"), Ok(None));
+        assert_eq!(max_cache_from_text(r#"{"max_cache":null}"#), Ok(None));
+        assert_eq!(max_cache_from_text(r#"{"max_cache":"0"}"#), Ok(Some(0)));
+        assert_eq!(max_cache_from_text(r#"{"max_cache":0}"#), Ok(Some(0)));
+        assert_eq!(max_cache_from_text(r#"{"max_cache":"off"}"#), Ok(Some(0)));
+        assert_eq!(
+            max_cache_from_text(r#"{"max_cache":"1h"}"#),
+            Ok(Some(3_600_000))
+        );
+        assert!(max_cache_from_text(r#"{"max_cache":"48h"}"#).is_err());
+        assert!(max_cache_from_text(r#"{"max_cache":"soon"}"#).is_err());
+        assert!(max_cache_from_text(r#"{"max_cache":3600}"#).is_err());
+        assert!(max_cache_from_text("[]").is_err());
+        assert!(max_cache_from_text("{").is_err());
+    }
 
     #[test]
     fn load_missing_file_has_no_user() {

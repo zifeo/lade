@@ -182,6 +182,8 @@ pub enum Rep {
         tickets: u32,
         rows: Vec<CacheRow>,
         tunnels: Vec<TunnelRow>,
+        /// The `max_cache` this hub enforces, as its watcher last read it.
+        max_cache_ms: Option<u32>,
     },
     Window {
         ttl: Option<String>,

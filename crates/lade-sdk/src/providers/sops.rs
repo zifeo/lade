@@ -202,6 +202,10 @@ impl Provider for Sops {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::HUMAN_PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "SOPS"
     }

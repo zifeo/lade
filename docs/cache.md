@@ -35,6 +35,24 @@ the same pattern: the second refetches. It does not fail.
 A body `ttl:` longer than 24h fails at load. `lade ttl forget`
 drops the RAM now. The next match refetches.
 
+## Max cache
+
+`max_cache` in `config.json` is the user's ceiling over every row
+above: `"0"` (or `0`, `"off"`) keeps nothing past the command,
+`"1h"` keeps at most 1h. No field: no ceiling. The hub enforces it,
+not the client: a `Put` past it is clamped, a `Put` under `"0"` is
+dropped, a window restamps at most to it, and a tunnel keeps at most
+that once idle.
+
+A watcher thread in the hub `stat`s `config.json` every second and
+reads it only when its mtime, size, or inode moved, or when the last
+read failed. Requests never touch the file: they read the value the
+watcher last saw. When the value changes, in any direction, the next
+request or nap drops every secret row and stops every tunnel no
+command holds. Tunnels in use stay, capped. An unreadable file or an
+invalid value counts as `"0"`. Durations go up to 24h, like `ttl:`.
+`lade status` shows the value, or the error and `ok: false`.
+
 One matching command can hit several patterns. One `Get` / `Put`
 per cacheable body, not one for the whole command. `rule` on the
 wire is that body's pattern string.
@@ -242,12 +260,16 @@ body used the vault default, or this cwd's hub window when
 
 ## CLI
 
-`lade status` prints `hub: pid … (N secrets, M tickets)`, or
-`down` / `off` / `stale`. `--json` adds extra `hub` (`state`,
-`pid`, `secrets`, `tickets`) and leaves `ok` unchanged.
+`lade status` has a Hub section: `pid …` or `down` / `stale`, the
+`max_cache` in force, key, tunnel, and ticket counts, this cwd's
+window, key names, and tunnels. `--json` adds extra `hub` (`state`,
+`pid`, `secrets`, `tickets`, `window`, `keys`, `key_count`,
+`tunnels`, `max_cache_ms`). The hub never sets `ok`. An invalid
+`max_cache` does.
 
 `lade ttl` lists this cwd's key names, the cwd the row is
-valid for, yaml path, and ttl left. `--global` lists every row
+valid for, yaml path, and ttl left. A window past `max_cache`
+reads `8h, capped to 1h by max_cache`. `--global` lists every row
 on this hub. Never values. `lade ttl set 2h` marks this cwd on
 the hub. A parent or child cwd shares that window (nearest
 path wins). `lade ttl unset` clears this cwd.
@@ -279,6 +301,8 @@ Extra, like `agent`. See [cli.md](cli.md).
 | Hub dies, leftover T files | Files still work |
 | Yaml edit between plan and apply | Miss, refetch |
 | Provider value changed, hub still live | Same row until TTL or `lade ttl forget` |
+| `max_cache` edited, up or down | Every secret row dropped, idle tunnels stopped |
+| `max_cache` invalid or `config.json` unreadable | Cache off until fixed |
 | Keychain ACL prompt | One dialog (wrap-key.lock). Always Allow: later gets are silent. Deny: skip hub |
 | Keychain locked (`Lock after` / sleep lock) | Skip hub if the user cancels |
 | `@s` gone after logout | Unwrap fail, then miss |

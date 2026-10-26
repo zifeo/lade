@@ -75,6 +75,7 @@ pub struct CacheListing {
     pub tickets: u32,
     pub rows: Vec<CacheRow>,
     pub tunnels: Vec<TunnelRow>,
+    pub max_cache_ms: Option<u32>,
 }
 
 impl CacheListing {
@@ -85,6 +86,7 @@ impl CacheListing {
             tickets: 0,
             rows: Vec::new(),
             tunnels: Vec::new(),
+            max_cache_ms: None,
         }
     }
 
@@ -95,16 +97,24 @@ impl CacheListing {
             tickets: 0,
             rows: Vec::new(),
             tunnels: Vec::new(),
+            max_cache_ms: None,
         }
     }
 
-    fn up(pid: u32, tickets: u32, rows: Vec<CacheRow>, tunnels: Vec<TunnelRow>) -> Self {
+    fn up(
+        pid: u32,
+        tickets: u32,
+        rows: Vec<CacheRow>,
+        tunnels: Vec<TunnelRow>,
+        max_cache_ms: Option<u32>,
+    ) -> Self {
         Self {
             state: HubState::Up,
             pid: Some(pid),
             tickets,
             rows,
             tunnels,
+            max_cache_ms,
         }
     }
 }
@@ -116,7 +126,8 @@ pub fn listing() -> CacheListing {
             tickets,
             rows,
             tunnels,
-        }) => CacheListing::up(pid, tickets, rows, tunnels),
+            max_cache_ms,
+        }) => CacheListing::up(pid, tickets, rows, tunnels, max_cache_ms),
         Some(Rep::Err(code)) if code == ERR_DENIED => CacheListing::stale(),
         _ => CacheListing::down(),
     }

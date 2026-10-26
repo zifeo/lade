@@ -31,6 +31,11 @@ struct AgePluginInfo {
 struct GlobalConfigInfo {
     path: PathBuf,
     user: Option<String>,
+    /// Raw from `config.json`. `max_cache_ms` 0: the hub keeps nothing.
+    max_cache: Option<serde_json::Value>,
+    max_cache_ms: Option<u32>,
+    /// Set when the value is invalid: the hub then keeps nothing.
+    max_cache_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -70,6 +75,7 @@ struct ProviderInfo {
     transport: String,
     batch_unit: String,
     version: Option<String>,
+    timeout_s: u64,
 }
 
 #[derive(Serialize)]
@@ -96,6 +102,42 @@ struct MiseInfo {
     tools: Vec<LockedTool>,
 }
 
+/// Names and ttl only. The hub never hands out values here.
+#[derive(Serialize)]
+struct HubKey {
+    name: String,
+    cwd: String,
+    ttl_left_ms: u32,
+}
+
+#[derive(Serialize)]
+struct HubTunnel {
+    key: String,
+    uri: String,
+    port: u16,
+    leases: u32,
+    ttl_left_ms: Option<u32>,
+    phase: &'static str,
+    #[serde(skip)]
+    state: String,
+}
+
+#[derive(Serialize)]
+struct HubStatus {
+    #[serde(flatten)]
+    info: crate::hub::HubInfo,
+    /// This cwd's `lade ttl set` window.
+    window: Option<String>,
+    /// Cached secret names valid for this cwd.
+    keys: Vec<HubKey>,
+    /// Cached secret names on this hub, every cwd.
+    key_count: usize,
+    tunnels: Vec<HubTunnel>,
+    /// The `max_cache` the hub enforces. `lade status` also reads the file:
+    /// the two differ until the hub's watcher catches up.
+    max_cache_ms: Option<u32>,
+}
+
 #[derive(Serialize)]
 struct StatusReport {
     version: VersionInfo,
@@ -104,7 +146,7 @@ struct StatusReport {
     hooks: HooksInfo,
     project_config: ProjectConfig,
     log: event::LogInfo,
-    hub: crate::hub::HubInfo,
+    hub: HubStatus,
     mise: MiseInfo,
     ok: bool,
     /// Text only. The JSON keeps the per-location `installed` / `current`.

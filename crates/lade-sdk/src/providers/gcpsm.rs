@@ -49,6 +49,10 @@ impl Provider for GcpSm {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "GCP Secret Manager"
     }
@@ -62,6 +66,7 @@ impl Provider for GcpSm {
             "gcloud",
             &["secrets", "list", "--format=value(name)"],
             extra_env,
+            self.timeout(),
             "gcloud login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

@@ -143,3 +143,184 @@ fn test_empty_age_does_not_fall_back_to_raw() {
     assert!(p.add("age://".to_string()).is_err());
     assert!(!p.fallback.has_work());
 }
+
+/// A provider whose CLI never answers: a shell that waits on a grandchild,
+/// like `sh://op read …` waiting on Touch ID.
+struct Silent {
+    pid_file: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl Provider for Silent {
+    fn add(&mut self, _: String) -> Result<()> {
+        Ok(())
+    }
+
+    fn name(&self) -> &'static str {
+        "Silent"
+    }
+
+    fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
+    fn install_url(&self) -> &'static str {
+        "https://example.com"
+    }
+
+    fn batch_unit(&self) -> &'static str {
+        "value"
+    }
+
+    async fn resolve(
+        &self,
+        _: &Path,
+        _: &HashMap<String, String>,
+        _: &Warnings,
+    ) -> Result<Hydration> {
+        let script = format!(
+            "/bin/sleep 60 & echo $! > '{}'; wait",
+            self.pid_file.display()
+        );
+        run_cli(
+            &["/bin/sh", "-c", &script],
+            &HashMap::new(),
+            "Silent",
+            "",
+            None,
+        )
+        .await?;
+        Ok(Hydration::default())
+    }
+}
+
+fn gone_within(pid: libc::pid_t, limit: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + limit;
+    while std::time::Instant::now() < deadline {
+        // SAFETY: signal 0 only checks that the process exists.
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn test_resolve_times_out_and_kills_the_cli_and_what_it_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("grandchild.pid");
+    let mut p = Providers::new();
+    p.by_scheme.insert(
+        "silent",
+        Box::new(Silent {
+            pid_file: pid_file.clone(),
+        }),
+    );
+    let started = std::time::Instant::now();
+    let err = p
+        .resolve(Path::new("."), &HashMap::new(), &Warnings::default())
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(
+        err.to_string().contains("Silent did not answer within 1s"),
+        "{err}"
+    );
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        gone_within(pid, std::time::Duration::from_secs(2)),
+        "grandchild {pid} outlived the timeout"
+    );
+}
+
+#[test]
+fn test_providers_that_wait_on_a_human_get_more_time() {
+    let p = Providers::new();
+    for scheme in ["op", "age", "sops"] {
+        assert_eq!(
+            p.provider(scheme).unwrap().timeout(),
+            HUMAN_PROVIDER_TIMEOUT,
+            "{scheme}"
+        );
+    }
+    for scheme in ["vault", "doppler", "sh", "bw", "awssm"] {
+        assert_eq!(
+            p.provider(scheme).unwrap().timeout(),
+            PROVIDER_TIMEOUT,
+            "{scheme}"
+        );
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn test_output_within_kills_a_silent_cli() {
+    let fake_bin = tempfile::tempdir().unwrap();
+    fake_cli(&fake_bin, "slow", "exec sleep 60");
+    let started = std::time::Instant::now();
+    let err = output_within(
+        std::process::Command::new(fake_bin.path().join("slow")),
+        "slow",
+        std::time::Duration::from_millis(200),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("slow did not answer"), "{err}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_output_within_bounds_a_pipe_a_grandchild_keeps() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("grandchild.pid");
+    let fake_bin = tempfile::tempdir().unwrap();
+    // The list CLI answers and exits, but leaves a helper on its stdout.
+    fake_cli(
+        &fake_bin,
+        "lister",
+        &format!(
+            "/bin/sleep 60 & echo $! > '{}'\necho listed",
+            pid_file.display()
+        ),
+    );
+    let started = std::time::Instant::now();
+    let err = output_within(
+        std::process::Command::new(fake_bin.path().join("lister")),
+        "lister",
+        std::time::Duration::from_millis(500),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("lister did not answer"), "{err}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        gone_within(pid, std::time::Duration::from_secs(2)),
+        "helper {pid} outlived the timeout"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_output_within_returns_output() {
+    let fake_bin = tempfile::tempdir().unwrap();
+    fake_cli(&fake_bin, "fast", "printf out; printf err >&2; exit 3");
+    let output = output_within(
+        std::process::Command::new(fake_bin.path().join("fast")),
+        "fast",
+        std::time::Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(output.stdout, b"out");
+    assert_eq!(output.stderr, b"err");
+    assert_eq!(output.status.code(), Some(3));
+}

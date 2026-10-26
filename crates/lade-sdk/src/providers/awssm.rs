@@ -63,6 +63,10 @@ impl Provider for AwsSm {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "AWS Secrets Manager"
     }
@@ -83,6 +87,7 @@ impl Provider for AwsSm {
                 "text",
             ],
             extra_env,
+            self.timeout(),
             "aws login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

@@ -64,6 +64,85 @@ fn tables_put_get_and_ttl() {
     }
 }
 
+fn cap_put(ttl_ms: u32) -> Req {
+    Req::Put {
+        cwd: "/c".into(),
+        path: "/c/lade.yaml".into(),
+        rule: "t .*".into(),
+        when: "always".into(),
+        walk: [9u8; 32],
+        user: String::new(),
+        ttl_ms,
+        bindings: vec![("AWS".into(), b"cipher".to_vec())],
+    }
+}
+
+fn listed_ttl_left(tables: &mut super::tables::Tables) -> Vec<u32> {
+    super::tables::check_cap_for_test(tables);
+    match handle_for_test(tables, Req::List) {
+        Rep::Listing { rows, .. } => rows.iter().map(|row| row.ttl_left_ms).collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A new inode and size: the hub's stamp moves even within one mtime tick.
+fn write_config(path: &std::path::Path, text: &str) {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, text).unwrap();
+    std::fs::rename(&tmp, path).unwrap();
+}
+
+#[test]
+fn max_cache_caps_secret_ttls() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    write_config(&config, r#"{"max_cache":"1m"}"#);
+    let mut tables = super::tables::tables_with_config(config);
+    assert_eq!(handle_for_test(&mut tables, cap_put(3_600_000)), Rep::Ok);
+    let left = listed_ttl_left(&mut tables);
+    assert_eq!(left.len(), 1);
+    assert!(left[0] <= 60_000, "{left:?}");
+}
+
+#[test]
+fn max_cache_zero_keeps_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    write_config(&config, r#"{"max_cache":"0"}"#);
+    let mut tables = super::tables::tables_with_config(config);
+    assert_eq!(handle_for_test(&mut tables, cap_put(60_000)), Rep::Ok);
+    assert!(listed_ttl_left(&mut tables).is_empty());
+}
+
+#[test]
+fn an_invalid_max_cache_keeps_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    write_config(&config, r#"{"max_cache":"soon"}"#);
+    let mut tables = super::tables::tables_with_config(config);
+    assert_eq!(handle_for_test(&mut tables, cap_put(60_000)), Rep::Ok);
+    assert!(listed_ttl_left(&mut tables).is_empty());
+}
+
+#[test]
+fn any_max_cache_change_drops_cached_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    write_config(&config, r#"{"max_cache":"1m"}"#);
+    let mut tables = super::tables::tables_with_config(config.clone());
+    handle_for_test(&mut tables, cap_put(60_000));
+    // Another key leaves the cap alone: the row stays.
+    write_config(&config, r#"{"user":"alice","max_cache":"1m"}"#);
+    assert_eq!(listed_ttl_left(&mut tables).len(), 1);
+    // Raising the cap does not extend the row: it drops it.
+    write_config(&config, r#"{"user":"alice","max_cache":"2h"}"#);
+    assert!(listed_ttl_left(&mut tables).is_empty());
+    handle_for_test(&mut tables, cap_put(60_000));
+    // So does removing the field.
+    write_config(&config, r#"{"user":"alice"}"#);
+    assert!(listed_ttl_left(&mut tables).is_empty());
+}
+
 #[test]
 fn tables_list_and_forget_named_key() {
     let mut tables = empty_tables();

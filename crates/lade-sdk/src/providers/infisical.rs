@@ -2,7 +2,6 @@ use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use log::debug;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc};
@@ -61,6 +60,10 @@ impl Provider for Infisical {
         let url = Url::parse(&value)?;
         secret_path_and_var(&url)?;
         Ok(())
+    }
+
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
     }
 
     fn name(&self) -> &'static str {
@@ -227,7 +230,6 @@ impl Provider for Infisical {
                                         .flatten()
                                         .collect();
                                     temp_dir.close()?;
-                                    debug!("hydration: {:?}", hydration);
                                     Ok::<_, anyhow::Error>(hydration)
                                 }
                             })

@@ -7,10 +7,11 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::time::Duration;
 
 use super::super::wire::{Lease, TunnelAsk, TunnelLaunch, TunnelRep};
-use super::machine::{Machine, Open, Phase};
+use super::machine::{Machine, Open, Phase, capped};
 
 const TTL_MS: u32 = 10;
 const DEPTH: usize = 8;
+const CAP_DEPTH: usize = 7;
 const LEASES: usize = 2;
 const KEYS: [&str; 2] = ["15432", "DB_PORT"];
 
@@ -84,6 +85,10 @@ enum Event {
     Forget {
         key: &'static str,
     },
+    /// `max_cache` changed in `config.json`.
+    Cap {
+        ms: Option<u32>,
+    },
 }
 
 /// The machine, plus what the effects layer holds for it.
@@ -95,6 +100,8 @@ struct World {
     running: BTreeSet<u64>,
     dead: BTreeSet<usize>,
     next_ephemeral: u16,
+    /// The last `max_cache` applied, tracked apart from the machine's copy.
+    cap_ms: Option<u32>,
 }
 
 impl World {
@@ -106,6 +113,7 @@ impl World {
             running: BTreeSet::new(),
             dead: BTreeSet::new(),
             next_ephemeral: 50_000,
+            cap_ms: None,
         }
     }
 
@@ -195,10 +203,20 @@ impl World {
                 self.stop(gone);
                 None
             }
+            Event::Cap { ms } => {
+                // Mirrors `Tunnels::set_cap`: dead leases go first.
+                self.cap_ms = *ms;
+                let dead = self.dead.clone();
+                self.machine
+                    .drop_dead_leases(|held| !dead.contains(&lease_index(held)));
+                let gone = self.machine.set_cap(*ms);
+                self.stop(gone);
+                None
+            }
         }
     }
 
-    fn events(&self) -> Vec<Event> {
+    fn events(&self, caps: bool) -> Vec<Event> {
         let mut events = Vec::new();
         for ask in 0..asks().len() {
             if self.dead.contains(&lease_index(&asks()[ask].lease)) {
@@ -239,6 +257,12 @@ impl World {
         for key in KEYS {
             events.push(Event::Forget { key });
         }
+        // The hub calls `set_cap` only when the value changes.
+        for ms in [Some(0), Some(5), None] {
+            if caps && ms != self.cap_ms {
+                events.push(Event::Cap { ms });
+            }
+        }
         events
     }
 }
@@ -277,6 +301,26 @@ fn check(
         return Err(format!(
             "starting {:?} but tracked {:?}",
             after.starting, starting
+        ));
+    }
+
+    // No tunnel ttl ever passes `max_cache`.
+    for entry in entries.values() {
+        if capped(entry.ttl_ms, after.cap_ms) != entry.ttl_ms {
+            return Err(format!(
+                "tunnel on port {} keeps {:?} past cap {:?}",
+                entry.port, entry.ttl_ms, after.cap_ms
+            ));
+        }
+    }
+
+    // A cap change leaves only the tunnels a command holds.
+    if matches!(event, Event::Cap { .. })
+        && let Some(entry) = entries.values().find(|entry| entry.leases.is_empty())
+    {
+        return Err(format!(
+            "idle tunnel on port {} survived a cap change",
+            entry.port
         ));
     }
 
@@ -366,7 +410,7 @@ fn check(
         Event::Release { lease: n } => Some(lease(*n).id),
         _ => None,
     };
-    let dead_now = matches!(event, Event::Tick);
+    let dead_now = matches!(event, Event::Tick | Event::Cap { .. });
     for (id, entry) in before.machine.entries() {
         let live = entry
             .leases
@@ -378,6 +422,7 @@ fn check(
             // Why may a tunnel go?
             let allowed = match event {
                 Event::Forget { key } => entry.key == *key,
+                Event::Cap { .. } => live == 0,
                 Event::Open { ask: n, launch, .. } => {
                     let ask = &asks()[*n];
                     let yields = *launch
@@ -406,8 +451,14 @@ fn check(
             }
             continue;
         };
-        if next.ttl_ms < entry.ttl_ms {
+        // Only a cap shrinks a ttl, and a cap never grows one: a raised cap
+        // must not extend what is already there.
+        let cap = matches!(event, Event::Cap { .. });
+        if next.ttl_ms < entry.ttl_ms && !cap {
             return Err(format!("tunnel {id} ttl shrank"));
+        }
+        if next.ttl_ms > entry.ttl_ms && cap {
+            return Err(format!("tunnel {id} ttl grew on a cap change"));
         }
     }
 
@@ -454,17 +505,28 @@ fn drains(world: &World) -> Result<(), String> {
     }
 }
 
+/// Cap changes are rare and widen every state, so they get their own
+/// shallower search: both searches together stay as fast as one.
 #[test]
 fn every_event_sequence_keeps_the_invariants() {
+    explore(DEPTH, false);
+}
+
+#[test]
+fn every_event_sequence_with_cap_changes_keeps_the_invariants() {
+    explore(CAP_DEPTH, true);
+}
+
+fn explore(depth: usize, caps: bool) {
     let start = World::new();
     let mut seen = HashSet::from([start.clone()]);
     let mut queue = VecDeque::from([(start, Vec::<Event>::new())]);
     let mut transitions = 0usize;
     while let Some((world, path)) = queue.pop_front() {
-        if path.len() == DEPTH {
+        if path.len() == depth {
             continue;
         }
-        for event in world.events() {
+        for event in world.events(caps) {
             let mut next = world.clone();
             let reply = next.apply(&event);
             transitions += 1;
@@ -498,7 +560,7 @@ fn long_random_walks_keep_the_invariants() {
         let mut world = World::new();
         let mut trail = Vec::new();
         for _ in 0..80 {
-            let events = world.events();
+            let events = world.events(true);
             let event = events[next(events.len())].clone();
             let before = world.clone();
             let reply = world.apply(&event);
@@ -563,6 +625,34 @@ fn a_ttl_keeps_the_tunnel_for_the_next_command_only_until_it_runs_out() {
     world.apply(&Event::Advance { ms: 1 });
     world.apply(&Event::Tick);
     assert!(world.running.is_empty());
+}
+
+#[test]
+fn a_cap_change_stops_idle_tunnels_and_caps_held_ones() {
+    let mut world = World::new();
+    world.apply(&Event::Open {
+        ask: 2,
+        launch: true,
+        port_free: true,
+    });
+    world.apply(&Event::Started { id: 0, ok: true });
+    world.apply(&Event::Open {
+        ask: 3,
+        launch: true,
+        port_free: true,
+    });
+    world.apply(&Event::Started { id: 1, ok: true });
+    world.apply(&Event::Release { lease: 1 });
+    assert_eq!(world.running.len(), 2);
+    // Raising the cap still invalidates: the idle tunnel stops.
+    world.apply(&Event::Cap {
+        ms: Some(TTL_MS * 10),
+    });
+    assert_eq!(world.running.len(), 1);
+    world.apply(&Event::Cap { ms: Some(0) });
+    assert_eq!(world.running.len(), 1);
+    world.apply(&Event::Release { lease: 0 });
+    assert!(world.machine.is_empty());
 }
 
 #[test]

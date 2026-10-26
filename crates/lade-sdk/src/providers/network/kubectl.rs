@@ -67,10 +67,12 @@ impl NetworkProvider for KubectlProvider {
 }
 
 fn kubectl_lines(extra_env: &HashMap<String, String>, args: &[&str]) -> Result<Vec<String>> {
-    let output = std::process::Command::new("kubectl")
-        .args(args)
-        .envs(extra_env)
-        .output()?;
+    let output = crate::providers::search_cli(
+        "kubectl",
+        args,
+        extra_env,
+        crate::providers::PROVIDER_TIMEOUT,
+    )?;
     if !output.status.success() {
         bail!("kubectl login required");
     }

@@ -36,6 +36,10 @@ impl Provider for Doppler {
         add_host_url(&mut self.urls, value, "doppler")
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "Doppler"
     }
@@ -116,7 +120,6 @@ impl Provider for Doppler {
                                             Ok((value, secret.computed.clone()))
                                         })
                                         .collect::<Result<Hydration>>()?;
-                                    debug!("hydration: {:?}", hydration);
                                     Ok(hydration)
                                 }
                             })

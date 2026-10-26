@@ -50,10 +50,12 @@ impl NetworkProvider for TshProvider {
     }
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
-        let output = std::process::Command::new("tsh")
-            .args(["status"])
-            .envs(extra_env)
-            .output()?;
+        let output = crate::providers::search_cli(
+            "tsh",
+            &["status"],
+            extra_env,
+            crate::providers::PROVIDER_TIMEOUT,
+        )?;
         if !output.status.success() {
             bail!("tsh login required");
         }

@@ -28,6 +28,10 @@ impl Provider for Raw {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "Raw"
     }

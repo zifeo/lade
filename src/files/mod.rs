@@ -99,31 +99,18 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
     })
 }
 
-fn provider_label(source: &str) -> String {
-    match source.split_once("://") {
-        Some((scheme, rest)) => {
-            if crate::config::is_shell_uri(source) {
-                return scheme.to_string();
-            }
-            let provider = rest.split('/').next().unwrap_or(rest);
-            match scheme {
-                "op" => format!("1Password {provider}"),
-                "doppler" => format!("Doppler {provider}"),
-                "infisical" => format!("Infisical {provider}"),
-                "vault" => format!("Vault {provider}"),
-                "passbolt" => format!("Passbolt {provider}"),
-                "file" => "File".to_string(),
-                "awssm" => format!("AWS Secrets Manager {provider}"),
-                "azurekv" => format!("Azure Key Vault {provider}"),
-                "bw" => format!("Bitwarden {provider}"),
-                "gcpsm" => format!("GCP Secret Manager {provider}"),
-                "age" => "age".to_string(),
-                "sops" => "SOPS".to_string(),
-                other => format!("{other} {provider}"),
-            }
+/// `None` for raw: only a provider that fetches gets a progress line.
+fn provider_label(source: &str) -> Option<String> {
+    let name = lade_sdk::Providers::claimed_by(source)?;
+    let (scheme, rest) = source.split_once("://")?;
+    Some(match scheme {
+        "op" | "doppler" | "infisical" | "vault" | "passbolt" | "awssm" | "azurekv" | "bw"
+        | "gcpsm" => {
+            let host = rest.split('/').next().unwrap_or(rest);
+            format!("{name} {host}")
         }
-        None => "Raw".to_string(),
-    }
+        _ => name.to_string(),
+    })
 }
 
 #[derive(Debug)]
@@ -165,12 +152,15 @@ fn secret_progress_groups(
 ) -> Vec<SecretProgressGroup> {
     let mut groups = BTreeMap::<String, (Vec<String>, bool, HashSet<String>)>::new();
     for (key, source) in &plan.sources {
-        if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
+        if plan.silent.contains(key) {
             continue;
         }
+        let Some(label) = provider_label(source) else {
+            continue;
+        };
         let from_hub = cached.contains(key);
         let name = progress_binding_name(key, plan.overridden.contains(key), from_hub);
-        let entry = groups.entry(provider_label(source)).or_default();
+        let entry = groups.entry(label).or_default();
         entry.0.push(name);
         if !from_hub {
             entry.1 = true;
@@ -180,11 +170,14 @@ fn secret_progress_groups(
         }
     }
     for (key, source) in &plan.cancelled {
-        if plan.silent.contains(key) || crate::family::is_raw_secret(source) {
+        if plan.silent.contains(key) {
             continue;
         }
+        let Some(label) = provider_label(source) else {
+            continue;
+        };
         groups
-            .entry(provider_label(source))
+            .entry(label)
             .or_default()
             .0
             .push(format!("{key} (u)"));
