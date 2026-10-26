@@ -1,4 +1,5 @@
 mod apply;
+mod cap;
 mod client;
 mod crypto;
 mod key;

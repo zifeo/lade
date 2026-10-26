@@ -12,7 +12,7 @@ See also [protocol.md](protocol.md) (T tickets), [architecture.md](architecture.
 
 | Variable | Purpose |
 | --- | --- |
-| `LADE_CONFIG_PATH` | Path to the global config file (`config.json`, the Lade user). Default: XDG config dir. |
+| `LADE_CONFIG_PATH` | Path to the global config file (`config.json`: the Lade user and `max_cache`). Default: XDG config dir. |
 | `LADE_CACHE_DIR` | Override the hub socket / ticket / mise-env root. Tests and tape render set this. Without it and without a home directory, Lade stops with a box. |
 | `LADE_WRAP_KEY` | 64 hex chars (32 bytes). Tests and CI only. Replaces Keychain / `@s`. Bad hex skips the hub. |
 
@@ -43,7 +43,7 @@ Set by Lade or the shell hook. Do not rely on these in scripts.
 | `LADE_EVENTS` | `off` disables diary writes. |
 | `LADE_EVENTS_PATH` | Override diary database path (tests). |
 | `LADE_TICKET_DIR` | Override pretool ticket directory (tests). |
-| `LADE_LOG` | `env_logger` filter for debug builds. |
+| `LADE_LOG` | `env_logger` filter for debug builds. `lade::timing=info` logs how long each hydrate phase and provider took. |
 | `LADE_SHELL` | Shell family hint (`bash`, `zsh`, `fish`) when detection is ambiguous. |
 
 Leftover `LADE_VIA` is ignored. Via and audience are chosen per

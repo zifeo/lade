@@ -89,7 +89,7 @@ async fn test_ampersand_fallback_passes_vault_as_separate_arg() {
         &fake_bin,
         "op",
         r#"if [ "$1" = "inject" ]; then
-echo '[ERROR] invalid character in secret reference: &' >&2
+echo "[ERROR] 2026/01/01 00:00:00 invalid secret reference 'op://Example': too few '/': secret references should have at least vault, item and field specified" >&2
 exit 1
 elif [ "$1" = "item" ] && [ "$2" = "get" ]; then
 # Expected: op item get ITEM --vault VAULT --account ACCOUNT --fields FIELD
@@ -182,8 +182,39 @@ async fn test_resolve_error_in_stderr() {
     let result = p
         .resolve(Path::new("."), &extra, &Warnings::default())
         .await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("1Password error"));
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("1Password error"), "{err}");
+    assert!(err.contains("authentication failed"), "{err}");
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn test_inject_failure_other_than_a_bad_reference_is_not_retried() {
+    let fake_bin = tempdir().unwrap();
+    fake_cli(
+        &fake_bin,
+        "op",
+        r#"if [ "$1" = "inject" ]; then
+echo '[ERROR] 2026/01/01 00:00:00 "NoSuchVault" isn'"'"'t a vault in this account.' >&2
+exit 1
+fi
+printf 'item_get_must_not_run'"#,
+    );
+    let mut p = OnePassword::new();
+    p.add("op://my.1password.com/NoSuchVault/item/password".to_string())
+        .unwrap();
+    let extra = HashMap::from([(
+        "PATH".to_string(),
+        fake_bin.path().to_string_lossy().into_owned(),
+    )]);
+    let warnings = Warnings::default();
+    let err = p
+        .resolve(Path::new("."), &extra, &warnings)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("isn't a vault in this account"), "{err}");
+    assert!(warnings.take().is_empty());
 }
 
 #[tokio::test]
@@ -264,7 +295,7 @@ async fn test_resolve_reference_with_ampersand_in_vault_name() {
         &fake_bin,
         "op",
         r#"if [ "$1" = "inject" ]; then
-echo '[ERROR] invalid character in secret reference: &' >&2
+echo "[ERROR] 2026/01/01 00:00:00 invalid secret reference 'op://Example': too few '/': secret references should have at least vault, item and field specified" >&2
 exit 1
 elif [ "$1" = "item" ]; then
 printf 'secret_from_item_get'

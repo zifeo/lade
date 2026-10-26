@@ -1,6 +1,28 @@
 use chrono::{DateTime, Local, NaiveTime};
 
-use super::print::{format_bytes, format_tried_at, pretool_flag};
+use super::print::{format_bytes, format_tried_at, pretool_flag, table_lines};
+use crate::command::ttl::{format_duration_ms, window_with_cap};
+
+#[test]
+fn format_duration_ms_uses_exact_units() {
+    assert_eq!(format_duration_ms(3_600_000), "1h");
+    assert_eq!(format_duration_ms(5_400_000), "1h30m");
+    assert_eq!(format_duration_ms(45_000), "45s");
+    assert_eq!(format_duration_ms(500), "500ms");
+}
+
+#[test]
+fn table_lines_align_columns_without_trailing_spaces() {
+    let header = vec!["KEY".to_string(), "TTL".to_string()];
+    let rows = vec![
+        vec!["OS_PASSWORD".to_string(), "4m left".to_string()],
+        vec!["A".to_string(), String::new()],
+    ];
+    assert_eq!(
+        table_lines(&header, &rows),
+        vec!["KEY          TTL", "OS_PASSWORD  4m left", "A"]
+    );
+}
 
 fn local_at(now: DateTime<Local>, days_ago: u64, hour: u32, minute: u32) -> DateTime<Local> {
     let date = now
@@ -63,4 +85,16 @@ fn tried_at_older_uses_calendar_date() {
             checked.format("%H:%M")
         )
     );
+}
+
+#[test]
+fn window_with_cap_says_when_max_cache_cuts_it() {
+    assert_eq!(window_with_cap("8h", None), "8h");
+    assert_eq!(window_with_cap("30m", Some(3_600_000)), "30m");
+    assert_eq!(
+        window_with_cap("8h", Some(3_600_000)),
+        "8h, capped to 1h by max_cache"
+    );
+    assert_eq!(window_with_cap("8h", Some(0)), "8h, cache off by max_cache");
+    assert_eq!(window_with_cap("off", Some(3_600_000)), "off");
 }

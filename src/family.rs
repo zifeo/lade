@@ -43,8 +43,10 @@ pub fn is_package_uri(uri: &str) -> bool {
 
 pub const RAW_WARNING: &str = "Raw is a value you typed, not a vault secret.";
 
+/// A secret no provider takes (`https://`, `postgres://`, `file://` without
+/// `?query=`) falls back to the raw provider, so it is a typed value too.
 pub fn is_raw_secret(uri: &str) -> bool {
-    Family::of_uri(uri) == Family::Secret && (uri.starts_with("raw://") || !uri.contains("://"))
+    Family::of_uri(uri) == Family::Secret && lade_sdk::Providers::claimed_by(uri).is_none()
 }
 
 #[cfg(test)]
@@ -86,7 +88,11 @@ mod tests {
     fn raw_secret_is_typed_value() {
         assert!(is_raw_secret("raw://hello"));
         assert!(is_raw_secret("typed-in-plain"));
+        assert!(is_raw_secret("https://api.example.com/identity"));
+        assert!(is_raw_secret("postgres://me@127.0.0.1:5432/app"));
         assert!(!is_raw_secret("op://v/i/f"));
+        assert!(!is_raw_secret("sh://printf hi"));
+        assert!(is_raw_secret("file:///tmp/x"));
         assert!(!is_raw_secret("file:///tmp/x?query=.a"));
         assert!(!is_raw_secret("mise://aqua/jqlang/jq@1.7.1"));
     }

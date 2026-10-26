@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -59,6 +59,10 @@ impl Provider for Shell {
         }
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         self.name
     }
@@ -92,7 +96,6 @@ impl Provider for Shell {
         let bin = self.bin;
 
         let fetches = self.commands.iter().map(|(full_value, cmd)| {
-            let cmd_str = cmd.clone();
             let script = match &path {
                 Some(path) => with_path(bin, path, cmd),
                 None => cmd.clone(),
@@ -100,20 +103,23 @@ impl Provider for Shell {
             let full_value_str = full_value.clone();
             let extra_env = Arc::clone(&extra_env);
             async move {
-                let output = tokio::time::timeout(
-                    Duration::from_secs(30),
-                    run_cli(
-                        &invocation(bin, &script),
-                        &extra_env,
-                        name,
-                        install_url,
-                        None,
-                    ),
+                let output = run_cli(
+                    &invocation(bin, &script),
+                    &extra_env,
+                    name,
+                    install_url,
+                    None,
                 )
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!("{} command timed out after 30s: {}", name, cmd_str)
-                })??;
+                .await?;
+                // Never `require_cli_ok`: it falls back to stdout, and here stdout is
+                // the secret.
+                if !output.status.success() {
+                    bail!(
+                        "{name} command failed ({}): {}",
+                        output.status,
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                }
 
                 let stdout = String::from_utf8(output.stdout)
                     .map_err(|e| anyhow::anyhow!("{} output is not UTF-8: {}", name, e))?;
@@ -180,6 +186,36 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_fails_when_the_command_fails() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "sh", "echo 'not logged in' >&2; exit 3");
+        let mut p = Shell::new("sh", "sh", "url");
+        p.add("sh://gcloud auth print-access-token".to_string())
+            .unwrap();
+        let err = p
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not logged in"), "{err}");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_failed_command_never_shows_its_stdout() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "sh", "printf hunter2; exit 1");
+        let mut p = Shell::new("sh", "sh", "url");
+        p.add("sh://op read op://v/i/f && false".to_string())
+            .unwrap();
+        let err = p
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
+            .await
+            .unwrap_err();
+        assert!(!err.to_string().contains("hunter2"), "{err}");
+    }
+
     #[test]
     fn test_with_path_sets_path_per_shell() {
         assert_eq!(
@@ -220,10 +256,17 @@ mod tests {
             "set -x TOKEN from_fish_profile\n",
         )
         .unwrap();
+        // A mise shim for fish re-reads mise config under this fake HOME and
+        // exits before fish runs, so the test needs the real binary.
+        let fish_dir = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
+            .filter(|dir| !dir.ends_with("shims"))
+            .find(|dir| dir.join("fish").is_file())
+            .expect("fish on PATH outside a mise shims dir");
         let mut p = Shell::new("fish", "fish", "url");
         p.add("fish://printf %s \"$TOKEN\"".to_string()).unwrap();
         let extra = HashMap::from([
             ("HOME".to_string(), home.path().display().to_string()),
+            ("PATH".to_string(), fish_dir.display().to_string()),
             ("TOKEN".to_string(), "from_binding".to_string()),
         ]);
         let result = p
@@ -234,18 +277,5 @@ mod tests {
             result.get("fish://printf %s \"$TOKEN\"").unwrap(),
             "from_binding"
         );
-    }
-
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn test_resolve_timeout() {
-        let fake_bin = tempdir().unwrap();
-        fake_cli(&fake_bin, "sh", "sleep 2");
-        let mut p = Shell::new("sh", "sh", "url");
-        p.add("sh://sleep 2".to_string()).unwrap();
-
-        // We can't easily test 30s timeout in unit tests without making it configurable,
-        // but we can verify the mechanism works if we were to use a shorter timeout.
-        // For now, we trust tokio::time::timeout.
     }
 }

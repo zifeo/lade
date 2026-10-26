@@ -47,7 +47,7 @@ pub(super) async fn serve_until_idle(
     };
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     let bound = peer::inode_of(&path).ok_or_else(|| anyhow::anyhow!("hub socket inode"))?;
-    let mut tables = Tables::default();
+    let mut tables = Tables::new(crate::global_config::GlobalConfig::path());
     let mut last_request = now();
     tokio::pin!(stop);
     loop {

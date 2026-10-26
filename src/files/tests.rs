@@ -174,6 +174,11 @@ fn secret_progress_groups_omit_raw_values() {
             sources: HashMap::from([
                 ("USER".to_string(), "demo-user".to_string()),
                 (
+                    "AUTH_URL".to_string(),
+                    "https://api.example.com/identity".to_string(),
+                ),
+                ("CONFIG".to_string(), "file:///tmp/app.json".to_string()),
+                (
                     "PASSWORD".to_string(),
                     "vault://vault.example.com/secret/password/value".to_string(),
                 ),

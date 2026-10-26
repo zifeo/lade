@@ -151,7 +151,10 @@ pub async fn run_inject(
             HashMap::new(),
         );
     };
-    if show_loader_warnings(ctx, &warnings).await {
+    let started = std::time::Instant::now();
+    let refused = show_loader_warnings(ctx, &warnings).await;
+    super::log_phase("warnings", started);
+    if refused {
         let _ = remove_files(&mut files.keys());
         drop(network);
         std::process::exit(crate::exit_codes::INTERRUPTED);
@@ -172,6 +175,7 @@ pub async fn run_inject(
         None
     };
     let hydrate_ms = Some(hydrate_started.elapsed().as_secs_f64() * 1000.0);
+    super::log_phase("hydrate total", hydrate_started);
     let hydrated = Some(public_hydrate(&env, &files));
     let mut matches = work.matches;
     event::mark_cached(&mut matches, &cached);

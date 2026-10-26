@@ -31,6 +31,16 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   without a ttl of its own. Tunnels have no default ttl. The hub runs
   every pre-exec tunnel and restarts the provider when it exits.
   `lade ttl` lists them, `lade ttl forget KEY` stops one.
+- **Hydrate timing:** `LADE_LOG=lade::timing=info` (or `-vv`) logs
+  how long the hub lookup, each provider, the hub store, tunnels,
+  warnings, and the ticket took.
+- **`max_cache`:** a field in `config.json` caps every secret and
+  tunnel ttl, and every window, on the hub: `"1h"`, or `"0"` to turn
+  the cache off, up to 24h. A watcher thread in the hub checks the
+  file every second, off the request path. Any change drops every
+  cached secret and stops every idle tunnel, so a raised cap never
+  extends old rows. An invalid value turns the cache off, and
+  `lade status` reports it with `ok: false`.
 - **age plugin post-quantum keys:** `age-plugin-lade` wraps and
   unwraps with Go age 1.3 keys (`age1pq1`, `AGE-SECRET-KEY-PQ-1`)
   through `age-plugin-pq` on `PATH`. The age 1.3.2 release and mise
@@ -42,6 +52,13 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 - **`lade cache` is now `lade ttl`** (`list`, `set`, `unset`, `forget`),
   since the window and `forget` also cover tunnels. Breaking:
   `lade cache` fails with a box naming `lade ttl`.
+- **`lade status` layout:** aligned sections, and tables for pre-tool
+  hooks, pinned tools, and providers (with each timeout). The hub
+  section shows the `max_cache` in force, this cwd's `lade ttl set`
+  window (and when `max_cache` cuts it), cached key names, and
+  tunnels. Pre-tool rows keep their paths. `--json` adds `window`,
+  `keys`, `key_count`, `tunnels`, and `max_cache_ms` to `hub`, and
+  `timeout_s` to each provider.
 - **`tsh://` app tunnels:** `tsh proxy app` picks its own port and
   prints it, like `kubectl port-forward`, so no other process can take
   the port between Lade choosing it and tsh binding it.
@@ -95,6 +112,32 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
+- **Provider timeout:** a provider that never answered, such as `op`
+  waiting on a locked 1Password app, hung the command forever. Every
+  secret provider, and the `lade add` lookups, now answer within 10 s
+  or fail with an error that names the provider. The CLI runs in its
+  own process group, and a timeout kills the whole group, so an `op`
+  under `sh://` dies too. 1Password, age, and SOPS get 30 s for
+  Touch ID or a key touch. `sh://` drops from 30 s to 10 s.
+- **Failing shell secrets:** an `sh://`, `bash://`, `zsh://`, or
+  `fish://` command that exited non-zero gave its stdout, often empty,
+  as the value. It now fails with the command's stderr, never its
+  stdout, which may hold the secret.
+- **1Password fallback:** any `op inject` failure, a locked app or a
+  missing vault included, fell back to one `op item get` per secret
+  behind a warning that blamed a `&` in a name. Only a reference
+  `op inject` cannot parse falls back now. Any other failure shows
+  op's own error.
+- **False tampered diary:** `lade log` could report `chain_head does
+  not match the last row` when a command wrote to the diary during the
+  check. The rows and the head are now read in one snapshot.
+- **Secrets in debug logs:** `-vvv` printed resolved 1Password,
+  Passbolt, Doppler, and Infisical values in clear text. Those lines
+  are gone.
+- **Raw values with a scheme:** a value like `https://…` or
+  `postgres://…` showed a `connecting` line as if fetched, spun until
+  the slowest provider of its batch answered, and was cached on the
+  hub. It is raw now, like any value no provider claims.
 - **fish quoting:** a value with a `\` broke the code `lade set` and
   `lade unset` print for fish, and a value ending in `\'` could run
   commands when the hook sourced it. fish now gets `\\` and `\'`.

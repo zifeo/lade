@@ -103,7 +103,9 @@ lade user --reset
 ### `lade status`
 
 Inventory: version, age-plugin, home config, pre-exec, pre-tool,
-mise, providers, diary size, hub pid and counts.
+mise, providers and their timeouts, diary size, and the hub: this
+cwd's window, cached key names, and tunnels. Never values. Does
+not spawn a hub.
 
 ```bash
 lade status
@@ -112,11 +114,24 @@ lade status --all
 ```
 
 ```
-hub: pid 18432 (2 secrets, 0 tickets)
+Hub
+  state      pid 18432
+  max cache  1h
+  cache      2 keys (1 for this cwd), 1 tunnels, 0 tickets
+  window     2h for this cwd, capped to 1h by max_cache
+  KEY                CWD        TTL
+  AWS_ACCESS_KEY_ID  ~/src/app  3m left
+  PORT   KEY       URI                                        STATE
+  18080  API_PORT  ssh://jump.example.com/api.internal/8080  42m left
 ```
 
-`--json` extra `hub`: `state`, `pid`, `secrets`, `tickets`.
-`ok` is unchanged.
+`--json` extra `hub`: `state`, `pid`, `secrets`, `tickets`,
+`window`, `keys` (`name`, `cwd`, `ttl_left_ms`), `key_count` (every
+cwd), `tunnels` (`key`, `uri`, `port`, `leases`, `ttl_left_ms`,
+`phase`), and `max_cache_ms`, the cap the hub enforces now. Each
+provider has `timeout_s`. `global_config` adds `max_cache` (raw),
+`max_cache_ms`, and `max_cache_error`. An invalid `max_cache` sets
+`ok` to false: the hub then keeps nothing.
 
 ### `lade ttl`
 

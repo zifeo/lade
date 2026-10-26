@@ -80,6 +80,10 @@ impl Provider for AzureKv {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "Azure Key Vault"
     }
@@ -106,6 +110,7 @@ impl Provider for AzureKv {
                 "tsv",
             ],
             extra_env,
+            self.timeout(),
             "az login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

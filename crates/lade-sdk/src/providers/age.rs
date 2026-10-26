@@ -2,7 +2,6 @@ use std::{collections::HashMap, io::Read, path::Path};
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use rustc_hash::FxHashMap;
 
 use crate::Hydration;
@@ -110,6 +109,10 @@ impl Provider for Age {
         Ok(())
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::HUMAN_PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "age"
     }
@@ -137,34 +140,34 @@ impl Provider for Age {
         _: &Warnings,
     ) -> Result<Hydration> {
         apply_process_path(extra_env);
-        let mut native: HashMap<(Option<String>, String, Vec<u8>), Vec<String>> = HashMap::new();
-        let mut plugins: HashMap<(Option<String>, String, Vec<u8>), Vec<String>> = HashMap::new();
+        let mut groups: HashMap<(Option<String>, String, Vec<u8>), Vec<String>> = HashMap::new();
         for raw in self.values.keys() {
             let uri = parse_age(raw)?;
             let identity = identity_for(&uri, extra_env)?;
-            let dest = if uri.plugin.is_some() {
-                &mut plugins
-            } else {
-                &mut native
-            };
-            dest.entry((uri.plugin, identity, uri.blob))
+            groups
+                .entry((uri.plugin, identity, uri.blob))
                 .or_default()
                 .push(raw.clone());
         }
-        let native_fetches = native
-            .into_iter()
-            .map(
-                |((_, identity, blob), uris)| async move { hydrate_plain(&identity, &blob, uris) },
-            );
-        let mut hydration: Hydration = try_join_all(native_fetches)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
-        for ((_, identity, blob), uris) in plugins {
-            hydration.extend(hydrate_plain(&identity, &blob, uris)?);
-        }
-        Ok(hydration)
+        // Decryption blocks, and a plugin can wait on hardware. Off the runtime
+        // thread, the provider timeout still fires. A plain thread, not
+        // `spawn_blocking`: dropping the runtime waits for blocking-pool tasks,
+        // so a plugin waiting on a touch would keep Lade from exiting. Once
+        // Lade exits, the plugin reads EOF on its stdin and stops.
+        let (done, result) = futures::channel::oneshot::channel();
+        std::thread::spawn(move || {
+            let hydrate = || -> Result<Hydration> {
+                let mut hydration = Hydration::default();
+                for ((_, identity, blob), uris) in groups {
+                    hydration.extend(hydrate_plain(&identity, &blob, uris)?);
+                }
+                Ok(hydration)
+            };
+            let _ = done.send(hydrate());
+        });
+        result
+            .await
+            .map_err(|_| anyhow!("age decrypt thread ended without a result"))?
     }
 }
 

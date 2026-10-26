@@ -92,7 +92,7 @@ fn print_list(as_json: bool, global: bool) -> Result<()> {
         },
     }
     if let Some(ttl) = &window {
-        println!("window: {ttl}");
+        println!("window: {}", window_with_cap(ttl, listing.max_cache_ms));
     }
     if !rows.is_empty() {
         println!();
@@ -118,7 +118,7 @@ fn print_list(as_json: bool, global: bool) -> Result<()> {
     Ok(())
 }
 
-fn phase_name(phase: TunnelPhase) -> &'static str {
+pub(crate) fn phase_name(phase: TunnelPhase) -> &'static str {
     match phase {
         TunnelPhase::Starting => "starting",
         TunnelPhase::Ready => "ready",
@@ -126,7 +126,7 @@ fn phase_name(phase: TunnelPhase) -> &'static str {
     }
 }
 
-fn tunnel_state(tunnel: &TunnelRow) -> String {
+pub(crate) fn tunnel_state(tunnel: &TunnelRow) -> String {
     if tunnel.phase != TunnelPhase::Ready {
         return phase_name(tunnel.phase).to_string();
     }
@@ -163,7 +163,7 @@ fn forget_named(names: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn rows_for_scope<'a>(
+pub(crate) fn rows_for_scope<'a>(
     rows: &'a [CacheRow],
     scope: Option<&str>,
     global: bool,
@@ -184,6 +184,7 @@ fn listing_json(
         "pid": listing.pid,
         "tickets": listing.tickets,
         "window": window,
+        "max_cache_ms": listing.max_cache_ms,
         "global": global,
         "keys": rows.iter().map(|row| {
             json!({
@@ -209,7 +210,40 @@ fn listing_json(
     })
 }
 
-fn format_ttl_left(ms: u32) -> String {
+/// `8h, capped to 1h by max_cache`: the hub never keeps a row past its cap.
+pub(crate) fn window_with_cap(window: &str, cap_ms: Option<u32>) -> String {
+    let Ok(RuleTtl::Window(duration)) = RuleTtl::parse(window) else {
+        return window.to_string();
+    };
+    match cap_ms {
+        Some(0) => format!("{window}, cache off by max_cache"),
+        Some(cap) if crate::config::duration_to_ttl_ms(duration) > cap => {
+            format!(
+                "{window}, capped to {} by max_cache",
+                format_duration_ms(cap)
+            )
+        }
+        _ => window.to_string(),
+    }
+}
+
+/// `1h`, `1h30m`, `45s`: the largest units that add up exactly.
+pub(crate) fn format_duration_ms(ms: u32) -> String {
+    let secs = ms / 1000;
+    let (h, m, s) = (secs / 3600, secs % 3600 / 60, secs % 60);
+    let parts = [(h, "h"), (m, "m"), (s, "s")]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, unit)| format!("{n}{unit}"))
+        .collect::<String>();
+    if parts.is_empty() {
+        format!("{ms}ms")
+    } else {
+        parts
+    }
+}
+
+pub(crate) fn format_ttl_left(ms: u32) -> String {
     let secs = ms / 1000;
     if secs >= 3600 {
         format!("{}h left", secs / 3600)

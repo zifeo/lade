@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Duration;
 
+use super::cap::{CapWatch, capped};
 use super::release::ReleaseCheck;
 use super::tunnels::Tunnels;
 use super::wire::{self, Rep, Req};
@@ -51,17 +53,42 @@ struct TicketRow {
     ticket: Vec<u8>,
 }
 
-#[derive(Default)]
 pub(crate) struct Tables {
     secrets: HashMap<SecretKey, SecretRow>,
     tickets: HashMap<[u8; 4], TicketRow>,
     windows: HashMap<String, String>,
     pub(super) release: ReleaseCheck,
     pub(super) tunnels: Tunnels,
+    cap: CapWatch,
 }
 
 impl Tables {
+    /// `config` is the `config.json` whose `max_cache` caps every ttl.
+    pub(super) fn new(config: PathBuf) -> Self {
+        let cap = CapWatch::spawn(config);
+        let mut tunnels = Tunnels::default();
+        tunnels.set_cap(cap.cap_ms());
+        Self {
+            secrets: HashMap::new(),
+            tickets: HashMap::new(),
+            windows: HashMap::new(),
+            release: ReleaseCheck::default(),
+            tunnels,
+            cap,
+        }
+    }
+
+    /// Any `max_cache` change, up or down, drops every cached secret and
+    /// every tunnel no command holds: a raised cap never extends old rows.
+    fn refresh_cap(&mut self) {
+        if let Some(cap_ms) = self.cap.take_change() {
+            self.secrets.clear();
+            self.tunnels.set_cap(cap_ms);
+        }
+    }
+
     fn prune(&mut self) {
+        self.refresh_cap();
         let at = now();
         self.secrets.retain(|_, row| {
             at.saturating_sub(row.inserted) < Duration::from_millis(u64::from(row.ttl_ms))
@@ -129,6 +156,9 @@ impl Tables {
                 ttl_ms,
                 bindings,
             } => {
+                let Some(ttl_ms) = capped(Some(ttl_ms), self.cap.cap_ms()) else {
+                    return Rep::Ok;
+                };
                 let key = SecretKey {
                     cwd,
                     path,
@@ -206,6 +236,7 @@ impl Tables {
                     tickets: self.tickets.len() as u32,
                     rows,
                     tunnels: self.tunnels.rows(now()),
+                    max_cache_ms: self.cap.cap_ms(),
                 }
             }
             Req::Forget { names } => {
@@ -224,7 +255,10 @@ impl Tables {
                             crate::config::RuleTtl::parse(&raw)
                         {
                             let ttl_ms = crate::config::duration_to_ttl_ms(duration);
-                            restamp_scope(&mut self.secrets, &scope, ttl_ms);
+                            match capped(Some(ttl_ms), self.cap.cap_ms()) {
+                                Some(ttl_ms) => restamp_scope(&mut self.secrets, &scope, ttl_ms),
+                                None => self.secrets.clear(),
+                            }
                         }
                         self.windows.insert(scope, raw);
                     }
@@ -305,7 +339,18 @@ pub(crate) fn handle_for_test(tables: &mut Tables, req: Req) -> Rep {
 
 #[cfg(test)]
 pub(crate) fn empty_tables() -> Tables {
-    Tables::default()
+    // The temp dir goes at once: no `config.json`, so no cap.
+    Tables::new(tempfile::tempdir().unwrap().path().join("config.json"))
+}
+
+#[cfg(test)]
+pub(crate) fn tables_with_config(config: PathBuf) -> Tables {
+    Tables::new(config)
+}
+
+#[cfg(test)]
+pub(crate) fn check_cap_for_test(tables: &Tables) {
+    tables.cap.check_now();
 }
 
 #[cfg(test)]

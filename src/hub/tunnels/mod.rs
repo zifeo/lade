@@ -205,6 +205,16 @@ impl Tunnels {
         self.stop(gone);
     }
 
+    /// A lease whose command died must not count as held: a tunnel it kept
+    /// would survive the change with its old ttl.
+    pub(super) fn set_cap(&mut self, cap_ms: Option<u32>) {
+        self.settle_starts();
+        self.machine
+            .drop_dead_leases(|lease| process_started(lease.pid) == Some(lease.started));
+        let gone = self.machine.set_cap(cap_ms);
+        self.stop(gone);
+    }
+
     pub(super) fn forget(&mut self, names: &[String]) {
         let gone = self.machine.forget(names);
         self.stop(gone);

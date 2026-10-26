@@ -29,6 +29,10 @@ impl Provider for Passbolt {
         add_host_url(&mut self.urls, value, "passbolt")
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "Passbolt"
     }
@@ -92,7 +96,6 @@ impl Provider for Passbolt {
                                 })
                                 .collect::<Result<Hydration>>()?;
 
-                            debug!("hydration: {:?}", hydration);
                             Ok(hydration)
                         }
                     })

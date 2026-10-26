@@ -20,7 +20,7 @@ mod write;
 mod tests;
 
 pub use health::{refresh_and_report, refresh_and_report_launch, report as health_report};
-pub use inspect::{HookLocation, PretoolStatus, inspect};
+pub use inspect::{PretoolStatus, inspect};
 pub(crate) use offer::{commit, confirm_plan, plan, setup};
 pub(crate) use ui::{
     PREEXEC_DISABLE_DIM, PREEXEC_SETUP_DIM, PRETOOL_SETUP_DIM, print_preexec, print_pretool_intro,

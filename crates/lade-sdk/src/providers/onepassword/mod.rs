@@ -14,6 +14,9 @@ use super::{Provider, Warnings, add_host_url, run_cli, run_cli_stdin, search_cli
 
 static SEP: &str = "'Km5Ge8AbNc+QSBauOIN0jg'";
 
+/// What `op inject` (2.39) prints when it cannot parse a reference.
+const INVALID_REFERENCE: &str = "invalid secret reference";
+
 #[derive(Default)]
 pub struct OnePassword {
     urls: FxHashMap<Url, String>,
@@ -107,6 +110,10 @@ impl Provider for OnePassword {
         }
     }
 
+    fn timeout(&self) -> std::time::Duration {
+        super::HUMAN_PROVIDER_TIMEOUT
+    }
+
     fn name(&self) -> &'static str {
         "1Password"
     }
@@ -120,6 +127,7 @@ impl Provider for OnePassword {
             "op",
             &["item", "list", "--format=json"],
             extra_env,
+            self.timeout(),
             "op signin required",
         )?;
         let items: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
@@ -188,12 +196,20 @@ impl Provider for OnePassword {
                     let output = String::from_utf8_lossy(&child.stdout).trim().replace('\n', "\\n");
                     let errors = String::from_utf8_lossy(&child.stderr);
 
-                    debug!("stdout: {:?}", output);
                     debug!("stderr: {:?}", errors);
 
                     let inject_failed = errors.contains("[ERROR]")
                         || output.contains("[ERROR]")
                         || !child.status.success();
+                    // Any other failure (locked app, missing vault) would fail
+                    // `op item get` too: report op's own error, not a guess.
+                    if inject_failed && !errors.contains(INVALID_REFERENCE) {
+                        let detail = errors.trim();
+                        if detail.is_empty() {
+                            bail!("1Password error: op inject failed ({})", child.status);
+                        }
+                        bail!("1Password error: {detail}");
+                    }
                     let loaded = output.split(SEP).collect::<Vec<_>>();
 
                     let hydration = if !inject_failed && loaded.len() == refs.len() {
@@ -226,7 +242,6 @@ impl Provider for OnePassword {
                         hydration
                     };
 
-                    debug!("hydration: {:?}", hydration);
                     Ok(hydration)
                 }
             })

@@ -18,7 +18,7 @@ use nix::sys::signal::{SigHandler, Signal};
 
 use super::keys::{self, Keys};
 use super::work::{CacheScope, SecretHydrate};
-use super::{Acquisition, FailureChoice, SecretBundle, handle_provider_failure};
+use super::{Acquisition, FailureChoice, SecretBundle, handle_provider_failure, log_phase};
 
 /// Shared orchestration for `run_inject`/`handle_set`: starts the provider
 /// progress renderer, hydrates secrets and acquires the network session
@@ -61,7 +61,10 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     let cancel = Stop::default();
     let network_cancel = cancel.clone();
     let mut network = tokio::task::spawn_blocking(move || {
-        start_network(&network_bindings, network_sink, &network_cancel)
+        let started = std::time::Instant::now();
+        let session = start_network(&network_bindings, network_sink, &network_cancel);
+        log_phase("tunnels", started);
+        session
     });
     let acquisition = {
         let secret_task = prepare_secrets(
@@ -96,7 +99,9 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
         cancel_command(crate::exit_codes::INTERRUPTED);
     };
     if let Some(warmup) = warmup {
+        let started = std::time::Instant::now();
         let _ = warmup.await;
+        log_phase("diary open wait", started);
     }
     stop_provider_progress(&mut provider_progress);
     let error = match acquisition {
@@ -203,10 +208,12 @@ async fn prepare_secrets(
     cache: Option<CacheScope<'_>>,
     progress: ProviderProgressSink,
 ) -> Result<SecretBundle> {
+    let started = std::time::Instant::now();
     let hit = match &cache {
         Some(scope) => crate::hub::lookup(scope.cwd, scope.walk, scope.saved_user, scope.patterned),
         None => crate::hub::CacheHit::empty(),
     };
+    log_phase("hub lookup", started);
     let remaining: Vec<TicketSecret> = secrets
         .iter()
         .filter(|secret| !hit.keys.contains(&secret.key))
@@ -217,14 +224,19 @@ async fn prepare_secrets(
         mut sources,
         mut maskable,
         mut warnings,
-    } = hydrate_secrets_from_ticket_with_progress(
-        &remaining,
-        op_sa,
-        progress_plan,
-        progress,
-        &hit.keys,
-    )
-    .await?;
+    } = {
+        let started = std::time::Instant::now();
+        let loaded = hydrate_secrets_from_ticket_with_progress(
+            &remaining,
+            op_sa,
+            progress_plan,
+            progress,
+            &hit.keys,
+        )
+        .await;
+        log_phase("providers", started);
+        loaded?
+    };
 
     for secret in secrets {
         let Some(value) = hit.values.get(&secret.key) else {
@@ -238,6 +250,7 @@ async fn prepare_secrets(
     }
 
     if let Some(scope) = &cache {
+        let started = std::time::Instant::now();
         let mut flat = std::collections::HashMap::new();
         for values in vars.values() {
             flat.extend(values.clone());
@@ -255,6 +268,7 @@ async fn prepare_secrets(
         {
             warnings.push(gap);
         }
+        log_phase("hub store", started);
     }
 
     let (env, files) = split_env_files(vars);

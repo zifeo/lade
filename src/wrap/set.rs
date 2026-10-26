@@ -208,7 +208,10 @@ async fn set_env(
         // The human chose to run it without Lade: the shell gets nothing.
         return Ok(slot);
     };
-    if show_loader_warnings(ctx, &warnings).await {
+    let started = std::time::Instant::now();
+    let refused = show_loader_warnings(ctx, &warnings).await;
+    super::log_phase("warnings", started);
+    if refused {
         let _ = remove_files(&mut files.keys());
         crate::hub::unlink_t(&id);
         let _ = ticket::unlink(&id);
@@ -219,8 +222,10 @@ async fn set_env(
         merge_env_with_conflicts(&mut env, detached.env.clone())?;
         select_tool_env(&mut env, pins.env)?;
         pre.pending = false;
+        let started = std::time::Instant::now();
         ticket::replace(&id, &pre)?;
         crate::hub::put_t(&id);
+        super::log_phase("ticket", started);
         let mut matches = work.matches;
         event::mark_cached(&mut matches, &cached);
         event::emit_if(
@@ -237,6 +242,7 @@ async fn set_env(
                 Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
             ),
         );
+        super::log_phase("hydrate total", hydrate_started);
         let line = stamp_preexec(shell, env, &id, original_path)?;
         // The shell gets LADE_T from this line, so `lade unset` can release.
         detached.hand_to_shell(&id)?;

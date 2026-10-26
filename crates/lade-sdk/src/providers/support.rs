@@ -1,4 +1,9 @@
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{
+    collections::HashMap,
+    path::Path,
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Result, anyhow, bail};
 use futures::future::try_join_all;
@@ -55,11 +60,25 @@ pub(crate) async fn run_cli(
     install_url: &str,
     cwd: Option<&Path>,
 ) -> Result<std::process::Output> {
+    let mut c = cli_command(cmd, extra_env, cwd);
+    let child = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
+    let group = GroupKill::of(child.id());
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| anyhow!("{name} error: {e}"))?;
+    group.disarm();
+    Ok(output)
+}
+
+fn cli_command(cmd: &[&str], extra_env: &HashMap<String, String>, cwd: Option<&Path>) -> Command {
     let mut c = Command::new(cmd[0]);
     c.args(&cmd[1..])
         .envs(extra_env.iter())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true);
     // bash -c sources $BASH_ENV even though it does not read .bashrc.
     if cmd[0] == "bash" {
         c.env_remove("BASH_ENV");
@@ -67,24 +86,114 @@ pub(crate) async fn run_cli(
     if let Some(dir) = cwd {
         c.current_dir(dir);
     }
-    c.output().await.map_err(|e| match e.kind() {
+    c
+}
+
+fn spawn_error(e: std::io::Error, name: &str, install_url: &str) -> anyhow::Error {
+    match e.kind() {
         std::io::ErrorKind::NotFound => anyhow!(
             "{name} CLI not found. Make sure the binary is in your PATH or install it from {install_url}."
         ),
         _ => anyhow!("{name} error: {e}"),
-    })
+    }
+}
+
+/// The child leads its own process group. Dropped before [`Self::disarm`],
+/// as when a timeout drops the call, it SIGKILLs that group, so what the CLI
+/// started dies with it: the `op` under an `sh://`, the binary a wrapper
+/// script runs. A finished call leaves the group alone: a helper the CLI
+/// meant to keep must not die with it.
+struct GroupKill(Option<libc::pid_t>);
+
+impl GroupKill {
+    fn of(pid: Option<u32>) -> Self {
+        Self(pid.and_then(|pid| libc::pid_t::try_from(pid).ok()))
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GroupKill {
+    fn drop(&mut self) {
+        if let Some(pgid) = self.0 {
+            // SAFETY: killpg only sends a signal to the group the child leads.
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        }
+    }
 }
 
 pub(crate) fn search_cli(
     bin: &str,
     args: &[&str],
     extra_env: &HashMap<String, String>,
+    limit: Duration,
 ) -> Result<std::process::Output> {
-    std::process::Command::new(bin)
-        .args(args)
-        .envs(extra_env)
-        .output()
-        .map_err(|e| anyhow!("{bin} error: {e}"))
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(args).envs(extra_env);
+    output_within(cmd, bin, limit)
+}
+
+/// Blocking `Command::output` bounded by `limit`, pipes included: a
+/// grandchild that keeps a pipe open cannot hold the call past it. Past
+/// `limit`, the child's process group is killed.
+pub(crate) fn output_within(
+    mut cmd: std::process::Command,
+    name: &str,
+    limit: Duration,
+) -> Result<std::process::Output> {
+    use std::os::unix::process::CommandExt;
+    let deadline = Instant::now() + limit;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| anyhow!("{name} error: {e}"))?;
+    let group = GroupKill::of(Some(child.id()));
+    // Drain both pipes on threads so a chatty child cannot block on a full pipe.
+    let (tx, rx) = std::sync::mpsc::channel();
+    drain(child.stdout.take().expect("piped stdout"), true, tx.clone());
+    drain(child.stderr.take().expect("piped stderr"), false, tx);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            drop(group);
+            let _ = child.wait();
+            return Err(super::provider_timeout_error(name, limit));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    for _ in 0..2 {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok((true, buf)) => stdout = buf,
+            Ok((false, buf)) => stderr = buf,
+            Err(_) => return Err(super::provider_timeout_error(name, limit)),
+        }
+    }
+    group.disarm();
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn drain(
+    mut pipe: impl std::io::Read + Send + 'static,
+    is_stdout: bool,
+    done: std::sync::mpsc::Sender<(bool, Vec<u8>)>,
+) {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = pipe.read_to_end(&mut buf);
+        let _ = done.send((is_stdout, buf));
+    });
 }
 
 /// Runs the list CLI and maps a failing exit to `login_msg`.
@@ -92,9 +201,10 @@ pub(crate) fn search_cli_ok(
     bin: &str,
     args: &[&str],
     extra_env: &HashMap<String, String>,
+    limit: Duration,
     login_msg: &str,
 ) -> Result<std::process::Output> {
-    let output = search_cli(bin, args, extra_env)?;
+    let output = search_cli(bin, args, extra_env, limit)?;
     if !output.status.success() {
         bail!("{login_msg}");
     }
@@ -110,19 +220,10 @@ pub(crate) async fn run_cli_stdin(
     install_url: &str,
     cwd: Option<&Path>,
 ) -> Result<std::process::Output> {
-    let mut c = Command::new(cmd[0]);
-    c.args(&cmd[1..])
-        .envs(extra_env.iter())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if cmd[0] == "bash" {
-        c.env_remove("BASH_ENV");
-    }
-    if let Some(dir) = cwd {
-        c.current_dir(dir);
-    }
-    let mut process = c.spawn()?;
+    let mut c = cli_command(cmd, extra_env, cwd);
+    c.stdin(Stdio::piped());
+    let mut process = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
+    let group = GroupKill::of(process.id());
     let mut stdin = process.stdin.take().expect("Failed to open stdin");
     if let Err(e) = stdin.write_all(input.as_bytes()).await
         && e.kind() != std::io::ErrorKind::BrokenPipe
@@ -130,15 +231,12 @@ pub(crate) async fn run_cli_stdin(
         bail!("{name} error: {e}");
     }
     drop(stdin);
-    process
+    let output = process
         .wait_with_output()
         .await
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => anyhow!(
-                "{name} CLI not found. Make sure the binary is in your PATH or install it from {install_url}."
-            ),
-            _ => anyhow!("{name} error: {e}"),
-        })
+        .map_err(|e| anyhow!("{name} error: {e}"))?;
+    group.disarm();
+    Ok(output)
 }
 
 /// One CLI call per group of URIs that share a batch key, then per-URI query

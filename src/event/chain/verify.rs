@@ -169,6 +169,13 @@ pub fn prune_and_reseal(
 }
 
 pub fn verify(conn: &Connection) -> rusqlite::Result<ChainStatus> {
+    // One snapshot for the rows and the head: an append landing between the
+    // two reads would look like a tampered head.
+    let tx = conn.unchecked_transaction()?;
+    verify_snapshot(&tx)
+}
+
+fn verify_snapshot(conn: &Connection) -> rusqlite::Result<ChainStatus> {
     let epoch = read_head(conn)?.map(|h| h.epoch).unwrap_or(0);
     let mut stmt = conn.prepare(&format!(
         "SELECT {EVENT_COLS}, seq, prev_hash, row_hash, seal_ver

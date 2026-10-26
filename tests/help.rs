@@ -10,7 +10,7 @@ fn test_status_subcommand_is_not_treated_as_alias() {
         .arg("status")
         .assert()
         .success()
-        .stdout(predicates::str::contains("lade version:"));
+        .stdout(predicates::str::starts_with("Lade "));
 }
 
 #[test]

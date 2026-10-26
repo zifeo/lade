@@ -47,6 +47,18 @@ mod vault;
 
 pub(crate) use support::*;
 
+/// A provider is logged in or not: it answers within this or fails.
+pub const PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// For a provider that can wait on a human: Touch ID, a hardware key touch.
+pub const HUMAN_PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+pub(crate) fn provider_timeout_error(name: &str, limit: std::time::Duration) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{name} did not answer within {}s. Check that it is unlocked and logged in.",
+        limit.as_secs()
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
     Cli,
@@ -59,6 +71,9 @@ pub trait Provider: Sync {
 
     /// Human-readable provider name, used in user-facing messages.
     fn name(&self) -> &'static str;
+
+    /// Cap on `resolve` and `search`. Past it the call fails and its CLI is killed.
+    fn timeout(&self) -> std::time::Duration;
 
     /// Where to install/find the backing tool or product docs.
     fn install_url(&self) -> &'static str;
@@ -158,6 +173,17 @@ impl Providers {
         self.by_scheme.get(scheme).map(|p| p.as_ref())
     }
 
+    /// Name of the provider that takes `value`, or `None` when `add` sends it
+    /// to raw. A value its provider rejects still belongs to that provider.
+    pub fn claimed_by(value: &str) -> Option<&'static str> {
+        let (scheme, _) = value.split_once("://")?;
+        let mut providers = Self::new();
+        if providers.add(value.to_string()).is_ok() && providers.fallback.has_work() {
+            return None;
+        }
+        providers.provider(scheme).map(|p| p.name())
+    }
+
     pub fn registered_schemes(&self) -> Vec<&'static str> {
         let mut schemes: Vec<&'static str> = self.by_scheme.keys().copied().collect();
         schemes.sort_unstable();
@@ -191,7 +217,17 @@ impl Providers {
             .collect();
 
         let results = try_join_all(active.iter().map(|p| async move {
-            let hydration = p.resolve(cwd, extra_env, warnings).await?;
+            let started = std::time::Instant::now();
+            let hydration =
+                tokio::time::timeout(p.timeout(), p.resolve(cwd, extra_env, warnings)).await;
+            log::info!(
+                target: "lade::timing",
+                "provider {}: {:.0} ms",
+                p.name(),
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+            let hydration =
+                hydration.map_err(|_| provider_timeout_error(p.name(), p.timeout()))??;
             Ok::<_, anyhow::Error>((p.masks_in_output(), hydration))
         }))
         .await?;

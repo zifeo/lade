@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+pub(super) use super::super::cap::capped;
 use super::super::wire::{Lease, TunnelAsk, TunnelLaunch, TunnelPhase, TunnelRep, TunnelRow};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -81,6 +82,9 @@ pub(super) enum Open {
 pub(super) struct Machine {
     entries: BTreeMap<u64, Entry>,
     next_id: u64,
+    /// `max_cache`: `None` caps nothing, `Some(0)` keeps no tunnel past its
+    /// last lease.
+    cap_ms: Option<u32>,
 }
 
 impl Machine {
@@ -121,7 +125,7 @@ impl Machine {
                     entry.leases.push(ask.lease.clone());
                 }
                 entry.idle_since = None;
-                entry.ttl_ms = entry.ttl_ms.max(ask.ttl_ms);
+                entry.ttl_ms = capped(entry.ttl_ms.max(ask.ttl_ms), self.cap_ms);
                 return Open::Reply(entry.rep(id, true));
             }
         }
@@ -158,7 +162,7 @@ impl Machine {
                 port,
                 fixed: ask.port.is_some(),
                 fingerprint: ask.fingerprint.clone(),
-                ttl_ms: ask.ttl_ms,
+                ttl_ms: capped(ask.ttl_ms, self.cap_ms),
                 leases: vec![ask.lease.clone()],
                 idle_since: None,
                 phase: Phase::Starting,
@@ -237,6 +241,25 @@ impl Machine {
             .entries
             .iter()
             .filter(|(_, entry)| names.contains(&entry.key))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        for id in &gone {
+            self.entries.remove(id);
+        }
+        gone
+    }
+
+    /// `max_cache` changed: every tunnel no command holds stops now, and the
+    /// rest keep at most `cap_ms` once idle. Returns the tunnels to stop.
+    pub(super) fn set_cap(&mut self, cap_ms: Option<u32>) -> Vec<u64> {
+        self.cap_ms = cap_ms;
+        for entry in self.entries.values_mut() {
+            entry.ttl_ms = capped(entry.ttl_ms, cap_ms);
+        }
+        let gone = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.leases.is_empty())
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         for id in &gone {
