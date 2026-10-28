@@ -17,6 +17,8 @@ pub(super) struct ProviderWork {
     pub(super) log: bool,
     pub(super) agent: Value,
     pub(super) progress: SecretSources,
+    /// The directory the pre-tool hook resolved, for work read from a ticket.
+    pub(super) cwd: Option<PathBuf>,
 }
 
 impl ProviderWork {
@@ -65,6 +67,22 @@ impl Drop for TicketCleanup {
     }
 }
 
+/// Leading `cd <dir> &&` segments pick the yaml, the pins, the cache, and
+/// the diary row, and the rules see the rest of the line; the shell runs
+/// the `cd`. `Some` config when that is another directory.
+pub(super) fn rules_at<'l>(
+    current_dir: &Path,
+    command: &'l str,
+) -> Result<(PathBuf, &'l str, Option<crate::config::Config>)> {
+    let (dir, matched) = crate::pretool::run_dir(current_dir, command);
+    let moved = if dir == current_dir {
+        None
+    } else {
+        Some(crate::config::LadeFile::build(dir.clone())?)
+    };
+    Ok((dir, matched, moved))
+}
+
 pub(super) fn ticket_ready(id: Option<&str>) -> bool {
     id.is_some_and(ticket::exists)
 }
@@ -98,6 +116,7 @@ pub(super) fn pre_event_from_work(
 
 fn try_ticket_work(pre: &PreEvent) -> Result<ProviderWork> {
     Ok(ProviderWork {
+        cwd: Some(pre.cwd.clone()),
         disclaimers: pre.disclaimers.clone(),
         secrets: pre.secrets.clone(),
         op_sa: pre.op_sa.clone(),
@@ -141,6 +160,7 @@ fn walk_work(work: PreEventWork) -> ProviderWork {
         log: work.log,
         agent: Value::Null,
         progress: work.progress,
+        cwd: None,
     }
 }
 

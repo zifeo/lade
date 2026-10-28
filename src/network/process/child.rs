@@ -23,7 +23,7 @@ type Logs = Arc<Mutex<Vec<u8>>>;
 pub(super) struct ChildForward {
     pub(super) child: Child,
     /// The child's stdin, out of `child` since `Child::wait` closes it.
-    /// `lade tunnel-guard` stops the provider once it closes, however Lade
+    /// `lade __tunnel-guard` stops the provider once it closes, however Lade
     /// exits.
     _lifeline: Option<ChildStdin>,
     logs: Logs,

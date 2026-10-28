@@ -47,8 +47,6 @@ def record(output_cast, scenario_file, common_file="common.exp", width=80, heigh
             "LADE_CONFIG_PATH": os.path.join(home_dir, ".lade-test-config.json"),
             # macOS sun_path is 104 bytes. A tempfile HOME makes hub-*.sock unbindable.
             "LADE_CACHE_DIR": "/tmp/lade-tape-hub",
-            "LADE_SHELL": "zsh",
-            "LADE_WRAP_KEY": "ab" * 32,
             "USER": "bob",
             "USERNAME": "bob",
             "MISE_DATA_DIR": os.path.join(home_dir, ".local/share/mise"),

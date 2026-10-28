@@ -53,6 +53,28 @@ fn wrap_hydrates_from_ticket_without_rematch() {
 }
 
 #[test]
+fn a_running_command_no_longer_holds_its_ticket() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tmp = tempdir().unwrap();
+    write_yml(dir.path(), "\"^test\":\n  SECRET: from_ticket\n");
+    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "test -e x");
+    let id = ticket_id_from_wrap(&wrap_command(&stdout));
+    let ticket = ticket_path(home.path(), &id);
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("TMPDIR", tmp.path())
+        .args([
+            format!("--pretool={id}"),
+            "inject".into(),
+            format!("test ! -e '{}' && echo gone", ticket.display()),
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("gone"));
+}
+
+#[test]
 fn missing_ticket_walks_yaml() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

@@ -33,7 +33,7 @@ free, then lets go before kubefwd starts. A restart can lose it.
 | Last lease gone, ttl | Stop once the ttl runs out idle |
 | `lade ttl forget [KEY]` | Stop now |
 | Hub exits, `SIGTERM`, or `SIGINT` | Stop every tunnel, cancel starts, then exit |
-| Hub killed (`SIGKILL`, crash) | Each `lade tunnel-guard` sees its stdin close and kills its provider |
+| Hub killed (`SIGKILL`, crash) | Each `lade __tunnel-guard` sees its stdin close and kills its provider |
 
 `lade set` opens pre-exec tunnels under its own lease, so a Ctrl-C
 while they connect leaves nothing behind. Right before it prints, the
@@ -70,11 +70,16 @@ second before calling it stale: replacing a busy hub would stop its
 tunnels.
 
 Every provider, in the hub or in `lade --`, runs under
-`lade tunnel-guard` in its own session. The guard's stdin is a pipe
+`lade __tunnel-guard` in its own session. The guard's stdin is a pipe
 whose other end only its Lade holds. The kernel closes it however
 that Lade ends, `SIGKILL` included, and the guard then kills its
 process group. No provider outlives its Lade, and the `pid=` in the
 progress line is the guard's.
+
+A tunnel provider has no terminal, so it cannot ask for a password or
+a code: authenticate it beforehand (an ssh key or agent, `tsh login`,
+a kubeconfig that needs no prompt). A secret provider can ask: see
+[README.md](../README.md#secret).
 
 A hub tunnel keeps the env of the command that started it, like a
 cached secret: a restart runs with those credentials, even after

@@ -22,3 +22,9 @@ if [ "$clean" -eq 1 ]; then
 fi
 cargo install --path . --locked --force
 cargo install --path crates/age-plugin-lade --locked --force
+# Ad hoc, no Apple account: the hub caches secrets only behind hardened
+# runtime, which cargo never sets.
+if [ "$(uname -s)" = Darwin ]; then
+  codesign --force --sign - --options runtime \
+    "${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/lade"
+fi

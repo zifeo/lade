@@ -97,9 +97,12 @@ pub fn lade_std(home: &std::path::Path) -> StdCommand {
     if !config_path.exists() {
         std::fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
-    let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
-    cmd.env("LADE_SHELL", "bash")
-        .env("HOME", home)
+    // Lade runs a line in the shell that started it; `&& true` keeps bash
+    // from replacing itself with Lade.
+    let mut cmd = StdCommand::new("/bin/bash");
+    cmd.args(["-c", "\"$0\" \"$@\" && true"])
+        .arg(assert_cmd::cargo::cargo_bin("lade"));
+    cmd.env("HOME", home)
         .env("LADE_CONFIG_PATH", config_path)
         .env_remove("LADE_VIA")
         .env_remove("AI_AGENT")

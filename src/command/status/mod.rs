@@ -7,6 +7,7 @@ use serde::Serialize;
 use crate::args::StatusCommand;
 use crate::event;
 
+mod format;
 mod gather;
 mod print;
 #[cfg(test)]
@@ -50,7 +51,8 @@ struct PreexecHooks {
 
 #[derive(Serialize)]
 struct HooksInfo {
-    preexec: PreexecHooks,
+    /// `None` when no shell started Lade.
+    preexec: Option<PreexecHooks>,
     pretool: crate::pretool::install::PretoolStatus,
 }
 
@@ -136,6 +138,8 @@ struct HubStatus {
     /// The `max_cache` the hub enforces. `lade status` also reads the file:
     /// the two differ until the hub's watcher catches up.
     max_cache_ms: Option<u32>,
+    /// Whether another process of this user can read the hub's memory.
+    memory: crate::hub::MemoryGuard,
 }
 
 #[derive(Serialize)]

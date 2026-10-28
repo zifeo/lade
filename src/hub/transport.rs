@@ -109,7 +109,7 @@ fn spawn_hub() -> Option<()> {
         return Some(());
     }
     let mut cmd = std::process::Command::new(exe);
-    cmd.arg("hub")
+    cmd.arg("__hub")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

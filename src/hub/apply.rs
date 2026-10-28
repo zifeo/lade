@@ -6,10 +6,6 @@ use crate::config::{
     uri_is_cacheable, when_label,
 };
 
-use super::client::{HubState, probe};
-use super::crypto::{aad, open, seal, zero_key};
-use super::key::{wrap_gap, wrap_key};
-use super::server::socket_path;
 use super::transport::rpc;
 use super::wire::{Rep, Req};
 
@@ -38,151 +34,110 @@ struct PlannedBody {
     names: Vec<String>,
 }
 
-pub fn lookup(
-    cwd: &Path,
-    walk: [u8; 32],
-    saved_user: &Option<String>,
-    patterned: &[(PathBuf, String, LadeRule)],
-) -> CacheHit {
-    let mut hit = CacheHit {
-        values: HashMap::new(),
-        keys: HashSet::new(),
-    };
-    let user = saved_user.clone().unwrap_or_default();
-    let session = session_ttl(cwd);
-    let cwd = cwd.to_string_lossy().into_owned();
-    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
-    if planned.is_empty() {
-        return hit;
-    }
-    let Some(mut key) = wrap_key() else {
-        return hit;
-    };
-    for body in planned {
-        let Some(values) = get_body(&mut key, &body) else {
-            continue;
-        };
-        for (name, value) in values {
-            if body.names.iter().any(|n| n == &name) {
-                hit.keys.insert(name.clone());
-                hit.values.insert(name, value);
-            }
-        }
-    }
-    zero_key(&mut key);
-    hit
+/// One command's use of the hub: the bodies it may cache, with the `lade
+/// ttl set` window read once. Values cross the socket in plaintext, to and
+/// from a hub that checked this is its own binary; it seals them itself.
+pub struct Cache {
+    planned: Vec<PlannedBody>,
 }
 
-pub fn store(
-    cwd: &Path,
-    walk: [u8; 32],
-    saved_user: &Option<String>,
-    patterned: &[(PathBuf, String, LadeRule)],
-    hydrated: &HashMap<String, String>,
-    already_cached: &HashSet<String>,
-) {
-    let user = saved_user.clone().unwrap_or_default();
-    let session = session_ttl(cwd);
-    let cwd = cwd.to_string_lossy().into_owned();
-    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
-    if planned.is_empty() {
-        return;
-    }
-    let Some(mut key) = wrap_key() else {
-        return;
-    };
-    for body in planned {
-        if body.names.iter().all(|name| already_cached.contains(name)) {
-            continue;
+impl Cache {
+    pub fn open(
+        cwd: &Path,
+        walk: [u8; 32],
+        saved_user: &Option<String>,
+        patterned: &[(PathBuf, String, LadeRule)],
+    ) -> Self {
+        // A hub with no memory guard caches nothing: no call, no spawn.
+        if matches!(super::memory_guard(), super::MemoryGuard::Off { .. }) {
+            return Self {
+                planned: Vec::new(),
+            };
         }
-        let aad = aad(
-            &body.cwd, &body.path, &body.rule, &body.when, &body.walk, &body.user,
-        );
-        let mut bindings = Vec::new();
-        for name in &body.names {
-            let Some(value) = hydrated.get(name) else {
+        let user = saved_user.clone().unwrap_or_default();
+        let scope = cwd.to_string_lossy().into_owned();
+        // A window only adds bodies: none under any window, no hub call.
+        let any_window = RuleTtl::Window(chrono::Duration::hours(24));
+        if plan(
+            &scope,
+            walk,
+            &user,
+            saved_user,
+            patterned,
+            Some(&any_window),
+        )
+        .is_empty()
+        {
+            return Self {
+                planned: Vec::new(),
+            };
+        }
+        let session = session_ttl(cwd);
+        let planned = plan(&scope, walk, &user, saved_user, patterned, session.as_ref());
+        Self { planned }
+    }
+
+    pub fn lookup(&self) -> CacheHit {
+        let mut hit = CacheHit::empty();
+        for body in &self.planned {
+            let Some(values) = get_body(body) else {
                 continue;
             };
-            let Some(blob) = seal(&key, &aad, value.as_bytes()) else {
-                bindings.clear();
-                break;
-            };
-            bindings.push((name.clone(), blob));
+            for (name, value) in values {
+                if body.names.iter().any(|n| n == &name) {
+                    hit.keys.insert(name.clone());
+                    hit.values.insert(name, value);
+                }
+            }
         }
-        if bindings.is_empty() {
-            continue;
-        }
-        let _ = rpc(Req::Put {
-            cwd: body.cwd,
-            path: body.path,
-            rule: body.rule,
-            when: body.when,
-            walk: body.walk,
-            user: body.user,
-            ttl_ms: body.ttl_ms,
-            bindings,
-        });
+        hit
     }
-    zero_key(&mut key);
+
+    pub fn store(&self, hydrated: &HashMap<String, String>, already_cached: &HashSet<String>) {
+        // A wrap served from the cache stores nothing.
+        let pending = self
+            .planned
+            .iter()
+            .filter(|body| !body.names.iter().all(|name| already_cached.contains(name)));
+        for body in pending {
+            let bindings: Vec<(String, Vec<u8>)> = body
+                .names
+                .iter()
+                .filter_map(|name| Some((name.clone(), hydrated.get(name)?.as_bytes().to_vec())))
+                .collect();
+            if bindings.is_empty() {
+                continue;
+            }
+            let _ = rpc(Req::Put {
+                cwd: body.cwd.clone(),
+                path: body.path.clone(),
+                rule: body.rule.clone(),
+                when: body.when.clone(),
+                walk: body.walk,
+                user: body.user.clone(),
+                ttl_ms: body.ttl_ms,
+                bindings,
+            });
+        }
+    }
 }
 
-fn get_body(key: &mut [u8; 32], body: &PlannedBody) -> Option<Vec<(String, String)>> {
-    let rep = rpc(Req::Get {
+fn get_body(body: &PlannedBody) -> Option<Vec<(String, String)>> {
+    let Rep::Hit { bindings } = rpc(Req::Get {
         cwd: body.cwd.clone(),
         path: body.path.clone(),
         rule: body.rule.clone(),
         when: body.when.clone(),
         walk: body.walk,
         user: body.user.clone(),
-    })?;
-    let Rep::Hit { bindings } = rep else {
+    })?
+    else {
         return None;
     };
-    let aad = aad(
-        &body.cwd, &body.path, &body.rule, &body.when, &body.walk, &body.user,
-    );
-    let mut out = Vec::new();
-    for (name, blob) in bindings {
-        let plain = open(key, &aad, &blob)?;
-        let value = String::from_utf8(plain).ok()?;
-        out.push((name, value));
-    }
-    Some(out)
-}
-
-/// Why a `ttl:` body did not reach the hub. None if cache was not
-/// asked, or the hub took the Put.
-pub fn cache_gap(
-    cwd: &Path,
-    walk: [u8; 32],
-    saved_user: &Option<String>,
-    patterned: &[(PathBuf, String, LadeRule)],
-) -> Option<String> {
-    let user = saved_user.clone().unwrap_or_default();
-    let session = session_ttl(cwd);
-    let cwd = cwd.to_string_lossy().into_owned();
-    let planned = plan(&cwd, walk, &user, saved_user, patterned, session.as_ref());
-    if planned.is_empty() {
-        return None;
-    }
-    if let Some(why) = wrap_gap() {
-        return Some(format!("This rule has ttl. {why} Hydrated this time."));
-    }
-    match probe().state {
-        HubState::Down => {
-            let why = if socket_path().exists() {
-                "The secret cache socket did not answer."
-            } else {
-                "The secret cache is down."
-            };
-            Some(format!("This rule has ttl. {why} Hydrated this time."))
-        }
-        HubState::Stale => Some(
-            "This rule has ttl. The secret cache is stale (other lade binary). Hydrated this time."
-                .to_string(),
-        ),
-        HubState::Up => None,
-    }
+    bindings
+        .into_iter()
+        .map(|(name, value)| Some((name, String::from_utf8(value).ok()?)))
+        .collect()
 }
 
 /// The `lade ttl set` window over `cwd`. Never starts a hub.

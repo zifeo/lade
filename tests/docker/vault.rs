@@ -93,8 +93,7 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
     // mise shims) off the developer's machine: with the real one, mise
     // rewrote ~/.local/share/mise/shims from these seeded installs. The
     // scripts call the built binary, so cargo needs no HOME. The hub socket
-    // path must stay under the 104-byte limit, and the wrap key keeps the
-    // keychain out.
+    // path must stay under the 104-byte limit.
     let home = tempdir().expect("home");
     let config = home.path().join("lade-config.json");
     std::fs::write(&config, r#"{"user":null}"#).expect("write lade config");
@@ -110,7 +109,6 @@ fn vault_shell_scripts_run_from_cargo_test_workspace() {
         format!("HOME={}", home.path().display()),
         format!("LADE_CONFIG_PATH={}", config.display()),
         format!("LADE_CACHE_DIR={}", cache.path().display()),
-        format!("LADE_WRAP_KEY={}", "ab".repeat(32)),
         format!("MISE_INSTALLS_DIR={}", installs.path().display()),
         format!("MISE_CACHE_DIR={mise_cache}"),
         format!("DOCKER_CONFIG={docker_config}"),

@@ -86,11 +86,12 @@ impl Agent {
         }
     }
 
-    /// Repo file this binary serves.
+    /// Repo file this binary serves. Claude's lives in this crate: a repo's
+    /// hook goes in its untracked `settings.local.json`.
     pub(super) fn snapshot(self) -> &'static str {
         match self {
             Agent::Cursor => include_str!("../../../.cursor/hooks.json"),
-            Agent::Claude => include_str!("../../../.claude/settings.json"),
+            Agent::Claude => include_str!("claude.json"),
             Agent::Codex => include_str!("../../../.codex/hooks.json"),
             Agent::OpenCode => include_str!("../../../.opencode/plugins/lade-pretool.js"),
         }

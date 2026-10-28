@@ -8,9 +8,16 @@ use crate::ticket;
 
 /// Clap verbs except `inject`, which is a vehicle.
 const VERBS: &[&str] = &[
-    "add", "approve", "bench", "eval", "help", "hook", "hub", "log", "mcp", "off", "on", "remove",
-    "set", "setup", "status", "teardown", "ttl", "unset", "update", "upgrade", "usage", "user",
+    "add", "approve", "bench", "eval", "help", "hook", "__hub", "log", "mcp", "off", "on",
+    "remove", "set", "setup", "status", "teardown", "ttl", "unset", "update", "upgrade", "usage",
+    "user",
 ];
+
+/// Ends every rewrite. A pre-tool run uses its parent shell, but bash, zsh,
+/// and sh exec the last command of a `-c` line in place of themselves
+/// (Codex runs `zsh -lc '<rewrite>'`). A command after Lade keeps the
+/// harness shell; `&& true` keeps Lade's exit status, fish included.
+const REWRITE_TAIL: &str = " && true";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Class {
@@ -56,11 +63,13 @@ fn classify_once(command: &str) -> Class {
     }
     rest = after.trim_start();
     let mut ticket_id: Option<String> = None;
+    let mut pretool = false;
     loop {
         let Some((tok, after)) = split_token(rest) else {
             return Class::Empty;
         };
         if tok == "--pretool" {
+            pretool = true;
             rest = after.trim_start();
             if let Some((next, after_next)) = split_token(rest)
                 && ticket::exists(&next)
@@ -71,6 +80,7 @@ fn classify_once(command: &str) -> Class {
             continue;
         }
         if let Some(id) = tok.strip_prefix("--pretool=") {
+            pretool = true;
             if ticket::is_id(id) {
                 ticket_id = Some(id.to_string());
             }
@@ -112,7 +122,11 @@ fn classify_once(command: &str) -> Class {
         }
         break;
     }
-    let inner = unescape_hook_word(rest.trim());
+    let mut rest = rest.trim();
+    if pretool {
+        rest = rest.strip_suffix(REWRITE_TAIL).unwrap_or(rest).trim_end();
+    }
+    let inner = unescape_hook_word(rest);
     if inner.is_empty() {
         return Class::Empty;
     }
@@ -184,7 +198,7 @@ pub(super) fn join_prefix(prefix: &str, command: &str) -> String {
 
 pub(super) fn wrap_ticket(bin: &str, id: &str, inner: &str) -> String {
     format!(
-        "{} --pretool={} '{}'",
+        "{} --pretool={} '{}'{REWRITE_TAIL}",
         bin,
         id,
         inner.replace('\'', "'\\''")
@@ -192,7 +206,11 @@ pub(super) fn wrap_ticket(bin: &str, id: &str, inner: &str) -> String {
 }
 
 pub(super) fn wrap_idless(bin: &str, inner: &str) -> String {
-    format!("{} --pretool -- '{}'", bin, inner.replace('\'', "'\\''"))
+    format!(
+        "{} --pretool -- '{}'{REWRITE_TAIL}",
+        bin,
+        inner.replace('\'', "'\\''")
+    )
 }
 
 fn split_token(s: &str) -> Option<(String, &str)> {
@@ -324,6 +342,36 @@ mod tests {
             classify("lade --pretool=x7Km 'echo hello'"),
             Class::Vehicle {
                 inner: "echo hello".into()
+            }
+        );
+    }
+
+    #[test]
+    fn rewrites_end_with_a_command_after_lade() {
+        assert_eq!(
+            wrap_ticket("lade", "Ab12", "echo hi"),
+            "lade --pretool=Ab12 'echo hi' && true"
+        );
+        assert_eq!(
+            wrap_idless("lade", "echo hi"),
+            "lade --pretool -- 'echo hi' && true"
+        );
+        let inner = "x=1 && echo 'a' && true";
+        for wrapped in [
+            wrap_ticket("lade", "Ab12", inner),
+            wrap_idless("lade", inner),
+        ] {
+            assert_eq!(
+                classify(&wrapped),
+                Class::Vehicle {
+                    inner: inner.into()
+                }
+            );
+        }
+        assert_eq!(
+            classify("lade -- echo hi && true"),
+            Class::Vehicle {
+                inner: "echo hi && true".into()
             }
         );
     }

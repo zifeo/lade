@@ -154,17 +154,51 @@ pub fn backdate_all(home: &Path, ts: &str) {
     let _ = conn.execute("DELETE FROM chain_head", []);
 }
 
+/// `lade` started by `shell` (`bash`, `zsh`, `fish`, or `sh`), the shell
+/// Lade then runs a line in. Arguments added after this go to `lade`.
+pub fn lade_in(home: &Path, shell: &str) -> Command {
+    // By path: a test may set a PATH with no shell, or a fake one first.
+    let mut cmd = StdCommand::new(shell_path(shell));
+    match shell {
+        "fish" => cmd.args(["--no-config", "-c", "$argv; and true"]),
+        "zsh" => cmd.args(["-f", "-c", "\"$0\" \"$@\" && true"]),
+        _ => cmd.args(["-c", "\"$0\" \"$@\" && true"]),
+    };
+    cmd.arg(assert_cmd::cargo::cargo_bin("lade"));
+    Command::from_std(with_lade_env(cmd, home))
+}
+
+fn shell_path(shell: &str) -> PathBuf {
+    std::env::var_os("PATH")
+        .iter()
+        .flat_map(std::env::split_paths)
+        .chain([PathBuf::from("/bin"), PathBuf::from("/usr/bin")])
+        .map(|dir| dir.join(shell))
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| panic!("{shell} not found"))
+}
+
+/// `lade` with no shell above it: for a process the test signals itself.
 pub fn lade_std(home: &Path) -> StdCommand {
+    with_lade_env(StdCommand::new(assert_cmd::cargo::cargo_bin("lade")), home)
+}
+
+/// `line` run by `shell` (its argv before `-c`) with the test Lade env.
+pub fn shell_line(home: &Path, shell: &[&str], line: &str) -> Command {
+    let mut cmd = StdCommand::new(shell[0]);
+    cmd.args(&shell[1..]).arg("-c").arg(line);
+    Command::from_std(with_lade_env(cmd, home))
+}
+
+fn with_lade_env(mut cmd: StdCommand, home: &Path) -> StdCommand {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
         std::fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
-    let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("lade"));
     // Drop leftover preexec protocol from the developer shell. An inherited
     // LADE_T would replay a ticket (often the repo `.` catch-all) and skip
     // the temp lade.yml the test just wrote.
-    cmd.env("LADE_SHELL", "bash")
-        .env("HOME", home)
+    cmd.env("HOME", home)
         .env("LADE_CACHE_DIR", home.join("lade-cache"))
         .env("LADE_CONFIG_PATH", config_path)
         .env("LADE_EVENTS_PATH", home.join("events.db"))
@@ -190,8 +224,11 @@ pub fn lade_std(home: &Path) -> StdCommand {
     cmd
 }
 
+/// `lade` started by bash, as from a terminal or a harness: Lade runs a
+/// line in the shell that started it, and `&& true` keeps bash from
+/// replacing itself with Lade. Arguments added after this go to `lade`.
 pub fn lade(home: &Path) -> Command {
-    Command::from_std(lade_std(home))
+    lade_in(home, "bash")
 }
 
 pub fn extract_lade_t(stdout: &str) -> Option<String> {

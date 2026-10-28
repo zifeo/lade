@@ -151,8 +151,8 @@ Interactive is an output. Callers use `ctx.audience` for `.when` and
 
 - **Via**: `--pretool` wins, then the subcommand (`set`/`unset` are preexec,
   `hook` is pretool), else unset. Leftover `LADE_VIA` is ignored. The
-  pretool handler rewrites to `<bin> --pretool=<id> '…'` (`lade` when
-  invoked as `lade`). Via is stored on the ticket, not stamped onto the
+  pretool handler rewrites to `<bin> --pretool=<id> '…' && true` (`lade`
+  when invoked as `lade`). The wrap runs `…` in its parent shell. Via is stored on the ticket, not stamped onto the
   child env. Preexec `set` writes T on every match and exports `LADE_T`.
   See [protocol.md](protocol.md).
 - **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
@@ -194,7 +194,8 @@ Keys prefixed with `.` are intermediate bindings. `.NAME` resolves and can be
 referenced as `$NAME` or `${NAME}`, but is never written to the child environment, a
 temporary file, or an MCP header. `.` on its own is still the rule
 configuration block (`file`, `disclaimer`, `when`, `silent`, `log`).
-`silent: true` skips that rule's secret progress lines. Hydration
+`silent: true` skips that rule's secret progress lines in a human's
+terminal; a pre-tool wrap does not read it. Hydration
 itself is unchanged. A public binding and `.NAME` cannot coexist.
 
 Binding sources support simple `$NAME` and `${NAME}` references. For normal
@@ -304,7 +305,7 @@ reads `{ command }` back. `CURSOR_VERSION` is last because Cursor also
 sets it in other hosts' terminals.
 
 On match it writes a T pre-event and rewrites to
-`<lade> --pretool=<id> '…'`. That wrap **is** inject. On no match it
+`<lade> --pretool=<id> '…' && true`. That wrap **is** inject. On no match it
 allows the original line and may write a `seen` row. Disclaimers are
 not special-cased in the handler. Inject is the gate. The rewrite
 re-emits leading `LADE_APPROVE=...` (`platform::split_env_prefix`).
@@ -314,7 +315,7 @@ window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to this repo. `--global` writes the home config. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The hourly shell check, and a shell that starts a harness, refresh hook files Lade wrote, never an OpenCode plugin edited by hand. OpenCode gets the v1 or v2 plugin from `opencode --version` when Lade writes it, and refresh keeps the API of the file. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
+The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to this repo. For Claude Code that is `.claude/settings.local.json` at the git root, which Claude reads from any subdirectory (it reads `.claude/settings.json` only in the directory it starts in); enable moves a Lade hook out of `settings.json`. `--global` writes the home config. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The hourly shell check, and a shell that starts a harness, refresh hook files Lade wrote, never an OpenCode plugin edited by hand. OpenCode gets the v1 or v2 plugin from `opencode --version` when Lade writes it, and refresh keeps the API of the file. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
 
 ### Direct path
 

@@ -188,3 +188,35 @@ fn legacy_network_pids_come_from_older_tickets_only() {
         unlink(&id).unwrap();
     });
 }
+
+#[test]
+fn the_sweep_drops_only_unread_pretool_tickets() {
+    with_ticket_dir(|| {
+        let age = |id: &str, hours: u64| {
+            let file = fs::File::options().write(true).open(path(id)).unwrap();
+            let then = std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 3600);
+            file.set_modified(then).unwrap();
+        };
+        let stale = write(&sample_pre_event()).unwrap();
+        age(&stale, 2);
+        let fresh = write(&sample_pre_event()).unwrap();
+        let mut shell = sample_pre_event();
+        shell.via = "preexec".to_string();
+        let preexec = write(&shell).unwrap();
+        age(&preexec, 48);
+        fs::write(dir().join("junk.json"), b"{").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(dir().join("junk.json"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(7200))
+            .unwrap();
+
+        sweep_pretool(PRETOOL_UNREAD);
+
+        assert!(!exists(&stale));
+        assert!(exists(&fresh));
+        assert!(exists(&preexec), "a long pre-exec command keeps its ticket");
+        assert!(!dir().join("junk.json").exists());
+    });
+}

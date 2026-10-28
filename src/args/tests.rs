@@ -98,6 +98,17 @@ fn pretool_before_alias() {
 }
 
 #[test]
+fn internal_verbs_leave_program_names_to_the_alias() {
+    for program in ["hub", "tunnel-guard", "cache"] {
+        let args = Args::try_parse_from(["lade", program, "pr", "list"]).unwrap();
+        match args.command {
+            Some(Command::InjectAlias(commands)) => assert_eq!(commands[0], program),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
 fn pretool_before_mcp() {
     let args = Args::try_parse_from(["lade", "--pretool", "mcp", "--", "acme"]).unwrap();
     assert!(args.pretool);

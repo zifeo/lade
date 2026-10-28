@@ -78,17 +78,17 @@ impl LadeFile {
         let mut rules = Vec::default();
         let mut regex_strs = Vec::default();
         configs.reverse();
-        for (path, config) in configs.into_iter() {
+        for (dir, config) in configs.into_iter() {
             for (pattern, rule_list) in config.commands.into_iter() {
                 for rule in rule_list {
                     regex_strs.push(pattern.clone());
-                    rules.push((path.clone(), rule));
+                    rules.push((dir.clone(), rule));
                 }
             }
         }
 
         let compiled = CompiledPatterns::compile(&regex_strs)?;
-        Ok(Config::new(rules, regex_strs, compiled, walk_hash))
+        Ok(Config::new(rules, regex_strs, compiled, walk_hash, path))
     }
 }
 

@@ -139,7 +139,7 @@ fn listen(inner: &Inner) -> Listen<'_> {
 
 #[derive(Clone)]
 struct CommandTemplate {
-    /// This binary, run as `lade tunnel-guard`. `None` in unit tests, whose
+    /// This binary, run as `lade __tunnel-guard`. `None` in unit tests, whose
     /// binary is not Lade.
     guard: Option<PathBuf>,
     program: OsString,

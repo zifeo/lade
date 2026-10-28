@@ -40,16 +40,19 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         max_cache_error: max_cache.err(),
     };
 
-    let shell = Shell::detect()?;
-    let (profile, installed) = preexec_installed(&shell);
-    let hooks = HooksInfo {
-        preexec: PreexecHooks {
+    // The pre-exec hook belongs to the shell that runs `lade status`.
+    let preexec = Shell::detect().ok().map(|shell| {
+        let (profile, installed) = preexec_installed(&shell);
+        PreexecHooks {
             shell: shell.bin().to_string(),
             profile,
             installed,
             inject_skips_startup_files: true,
             inject_startup_skipped: inject_startup_skipped(&shell),
-        },
+        }
+    });
+    let hooks = HooksInfo {
+        preexec,
         pretool: pretool::install::inspect(&cwd)?,
     };
 
@@ -156,6 +159,7 @@ fn hub_status(cwd: &std::path::Path) -> HubStatus {
             key_count: 0,
             tunnels: Vec::new(),
             max_cache_ms: None,
+            memory: crate::hub::memory_guard(),
         };
     }
     let listing = crate::hub::listing();
@@ -188,6 +192,7 @@ fn hub_status(cwd: &std::path::Path) -> HubStatus {
         key_count: listing.rows.len(),
         tunnels,
         max_cache_ms: listing.max_cache_ms,
+        memory: crate::hub::memory_guard(),
     }
 }
 

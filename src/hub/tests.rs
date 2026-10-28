@@ -1,4 +1,3 @@
-use super::crypto::{aad, open, seal};
 use super::server::should_exit_for_test;
 use super::tables::{
     age_ledger_for_test, empty_tables, handle_for_test, take_version_fetch_for_test,
@@ -712,56 +711,39 @@ fn log_then_shell_ttl_body_roundtrips_hub() {
         ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET: sh://printf %s /tmp/app\n",
     )
     .unwrap();
-    let wrap = "ab".repeat(32);
     let cache_s = cache.to_string_lossy().into_owned();
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
-            ("LADE_WRAP_KEY", Some(wrap.as_str())),
-        ],
-        || {
-            let _server = std::thread::spawn(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
-            });
-            let sock = super::server::socket_path();
-            for _ in 0..80 {
-                if sock.exists() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache_s.as_str()))], || {
+        let _server = std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(crate::hub::serve(std::future::pending()));
+        });
+        let sock = super::server::socket_path();
+        for _ in 0..80 {
+            if sock.exists() {
+                break;
             }
-            assert!(sock.exists(), "hub socket");
-            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            let mut hydrated = std::collections::HashMap::new();
-            hydrated.insert("SOCKET".into(), "/tmp/sock".into());
-            crate::hub::store(
-                &proj,
-                config.walk_hash(),
-                &None,
-                &patterned,
-                &hydrated,
-                &std::collections::HashSet::new(),
-            );
-            assert_eq!(
-                crate::hub::cache_gap(&proj, config.walk_hash(), &None, &patterned),
-                None
-            );
-            let hit = crate::hub::lookup(&proj, config.walk_hash(), &None, &patterned);
-            assert_eq!(
-                hit.values.get("SOCKET").map(String::as_str),
-                Some("/tmp/sock"),
-                "keys={:?} values={:?}",
-                hit.keys,
-                hit.values
-            );
-            assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
-        },
-    );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(sock.exists(), "hub socket");
+        let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+        let mut hydrated = std::collections::HashMap::new();
+        hydrated.insert("SOCKET".into(), "/tmp/sock".into());
+        crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned)
+            .store(&hydrated, &std::collections::HashSet::new());
+        let hit = crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned).lookup();
+        assert_eq!(
+            hit.values.get("SOCKET").map(String::as_str),
+            Some("/tmp/sock"),
+            "keys={:?} values={:?}",
+            hit.keys,
+            hit.values
+        );
+        assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
+    });
 }
 
 #[test]
@@ -776,61 +758,44 @@ fn user_map_shell_ttl_body_roundtrips_hub() {
         ".:\n  - .:\n      log: true\n  - .:\n      ttl: 24h\n    SOCKET:\n      owner: sh://printf %s /tmp/app\n",
     )
     .unwrap();
-    let wrap = "ab".repeat(32);
     let cache_s = cache.to_string_lossy().into_owned();
     let user = Some("owner".to_string());
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
-            ("LADE_WRAP_KEY", Some(wrap.as_str())),
-        ],
-        || {
-            let _server = std::thread::spawn(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
-            });
-            let sock = super::server::socket_path();
-            for _ in 0..80 {
-                if sock.exists() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache_s.as_str()))], || {
+        let _server = std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(crate::hub::serve(std::future::pending()));
+        });
+        let sock = super::server::socket_path();
+        for _ in 0..80 {
+            if sock.exists() {
+                break;
             }
-            assert!(sock.exists(), "hub socket");
-            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            let mut hydrated = std::collections::HashMap::new();
-            hydrated.insert("SOCKET".into(), "/tmp/sock".into());
-            crate::hub::store(
-                &proj,
-                config.walk_hash(),
-                &user,
-                &patterned,
-                &hydrated,
-                &std::collections::HashSet::new(),
-            );
-            assert_eq!(
-                crate::hub::cache_gap(&proj, config.walk_hash(), &user, &patterned),
-                None
-            );
-            let hit = crate::hub::lookup(&proj, config.walk_hash(), &user, &patterned);
-            assert_eq!(
-                hit.values.get("SOCKET").map(String::as_str),
-                Some("/tmp/sock"),
-                "keys={:?} values={:?}",
-                hit.keys,
-                hit.values
-            );
-            assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
-        },
-    );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(sock.exists(), "hub socket");
+        let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+        let mut hydrated = std::collections::HashMap::new();
+        hydrated.insert("SOCKET".into(), "/tmp/sock".into());
+        crate::hub::Cache::open(&proj, config.walk_hash(), &user, &patterned)
+            .store(&hydrated, &std::collections::HashSet::new());
+        let hit = crate::hub::Cache::open(&proj, config.walk_hash(), &user, &patterned).lookup();
+        assert_eq!(
+            hit.values.get("SOCKET").map(String::as_str),
+            Some("/tmp/sock"),
+            "keys={:?} values={:?}",
+            hit.keys,
+            hit.values
+        );
+        assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
+    });
 }
 
 #[test]
-fn wrap_key_roundtrip_via_hub() {
+fn a_value_roundtrips_via_hub() {
     let root = tempfile::tempdir().unwrap();
     let cache = root.path().join("cache");
     std::fs::create_dir_all(&cache).unwrap();
@@ -841,58 +806,45 @@ fn wrap_key_roundtrip_via_hub() {
         "\"terraform .*\":\n  KEY: op://v/i/f\n",
     )
     .unwrap();
-    let wrap = "cd".repeat(32);
     let cache_s = cache.to_string_lossy().into_owned();
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
-            ("LADE_WRAP_KEY", Some(wrap.as_str())),
-        ],
-        || {
-            let _server = std::thread::spawn(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
-            });
-            let sock = super::server::socket_path();
-            for _ in 0..80 {
-                if sock.exists() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache_s.as_str()))], || {
+        let _server = std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(crate::hub::serve(std::future::pending()));
+        });
+        let sock = super::server::socket_path();
+        for _ in 0..80 {
+            if sock.exists() {
+                break;
             }
-            assert!(sock.exists(), "hub socket");
-            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
-            let patterned =
-                config.collect_for_with_pattern("terraform plan", crate::config::Audience::Human);
-            let mut hydrated = std::collections::HashMap::new();
-            hydrated.insert("KEY".into(), "secret-value".into());
-            crate::hub::store(
-                &proj,
-                config.walk_hash(),
-                &None,
-                &patterned,
-                &hydrated,
-                &std::collections::HashSet::new(),
-            );
-            let hit = crate::hub::lookup(&proj, config.walk_hash(), &None, &patterned);
-            assert_eq!(
-                hit.values.get("KEY").map(String::as_str),
-                Some("secret-value")
-            );
-            let info = crate::hub::probe();
-            assert_eq!(info.state, crate::hub::HubState::Up);
-            assert_eq!(info.secrets, 1);
-            assert_eq!(info.tickets, 0);
-            assert!(info.pid.is_some());
-            assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
-            let after = crate::hub::probe();
-            assert_eq!(after.state, crate::hub::HubState::Down);
-            assert!(!sock.exists(), "quit unlinks socket");
-        },
-    );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(sock.exists(), "hub socket");
+        let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+        let patterned =
+            config.collect_for_with_pattern("terraform plan", crate::config::Audience::Human);
+        let mut hydrated = std::collections::HashMap::new();
+        hydrated.insert("KEY".into(), "secret-value".into());
+        crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned)
+            .store(&hydrated, &std::collections::HashSet::new());
+        let hit = crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned).lookup();
+        assert_eq!(
+            hit.values.get("KEY").map(String::as_str),
+            Some("secret-value")
+        );
+        let info = crate::hub::probe();
+        assert_eq!(info.state, crate::hub::HubState::Up);
+        assert_eq!(info.secrets, 1);
+        assert_eq!(info.tickets, 0);
+        assert!(info.pid.is_some());
+        assert_eq!(crate::hub::stop(), crate::hub::HubStop::Stopped);
+        let after = crate::hub::probe();
+        assert_eq!(after.state, crate::hub::HubState::Down);
+        assert!(!sock.exists(), "quit unlinks socket");
+    });
 }
 
 #[test]
@@ -910,168 +862,77 @@ fn denied_hub_unlinks_and_fresh_hub_serves() {
         "\"terraform .*\":\n  KEY: op://v/i/f\n",
     )
     .unwrap();
-    let wrap = "ef".repeat(32);
     let cache_s = cache.to_string_lossy().into_owned();
     let sock = cache.join(format!("hub-{}.sock", super::peer::instance_token()));
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
-            ("LADE_WRAP_KEY", Some(wrap.as_str())),
-        ],
-        || {
-            let stale = sock.clone();
-            let _denied = std::thread::spawn(move || {
-                let _ = std::fs::remove_file(&stale);
-                let Ok(listener) = UnixListener::bind(&stale) else {
-                    return;
+    temp_env::with_vars([("LADE_CACHE_DIR", Some(cache_s.as_str()))], || {
+        let stale = sock.clone();
+        let _denied = std::thread::spawn(move || {
+            let _ = std::fs::remove_file(&stale);
+            let Ok(listener) = UnixListener::bind(&stale) else {
+                return;
+            };
+            for incoming in listener.incoming() {
+                let Ok(mut stream) = incoming else {
+                    break;
                 };
-                for incoming in listener.incoming() {
-                    let Ok(mut stream) = incoming else {
-                        break;
-                    };
-                    let mut header = [0u8; 8];
-                    if stream.read_exact(&mut header).is_err() {
-                        continue;
-                    }
-                    let Some(n) = wire::header_len(&header) else {
-                        continue;
-                    };
-                    let mut body = vec![0u8; n as usize];
-                    let _ = stream.read_exact(&mut body);
-                    let Some(frame) = wire::encode_rep(&Rep::Err(wire::ERR_DENIED)) else {
-                        continue;
-                    };
-                    let _ = stream.write_all(&frame);
+                let mut header = [0u8; 8];
+                if stream.read_exact(&mut header).is_err() {
+                    continue;
                 }
-            });
-            for _ in 0..80 {
-                if sock.exists() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                let Some(n) = wire::header_len(&header) else {
+                    continue;
+                };
+                let mut body = vec![0u8; n as usize];
+                let _ = stream.read_exact(&mut body);
+                let Some(frame) = wire::encode_rep(&Rep::Err(wire::ERR_DENIED)) else {
+                    continue;
+                };
+                let _ = stream.write_all(&frame);
             }
-            assert!(sock.exists(), "denied socket");
-            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
-            let patterned =
-                config.collect_for_with_pattern("terraform plan", crate::config::Audience::Human);
-            let mut hydrated = std::collections::HashMap::new();
-            hydrated.insert("KEY".into(), "after-upgrade".into());
-            crate::hub::store(
-                &proj,
-                config.walk_hash(),
-                &None,
-                &patterned,
-                &hydrated,
-                &std::collections::HashSet::new(),
-            );
-            assert!(
-                !sock.exists() || UnixListener::bind(&sock).is_ok(),
-                "stale socket still owned"
-            );
-            let _ = std::fs::remove_file(&sock);
-            let _server = std::thread::spawn(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let _ = rt.block_on(crate::hub::serve(std::future::pending()));
-            });
-            for _ in 0..80 {
-                if sock.exists() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+        });
+        for _ in 0..80 {
+            if sock.exists() {
+                break;
             }
-            assert!(sock.exists(), "fresh hub socket");
-            crate::hub::store(
-                &proj,
-                config.walk_hash(),
-                &None,
-                &patterned,
-                &hydrated,
-                &std::collections::HashSet::new(),
-            );
-            let hit = crate::hub::lookup(&proj, config.walk_hash(), &None, &patterned);
-            assert_eq!(
-                hit.values.get("KEY").map(String::as_str),
-                Some("after-upgrade")
-            );
-        },
-    );
-}
-
-#[test]
-fn cache_gap_when_ttl_and_no_key() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("lade.yml"),
-        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
-    )
-    .unwrap();
-    temp_env::with_vars([("LADE_WRAP_KEY", Some("zz"))], || {
-        let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(sock.exists(), "denied socket");
+        let config = crate::config::LadeFile::build(proj.clone()).unwrap();
+        let patterned =
+            config.collect_for_with_pattern("terraform plan", crate::config::Audience::Human);
+        let mut hydrated = std::collections::HashMap::new();
+        hydrated.insert("KEY".into(), "after-upgrade".into());
+        crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned)
+            .store(&hydrated, &std::collections::HashSet::new());
+        assert!(
+            !sock.exists() || UnixListener::bind(&sock).is_ok(),
+            "stale socket still owned"
+        );
+        let _ = std::fs::remove_file(&sock);
+        let _server = std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(crate::hub::serve(std::future::pending()));
+        });
+        for _ in 0..80 {
+            if sock.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(sock.exists(), "fresh hub socket");
+        crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned)
+            .store(&hydrated, &std::collections::HashSet::new());
+        let hit = crate::hub::Cache::open(&proj, config.walk_hash(), &None, &patterned).lookup();
         assert_eq!(
-            crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
-            Some(
-                "This rule has ttl. LADE_WRAP_KEY is not 64 hex chars. Hydrated this time."
-                    .to_string()
-            )
+            hit.values.get("KEY").map(String::as_str),
+            Some("after-upgrade")
         );
     });
 }
 
-#[test]
-fn cache_gap_none_without_ttl() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("lade.yml"),
-        ".:\n  SOCKET: sh://printf %s /tmp/sock\n",
-    )
-    .unwrap();
-    temp_env::with_vars([("LADE_WRAP_KEY", Some("ab".repeat(32).as_str()))], || {
-        let config = crate::config::LadeFile::build(dir.path().to_path_buf()).unwrap();
-        let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-        assert_eq!(
-            crate::hub::cache_gap(dir.path(), config.walk_hash(), &None, &patterned),
-            None
-        );
-    });
-}
-
-#[test]
-fn cache_gap_when_ttl_and_hub_down() {
-    let root = tempfile::tempdir().unwrap();
-    let cache = root.path().join("cache");
-    std::fs::create_dir_all(&cache).unwrap();
-    let proj = root.path().join("proj");
-    std::fs::create_dir_all(&proj).unwrap();
-    std::fs::write(
-        proj.join("lade.yml"),
-        ".:\n  .:\n    ttl: 24h\n  SOCKET: sh://printf %s /tmp/sock\n",
-    )
-    .unwrap();
-    let wrap = "ab".repeat(32);
-    let cache_s = cache.to_string_lossy().into_owned();
-    temp_env::with_vars(
-        [
-            ("LADE_CACHE_DIR", Some(cache_s.as_str())),
-            ("LADE_WRAP_KEY", Some(wrap.as_str())),
-        ],
-        || {
-            let config = crate::config::LadeFile::build(proj.clone()).unwrap();
-            let patterned = config.collect_for_with_pattern("true", crate::config::Audience::Agent);
-            assert_eq!(
-                crate::hub::cache_gap(&proj, config.walk_hash(), &None, &patterned),
-                Some(
-                    "This rule has ttl. The secret cache is down. Hydrated this time.".to_string()
-                )
-            );
-        },
-    );
-}
-
-/// A hub on the socket that answers each request after `delay`, or never.
 fn fake_hub(sock: &std::path::Path, delay: Option<std::time::Duration>) {
     use std::io::{Read, Write};
     let listener = std::os::unix::net::UnixListener::bind(sock).unwrap();
@@ -1118,14 +979,4 @@ fn a_slow_hub_is_not_stale_and_a_wedged_one_is() {
             assert_eq!(super::transport::is_stale(&None, true), stale);
         });
     }
-}
-
-#[test]
-fn decrypt_wrong_aad_is_none() {
-    let key = [2u8; 32];
-    let walk = [4u8; 32];
-    let good = aad("/c", "/c/lade.yaml", "t", "always", &walk, "");
-    let blob = seal(&key, &good, b"secret").unwrap();
-    let bad = aad("/c", "/c/lade.yaml", "t", "human", &walk, "");
-    assert!(open(&key, &bad, &blob).is_none());
 }

@@ -22,14 +22,12 @@ pub fn run(
     env: std::collections::HashMap<String, String>,
     cwd: &Path,
     redactor: Arc<Redactor>,
+    after_spawn: impl FnOnce(),
 ) -> Result<i32> {
     use nix::pty::{OpenptyResult, openpty};
 
     let size = pty_winsize();
     let OpenptyResult { master, slave } = openpty(&size, None)?;
-
-    let slave_out: OwnedFd = slave.try_clone()?;
-    let slave_err: OwnedFd = slave.try_clone()?;
 
     // Putting the real stdin TTY in raw mode before spawn means neither the
     // kernel line discipline on lade's end nor the child (which inherits
@@ -39,11 +37,21 @@ pub fn run(
     let _raw_guard = RawStdinGuard::enter();
 
     let watch = crate::child_signals::ChildWatch::new();
-    let mut child = super::prepare_child(shell, command, env, cwd)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::from(slave_out))
-        .stderr(Stdio::from(slave_err))
-        .spawn()?;
+    let spawned = super::spawn_child(shell, command, env, cwd, |cmd| {
+        let slave_out: OwnedFd = slave.try_clone()?;
+        let slave_err: OwnedFd = slave.try_clone()?;
+        cmd.stdin(Stdio::inherit())
+            .stdout(Stdio::from(slave_out))
+            .stderr(Stdio::from(slave_err));
+        Ok(())
+    });
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(error) => {
+            after_spawn();
+            return Err(error.into());
+        }
+    };
     watch.set_pid(child.id(), false);
 
     drop(slave);
@@ -53,14 +61,34 @@ pub fn run(
     // Cloning the master fd decouples the redactor read loop from the
     // resize thread's own clone of `master`.
     let master_for_read = master.try_clone()?;
-    let mut master_reader = File::from(master_for_read);
-    let _ = redactor.stream(&mut master_reader, &mut std::io::stdout().lock());
+    let mut master_reader = MasterReader(File::from(master_for_read));
+    // The pump starts before the diary write, so a slow diary never holds
+    // the output back.
+    let pump = std::thread::spawn(move || {
+        let _ = redactor.stream(&mut master_reader, &mut std::io::stdout().lock());
+    });
+    after_spawn();
+    let _ = pump.join();
 
     let status = child.wait()?;
     watch.clear_pid();
     drop(_resize);
     drop(master);
     Ok(status.code().unwrap_or(1))
+}
+
+/// Linux answers `EIO`, not end of file, on a master whose child side has
+/// closed. As an error it would drop the redactor's carry, the last bytes
+/// the command wrote.
+struct MasterReader(File);
+
+impl std::io::Read for MasterReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.read(buf) {
+            Err(error) if error.raw_os_error() == Some(nix::libc::EIO) => Ok(0),
+            read => read,
+        }
+    }
 }
 
 #[cfg(unix)]

@@ -12,8 +12,7 @@ fn lade_process(home: &Path) -> std::process::Command {
     if !config_path.exists() {
         fs::write(&config_path, r#"{"user":null}"#).unwrap();
     }
-    cmd.env("LADE_SHELL", "bash")
-        .env("HOME", home)
+    cmd.env("HOME", home)
         .env("LADE_CONFIG_PATH", config_path)
         .env_remove("LADE_VIA")
         .env_remove("AI_AGENT")

@@ -2,6 +2,7 @@ mod acquire;
 mod approve;
 pub(crate) mod exec;
 mod keys;
+pub(crate) use keys::{after_lend, before_lend};
 mod pins;
 mod run;
 mod set;
@@ -38,7 +39,7 @@ fn loader_error_box(e: &anyhow::Error) -> message_box::MessageBox {
 }
 
 /// Where a slow hydrate went: `LADE_LOG=lade::timing=info`, or `-vv`.
-pub(super) fn log_phase(phase: &str, started: std::time::Instant) {
+pub(crate) fn log_phase(phase: &str, started: std::time::Instant) {
     log::info!(
         target: "lade::timing",
         "{phase}: {:.0} ms",
@@ -75,25 +76,32 @@ pub(crate) fn emit_seen_if_walk_log(
     saved_user: &Option<String>,
     argv: Option<serde_json::Value>,
 ) {
-    if !config.log_on_walk_for(ctx.audience) {
-        return;
+    if config.log_on_walk_for(ctx.audience) {
+        event::emit(seen_event(ctx, command, current_dir, saved_user, argv));
     }
-    event::emit_if(
-        true,
-        Emit {
-            kind: Kind::Seen,
-            via: ctx.via,
-            audience: ctx.audience,
-            actor: event::actor(saved_user),
-            cwd: current_dir.to_path_buf(),
-            command: command.to_string(),
-            argv,
-            hydrated: None,
-            matches: json!([]),
-            hydrate_ms: None,
-            agent: crate::agent_meta::merge(Value::Null),
-        },
-    );
+}
+
+/// The row for a command no rule matched.
+pub(crate) fn seen_event(
+    ctx: &InvocationContext,
+    command: &str,
+    current_dir: &Path,
+    saved_user: &Option<String>,
+    argv: Option<serde_json::Value>,
+) -> Emit {
+    Emit {
+        kind: Kind::Seen,
+        via: ctx.via,
+        audience: ctx.audience,
+        actor: event::actor(saved_user),
+        cwd: current_dir.to_path_buf(),
+        command: command.to_string(),
+        argv,
+        hydrated: None,
+        matches: json!([]),
+        hydrate_ms: None,
+        agent: crate::agent_meta::merge(Value::Null),
+    }
 }
 
 pub(crate) fn public_hydrate(
@@ -178,7 +186,9 @@ async fn handle_provider_failure(
         loader_error_box(e)
     };
     let Some(mut keys) = keys.or_else(|| Keys::enter(ctx)) else {
-        mb.print_stderr();
+        mb.line("")
+            .line("The command did not run. `lade status` lists each provider and its timeout, `LADE_LOG=debug` logs each step.")
+            .print_stderr();
         return FailureChoice::Cancel;
     };
     keys.forget_typed();

@@ -3,6 +3,7 @@ use crate::redact::Redactor;
 use anyhow::Result;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
+mod path;
 mod piped;
 #[cfg(unix)]
 mod pty;
@@ -25,6 +26,8 @@ fn select_mode(has_redactor: bool, stdin_tty: bool, stdout_tty: bool) -> Mode {
     }
 }
 
+/// `after_spawn` runs once the child is started, or failed to start, and
+/// before Lade waits for it.
 pub fn run(
     ctx: &crate::context::InvocationContext,
     shell: &Shell,
@@ -32,6 +35,7 @@ pub fn run(
     mut env: HashMap<String, String>,
     cwd: &Path,
     redactor: Option<Redactor>,
+    after_spawn: impl FnOnce(),
 ) -> Result<i32> {
     for key in crate::preexec::CHILD_UNSET {
         env.remove(key);
@@ -42,50 +46,85 @@ pub fn run(
         ctx.stdout_is_terminal,
     );
     match mode {
-        Mode::Plain => run_plain(shell, command, env, cwd),
+        Mode::Plain => run_plain(shell, command, env, cwd, after_spawn),
         Mode::Pty => {
             let redactor = Arc::new(redactor.unwrap());
             #[cfg(unix)]
             {
-                pty::run(shell, command, env, cwd, redactor)
+                pty::run(shell, command, env, cwd, redactor, after_spawn)
             }
             #[cfg(not(unix))]
             {
-                piped::run(shell, command, env, cwd, redactor)
+                piped::run(shell, command, env, cwd, redactor, after_spawn)
             }
         }
-        Mode::Piped => piped::run(shell, command, env, cwd, Arc::new(redactor.unwrap())),
+        Mode::Piped => piped::run(
+            shell,
+            command,
+            env,
+            cwd,
+            Arc::new(redactor.unwrap()),
+            after_spawn,
+        ),
     }
 }
 
-fn prepare_child(
+/// Starts `command` in `shell`, which reads the whole line. `stdio` wires
+/// the child's streams.
+fn spawn_child(
     shell: &Shell,
     command: &str,
     env: HashMap<String, String>,
     cwd: &Path,
-) -> std::process::Command {
-    // A mise shim standing in for the shell drops pinned dirs from PATH
-    // before the script runs, so the script sets PATH again first.
-    let script = match env
+    stdio: impl Fn(&mut std::process::Command) -> std::io::Result<()>,
+) -> std::io::Result<std::process::Child> {
+    let path = env
         .get("PATH")
         .cloned()
-        .or_else(|| std::env::var("PATH").ok())
-    {
+        .or_else(|| std::env::var("PATH").ok());
+    // A mise shim standing in for the shell drops pinned dirs from PATH
+    // before the script runs, so the script sets PATH again first.
+    let script = match &path {
         Some(path) => format!(
             "{}\n{command}",
-            shell.set(HashMap::from([("PATH".to_string(), path)]))
+            shell.set(HashMap::from([("PATH".to_string(), path.clone())]))
         ),
         None => command.to_string(),
     };
-    let mut cmd = shell.prepare_command(&script);
+    // A bare name with PATH in the child env makes std fork the whole
+    // process and search PATH in the child: 20 to 30 ms under load. The
+    // same lookup here lets it posix_spawn the path.
+    let mut cmd = match path.and_then(|path| path::resolve(shell.bin(), &path)) {
+        Some(program) => {
+            use std::os::unix::process::CommandExt;
+            let mut cmd = std::process::Command::new(program);
+            cmd.arg0(shell.bin())
+                .args(shell.noninteractive_args(&script));
+            cmd
+        }
+        None => shell.prepare_command(&script),
+    };
+    child_env(&mut cmd, env, cwd);
+    stdio(&mut cmd)?;
+    let child = cmd.spawn();
+    log_spawn(shell.bin());
+    child
+}
+
+fn log_spawn(how: &str) {
+    if let Some(started) = crate::STARTED.get() {
+        crate::wrap::log_phase(&format!("main to spawn ({how})"), *started);
+    }
+}
+
+fn child_env(cmd: &mut std::process::Command, env: HashMap<String, String>, cwd: &Path) {
     cmd.current_dir(cwd);
     cmd.envs(std::env::vars());
-    crate::preexec::strip_child_protocol(&mut cmd);
+    crate::preexec::strip_child_protocol(cmd);
     cmd.env_remove("BASH_ENV");
     cmd.env_remove("MISE_ENV");
     cmd.env_remove("MISE_SETTINGS");
     cmd.envs(env);
-    cmd
 }
 
 fn run_plain(
@@ -93,12 +132,17 @@ fn run_plain(
     command: &str,
     env: HashMap<String, String>,
     cwd: &Path,
+    after_spawn: impl FnOnce(),
 ) -> Result<i32> {
     let watch = crate::child_signals::ChildWatch::new();
     // Stay in lade's session. A new session here would let the child take
     // the inherited TTY and hang it up on exit.
-    let mut child = prepare_child(shell, command, env, cwd).spawn()?;
-    watch.set_pid(child.id(), false);
+    let spawned = spawn_child(shell, command, env, cwd, |_| Ok(()));
+    if let Ok(child) = &spawned {
+        watch.set_pid(child.id(), false);
+    }
+    after_spawn();
+    let mut child = spawned?;
     let status = child.wait()?;
     watch.clear_pid();
     Ok(status.code().unwrap_or(1))

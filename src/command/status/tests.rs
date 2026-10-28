@@ -1,6 +1,7 @@
 use chrono::{DateTime, Local, NaiveTime};
 
-use super::print::{format_bytes, format_tried_at, pretool_flag, table_lines};
+use super::format::{format_bytes, format_tried_at, table_lines};
+use super::print::pretool_flag;
 use crate::command::ttl::{format_duration_ms, window_with_cap};
 
 #[test]

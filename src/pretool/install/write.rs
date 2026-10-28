@@ -7,7 +7,7 @@ use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
 use super::locate::{
-    canonical_project_path, find_project, hook_state, leftover_claude_local, leftover_json_hook,
+    canonical_project_path, claude_shared_hook, find_project, hook_state, leftover_json_hook,
     project_dest,
 };
 use super::opencode::{OpenCodeApi, is_pristine, plugin};
@@ -129,7 +129,7 @@ fn leftover_for(
 ) -> Result<Option<(PathBuf, String)>> {
     match (scope, agent) {
         (Scope::User, _) => leftover_json_hook(agent, home),
-        (Scope::Project, Agent::Claude) => leftover_claude_local(dest),
+        (Scope::Project, Agent::Claude) => claude_shared_hook(dest),
         (Scope::Project, _) => Ok(None),
     }
 }

@@ -43,6 +43,7 @@ mod raw;
 mod sh;
 mod sops;
 mod support;
+pub mod terminal;
 mod vault;
 
 pub(crate) use support::*;

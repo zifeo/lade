@@ -1,13 +1,12 @@
-use std::io::IsTerminal;
 use std::path::Path;
 
-use chrono::{DateTime, Local, Utc};
-use owo_colors::{OwoColorize, Style};
+use chrono::Local;
 
 use crate::command::ttl::{format_duration_ms, format_ttl_left, window_with_cap};
 use crate::hub::HubState;
 use crate::preexec::path_for_display;
 
+use super::format::{Printer, format_bytes, format_tried_at};
 use super::{GlobalConfigInfo, HubStatus, StatusReport};
 
 pub(super) fn print_human(report: &StatusReport) {
@@ -71,8 +70,15 @@ fn print_lade(out: &Printer, report: &StatusReport) {
 }
 
 fn print_preexec(out: &Printer, report: &StatusReport) {
-    let preexec = &report.hooks.preexec;
     out.blank();
+    let Some(preexec) = &report.hooks.preexec else {
+        out.heading("Pre-exec");
+        out.pairs(&[(
+            "shell",
+            "none started Lade: run `lade status` from bash, zsh, or fish".to_string(),
+        )]);
+        return;
+    };
     out.heading(&format!("Pre-exec ({})", preexec.shell));
     out.pairs(&[
         ("profile", path_for_display(&preexec.profile)),
@@ -150,7 +156,11 @@ fn print_hub(out: &Printer, hub: &HubStatus, config: &GlobalConfigInfo) {
             }
         ));
     }
-    let mut rows = vec![("state", state), ("max cache", max_cache)];
+    let mut rows = vec![
+        ("state", state),
+        ("max cache", max_cache),
+        ("guard", memory_line(&hub.memory)),
+    ];
     if info.state == HubState::Up {
         rows.push((
             "cache",
@@ -280,118 +290,20 @@ fn print_project(out: &Printer, report: &StatusReport) {
     );
 }
 
+fn memory_line(guard: &crate::hub::MemoryGuard) -> String {
+    use crate::hub::MemoryGuard;
+    match guard {
+        MemoryGuard::HardenedRuntime => "cache on: hardened runtime, no debugger attaches".into(),
+        MemoryGuard::NotDumpable => "cache on: hub not dumpable, no debugger attaches".into(),
+        MemoryGuard::DebugBuild => "cache on: debug build, no memory guard".into(),
+        MemoryGuard::Off { detail } => format!("cache off: {detail}"),
+    }
+}
+
 pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {
     match (installed, current) {
         (true, true) => "current",
         (true, false) => "not current",
         (false, _) => "missing",
-    }
-}
-
-const INDENT: &str = "  ";
-const GAP: &str = "  ";
-
-struct Printer {
-    colored: bool,
-}
-
-impl Printer {
-    fn new() -> Self {
-        let colored = std::env::var_os("NO_COLOR").is_none()
-            && !std::env::var("TERM").is_ok_and(|term| term.eq_ignore_ascii_case("dumb"))
-            && std::io::stdout().is_terminal();
-        Self { colored }
-    }
-
-    fn styled(&self, text: &str, style: Style) -> String {
-        if self.colored {
-            text.style(style).to_string()
-        } else {
-            text.to_string()
-        }
-    }
-
-    fn heading(&self, text: &str) {
-        println!("{}", self.styled(text, Style::new().bold()));
-    }
-
-    fn line(&self, text: &str) {
-        println!("{INDENT}{text}");
-    }
-
-    fn blank(&self) {
-        println!();
-    }
-
-    fn pairs(&self, rows: &[(&str, String)]) {
-        let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
-        for (label, value) in rows {
-            let label = self.styled(&format!("{label:<width$}"), Style::new().dimmed());
-            println!("{INDENT}{label}{GAP}{value}");
-        }
-    }
-
-    fn table(&self, headers: &[&str], rows: &[Vec<String>]) {
-        let header = headers.iter().map(|h| h.to_string()).collect::<Vec<_>>();
-        let lines = table_lines(&header, rows);
-        let (first, rest) = lines.split_first().expect("a table has a header");
-        println!("{INDENT}{}", self.styled(first, Style::new().dimmed()));
-        for line in rest {
-            println!("{INDENT}{line}");
-        }
-    }
-}
-
-/// Left-aligned columns, no trailing spaces. The header is the first line.
-pub(super) fn table_lines(header: &[String], rows: &[Vec<String>]) -> Vec<String> {
-    let mut widths = header.iter().map(|h| h.chars().count()).collect::<Vec<_>>();
-    for row in rows {
-        for (width, cell) in widths.iter_mut().zip(row) {
-            *width = (*width).max(cell.chars().count());
-        }
-    }
-    std::iter::once(header)
-        .chain(rows.iter().map(Vec::as_slice))
-        .map(|cells| {
-            let line = cells
-                .iter()
-                .zip(&widths)
-                .map(|(cell, width)| {
-                    let pad = width - cell.chars().count();
-                    format!("{cell}{}", " ".repeat(pad))
-                })
-                .collect::<Vec<_>>()
-                .join(GAP);
-            line.trim_end().to_string()
-        })
-        .collect()
-}
-
-pub(super) fn format_bytes(n: u64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-    const GB: f64 = MB * 1024.0;
-    if n < 1024 {
-        format!("{n} B")
-    } else if (n as f64) < MB {
-        format!("{:.1} KB", n as f64 / KB)
-    } else if (n as f64) < GB {
-        format!("{:.1} MB", n as f64 / MB)
-    } else {
-        format!("{:.1} GB", n as f64 / GB)
-    }
-}
-
-pub(super) fn format_tried_at(checked_at: DateTime<Utc>, now: DateTime<Local>) -> String {
-    let local = checked_at.with_timezone(&Local);
-    let today = now.date_naive();
-    let day = local.date_naive();
-    let time = local.format("%H:%M");
-    if day == today {
-        format!("tried today at {time}")
-    } else if day.checked_add_days(chrono::Days::new(1)) == Some(today) {
-        format!("tried yesterday at {time}")
-    } else {
-        format!("tried {} at {time}", local.format("%d %b %Y"))
     }
 }

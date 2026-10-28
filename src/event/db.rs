@@ -173,12 +173,6 @@ pub fn verify_live() -> rusqlite::Result<super::ChainStatus> {
     chain::verify(&open()?)
 }
 
-pub fn warmup() {
-    if let Err(err) = open() {
-        log::debug!("lade event open failed: {err}");
-    }
-}
-
 pub fn info_for_repo(repo: Option<&str>) -> LogInfo {
     let path = db_path();
     if !path.is_file() {

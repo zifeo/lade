@@ -145,3 +145,45 @@ fn delete_trigger_blocks_raw_sql() {
         assert!(verify_live().unwrap().ok);
     });
 }
+
+#[test]
+fn opening_the_diary_never_scans_every_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        emit(seen_emit("echo"));
+        let conn = open().unwrap();
+        let plan: Vec<String> = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", chain::UNSEALED_PROBE))
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !plan.iter().any(|detail| detail.starts_with("SCAN events")),
+            "{plan:?}"
+        );
+    });
+}
+
+#[test]
+fn open_seals_rows_an_older_lade_left_unsealed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        emit(seen_emit("echo"));
+        emit(seen_emit("ls"));
+        let conn = rusqlite::Connection::open(db_path()).unwrap();
+        conn.execute(
+            "UPDATE events SET seq = NULL, prev_hash = NULL, row_hash = NULL, seal_ver = NULL",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM chain_head", []).unwrap();
+        emit(seen_emit("pwd"));
+        let status = verify_live().unwrap();
+        assert!(status.ok, "{status:?}");
+        assert_eq!(status.rows, 3);
+    });
+}

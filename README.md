@@ -48,6 +48,8 @@ Or from GitHub:
 
 ```bash
 cargo install --git https://github.com/zifeo/lade --locked
+# macOS: the secret cache needs hardened runtime (ad hoc, no Apple account).
+codesign --force --sign - --options runtime "$(command -v lade)"
 ```
 
 ## Patterns
@@ -233,10 +235,14 @@ var.
 Every provider answers within **10 seconds**, or the command stops
 with an error naming it. A locked or logged-out vault fails fast.
 1Password, age, and SOPS get **30 seconds**: they can wait on Touch
-ID or a hardware key touch. `lade status` lists each timeout.
+ID or a hardware key touch. `lade status` lists each timeout. At a
+terminal, a provider CLI gets the keyboard while it runs, so it can
+ask (`bw unlock`, an MFA code, `sh://read`). A tunnel cannot: it runs
+in the hub, away from any terminal.
 
-Vault, file, sops, and age stay in RAM for **5 minutes** after the
-first hydrate. Set `ttl:` on that rule's `.` to turn it off or
+Every value a provider resolves (vault, 1Password, file, sops, age,
+cloud) stays in RAM for **5 minutes** after the first hydrate, so a
+Touch ID or key touch is not asked again in that time. Set `ttl:` on that rule's `.` to turn it off or
 raise it, up to **24 hours**. Shell URIs stay off unless that body
 sets `ttl:`. Raw and packages never cache. Tunnels have no
 default: see [Tunnel](#tunnel).
@@ -423,6 +429,12 @@ missing later, `lade status` and setup point at
 `lade hook enable --harness <slug>` (recovery; hidden from default
 `--help`, see [docs/protocol.md](docs/protocol.md)).
 
+A pre-tool hook reads the yaml of the directory the command runs in:
+the harness's working directory, then any leading `cd <dir> &&`. A
+bare `cd`, `pushd`, or `popd` is never wrapped, so the harness shell
+moves. A wrapped command runs in the harness's own shell, even when
+the harness started in a terminal with `lade on` in another shell.
+
 ## When, users, approval
 
 `when` is `always` (default), `human`, or `agent`.
@@ -469,7 +481,7 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | `lade bench` | Time parse, match, hydrate. Hidden from `lade --help`. `--json`, `--timeout`. |
 | `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
 | `lade status` | Version, hooks, mise, providers, hub counts. `--json`, `--all`. |
-| `lade ttl` | This binary's hub: cached key names and tunnels. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. Was `lade cache`. |
+| `lade ttl` | This binary's hub: cached key names and tunnels. `list`, `set 2h`, `unset`, `forget [KEY]`. Never values. |
 | `lade log` / `lade usage` | Diary queries. See [docs/observability.md](docs/observability.md). |
 | `lade mcp` | MCP bridge (below). |
 | `lade -- <cmd>` | One-shot wrap (same as documented inject path). |

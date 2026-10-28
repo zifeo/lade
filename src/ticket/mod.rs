@@ -174,6 +174,37 @@ pub fn legacy_network_pids(id: &str) -> Vec<u32> {
 }
 
 /// Missing file is Ok.
+/// A pre-tool ticket nobody read within this long never will be: the
+/// harness denied or dropped its command, or the line never ran Lade.
+pub const PRETOOL_UNREAD: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Deletes pre-tool tickets older than `age`. A wrap that comes later
+/// still runs: it reads the yaml instead. Pre-exec tickets stay, since
+/// `lade unset` needs theirs when a long command ends.
+pub fn sweep_pretool(age: std::time::Duration) {
+    let Ok(entries) = fs::read_dir(dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|modified| modified.elapsed().is_ok_and(|elapsed| elapsed > age));
+        if !stale || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        // A ticket that does not parse is of no use to any reader.
+        let pretool = fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<PreEvent>(&bytes).ok())
+            .is_none_or(|pre| pre.via == crate::audience::Via::PRETOOL);
+        if pretool {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
 pub fn exists(id: &str) -> bool {
     is_id(id) && path(id).exists()
 }

@@ -60,26 +60,24 @@ fn count_label(n: usize, noun: &str) -> String {
     }
 }
 
+// Every writer sets seq with row_hash, and only seq is indexed: a probe on
+// row_hash read the whole diary on every open.
+pub(crate) const UNSEALED_PROBE: &str = "SELECT EXISTS(SELECT 1 FROM events WHERE seq IS NULL)";
+
 pub fn backfill(conn: &mut Connection) -> rusqlite::Result<()> {
-    let needs_seal: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM events WHERE row_hash IS NULL)",
-        [],
-        |row| row.get(0),
-    )?;
+    let needs_seal: bool = conn.query_row(UNSEALED_PROBE, [], |row| row.get(0))?;
     if needs_seal {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let pending = load_events(
             &tx,
-            &format!(
-                "SELECT {EVENT_COLS} FROM events WHERE row_hash IS NULL ORDER BY ts ASC, id ASC"
-            ),
+            &format!("SELECT {EVENT_COLS} FROM events WHERE seq IS NULL ORDER BY ts ASC, id ASC"),
             [],
         )?;
         for event in pending {
             let (seq, prev_hash, row_hash, epoch) = next_seal(&tx, &event)?;
             tx.execute(
                 "UPDATE events SET seq = ?2, prev_hash = ?3, row_hash = ?4, seal_ver = ?5
-                 WHERE id = ?1 AND row_hash IS NULL",
+                 WHERE id = ?1 AND seq IS NULL",
                 params![event.id, seq, prev_hash, row_hash, super::SEAL_VER],
             )?;
             write_head(

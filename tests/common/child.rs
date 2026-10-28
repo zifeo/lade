@@ -179,6 +179,8 @@ pub fn spawn_inject(
 ) -> LadeChild {
     let mut cmd = super::lade_std(home);
     cmd.current_dir(cwd);
+    // No shell starts Lade here, so `sh` runs the line; `exec` makes the
+    // script the child Lade signals.
     if no_mask {
         cmd.args(["inject", "--no-mask", "--", "exec"]);
     } else {

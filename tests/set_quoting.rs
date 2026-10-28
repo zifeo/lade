@@ -22,9 +22,8 @@ const VALUES: [&str; 7] = [
 ];
 
 fn set_output(home: &Path, project: &Path, shell: &str) -> std::process::Output {
-    common::lade_std(home)
+    common::lade_in(home, shell)
         .current_dir(project)
-        .env("LADE_SHELL", shell)
         .args(["set", "mycmd"])
         .output()
         .unwrap()

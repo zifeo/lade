@@ -251,3 +251,52 @@ fn hook_no_match_walk_log_writes_seen() {
     assert_eq!(rows[0]["agent"]["harness"], "cursor");
     assert_eq!(rows[0]["agent"]["session"], "conv_1");
 }
+
+#[test]
+fn a_failing_command_keeps_its_access_row() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml_raw(dir.path(), ".:\n  .:\n    log: true\n  APP_MODE: staging\n");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--no-mask", "sh -c 'exit 3'"])
+        .assert()
+        .code(3);
+    let rows = log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().unwrap().len(), 1, "{rows}");
+    assert_eq!(rows[0]["kind"], "access");
+    assert_eq!(rows[0]["matches"][0]["bindings"][0]["key"], "APP_MODE");
+}
+
+#[test]
+fn a_command_that_cannot_start_keeps_its_access_row() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml_raw(dir.path(), ".:\n  .:\n    log: true\n  APP_MODE: staging\n");
+    // No `bash` on PATH: the shell the command needs never starts.
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("PATH", dir.path())
+        .args(["inject", "--no-mask", "echo hi"])
+        .assert()
+        .failure();
+    let rows = log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().unwrap().len(), 1, "{rows}");
+    assert_eq!(rows[0]["kind"], "access");
+}
+
+#[test]
+fn a_seen_row_is_written_for_a_direct_child() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "--no-mask", "env"])
+        .assert()
+        .success();
+    let rows = log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().unwrap().len(), 1, "{rows}");
+    assert_eq!(rows[0]["kind"], "seen");
+    assert_eq!(row_line(&rows[0]), "env");
+}

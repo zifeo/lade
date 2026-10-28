@@ -1,7 +1,7 @@
 pub(crate) mod add;
 mod bench;
 mod eval;
-mod notice;
+pub(crate) mod notice;
 mod setup;
 mod status;
 mod ttl;
@@ -13,6 +13,7 @@ use std::io::Read;
 
 use crate::args;
 use crate::args::{Command, EvalCommand, HookAction, HookTarget};
+use crate::audience::Via;
 use crate::config::Config;
 use crate::context::InvocationContext;
 use crate::event;
@@ -212,8 +213,8 @@ pub(crate) async fn run_config_verbs(
                     .print_stderr();
                 std::process::exit(exit_codes::FAILURE);
             }
-            let shell = Shell::detect()?;
             let command = opts.commands.join(" ");
+            let shell = run_shell(ctx)?;
             finish_wrapped(map_disclaimer_exit(
                 run_inject(command, opts, ctx, config, &shell, &current_dir).await,
             ))
@@ -222,7 +223,7 @@ pub(crate) async fn run_config_verbs(
             mcp::run(opts, ctx, config, &current_dir).await,
         )),
         Command::Approve { code } => {
-            let shell = Shell::detect()?;
+            let shell = run_shell(ctx)?;
             finish_wrapped(map_disclaimer_exit(
                 handle_approve(ctx, config, &shell, current_dir, code).await,
             ))
@@ -246,6 +247,31 @@ pub(crate) async fn run_config_verbs(
         }
         _ => unreachable!(),
     }
+}
+
+/// The shell the command was written for: the one that started Lade. A
+/// task runner (make, npm, just) runs its line with `sh -c`, which execs
+/// Lade and leaves the runner as its parent: such a line was written for
+/// `sh`. A pre-tool line was written for the harness shell, which must be
+/// the parent.
+fn run_shell(ctx: &InvocationContext) -> Result<Shell> {
+    let error = match Shell::detect() {
+        Ok(shell) => return Ok(shell),
+        Err(e) => e,
+    };
+    if ctx.via != Via::Pretool {
+        return Ok(Shell::Sh);
+    }
+    MessageBox::new()
+        .error()
+        .line("A pre-tool command runs in the shell that started Lade.")
+        .line("")
+        .paragraph(format!("{error:#}."))
+        .line("")
+        .line("Run it from bash, zsh, fish, or sh. The pre-tool hook")
+        .line("ends its rewrite with `&& true` so the shell stays.")
+        .print_stderr();
+    std::process::exit(exit_codes::FAILURE);
 }
 
 fn hook_scope(global: bool) -> pretool::install::Scope {

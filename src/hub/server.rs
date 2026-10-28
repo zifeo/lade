@@ -35,7 +35,8 @@ pub(super) async fn serve_until_idle(
     stop: impl Future<Output = ()>,
 ) -> anyhow::Result<()> {
     let snap = peer::snapshot_self().ok_or_else(|| anyhow::anyhow!("hub image inode"))?;
-    let want = snap.inode();
+    let want = peer::Identity::of_self(snap.inode());
+    super::guard::lock_memory();
     let path = socket_path();
     let lock = lock_path();
     if let Some(parent) = path.parent() {
@@ -57,7 +58,7 @@ pub(super) async fn serve_until_idle(
             accepted = listener.accept() => {
                 let (stream, _) = accepted?;
                 last_request = now();
-                let conn = handle_conn(&mut tables, stream, want);
+                let conn = handle_conn(&mut tables, stream, &want);
                 let after = tokio::time::timeout(CONN_TIMEOUT, conn)
                     .await
                     .unwrap_or(AfterConn::Continue);
@@ -70,7 +71,7 @@ pub(super) async fn serve_until_idle(
             }
             () = tokio::time::sleep(nap(&tables, idle)) => {
                 let reachable =
-                    peer::inode_of(&path) == Some(bound) && peer::image_is_current(want);
+                    peer::inode_of(&path) == Some(bound) && peer::image_is_current(want.inode);
                 if should_exit(&mut tables, reachable, since(last_request) >= idle) {
                     break;
                 }
@@ -108,7 +109,11 @@ fn should_exit(tables: &mut Tables, reachable: bool, idle: bool) -> bool {
     !reachable || (idle && empty)
 }
 
-async fn handle_conn(tables: &mut Tables, mut stream: UnixStream, want: (u64, u64)) -> AfterConn {
+async fn handle_conn(
+    tables: &mut Tables,
+    mut stream: UnixStream,
+    want: &peer::Identity,
+) -> AfterConn {
     if !peer::peer_allowed(&stream, want) {
         send_denied(&mut stream).await;
         return AfterConn::Continue;

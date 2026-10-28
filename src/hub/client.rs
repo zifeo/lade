@@ -219,6 +219,17 @@ pub fn put_t(id: &str) {
 
 /// `put_t` that also asks for the hourly notice slot. Starts the hub when it
 /// is down. `Some` only when this caller owns the slot.
+/// The hourly slot for a pre-tool wrap, which already uses the hub.
+pub fn notice_slot() -> Option<VersionLedger> {
+    match rpc_within(Req::Notice, true, COMMAND_DEADLINE) {
+        Some(Rep::Notice {
+            check: true,
+            version,
+        }) => Some(version),
+        _ => None,
+    }
+}
+
 pub fn put_t_notice(id: &str) -> Option<VersionLedger> {
     match rpc_within(put_t_req(id, true)?, true, COMMAND_DEADLINE) {
         Some(Rep::Notice {

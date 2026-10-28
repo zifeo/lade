@@ -49,7 +49,11 @@ use command::{run_config_verbs, run_standalone};
 use config::LadeFile;
 use context::InvocationContext;
 
+/// When `main` began, for `lade::timing`.
+pub(crate) static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 pub fn cli_main() -> Result<()> {
+    STARTED.get_or_init(std::time::Instant::now);
     #[cfg(target_family = "unix")]
     {
         // fix the pipe: https://github.com/rust-lang/rust/issues/46016
@@ -110,13 +114,6 @@ async fn run() -> Result<()> {
 
     let pretool = args.pretool;
     let command = match args.command {
-        Some(Command::InjectAlias(commands)) if commands.first().is_some_and(|c| c == "cache") => {
-            message_box::MessageBox::new()
-                .error()
-                .paragraph("`lade cache` is now `lade ttl`. To run a program named cache, use `lade inject cache`.")
-                .print_stderr();
-            std::process::exit(exit_codes::FAILURE);
-        }
         Some(Command::InjectAlias(commands)) => Command::Inject(InjectCommand {
             no_mask: false,
             mask_format: DEFAULT_MASK_FORMAT.to_string(),
@@ -151,6 +148,8 @@ async fn run() -> Result<()> {
             std::process::exit(exit_codes::FAILURE);
         }
     };
+    message_box::set_terse(ctx.audience == config::Audience::Agent);
+    lade_sdk::terminal_hooks(wrap::before_lend, wrap::after_lend);
     let Some(command) = run_standalone(command, &ctx).await? else {
         return Ok(());
     };

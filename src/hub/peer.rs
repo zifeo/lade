@@ -56,17 +56,40 @@ fn image_token() -> Option<String> {
     Some(out)
 }
 
-pub fn peer_allowed(stream: &impl AsRawFd, want: (u64, u64)) -> bool {
+/// The binary the hub serves: its own. Values cross the socket in
+/// plaintext, so this is what keeps them in Lade.
+pub struct Identity {
+    pub inode: (u64, u64),
+    /// macOS: the kernel's name for this code, when it is signed.
+    #[cfg(target_os = "macos")]
+    cdhash: Option<[u8; 20]>,
+}
+
+impl Identity {
+    pub fn of_self(inode: (u64, u64)) -> Self {
+        Self {
+            inode,
+            #[cfg(target_os = "macos")]
+            cdhash: super::guard::own_cdhash(),
+        }
+    }
+}
+
+pub fn peer_allowed(stream: &impl AsRawFd, want: &Identity) -> bool {
     let Some(uid) = peer_uid(stream) else {
         return false;
     };
     if uid != current_uid() {
         return false;
     }
+    #[cfg(target_os = "macos")]
+    if let Some(cdhash) = want.cdhash {
+        return super::guard::peer_cdhash(stream) == Some(cdhash);
+    }
     let Some(pid) = peer_pid(stream) else {
         return false;
     };
-    peer_exe_inode(pid) == Some(want)
+    peer_exe_inode(pid) == Some(want.inode)
 }
 
 fn current_uid() -> u32 {

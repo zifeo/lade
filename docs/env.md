@@ -14,7 +14,6 @@ See also [protocol.md](protocol.md) (T tickets), [architecture.md](architecture.
 | --- | --- |
 | `LADE_CONFIG_PATH` | Path to the global config file (`config.json`: the Lade user and `max_cache`). Default: XDG config dir. |
 | `LADE_CACHE_DIR` | Override the hub socket / ticket / mise-env root. Tests and tape render set this. Without it and without a home directory, Lade stops with a box. |
-| `LADE_WRAP_KEY` | 64 hex chars (32 bytes). Tests and CI only. Replaces Keychain / `@s`. Bad hex skips the hub. |
 
 ## Installer and CI
 
@@ -40,13 +39,11 @@ Set by Lade or the shell hook. Do not rely on these in scripts.
 | `LADE_RESTORE` | Previous env snapshot for pre-exec cleanup. May contain secrets. |
 | `LADE_APPROVE` | Per-command disclaimer code (`sha256(command + window)[:5]`). Prefix the command or run `lade approve`. |
 | `LADE_BIN` | `age-plugin-lade` uses this to find `lade eval` when not on `PATH`. |
-| `LADE_EVENTS` | `off` disables diary writes. |
 | `LADE_EVENTS_PATH` | Override diary database path (tests). |
 | `LADE_TICKET_DIR` | Override pretool ticket directory (tests). |
-| `LADE_LOG` | `env_logger` filter for debug builds. `lade::timing=info` logs how long each hydrate phase and provider took. |
-| `LADE_SHELL` | Shell family hint (`bash`, `zsh`, `fish`) when detection is ambiguous. |
+| `LADE_LOG` | `env_logger` filter (`debug`, `lade::hub=debug`). `lade::timing=info` logs how long each hydrate phase and provider took. |
 
-Leftover `LADE_VIA` is ignored. Via and audience are chosen per
+Leftover `LADE_VIA` is ignored. The shell is always the process that started Lade ([protocol.md](protocol.md#shell)). Via and audience are chosen per
 invocation, not from the environment.
 
 ## Harness detection

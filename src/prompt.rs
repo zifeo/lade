@@ -87,12 +87,9 @@ pub async fn resolve_disclaimers(
             .line("Disclaimer required. Access is withheld:")
             .paragraphs(disclaimers.iter().map(|d| format!("> {d}")))
             .line("");
-        // Agents have no shell-held ticket, so `lade approve` is useless to
-        // them; point them at the code prefix instead.
+        // The code would let an agent approve on its own: only a human may.
         mb = if ctx.audience == crate::config::Audience::Agent {
-            mb.line(format!(
-                "Ask the user to approve, then re-run the command prefixed with LADE_APPROVE={code}."
-            ))
+            mb.line("Only a human can approve it: ask them to run this command in their terminal.")
         } else {
             mb.line(format!(
                 "To approve, re-run the command prefixed with LADE_APPROVE={code}, or run `lade approve {code}`."

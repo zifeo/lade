@@ -12,12 +12,11 @@ pub(super) fn leftover_json_hook(agent: Agent, home: &Path) -> Result<Option<(Pa
     leftover_hook_file(Agent::Claude, &path)
 }
 
-/// Claude still loads this file. Lade never writes it; disable/teardown strip it.
-pub(super) fn leftover_claude_local(dest: &Path) -> Result<Option<(PathBuf, String)>> {
-    leftover_hook_file(
-        Agent::Claude,
-        &dest.join(".claude").join("settings.local.json"),
-    )
+/// The shared file, which Claude reads only in the directory it starts in:
+/// a Lade hook there misses a session started in a subdirectory. Enable
+/// moves it to `settings.local.json`; disable strips both.
+pub(super) fn claude_shared_hook(dest: &Path) -> Result<Option<(PathBuf, String)>> {
+    leftover_hook_file(Agent::Claude, &dest.join(".claude").join("settings.json"))
 }
 
 fn leftover_hook_file(agent: Agent, path: &Path) -> Result<Option<(PathBuf, String)>> {
@@ -61,7 +60,8 @@ pub(super) fn find_project(agent: Agent, home: &Path, cwd: &Path) -> Result<(Pat
 pub(super) fn canonical_project_path(agent: Agent, dest: &Path) -> PathBuf {
     match agent {
         Agent::Cursor => dest.join(".cursor").join("hooks.json"),
-        Agent::Claude => dest.join(".claude").join("settings.json"),
+        // Read from the git root even when Claude starts in a subdirectory.
+        Agent::Claude => dest.join(".claude").join("settings.local.json"),
         Agent::Codex => dest.join(".codex").join("hooks.json"),
         Agent::OpenCode => dest
             .join(".opencode")

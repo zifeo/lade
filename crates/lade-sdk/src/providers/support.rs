@@ -63,6 +63,7 @@ pub(crate) async fn run_cli(
     let mut c = cli_command(cmd, extra_env, cwd);
     let child = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
     let group = GroupKill::of(child.id());
+    let _terminal = super::terminal::Lease::take(child.id());
     let output = child
         .wait_with_output()
         .await

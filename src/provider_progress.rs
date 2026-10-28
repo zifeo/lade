@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::Mutex;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -36,7 +37,6 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
         let mut frame_idx = 0usize;
         let mut order = Vec::<String>::new();
         let mut states = HashMap::<String, (String, LiveKind)>::new();
-        let mut drawn_lines = 0usize;
 
         loop {
             match rx.recv_timeout(Duration::from_millis(120)) {
@@ -44,7 +44,8 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
                     if !states.contains_key(&event.id) {
                         order.push(event.id.clone());
                     }
-                    if !rich_tty {
+                    // An agent needs no news that a secret loaded.
+                    if !rich_tty && !crate::message_box::terse() {
                         let message = match &event.kind {
                             ProviderProgressKind::Connecting => {
                                 format!("Lade connecting: {}", event.display)
@@ -60,24 +61,17 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
                     }
                     states.insert(event.id, (event.display, map_kind(event.kind)));
                     if rich_tty {
-                        drawn_lines = live_progress::redraw(
-                            &order,
-                            &states,
-                            live_progress::FRAMES[frame_idx],
-                            drawn_lines,
-                        );
+                        draw(&order, &states, live_progress::FRAMES[frame_idx]);
                     }
                     continue;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     if rich_tty {
-                        let _ = live_progress::redraw(
-                            &order,
-                            &states,
-                            live_progress::FRAMES[frame_idx],
-                            drawn_lines,
-                        );
+                        draw(&order, &states, live_progress::FRAMES[frame_idx]);
+                        if let Ok(mut drawn) = DRAWN.lock() {
+                            *drawn = 0;
+                        }
                         if !order.is_empty() {
                             let mut stderr = std::io::stderr();
                             let _ = writeln!(stderr);
@@ -89,12 +83,7 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
             }
 
             if rich_tty && !order.is_empty() {
-                drawn_lines = live_progress::redraw(
-                    &order,
-                    &states,
-                    live_progress::FRAMES[frame_idx],
-                    drawn_lines,
-                );
+                draw(&order, &states, live_progress::FRAMES[frame_idx]);
                 frame_idx = (frame_idx + 1) % live_progress::FRAMES.len();
             }
         }
@@ -102,6 +91,31 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
     ProviderProgressRenderer {
         sink: ProviderProgressSink { tx },
         join,
+    }
+}
+
+/// Lines the spinner has on screen. A provider lent the terminal may write
+/// below them, so they are wiped first and redrawn after.
+static DRAWN: Mutex<usize> = Mutex::new(0);
+
+/// Never while a provider holds the terminal: no frame over its prompt.
+fn draw(order: &[String], states: &HashMap<String, (String, LiveKind)>, frame: &str) {
+    if lade_sdk::terminal_lent() {
+        return;
+    }
+    if let Ok(mut drawn) = DRAWN.lock() {
+        *drawn = live_progress::redraw(order, states, frame, *drawn);
+    }
+}
+
+/// Before a provider gets the terminal: wipe the spinner, cursor back at its
+/// first line, so the next frame lands where the provider's output ends.
+pub(crate) fn wipe() {
+    if let Ok(mut drawn) = DRAWN.lock()
+        && *drawn > 0
+    {
+        live_progress::redraw(&[], &HashMap::new(), "", *drawn);
+        *drawn = 0;
     }
 }
 

@@ -21,7 +21,7 @@
 mod harness;
 
 use harness::{
-    CPR_MARKER, Harness, OSC_MARKER, contains, drive, run_until_exit, spawn_with,
+    CPR_MARKER, Harness, OSC_MARKER, contains, drive, run_in, run_until_exit, spawn_in, spawn_with,
     write_redactor_yml,
 };
 use std::os::fd::AsFd;
@@ -164,4 +164,27 @@ fn secret_is_redacted_on_pty_path() {
         contains(&captured, b"${LADE_HARNESS_SECRET:-REDACTED}"),
         "expected redaction token in captured output; got (lossy):\n{text}"
     );
+}
+
+// A provider CLI runs in its own process group, so a timeout kills what it
+// started. In a real terminal that group is in the background, where a read
+// stops it: Lade lends it the terminal while it runs, so it can ask.
+#[test]
+fn a_provider_can_ask_on_the_terminal() {
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    std::fs::write(
+        project.join("lade.yml"),
+        "\"^printf\":\n  ANSWER: 'sh://printf \"answer? \" >/dev/tty; read -r x </dev/tty; printf %s \"$x\"'\n",
+    )
+    .unwrap();
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_in(&lade_bin, project, "printf 'got %s\\n' ${#ANSWER}", true);
+    let (captured, status) = run_in(harness, Some((b"answer? ", b"typed\n")));
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        status.success(),
+        "lade exit status={status:?} captured:\n{text}"
+    );
+    assert!(contains(&captured, b"got 5"), "captured:\n{text}");
 }
