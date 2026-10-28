@@ -61,7 +61,7 @@ pub fn run(
     // Cloning the master fd decouples the redactor read loop from the
     // resize thread's own clone of `master`.
     let master_for_read = master.try_clone()?;
-    let mut master_reader = File::from(master_for_read);
+    let mut master_reader = MasterReader(File::from(master_for_read));
     // The pump starts before the diary write, so a slow diary never holds
     // the output back.
     let pump = std::thread::spawn(move || {
@@ -75,6 +75,20 @@ pub fn run(
     drop(_resize);
     drop(master);
     Ok(status.code().unwrap_or(1))
+}
+
+/// Linux answers `EIO`, not end of file, on a master whose child side has
+/// closed. As an error it would drop the redactor's carry, the last bytes
+/// the command wrote.
+struct MasterReader(File);
+
+impl std::io::Read for MasterReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.read(buf) {
+            Err(error) if error.raw_os_error() == Some(nix::libc::EIO) => Ok(0),
+            read => read,
+        }
+    }
 }
 
 #[cfg(unix)]

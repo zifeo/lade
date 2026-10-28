@@ -193,6 +193,10 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
   load. The diary row is written once the command has started, on a
   connection opened while it got ready. See
   [docs/observability.md](docs/observability.md).
+- **Lost end of output on Linux:** in a terminal, a command run with
+  secrets lost its last bytes, up to the length of the longest
+  secret. The pty answers `EIO` once the command exits, and Lade
+  dropped what it held back to redact a secret cut across two reads.
 - **MCP verb rows:** the hook of an MCP call looked through the whole
   diary for the other hook of the same call, under the write lock
   (1.3 s on 120,000 rows). It now looks at the last 5 minutes.
