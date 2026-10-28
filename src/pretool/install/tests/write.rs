@@ -193,11 +193,11 @@ fn write_scoped_enable_refuses_when_the_other_plane_exists() {
 }
 
 #[test]
-fn write_scoped_enable_strips_claude_settings_local() {
+fn write_scoped_enable_moves_claude_settings_json() {
     let home = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir(repo.path().join(".git")).unwrap();
-    let leftover = repo.path().join(".claude").join("settings.local.json");
+    let leftover = repo.path().join(".claude").join("settings.json");
     std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
     std::fs::write(
         &leftover,
@@ -210,7 +210,7 @@ fn write_scoped_enable_strips_claude_settings_local() {
     assert!(
         Agent::Claude
             .has_hook(
-                &std::fs::read_to_string(repo.path().join(".claude").join("settings.json"))
+                &std::fs::read_to_string(repo.path().join(".claude").join("settings.local.json"))
                     .unwrap()
             )
             .unwrap()
@@ -227,11 +227,11 @@ fn write_scoped_project_without_git_is_skipped() {
 }
 
 #[test]
-fn write_scoped_disable_strips_claude_settings_local() {
+fn write_scoped_disable_strips_claude_settings_json() {
     let home = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir(repo.path().join(".git")).unwrap();
-    let leftover = repo.path().join(".claude").join("settings.local.json");
+    let leftover = repo.path().join(".claude").join("settings.json");
     std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
     std::fs::write(
         &leftover,
@@ -244,22 +244,21 @@ fn write_scoped_disable_strips_claude_settings_local() {
 }
 
 #[test]
-fn write_scoped_claude_never_writes_settings_local() {
+fn write_scoped_claude_writes_settings_local_at_the_git_root() {
     let home = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir(repo.path().join(".git")).unwrap();
     let nested = repo.path().join("src");
     std::fs::create_dir_all(&nested).unwrap();
     write_scoped(Scope::Project, "claude", home.path(), &nested, true).unwrap();
-    assert!(repo.path().join(".claude").join("settings.json").is_file());
     assert!(
-        !repo
-            .path()
+        repo.path()
             .join(".claude")
             .join("settings.local.json")
-            .exists()
+            .is_file()
     );
-    assert!(!nested.join(".claude").join("settings.local.json").exists());
+    assert!(!repo.path().join(".claude").join("settings.json").exists());
+    assert!(!nested.join(".claude").join("settings.json").exists());
 }
 
 #[test]

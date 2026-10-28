@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::context::InvocationContext;
-use crate::event::{self, Kind};
+use crate::event::{self, Diary, Kind};
 use crate::files::remove_files;
 use crate::hub::VersionLedger;
 use crate::message_box::MessageBox;
@@ -16,7 +16,7 @@ use crate::ticket;
 use super::acquire::{acquire_secrets_and_network, restore_default_signals};
 use super::pins::{apply_pins, select_tool_env};
 use super::work::{
-    CacheScope, SecretHydrate, pre_event_from_work, resolve_provider_work, ticket_ready,
+    CacheScope, SecretHydrate, pre_event_from_work, resolve_provider_work, rules_at, ticket_ready,
 };
 use super::{
     emit_seen_if_walk_log, merge_env_with_conflicts, public_hydrate, show_loader_warnings,
@@ -58,12 +58,14 @@ async fn set_env(
     notice: bool,
 ) -> Result<Option<VersionLedger>> {
     let command = commands.join(" ");
+    let (current_dir, matched, moved) = rules_at(&current_dir, &command)?;
+    let config = moved.as_ref().unwrap_or(config);
     let use_ticket = ticket_ready(ctx.ticket_id.as_deref());
     let saved_user = crate::config::saved_user().await?;
     let original_path = std::env::var("PATH").ok();
     let pins = apply_pins(
         config,
-        &command,
+        matched,
         &current_dir,
         &saved_user,
         ctx.audience,
@@ -72,7 +74,7 @@ async fn set_env(
     .await?;
     let work = resolve_provider_work(
         config,
-        &command,
+        matched,
         ctx.audience,
         ctx.ticket_id.as_deref(),
         use_ticket,
@@ -138,6 +140,7 @@ async fn set_env(
         );
     }
 
+    let diary = Diary::open(work.log, &current_dir);
     let mut pre = pre_event_from_work(
         &command,
         current_dir.clone(),
@@ -151,8 +154,7 @@ async fn set_env(
 
     if let Err(e) = prompt::resolve_disclaimers(ctx, &work.disclaimers, &command).await {
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() {
-            event::emit_if(
-                work.log,
+            diary.write(|| {
                 work_event(
                     ctx,
                     &saved_user,
@@ -163,8 +165,8 @@ async fn set_env(
                     work.matches.clone(),
                     None,
                     None,
-                ),
-            );
+                )
+            });
             pre.pending = true;
             ticket::replace(&id, &pre)?;
             crate::hub::put_t(&id);
@@ -179,7 +181,7 @@ async fn set_env(
         return Err(e);
     }
     let hydrate_started = std::time::Instant::now();
-    let patterned = config.collect_for_with_pattern(&command, ctx.audience);
+    let patterned = config.collect_for_with_pattern(matched, ctx.audience);
     let tunnel_cwd = current_dir.clone();
     let Some(((mut env, files, _sources, _maskable, warnings, cached), detached)) =
         acquire_secrets_and_network(
@@ -197,7 +199,6 @@ async fn set_env(
                 }),
             },
             work.network_bindings,
-            work.log,
             Some(shell),
             move |bindings, sink, cancel| {
                 network::start_detached_network_session(bindings, sink, &tunnel_cwd, cancel)
@@ -228,8 +229,7 @@ async fn set_env(
         super::log_phase("ticket", started);
         let mut matches = work.matches;
         event::mark_cached(&mut matches, &cached);
-        event::emit_if(
-            work.log,
+        diary.write(|| {
             work_event(
                 ctx,
                 &saved_user,
@@ -240,8 +240,8 @@ async fn set_env(
                 matches,
                 Some(public_hydrate(&env, &files)),
                 Some(hydrate_started.elapsed().as_secs_f64() * 1000.0),
-            ),
-        );
+            )
+        });
         super::log_phase("hydrate total", hydrate_started);
         let line = stamp_preexec(shell, env, &id, original_path)?;
         // The shell gets LADE_T from this line, so `lade unset` can release.

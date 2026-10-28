@@ -94,8 +94,9 @@ pub enum Command {
     /// Run a command with matching access. Same as `lade -- <command...>`.
     #[command(external_subcommand)]
     InjectAlias(Vec<String>),
-    /// In-memory secret casier. Spawned by set / wrap / mcp.
-    #[command(hide = true)]
+    /// In-memory secret casier. Spawned by set / wrap / mcp. The name is
+    /// no program's: `lade hub …` runs GitHub's `hub` with its rule.
+    #[command(name = "__hub", hide = true)]
     Hub,
 }
 
@@ -189,7 +190,7 @@ fn subcommand_name(command: &Command) -> Option<&'static str> {
         Command::Ttl(_) => Some("ttl"),
         Command::Log(_) => Some("log"),
         Command::Usage(_) => Some("usage"),
-        Command::Hub => Some("hub"),
+        Command::Hub => Some("__hub"),
         Command::InjectAlias(_) => None,
     }
 }
@@ -212,7 +213,10 @@ pub fn print_command_help(command: &Option<Command>, db_path: &Path, verbose: bo
     let Some(sub) = cmd.find_subcommand_mut(name) else {
         return Ok(());
     };
-    if matches!(name, "set" | "unset" | "inject" | "hook" | "hub" | "bench") {
+    if matches!(
+        name,
+        "set" | "unset" | "inject" | "hook" | "__hub" | "bench"
+    ) {
         *sub = std::mem::take(sub).hide(false);
     }
     if name == "log" {

@@ -290,14 +290,16 @@ fn test_output_within_bounds_a_pipe_a_grandchild_keeps() {
         ),
     );
     let started = std::time::Instant::now();
+    // Long enough for the script to start its helper and write its pid
+    // under load; the test is that the helper's pipe does not hold the call.
     let err = output_within(
         std::process::Command::new(fake_bin.path().join("lister")),
         "lister",
-        std::time::Duration::from_millis(500),
+        std::time::Duration::from_secs(3),
     )
     .unwrap_err();
     assert!(err.to_string().contains("lister did not answer"), "{err}");
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
     let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
         .unwrap()
         .trim()

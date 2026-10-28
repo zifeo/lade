@@ -48,6 +48,15 @@ struct SecretRow {
     bindings: Vec<(String, Vec<u8>)>,
 }
 
+/// A row leaves no value behind in freed memory.
+impl Drop for SecretRow {
+    fn drop(&mut self) {
+        for (_, value) in &mut self.bindings {
+            zeroize::Zeroize::zeroize(value);
+        }
+    }
+}
+
 struct TicketRow {
     inserted: Duration,
     ticket: Vec<u8>,
@@ -203,6 +212,7 @@ impl Tables {
                 self.tickets.remove(&t);
                 Rep::Ok
             }
+            Req::Notice => self.release.notice(),
             Req::Ping => Rep::Stat {
                 pid: std::process::id(),
                 secrets: self.secrets.len() as u32,

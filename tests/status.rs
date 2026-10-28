@@ -147,7 +147,7 @@ fn test_status_reports_project_pretool_hook() {
     common::init_git(dir.path());
     fs::create_dir_all(dir.path().join(".claude")).unwrap();
     fs::write(
-        dir.path().join(".claude").join("settings.json"),
+        dir.path().join(".claude").join("settings.local.json"),
         r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#,
     )
     .unwrap();
@@ -161,7 +161,7 @@ fn test_status_reports_project_pretool_hook() {
         )
         .stdout(
             predicates::str::is_match(
-                r"\n +Claude Code +machine +missing +\S+\n +Claude Code +repo +not current +\S*\.claude/settings\.json\n",
+                r"\n +Claude Code +machine +missing +\S+\n +Claude Code +repo +not current +\S*\.claude/settings\.local\.json\n",
             )
             .unwrap(),
         )
@@ -190,8 +190,28 @@ fn test_status_reports_project_pretool_hook() {
         value["hooks"]["pretool"]["claude"]["project"]["path"]
             .as_str()
             .unwrap()
-            .ends_with(".claude/settings.json")
+            .ends_with(".claude/settings.local.json")
     );
+}
+
+#[test]
+fn test_status_flags_a_claude_hook_left_in_settings_json() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::init_git(dir.path());
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    fs::write(
+        dir.path().join(".claude").join("settings.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("status")
+        .assert()
+        .stdout(predicates::str::contains(
+            "`lade hook enable --harness claude` moves it to settings.local.json",
+        ));
 }
 
 #[test]
@@ -241,9 +261,8 @@ fn test_status_names_present_fish_startup_file() {
     let home = tempdir().unwrap();
     fs::create_dir_all(home.path().join(".config/fish")).unwrap();
     fs::write(home.path().join(".config/fish/config.fish"), "set -x X 1\n").unwrap();
-    common::lade(home.path())
+    common::lade_in(home.path(), "fish")
         .current_dir(dir.path())
-        .env("LADE_SHELL", "fish")
         .arg("status")
         .assert()
         .stdout(

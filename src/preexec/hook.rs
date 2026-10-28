@@ -52,7 +52,7 @@ impl Shell {
             Shell::Fish => import!("../../scripts/on.fish"),
             _ => bail!("Unsupported behavior on shell {}", self.bin()),
         };
-        Ok(format!("{}\n{}", self.export_lade_shell(), body))
+        Ok(body)
     }
 
     pub fn off(&self) -> Result<String> {
@@ -62,7 +62,7 @@ impl Shell {
             Shell::Fish => import!("../../scripts/off.fish"),
             _ => bail!("Unsupported behavior on shell {}", self.bin()),
         };
-        Ok(format!("{}\n{}", self.unset_lade_shell(), body))
+        Ok(body)
     }
 
     pub fn install(&self) -> Result<String> {

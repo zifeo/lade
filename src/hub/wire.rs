@@ -50,6 +50,8 @@ pub enum Req {
     UnlinkT {
         t: [u8; 4],
     },
+    /// The hourly notice slot, for a pre-tool wrap: it holds no ticket.
+    Notice,
     Ping,
     Quit,
     List,

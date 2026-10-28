@@ -25,9 +25,8 @@ fn test_inject_survives_fish_profile_overwrite() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     write_fish_overwrite_fixture(dir.path(), home.path());
-    common::lade(home.path())
+    common::lade_in(home.path(), "fish")
         .current_dir(dir.path())
-        .env("LADE_SHELL", "fish")
         .env_remove("XDG_CONFIG_HOME")
         .args(["inject", "--no-mask", "echo", "$SECRET"])
         .assert()
@@ -42,9 +41,8 @@ fn test_inject_masks_secret_when_fish_profile_would_overwrite() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     write_fish_overwrite_fixture(dir.path(), home.path());
-    let out = common::lade(home.path())
+    let out = common::lade_in(home.path(), "fish")
         .current_dir(dir.path())
-        .env("LADE_SHELL", "fish")
         .env_remove("XDG_CONFIG_HOME")
         .args(["inject", "echo", "$SECRET"])
         .assert()

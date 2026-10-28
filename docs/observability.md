@@ -29,7 +29,7 @@ It does not turn off `.: log: true` for `echo hi`.
 | At least one rule matched | last explicit `log` on **those** rules |
 | No match | last explicit `log` on the **loaded walk** (`seen`) |
 
-`LADE_EVENTS=off` skips writes. That is not `LADE_LOG` (`env_logger`).
+The diary is not `LADE_LOG` (`env_logger`).
 A write failure never changes the command's exit.
 
 ## What gets a row
@@ -44,6 +44,16 @@ A write failure never changes the command's exit.
 | `lade mcp` (server start) | same as inject |
 | `lade eval`, `age-plugin-lade` | `access`. Always on. No `lade.yaml` `log` flag. |
 | unset, status, bench, log, usage, on, off | no |
+
+A wrap opens the diary on a thread while the command gets ready
+(disclaimers, providers), then writes its row on that connection once
+the child has started, or failed to start, and before it waits for
+the child. The child's exit status never changes the row: a failing
+command keeps it. Lade killed between the start of the child and the
+commit (a few ms) loses the row. Ctrl-C does not: Lade forwards it to
+the child and finishes the write. Pre-exec `set` writes its row
+before the shell runs the command. A human who presses Enter to run a
+command without Lade after a provider failure gets no row.
 
 Starting an MCP server is not a hook. A row exists only if the
 process is `lade mcp -- …` (or a URL). Each later `tools/call` is a

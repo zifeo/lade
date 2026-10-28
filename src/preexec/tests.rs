@@ -144,31 +144,6 @@ fn comm_maps_to_shell() {
     assert!(matches!(shell_from_comm("zsh").unwrap(), Shell::Zsh));
     assert!(matches!(shell_from_comm("bash.exe").unwrap(), Shell::Bash));
     assert!(matches!(shell_from_comm("/bin/fish").unwrap(), Shell::Fish));
+    assert!(matches!(shell_from_comm("dash").unwrap(), Shell::Sh));
     assert!(shell_from_comm("login").is_err());
-}
-
-#[test]
-fn on_exports_lade_shell() {
-    let zsh = Shell::Zsh.on().unwrap();
-    assert!(zsh.starts_with("export LADE_SHELL=zsh\n"));
-    let bash = Shell::Bash.on().unwrap();
-    assert!(bash.starts_with("export LADE_SHELL=bash\n"));
-    let fish = Shell::Fish.on().unwrap();
-    assert!(fish.starts_with("set --global --export LADE_SHELL fish\n"));
-}
-
-#[test]
-fn off_unsets_lade_shell() {
-    assert!(
-        Shell::Zsh
-            .off()
-            .unwrap()
-            .starts_with("unset -v LADE_SHELL\n")
-    );
-    assert!(
-        Shell::Fish
-            .off()
-            .unwrap()
-            .starts_with("set --global --erase LADE_SHELL\n")
-    );
 }

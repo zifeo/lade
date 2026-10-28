@@ -144,9 +144,8 @@ fn test_set_fish_still_evals_in_the_interactive_shell() {
         "\"mycmd\":\n  SECRET: mysecret\n",
     )
     .unwrap();
-    let out = common::lade(home.path())
+    let out = common::lade_in(home.path(), "fish")
         .current_dir(dir.path())
-        .env("LADE_SHELL", "fish")
         .args(["set", "mycmd"])
         .assert()
         .success()
@@ -177,11 +176,9 @@ fn test_set_marks_hub_hit_cached_until_prune() {
         format!("\"echo\":\n  KEY: \"{uri}\"\n"),
     )
     .unwrap();
-    let wrap = "ab".repeat(32);
 
     let first = common::lade(home.path())
         .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
         .args(["set", "echo hi"])
         .assert()
         .success()
@@ -193,7 +190,6 @@ fn test_set_marks_hub_hit_cached_until_prune() {
     assert!(!first_err.contains("KEY (c)"), "{first_err}");
     let listed = common::lade(home.path())
         .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
         .args(["ttl"])
         .assert()
         .success()
@@ -206,7 +202,6 @@ fn test_set_marks_hub_hit_cached_until_prune() {
     fs::write(&secret, r#"{"token":"second-value"}"#).unwrap();
     let second = common::lade(home.path())
         .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
         .args(["set", "echo hi"])
         .assert()
         .success()
@@ -222,14 +217,12 @@ fn test_set_marks_hub_hit_cached_until_prune() {
 
     common::lade(home.path())
         .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
         .args(["log", "prune", "--hub"])
         .assert()
         .success();
 
     let third = common::lade(home.path())
         .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
         .args(["set", "echo hi"])
         .assert()
         .success()
@@ -324,16 +317,11 @@ fn assert_shell_cache(yml: &str, session_ttl: Option<&str>, expect_hit: bool) {
     fs::write(&secret, "first-value").unwrap();
     let yml = yml.replace("{secret}", &secret.display().to_string());
     fs::write(dir.path().join("lade.yml"), yml).unwrap();
-    let wrap = "ab".repeat(32);
     let mut first = common::lade(home.path());
-    first
-        .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
-        .args(["set", "echo hi"]);
+    first.current_dir(dir.path()).args(["set", "echo hi"]);
     if let Some(ttl) = session_ttl {
         common::lade(home.path())
             .current_dir(dir.path())
-            .env("LADE_WRAP_KEY", &wrap)
             .args(["ttl", "set", ttl])
             .assert()
             .success();
@@ -344,10 +332,7 @@ fn assert_shell_cache(yml: &str, session_ttl: Option<&str>, expect_hit: bool) {
 
     fs::write(&secret, "second-value").unwrap();
     let mut second = common::lade(home.path());
-    second
-        .current_dir(dir.path())
-        .env("LADE_WRAP_KEY", &wrap)
-        .args(["set", "echo hi"]);
+    second.current_dir(dir.path()).args(["set", "echo hi"]);
     let second = second.assert().success().get_output().clone();
     let second_out = String::from_utf8_lossy(&second.stdout);
     let second_err = String::from_utf8_lossy(&second.stderr);

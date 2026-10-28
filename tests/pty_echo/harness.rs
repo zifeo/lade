@@ -6,6 +6,7 @@ use nix::sys::termios::{
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -59,6 +60,12 @@ pub struct Harness {
 }
 
 pub fn spawn_with(lade_bin: &Path, project: &Path, inject_cmd: &str) -> Harness {
+    spawn_in(lade_bin, project, inject_cmd, false)
+}
+
+/// `controlling`: the pty is the shell's controlling terminal, with job
+/// control, as in a real one. Closing it then hangs the pty up.
+pub fn spawn_in(lade_bin: &Path, project: &Path, inject_cmd: &str, controlling: bool) -> Harness {
     let size = Winsize {
         ws_row: 40,
         ws_col: 120,
@@ -73,17 +80,29 @@ pub fn spawn_with(lade_bin: &Path, project: &Path, inject_cmd: &str) -> Harness 
     let slave_out: OwnedFd = slave.try_clone().unwrap();
     let slave_err: OwnedFd = slave.try_clone().unwrap();
 
-    let child = Command::new(lade_bin)
+    // Lade runs the line in the shell that started it.
+    let mut cmd = Command::new("bash");
+    cmd.args(["-c", "\"$0\" \"$@\" && true"])
+        .arg(lade_bin)
         .args(["inject", inject_cmd])
         .current_dir(project)
-        .env("LADE_SHELL", "bash")
         .env("HOME", project)
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::from(slave_in))
         .stdout(Stdio::from(slave_out))
-        .stderr(Stdio::from(slave_err))
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::from(slave_err));
+    // SAFETY: only async-signal-safe calls between fork and exec.
+    if controlling {
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let child = cmd.spawn().unwrap();
 
     Harness {
         master: File::from(master),
@@ -178,11 +197,18 @@ pub fn run_until_exit(
     inject_cmd: &str,
     trigger: Option<(&[u8], &[u8])>,
 ) -> (Vec<u8>, std::process::ExitStatus) {
+    run_in(spawn_with(lade_bin, project, inject_cmd), trigger)
+}
+
+pub fn run_in(
+    harness: Harness,
+    trigger: Option<(&[u8], &[u8])>,
+) -> (Vec<u8>, std::process::ExitStatus) {
     let Harness {
         master,
         slave,
         mut child,
-    } = spawn_with(lade_bin, project, inject_cmd);
+    } = harness;
     drop(slave);
 
     let mut reader = master.try_clone().unwrap();

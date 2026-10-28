@@ -17,9 +17,9 @@ mod tests;
 mod write;
 
 pub use chain::{ChainStatus, insert_sealed, unsigned_pack, verify as verify_chain};
-pub use db::{info_for_repo, open, prune_before, query, verify_live, warmup};
+pub use db::{info_for_repo, open, prune_before, query, verify_live};
 pub use git::git_stamp;
-pub use write::{emit, emit_if, emit_verb};
+pub use write::{Diary, emit, emit_if, emit_verb};
 
 pub(crate) use db::event_from_row;
 

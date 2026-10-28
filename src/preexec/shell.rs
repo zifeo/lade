@@ -21,7 +21,8 @@ impl FromStr for Shell {
             "bash" => Ok(Shell::Bash),
             "zsh" => Ok(Shell::Zsh),
             "fish" => Ok(Shell::Fish),
-            "sh" => Ok(Shell::Sh),
+            // Debian and Ubuntu `/bin/sh`: Node's `exec` runs commands there.
+            "sh" | "dash" => Ok(Shell::Sh),
             _ => bail!("Unsupported shell: {name}"),
         }
     }
@@ -80,34 +81,12 @@ impl Shell {
         }
     }
 
+    /// The process that started Lade, the shell the line was written for.
+    /// Never an inherited variable: a harness started from a fish terminal
+    /// keeps `SHELL` from it, yet runs its commands in zsh.
     pub fn detect() -> Result<Shell> {
-        if let Ok(shell_env) = std::env::var("LADE_SHELL") {
-            let path = std::path::Path::new(&shell_env);
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(shell_env.as_str());
-            return Shell::from_str(name);
-        }
-
         let name = parent_process_name()?;
         shell_from_comm(&name)
-    }
-
-    pub(super) fn export_lade_shell(&self) -> String {
-        match self {
-            Shell::Bash | Shell::Zsh | Shell::Sh => {
-                format!("export LADE_SHELL={}", self.bin())
-            }
-            Shell::Fish => format!("set --global --export LADE_SHELL {}", self.bin()),
-        }
-    }
-
-    pub(super) fn unset_lade_shell(&self) -> String {
-        match self {
-            Shell::Bash | Shell::Zsh | Shell::Sh => "unset -v LADE_SHELL".to_string(),
-            Shell::Fish => "set --global --erase LADE_SHELL".to_string(),
-        }
     }
 
     pub fn set(&self, env: HashMap<String, String>) -> String {
@@ -230,7 +209,7 @@ pub(super) fn shell_from_comm(name: &str) -> Result<Shell> {
 fn parent_process_name() -> Result<String> {
     #[cfg(not(unix))]
     {
-        bail!("set LADE_SHELL; parent detection is Unix-only");
+        bail!("parent detection is Unix-only");
     }
     #[cfg(unix)]
     {
@@ -265,5 +244,5 @@ fn parent_comm(ppid: nix::unistd::Pid) -> Result<String> {
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn parent_comm(_ppid: nix::unistd::Pid) -> Result<String> {
-    bail!("set LADE_SHELL; parent detection is Linux/macOS-only");
+    bail!("parent detection is Linux/macOS-only");
 }

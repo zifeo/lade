@@ -8,8 +8,8 @@ the playbook (examples, RAM ttl, loader marks). Each verb:
 
 Spoken words: **harness**, **pre-exec**, **pre-tool**. Diary JSON
 may still say `agent`. `lade status --json` keeps `version`,
-`global_config`, `hooks` (`preexec` plus `pretool`),
-`project_config`, and `ok`.
+`global_config`, `hooks` (`preexec` plus `pretool`; `preexec` is
+`null` when no shell started Lade), `project_config`, and `ok`.
 
 ## Loader marks
 
@@ -28,7 +28,25 @@ Example:
 ✔︎ Vault 127.0.0.1:8200: TOKEN (c)                                        0 ms
 ```
 
-`silent: true` on a rule hides that rule's progress lines.
+`silent: true` on a rule hides that rule's progress line in a human's
+terminal (pre-exec `set`, a direct `inject`). It is for humans: an
+agent never gets progress lines.
+
+## What an agent reads
+
+An agent (a pre-tool wrap, or `AI_AGENT`, `CLAUDECODE`, … in the env)
+reads stderr as context, so Lade keeps it to what it needs to act:
+
+| Case | stderr |
+|---|---|
+| Secrets loaded | nothing. Output shows `${API_TOKEN:-REDACTED}` where a value was |
+| A provider or tunnel failed | `lade: error: Could not load secrets from one provider: <cause> The command did not run. …` |
+| A warning | `lade: warning: <text>` |
+| A rule disclaimer | `lade: warning: Disclaimer required. … Only a human can approve it: ask them to run this command in their terminal.` No approve code |
+| A new Lade, or hooks to fix (hourly, when the wrap uses the hub) | `lade: Tell the human: <notice>` |
+
+Every message is one line starting with `lade:`, with no box, colour,
+or keyboard advice.
 
 ## Three stores
 
@@ -136,7 +154,7 @@ provider has `timeout_s`. `global_config` adds `max_cache` (raw),
 ### `lade ttl`
 
 This binary's hub: cached secret names and tunnels. Names only.
-Never values. Does not spawn. Was `lade cache`.
+Never values. Does not spawn.
 
 ```bash
 lade ttl
@@ -224,7 +242,7 @@ lade bench --json --timeout 5s
 
 ## See also
 
-- [cache.md](cache.md) hub, TTL, wrap key
+- [cache.md](cache.md) hub, TTL, who may read the hub
 - [tunnels.md](tunnels.md) hub tunnels, ports, leases
 - [observability.md](observability.md) diary
 - [env.md](env.md) overrides

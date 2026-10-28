@@ -238,6 +238,17 @@ pub fn echo_through(port: &str) -> bool {
         })
 }
 
+/// A port the kernel just handed out: nothing on the machine, a dev stack
+/// included, holds it.
+pub fn free_port() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("ephemeral port");
+    listener
+        .local_addr()
+        .expect("ephemeral addr")
+        .port()
+        .to_string()
+}
+
 pub fn port_is_free(port: &str) -> bool {
     std::net::TcpListener::bind(format!("127.0.0.1:{port}")).is_ok()
 }

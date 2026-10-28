@@ -2,7 +2,9 @@
 
 In-memory hub for hydrated secrets. `terraform plan` then
 `terraform apply` can reuse one rule body without a second vault
-round trip. The hub stores ciphertext only. Tickets stay in
+round trip. Only the same Lade binary reads the hub, and no other
+process of the user can read its memory.
+Tickets stay in
 [protocol.md](protocol.md). The diary stays in
 [observability.md](observability.md). Env overrides are in
 [env.md](env.md). The tunnels the hub runs are in
@@ -102,6 +104,10 @@ two rows. Same pattern, two `when:` bodies: two rows.
 `saved_user` is the resolved Lade user, or empty. Alice and Bob
 do not share a row.
 
+The `lade ttl set` window of this cwd is read once per command, and
+only when a body could be cached under some window: a raw-only body
+never calls the hub.
+
 `walk hash` is SHA-256 of every `lade.yaml` / `lade.yml` from
 CWD to `$HOME`. For each existing file, in walk order: 8-byte
 big-endian path length, path UTF-8, 8-byte big-endian content
@@ -112,10 +118,9 @@ is a miss and a refetch.
 
 ```mermaid
 flowchart LR
-    Lade[lade set or wrap] -->|ciphertext| Hub[hub process]
-    Keychain[Keychain or keyring] -->|32-byte wrap key| Lade
+    Lade[lade set or wrap] -->|plaintext, same cdhash only| Hub[hub process]
+    Hub -->|plaintext| Lade
     Lade -->|plaintext| Child[child env]
-    Hub -->|ciphertext| Lade
 ```
 
 Two RAM tables. Every request first drops rows whose insert
@@ -131,59 +136,52 @@ existing secret key upserts and refreshes that clock.
 
 The cap is a fence for a client that puts faster than TTL. The
 hub does not walk yaml, run providers, acquire tunnels, or write
-the diary. It never sees plaintext. It never holds the wrap key.
+the diary.
 
-`lade` seals with IETF ChaCha20-Poly1305 before `Put`. Each
-binding is 12-byte nonce, ciphertext, 16-byte tag. Fresh nonce
-per binding per `Put`. AAD is the lookup fields, length-prefixed:
+Values cross the socket and sit in the hub's RAM in plaintext, only
+to and from a client the hub knows as its own binary (below). A row's
+values are zeroed when it goes. A cache hit costs one socket round
+trip: under 1 ms. A crash, logout, or upgrade is always cold.
+
+## Memory guard
+
+The hub caches a secret only where no other process of the user can
+read its memory. Elsewhere it caches none: every command hydrates
+from its providers, and the hub still holds tickets and tunnels. No
+step needs `sudo` or an Apple account.
+
+| Where | Cache | Guard |
+|---|---|---|
+| Linux | on | the hub sets itself not dumpable (`PR_SET_DUMPABLE` 0) at start: no `ptrace`, no `/proc/<pid>/mem` |
+| macOS, signed with hardened runtime (release binaries, `scripts/install-local.sh`) | on | no debugger attaches |
+| macOS debug build (tests, `cargo run`) | on | none: cargo does not sign |
+| macOS, any other build (a plain `cargo install`) | off | |
+
+Linux needs no signature: any process may make itself not dumpable.
+macOS needs the hardened runtime flag in the binary's signature. Ad
+hoc signing needs no Apple account. A `cargo install` turns the cache
+on once signed:
 
 ```
-u64be(cwd)    || cwd UTF-8
-u64be(path)   || yaml path UTF-8
-u64be(rule)   || pattern UTF-8
-u64be(when)   || "always" | "human" | "agent"
-32 bytes        walk hash
-u64be(user)   || saved_user UTF-8 or empty
+codesign --force --sign - --options runtime "$(command -v lade)"
 ```
 
-After `Get` it unwraps, copies into the child, zeros the wrap
-key. Decrypt fail: miss, hydrate, `Put` with the key now in the
-store.
+The hub also sets no core file. Root reads any process, on either OS.
 
-A dump of the hub is noise. A dump of `lade` during unwrap has
-the key for that instant.
+## Who may talk to the hub
 
-## Wrap key
+The hub serves a connection only when the kernel vouches for the
+client:
 
-The hub does not create or hold this key. The first `set` /
-inject / pretool wrap / `mcp` that needs a `Put` does.
-
-1. `LADE_WRAP_KEY` set (64 hex, tests and CI): those 32 bytes.
-   Bad hex skips the hub.
-2. Else the platform store. No Face ID. No Secure Enclave.
-3. Miss: draw 32 random bytes and add. If add loses a race, get
-   again and use the stored key.
-
-| OS | Store |
+| OS | Check |
 |---|---|
-| Linux | Session keyring (`@s`), name `lade-wrap-v2`, possessor-only. Created if this process has none. |
-| macOS | Login keychain, generic password, service `com.zifeo.lade.wrap`, account `lade-wrap-v2`. The system ACL dialog is allowed. Always Allow sticks for this app identity. A first read with the UI off tells Lade the dialog is coming, so a terminal gets a box first: what the item is for, and that Lade does not read saved passwords. Concurrent clients take one `wrap-key.lock`. One dialog at a time. |
-
-Isolation is this login, not this binary. Linux `@s` dies on
-logout. The macOS item stays. Hub tables do not: crash or logout
-is always cold. A new session that cannot unwrap old rows misses
-and refetches.
-
-Screen lock and sleep do not lock the login keychain. `Lock after`
-and `Lock when sleeping` are a user setting. Those prompt again.
-A rebuild without a stable Developer ID is a new identity. Always
-Allow does not follow it. Deny or a locked keychain skips the hub.
-
-The 20 ms socket deadline is not the Keychain clock.
+| macOS, signed binary | The client's audit token, from `LOCAL_PEERTOKEN`, names that exact process: a reused pid or an `exec` since the connect fails. Its code must be valid and its cdhash equal the hub's |
+| macOS, unsigned binary (an Intel `cargo build`) | Same uid, and the client's executable is the hub's file (device and inode) |
+| Linux | Same uid (`SO_PEERCRED`), and `/proc/<pid>/exe` is the hub's file |
 
 ## Process
 
-Hidden verb: `lade hub`. Same binary, `setsid`, no stdin. It
+Hidden verb: `lade __hub`. Same binary, `setsid`, no stdin. It
 stays on `accept`. Crash, logout, kill, inode mismatch, or
 crate version mismatch drop it. Crash is always cold. Nothing
 is serialized.
@@ -208,13 +206,13 @@ A client that may use the hub:
 2. No full reply in 20 ms: miss, hydrate, at most one later
    `Put`. Ignore a late `Hit`.
 3. Socket absent: `flock`
-   `$CACHE/hub-{token}.lock`, spawn `lade hub`, exclusive
+   `$CACHE/hub-{token}.lock`, spawn `lade __hub`, exclusive
    `bind`. The bind loser connects once to the winner. Spawn
    fail: hydrate as usual.
 
 On `bind`, the hub snapshots its mapped image inode and holds
-an fd on that file. On `accept` it drops the peer unless uid
-matches and the peer exe inode equals that snapshot. Every
+an fd on that file. On `accept` it drops a peer that fails the
+check in [Who may talk to the hub](#who-may-talk-to-the-hub). Every
 frame also carries `CARGO_PKG_VERSION`. Mismatch, or a
 successful write with no decodable `Rep`: the client unlinks
 its own socket and spawns once on a fresh 20 ms clock. It does
@@ -261,10 +259,13 @@ body used the vault default, or this cwd's hub window when
 ## CLI
 
 `lade status` has a Hub section: `pid …` or `down` / `stale`, the
-`max_cache` in force, key, tunnel, and ticket counts, this cwd's
-window, key names, and tunnels. `--json` adds extra `hub` (`state`,
-`pid`, `secrets`, `tickets`, `window`, `keys`, `key_count`,
-`tunnels`, `max_cache_ms`). The hub never sets `ok`. An invalid
+`max_cache` in force, whether the cache is on and what guards it (or
+why it is off, with the `codesign` command on macOS), key, tunnel,
+and ticket counts, this cwd's window, key names, and tunnels.
+`--json` adds extra `hub` (`state`, `pid`, `secrets`, `tickets`,
+`window`, `keys`, `key_count`, `tunnels`, `max_cache_ms`, `memory`
+with `state` `hardened_runtime`, `not_dumpable`, `debug_build`, or
+`off` and its `detail`). The hub never sets `ok`. An invalid
 `max_cache` does.
 
 `lade ttl` lists this cwd's key names, the cwd the row is
@@ -296,21 +297,17 @@ Extra, like `agent`. See [cli.md](cli.md).
 
 | Event | What happens |
 |---|---|
-| Two `set` mint the wrap key | The `add` loser re-reads and re-wraps |
 | Hub dies mid-`Put` | This command uses its hydrate. Next misses |
 | Hub dies, leftover T files | Files still work |
 | Yaml edit between plan and apply | Miss, refetch |
 | Provider value changed, hub still live | Same row until TTL or `lade ttl forget` |
 | `max_cache` edited, up or down | Every secret row dropped, idle tunnels stopped |
 | `max_cache` invalid or `config.json` unreadable | Cache off until fixed |
-| Keychain ACL prompt | One dialog (wrap-key.lock). Always Allow: later gets are silent. Deny: skip hub |
-| Keychain locked (`Lock after` / sleep lock) | Skip hub if the user cancels |
-| `@s` gone after logout | Unwrap fail, then miss |
-| Non-`lade` peer | Drop, `Err` 4 |
+| Non-`lade` peer, or another build of it | Drop, `Err` 4 |
+| No memory guard (a macOS build without hardened runtime) | No secret cached, tickets and tunnels still served |
 | Inode or crate version mismatch | Unlink this image's socket, spawn once |
 | Other image (`cargo run` vs install) | Other socket. Both hubs may stay up |
 | Socket > 20 ms | Miss, hydrate, one `Put` |
-| Decrypt fail (key A vs B) | Miss, hydrate, `Put` with the store key |
 | Table at cap, all TTLs live | Evict oldest insert |
 | Machine sleeps past a TTL | Row is due at wake |
 | Client connects and sends nothing | Dropped after 500 ms, next client served |

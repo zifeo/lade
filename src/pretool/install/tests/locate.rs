@@ -37,11 +37,11 @@ fn cursor_project_dest_is_hooks_json() {
 }
 
 #[test]
-fn claude_project_dest_is_settings_json() {
+fn claude_project_dest_is_settings_local_json() {
     let dir = Path::new("/tmp/proj");
     assert_eq!(
         canonical_project_path(Agent::Claude, dir),
-        dir.join(".claude").join("settings.json")
+        dir.join(".claude").join("settings.local.json")
     );
 }
 
@@ -127,19 +127,14 @@ fn find_project_finds_repo_codex_hooks_before_home() {
 }
 
 #[test]
-fn find_project_ignores_claude_settings_local() {
+fn find_project_ignores_claude_settings_json() {
     let home = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
     git_dir(repo.path());
-    write_claude_hook(&repo.path().join(".claude").join("settings.local.json"));
+    write_claude_hook(&repo.path().join(".claude").join("settings.json"));
     let dest = project_dest(home.path(), repo.path()).unwrap();
     let (path, installed) = find_project(Agent::Claude, home.path(), repo.path()).unwrap();
     assert!(!installed);
-    assert_eq!(path, dest.join(".claude").join("settings.json"));
-    assert!(
-        repo.path()
-            .join(".claude")
-            .join("settings.local.json")
-            .is_file()
-    );
+    assert_eq!(path, dest.join(".claude").join("settings.local.json"));
+    assert!(repo.path().join(".claude").join("settings.json").is_file());
 }

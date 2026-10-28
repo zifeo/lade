@@ -20,6 +20,7 @@ pub use providers::compat;
 pub use providers::compose_secret_add_uri;
 #[cfg(feature = "network")]
 pub use providers::network;
+pub use providers::terminal::{lent as terminal_lent, set_hooks as terminal_hooks};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use resolve::{Dag, Template, resolve, resolve_one};

@@ -32,6 +32,20 @@ pub(crate) fn on_shell_use(command: &str, slot: Option<VersionLedger>) {
     }
 }
 
+/// A pre-tool wrap that uses the hub may get the same hourly slot. The
+/// agent cannot upgrade Lade or fix a hook, so it is asked to relay.
+pub(crate) fn on_agent_use() {
+    let Some(version) = crate::hub::notice_slot() else {
+        return;
+    };
+    let release = VersionStatus::from_ledger(cargo_crate_version!(), Some(version)).release_line();
+    let hooks = crate::pretool::install::refresh_and_report()
+        .unwrap_or_else(|error| vec![format!("Lade could not check the harness hooks: {error:#}")]);
+    if let Some(message) = notice_box(release, hooks) {
+        message.print_stderr();
+    }
+}
+
 fn notice_box(release: Option<String>, hooks: Vec<String>) -> Option<MessageBox> {
     if release.is_none() && hooks.is_empty() {
         return None;
@@ -41,6 +55,9 @@ fn notice_box(release: Option<String>, hooks: Vec<String>) -> Option<MessageBox>
     } else {
         MessageBox::new().warning()
     };
+    if crate::message_box::terse() {
+        message = message.line("Tell the human:");
+    }
     if let Some(line) = release {
         message = message.line(line).line("Run `lade upgrade` to install it.");
     }

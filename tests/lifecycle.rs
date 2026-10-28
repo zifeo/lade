@@ -178,8 +178,7 @@ fn on_off_emit_shell_snippets() {
         .stdout
         .clone();
     let on_text = String::from_utf8_lossy(&on);
-    assert!(on_text.contains("set --"));
-    assert!(on_text.contains("LADE_SHELL"));
+    assert!(on_text.contains("preexec_functions+=(preexec_lade)"));
 
     let off = common::lade(home.path())
         .current_dir(dir.path())
@@ -190,7 +189,7 @@ fn on_off_emit_shell_snippets() {
         .stdout
         .clone();
     let off_text = String::from_utf8_lossy(&off);
-    assert!(off_text.contains("LADE_SHELL"));
+    assert!(off_text.contains("preexec_functions"));
 }
 
 #[test]

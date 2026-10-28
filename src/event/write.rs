@@ -8,6 +8,57 @@ use crate::scrub;
 
 use super::{Emit, Event, chain, git_stamp, open};
 
+/// How far back a verb hook looks for the other hook of the same MCP call.
+const VERB_MERGE_WINDOW: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+/// The diary for one wrap, opened on a thread while the command gets
+/// ready: the open, its schema check, and the git stamp stay off the path
+/// to the child. [`Diary::write`] then reuses that connection.
+pub struct Diary(Option<std::thread::JoinHandle<rusqlite::Result<Opened>>>);
+
+struct Opened {
+    conn: rusqlite::Connection,
+    stamp: (Option<String>, Option<String>),
+}
+
+impl Diary {
+    pub fn open(log: bool, cwd: &std::path::Path) -> Self {
+        if !log {
+            return Self(None);
+        }
+        let cwd = cwd.to_path_buf();
+        Self(Some(std::thread::spawn(move || {
+            Ok(Opened {
+                conn: open()?,
+                stamp: git_stamp(&cwd),
+            })
+        })))
+    }
+
+    /// `row` is built only when the diary is on.
+    pub fn write(self, row: impl FnOnce() -> Emit) {
+        let Some(opening) = self.0 else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        let opened = opening.join();
+        crate::wrap::log_phase("diary open wait", started);
+        let started = std::time::Instant::now();
+        let written = match opened {
+            Ok(Ok(Opened { mut conn, stamp })) => insert(&mut conn, &event_with(row(), stamp)),
+            Ok(Err(err)) => Err(err),
+            Err(_) => {
+                log::debug!("lade event open panicked");
+                return;
+            }
+        };
+        crate::wrap::log_phase("diary write", started);
+        if let Err(err) = written {
+            log::debug!("lade event write failed: {err}");
+        }
+    }
+}
+
 pub fn emit(e: Emit) {
     if let Err(err) = emit_inner(e) {
         log::debug!("lade event write failed: {err}");
@@ -36,12 +87,16 @@ fn emit_verb_inner(hook: Option<&str>, tool_use_id: Option<&str>, e: Emit) -> ru
     };
     let mut conn = super::open()?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    // Both hooks of one MCP call land seconds apart. Bounded by `ts`, the
+    // lookup reads a few recent rows through `events_ts`, not the whole
+    // diary under the write lock.
+    let since = (Utc::now() - VERB_MERGE_WINDOW).to_rfc3339_opts(SecondsFormat::Millis, true);
     let existing: Option<(String, String, Option<String>, Option<String>)> = tx
         .query_row(
             "SELECT id, command, json(agent), json(argv) FROM events
-             WHERE json_extract(agent, '$.tool_use_id') = ?1
+             WHERE ts >= ?2 AND json_extract(agent, '$.tool_use_id') = ?1
              ORDER BY ts DESC LIMIT 1",
-            rusqlite::params![id],
+            rusqlite::params![id, since],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
@@ -157,6 +212,11 @@ fn fill_verb_event(
 }
 
 fn event_from_emit(e: Emit) -> Event {
+    let stamp = git_stamp(&e.cwd);
+    event_with(e, stamp)
+}
+
+fn event_with(e: Emit, (repo, git_commit): (Option<String>, Option<String>)) -> Event {
     let redacted = scrub::redact_command(&e.command, e.hydrated.as_ref());
     let (command, argv) = if e.argv.is_none() {
         scrub::peel_command(&redacted.command)
@@ -164,7 +224,6 @@ fn event_from_emit(e: Emit) -> Event {
         (redacted.command, e.argv)
     };
     let (command, truncated) = scrub::cap_text(command);
-    let (repo, git_commit) = git_stamp(&e.cwd);
     Event {
         id: Uuid::now_v7().to_string(),
         ts: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -194,8 +253,11 @@ fn event_from_emit(e: Emit) -> Event {
 
 fn emit_inner(e: Emit) -> rusqlite::Result<()> {
     let event = event_from_emit(e);
-    let mut conn = open()?;
+    insert(&mut open()?, &event)
+}
+
+fn insert(conn: &mut rusqlite::Connection, event: &Event) -> rusqlite::Result<()> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    chain::insert_sealed(&tx, &event)?;
+    chain::insert_sealed(&tx, event)?;
     tx.commit()
 }

@@ -107,3 +107,30 @@ fn launch_only_before_mcp_writes_a_row() {
         assert_eq!(rows[0].agent.as_ref().unwrap()["launch"], "engram");
     });
 }
+
+#[test]
+fn an_old_row_with_the_same_tool_use_id_is_not_merged() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        let hook = |name| {
+            emit_verb(
+                true,
+                Some(name),
+                Some("toolu_old"),
+                verb_emit(
+                    "engram.mem_stats",
+                    None,
+                    json!({"tool_use_id": "toolu_old", "hook": name}),
+                ),
+            )
+        };
+        hook("beforeMCPExecution");
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE events SET ts = '2020-01-01T00:00:00.000Z'", [])
+            .unwrap();
+        hook("beforeMCPExecution");
+        assert_eq!(query(None, None, None, None, None, None).unwrap().len(), 2);
+    });
+}

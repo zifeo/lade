@@ -1,7 +1,9 @@
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
+use std::sync::Mutex;
+use std::time::Duration;
 
 use nix::errno::Errno;
 use nix::sys::select::{FdSet, select};
@@ -15,6 +17,55 @@ use crate::config::Audience;
 use crate::context::InvocationContext;
 
 const CTRL_C: u8 = 0x03;
+
+/// What a provider lending needs to pause the reader: see `pause`.
+struct Paused {
+    ctl: UnixStream,
+    tty: File,
+    saved: Termios,
+    raw: Termios,
+}
+
+static PAUSE: Mutex<Option<Paused>> = Mutex::new(None);
+
+/// Before a provider gets the terminal: no spinner left on it, and no key
+/// read by Lade.
+pub(crate) fn before_lend() {
+    crate::provider_progress::wipe();
+    pause();
+}
+
+pub(crate) fn after_lend() {
+    resume();
+}
+
+/// A provider that asks on the terminal gets it cooked, and every key: the
+/// reader stops reading until `resume`.
+fn pause() {
+    let Ok(guard) = PAUSE.lock() else {
+        return;
+    };
+    let Some(paused) = guard.as_ref() else {
+        return;
+    };
+    let mut ctl = &paused.ctl;
+    if ctl.write_all(b"p").is_ok() {
+        let _ = ctl.set_read_timeout(Some(Duration::from_millis(200)));
+        let _ = ctl.read(&mut [0u8; 1]);
+    }
+    let _ = tcsetattr(&paused.tty, SetArg::TCSANOW, &paused.saved);
+}
+
+fn resume() {
+    let Ok(guard) = PAUSE.lock() else {
+        return;
+    };
+    let Some(paused) = guard.as_ref() else {
+        return;
+    };
+    let _ = tcsetattr(&paused.tty, SetArg::TCSANOW, &paused.raw);
+    let _ = (&paused.ctl).write_all(b"r");
+}
 
 /// `/dev/tty` without line editing, echo, or signals, and a thread reading
 /// its keys. Ctrl-C must arrive as a byte: fish aborts its pre-exec hook on
@@ -43,12 +94,21 @@ impl Keys {
         raw.control_chars[SpecialCharacterIndices::VMIN as usize] = 1;
         raw.control_chars[SpecialCharacterIndices::VTIME as usize] = 0;
         tcsetattr(&tty, SetArg::TCSANOW, &raw).ok()?;
+        *PAUSE.lock().ok()? = Some(Paused {
+            ctl: wake.try_clone().ok()?,
+            tty: tty.try_clone().ok()?,
+            saved: saved.clone(),
+            raw,
+        });
         let (send, keys) = mpsc::unbounded_channel();
         let reader = std::thread::spawn(move || {
             let mut buf = [0u8; 64];
+            let mut paused = false;
             loop {
                 let mut ready = FdSet::new();
-                ready.insert(reader_tty.as_fd());
+                if !paused {
+                    ready.insert(reader_tty.as_fd());
+                }
                 ready.insert(woken.as_fd());
                 match select(None, &mut ready, None, None, None) {
                     Ok(_) => {}
@@ -56,7 +116,16 @@ impl Keys {
                     Err(_) => return,
                 }
                 if ready.contains(woken.as_fd()) {
-                    return;
+                    let mut byte = [0u8; 1];
+                    match (&woken).read(&mut byte) {
+                        Ok(1) if byte[0] == b'p' => {
+                            paused = true;
+                            let _ = (&woken).write_all(b"a");
+                        }
+                        Ok(1) => paused = false,
+                        _ => return,
+                    }
+                    continue;
                 }
                 match (&reader_tty).read(&mut buf) {
                     Ok(0) => return,
@@ -113,6 +182,11 @@ impl Keys {
 
 impl Drop for Keys {
     fn drop(&mut self) {
+        // Its copy of the wake socket must close too, or the reader never
+        // sees the end.
+        if let Ok(mut paused) = PAUSE.lock() {
+            paused.take();
+        }
         drop(self.wake.take());
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();

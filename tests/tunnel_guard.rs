@@ -26,7 +26,7 @@ fn exits_within(pid: u32, timeout: Duration) -> bool {
 fn test_tunnel_guard_passes_the_provider_exit_code() {
     let home = tempdir().unwrap();
     let mut guard = common::lade_std(home.path())
-        .args(["tunnel-guard", "--", "/bin/sh", "-c", "exit 3"])
+        .args(["__tunnel-guard", "--", "/bin/sh", "-c", "exit 3"])
         .stdin(Stdio::piped())
         .spawn()
         .unwrap();
@@ -42,7 +42,7 @@ fn test_tunnel_guard_stops_the_provider_once_its_lade_is_gone() {
     let pid_file = dir.path().join("pid");
     let script = format!("echo $$ > {}; exec sleep 60", pid_file.display());
     let mut guard = common::lade_std(home.path())
-        .args(["tunnel-guard", "--", "/bin/sh", "-c", &script])
+        .args(["__tunnel-guard", "--", "/bin/sh", "-c", &script])
         .stdin(Stdio::piped())
         .spawn()
         .unwrap();

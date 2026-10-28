@@ -1,5 +1,6 @@
 use owo_colors::{OwoColorize, Style};
 use std::io::{IsTerminal, stderr};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod report;
 mod terminal;
@@ -9,6 +10,18 @@ mod tests;
 pub use report::Report;
 use terminal::*;
 pub(crate) use terminal::{columns_env, terminal_columns};
+
+static TERSE: AtomicBool = AtomicBool::new(false);
+
+/// An agent reads stderr as context: every box becomes one `lade:` line,
+/// with no border, no blank line, and no keyboard advice.
+pub fn set_terse(on: bool) {
+    TERSE.store(on, Ordering::Relaxed);
+}
+
+pub fn terse() -> bool {
+    TERSE.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone)]
 enum Entry {
@@ -96,6 +109,10 @@ impl MessageBox {
         // Borders only make sense on a real terminal. In non-interactive output
         // (agents, pipes) the box does not fit and just adds noise, so fall back
         // to bare lines.
+        if terse() {
+            eprintln!("{}", self.terse_line());
+            return;
+        }
         if !stderr().is_terminal() {
             self.print_plain_stderr();
             return;
@@ -140,6 +157,27 @@ impl MessageBox {
 
         let bottom = format!("╰{}╯", "─".repeat(inner));
         print_styled(&bottom, style, colored);
+    }
+}
+
+impl MessageBox {
+    fn terse_line(&self) -> String {
+        let text = self
+            .entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Line(text) | Entry::Paragraph(text) => {
+                    text.split_whitespace().collect::<Vec<_>>().join(" ")
+                }
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        match self.tone {
+            Tone::Info => format!("lade: {text}"),
+            Tone::Warning => format!("lade: warning: {text}"),
+            Tone::Error => format!("lade: error: {text}"),
+        }
     }
 }
 

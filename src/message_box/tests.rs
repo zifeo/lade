@@ -57,6 +57,21 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_gets_one_line_per_box() {
+        let error = MessageBox::new()
+            .error()
+            .line("Could not load secrets from one provider:")
+            .line("")
+            .paragraph("op: AWS_KEY\n  account is locked");
+        assert_eq!(
+            error.terse_line(),
+            "lade: error: Could not load secrets from one provider: op: AWS_KEY account is locked"
+        );
+        let info = MessageBox::new().info().line("Tell the human:").line("x");
+        assert_eq!(info.terse_line(), "lade: Tell the human: x");
+    }
+
+    #[test]
     fn warning_box() {
         MessageBox::new()
             .warning()

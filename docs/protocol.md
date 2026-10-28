@@ -15,7 +15,7 @@ See also [architecture.md](architecture.md) and [observability.md](observability
 
 | Surface | T |
 |---|---|
-| Pretool wrap | `--pretool` optional value: `lade --pretool=x7Km 'npm test'` |
+| Pretool wrap | `--pretool` optional value: `lade --pretool=x7Km 'npm test' && true` |
 | Preexec set | writes `{id}.json`, exports `LADE_T=x7Km` |
 | Preexec unset / approve | `LADE_T` from the previous set |
 | Direct inject, MCP, eval | none |
@@ -27,6 +27,12 @@ network pids, and pending disclaimer live on the ticket. Leftover
 
 The child never sees the id or `LADE_T`. Direct inject ignores a leftover
 `LADE_T` from a previous `set`. Unset unlinks if `LADE_T` is a valid id.
+
+A pre-tool T no wrap read within an hour never will be: the harness
+denied the command, another hook blocked it, or the line never ran
+Lade. Each new pre-tool T sweeps those, and any T that does not parse.
+A wrap that comes later walks the yaml instead. Pre-exec T stay: a
+long command needs its own until `lade unset`.
 
 ## Surfaces
 
@@ -62,12 +68,12 @@ sequenceDiagram
         Handler-->>Agent: inner (or raw if not a vehicle)
     else match
         Handler->>Tmp: write x7Km.json
-        Handler-->>Agent: lade --pretool=x7Km 'inner'
+        Handler-->>Agent: lade --pretool=x7Km 'inner' && true
         Agent->>Wrap: that line
-        Wrap->>Tmp: read x7Km
+        Wrap->>Tmp: read x7Km, unlink
         Wrap->>Wrap: run providers from the file
+        Wrap->>Wrap: start inner
         Wrap->>Db: event if match log
-        Wrap->>Tmp: unlink
     end
 ```
 
@@ -103,17 +109,18 @@ applies to this audience. `log: true` does not mean the line is a
 The handler never emits `lade inject …` or `lade --pretool inject …`.
 `lade inject -- cmd`, `lade -- cmd`, and `lade cmd` (alias) peel to
 `cmd`. A clap verb other than `inject` is not peeled. Yaml still sees
-the full line. A finished wrap
-(`--pretool=<id> 'cmd'` and T exists with that command) is left alone.
-If T write fails, the rewrite is `lade --pretool -- 'cmd'` and the
-handler still writes `seen` when log is on.
+the full line, less the leading `cd <dir> &&` segments the handler
+resolved (below). A finished wrap
+(`--pretool=<id> 'cmd' && true` and T exists with that command) is left
+alone. If T write fails, the rewrite is `lade --pretool -- 'cmd' && true`
+and the handler still writes `seen` when log is on.
 
 | Surface | T | Providers | Unlink | Diary |
 |---|---|---|---|---|
 | Pretool handler, no match | none | no | | `seen` if walk log |
 | Pretool handler, peeled, no wrap | none | no | | `seen` if walk / match log |
 | Pretool handler, match | writes | no | | wrap writes |
-| Pretool wrap, id present | read | from file | wrap, after the child | if match log |
+| Pretool wrap, id present | read | from file | wrap, once read | if match log |
 | Pretool wrap, no id | none | walk | | if match log, `seen` on no match |
 | Preexec set, `LADE_T` | read, keep | from file | unset | if match log |
 | Preexec set, no `LADE_T` | write on match | walk | unset | if match log, `seen` on no match |
@@ -122,6 +129,60 @@ handler still writes `seen` when log is on.
 | Approve | read if `pending` | from file, then inject | wrap, after the child | if match log |
 | MCP spawn | none | walk | | if match log, `seen` on no match |
 | MCP verb | none | no | | `seen` if match log or walk log |
+
+### Working directory
+
+The handler walks from the directory the command runs in, not its own.
+It starts at the payload's directory: `cwd` (Claude Code, Codex,
+Cursor), then `tool_input.working_directory` (Cursor) or
+`tool_input.workdir` (Codex, relative to `cwd`). The OpenCode plugin
+sends neither, so the hook process directory is used. Each leading
+`cd <dir> &&` then moves it: a literal relative or absolute path, `~`,
+or `~/…`, that exists. The first segment that is anything else (`$VAR`,
+quotes, `cd -`, a missing directory, `;`, a name `CDPATH` would search)
+stops it there. T `cwd` is
+that directory. The rewrite is still the whole line.
+
+The wrap resolves the same `cd <dir> &&` segments from its own
+directory, then reads that directory's yaml for pins, the cache, and
+the diary row, and matches the rules on the rest of the line.
+Pre-exec `set` and a direct `inject` do the same. Only the child starts in the harness's directory, and
+runs the `cd` itself. A ticket written for another directory still
+supplies the secrets, but skips the cache: a body is keyed by the
+rule that holds it, and a value must never land in another rule's.
+
+A line that is only `cd`, `pushd`, or `popd` with at most one literal
+argument (`cd -` included) is never wrapped, whatever the rules say:
+wrapped, it would move the child and not the harness shell. Anything
+compound (`cd x && y`, `cd x; y`, `VAR=1 cd x`, `cd $(…)`) is a
+normal line.
+
+### Shell
+
+Lade runs `cmd` in the shell that started it, its parent process:
+the shell the command was written for. An inherited variable never
+picks it. `SHELL`, the login shell, belongs to the terminal a
+harness started from: a fish terminal, a Claude Code or Codex shell
+in zsh. Every shell keeps `SHELL` as it found it.
+
+bash, zsh, and sh exec the last command of a `-c` line in place of
+themselves. Codex runs `zsh -lc '<rewrite>'`, so Lade's parent would be
+Codex. The rewrite therefore ends with `&& true`: the shell stays,
+and Lade's exit status is kept. fish never execs that way.
+
+A pre-tool wrap whose parent is not bash, zsh, fish, or sh (dash
+counts as sh) fails with a box, before any provider runs. No other
+source says which shell the command was written for.
+
+A direct `lade inject` or `lade approve` with no shell as parent runs
+its line in `sh`. A task runner (make, npm scripts, just) runs a line
+with `sh -c`, which execs Lade and leaves the runner as its parent:
+that line was written for `sh`. So was one from `xargs` or a script's
+subprocess.
+
+`lade on`, `off`, `set`, `unset`, `setup`, and `hook enable --shell`
+need a shell parent, which they always have from a shell hook.
+`lade status` shows no pre-exec row without one.
 
 ## Disclaimer
 
@@ -132,7 +193,8 @@ The approve code is not the T id. It is
 `sha256(command + "\n" + window)[:5]` hex, `window = unix_time / 300`
 (5 minutes). Current and previous windows are accepted. The id is
 already on `lade --pretool=x7Km`. Using it as `LADE_APPROVE` would let
-an agent copy the wrap line and skip the disclaimer.
+an agent copy the wrap line and skip the disclaimer. An agent never
+gets the code: only a human approves, from a terminal.
 
 T is the messenger (command, cwd, disclaimers, work, agent, pids,
 pending). `lade approve` reads `LADE_T`, requires `pending: true`,

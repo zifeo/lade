@@ -5,6 +5,7 @@ use super::{
     with_ticket_tmpdir,
 };
 use crate::config::{Audience, LadeFile};
+use serde_json::json;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -182,6 +183,31 @@ fn test_env_prefix_kept_before_inject() {
             assert!(result.contains("LADE_APPROVE=ab12c "));
             assert_wraps_with_ticket(&result, "echo hello");
             assert!(!result.contains("LADE_VIA=pretool "));
+        });
+    });
+}
+
+#[test]
+fn an_assignment_with_spaces_stays_inside_the_wrap() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let (config, _dir) = test_config(".");
+            for command in [
+                "d=$(getconf DARWIN_USER_CACHE_DIR)x; echo \"$d\"",
+                "MSG=\"a b\" echo \"$MSG\"",
+                "T=`date +%s` echo $T",
+                "T=/tmp/x && echo $T",
+                "T=/tmp/x || echo $T",
+                "A=1 T=/tmp/x\necho $T",
+            ] {
+                let input = json!({"tool_input": {"command": command}}).to_string();
+                let result = handle(&config, &input, Audience::Agent, None).unwrap();
+                let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+                let rewritten = parsed["updated_input"]["command"].as_str().unwrap();
+                let quoted = format!("'{}' && true", command.replace('\'', "'\\''"));
+                assert!(rewritten.ends_with(&quoted), "{rewritten}");
+                assert!(!rewritten.starts_with(&command[..2]), "{rewritten}");
+            }
         });
     });
 }

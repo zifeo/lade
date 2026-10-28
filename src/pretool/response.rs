@@ -42,3 +42,24 @@ pub(super) fn format_modify(platform: &Platform, tool_input: &Value, new_command
         .to_string(),
     }
 }
+
+pub(super) fn allow(platform: Option<Platform>) -> String {
+    match platform {
+        Some(platform) => format_allow(&platform),
+        None => String::new(),
+    }
+}
+
+pub(super) fn allow_verb(platform: Option<Platform>) -> String {
+    match platform {
+        Some(platform) => format_allow_verb(&platform),
+        None => "{}".to_string(),
+    }
+}
+
+pub(super) fn modify(platform: Option<Platform>, tool_input: &Value, new_command: &str) -> String {
+    match platform {
+        Some(platform) => format_modify(&platform, tool_input, new_command),
+        None => format_modify(&Platform::ClaudeCode, tool_input, new_command),
+    }
+}

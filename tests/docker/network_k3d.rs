@@ -1,7 +1,8 @@
 use crate::common;
 use crate::k3d::{
-    echo_through, ensure_cluster_context, eventually, extract_lade_t, is_ready_for_k3d_test,
-    manifests_path, normalize_authority, port_is_free, run_capture, run_ok, write_cluster_config,
+    echo_through, ensure_cluster_context, eventually, extract_lade_t, free_port,
+    is_ready_for_k3d_test, manifests_path, normalize_authority, port_is_free, run_capture, run_ok,
+    write_cluster_config,
 };
 use predicates::prelude::PredicateBooleanExt;
 use std::env;
@@ -20,7 +21,7 @@ fn network_k3d_kubectl_provider_lifecycle() {
     ensure_cluster_context(&cluster, &context, &kubeconfig, &cluster_config);
     let namespace = "lade-k3d-ns";
     let service = "http-echo";
-    let port_local = "18080";
+    let port_local = &free_port();
     let port_remote = "8080";
     let payload_arg = r#"'{"ping":"pong"}'"#;
 

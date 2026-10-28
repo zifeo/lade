@@ -1,4 +1,4 @@
-//! `lade tunnel-guard -- PROGRAM ARGS...` runs a tunnel provider and takes
+//! `lade __tunnel-guard -- PROGRAM ARGS...` runs a tunnel provider and takes
 //! its process group down once stdin closes. The Lade process that started
 //! it holds the other end of that pipe, so the kernel closes it however
 //! Lade ends, `SIGKILL` included, and no provider outlives its owner.
@@ -10,7 +10,7 @@ use std::io::{Read, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 
-pub(crate) const GUARD_VERB: &str = "tunnel-guard";
+pub(crate) const GUARD_VERB: &str = "__tunnel-guard";
 
 /// The kill takes the guard's process group, so the guard leads its own
 /// session: the supervisor already made it, and `setsid` covers a guard run

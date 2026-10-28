@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::locate::{find_project, hook_state, leftover_claude_local, project_dest};
+use super::locate::{claude_shared_hook, find_project, hook_state, project_dest};
 use super::opencode::OpenCodeApi;
 use super::paths::{home_dir, hook_command, project_hook_command, tilde};
 use super::write::refresh_at;
@@ -69,12 +69,12 @@ pub(crate) fn report_at(
                 agent.slug()
             ));
         }
-        if let Some(dest) = project_dest(home, cwd)
-            && let Ok(Some((path, _))) = leftover_claude_local(&dest)
-            && agent == Agent::Claude
+        if agent == Agent::Claude
+            && let Some(dest) = project_dest(home, cwd)
+            && let Ok(Some((path, _))) = claude_shared_hook(&dest)
         {
             lines.push(format!(
-                "Claude Code (this repo, {}): leftover hook in settings.local.json. `lade hook disable --harness claude` removes it.",
+                "Claude Code (this repo, {}): a Lade hook in settings.json, which Claude reads only when started at the repo root. `lade hook enable --harness claude` moves it to settings.local.json, read from any subdirectory.",
                 tilde(&path, home)
             ));
         }

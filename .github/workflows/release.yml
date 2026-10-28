@@ -105,6 +105,16 @@ jobs:
         run: curl -L https://github.com/cross-rs/cross/releases/download/v0.2.5/cross-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin
       - name: Build
         run: ${{ matrix.build_cmd }} build --locked --release --target ${{ matrix.target }} -p lade -p age-plugin-lade
+      # Ad hoc, no Apple account. The hub serves only clients with its own
+      # cdhash, and hardened runtime keeps any other process of the user
+      # from attaching to it and reading the cached values.
+      - name: Sign
+        if: runner.os == 'macOS'
+        run: |
+          bin="target/${{ matrix.target }}/release/lade"
+          codesign --force --sign - --options runtime "$bin"
+          codesign --verify --strict "$bin"
+          codesign --display --verbose "$bin" 2>&1 | grep -q 'flags=.*runtime'
       - name: Compress
         shell: bash
         run: |

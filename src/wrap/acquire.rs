@@ -3,7 +3,6 @@ use std::future::Future;
 
 use crate::config::{NetworkBinding, SecretSources};
 use crate::context::InvocationContext;
-use crate::event;
 use crate::files::{
     LoadedSecrets, hydrate_secrets_from_ticket_with_progress, remove_files, split_env_files,
     write_files,
@@ -34,7 +33,6 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     ctx: &InvocationContext,
     secrets: SecretHydrate<'_>,
     network_bindings: Vec<NetworkBinding>,
-    warmup: bool,
     preexec: Option<&Shell>,
     start_network: impl FnOnce(&[NetworkBinding], ProviderProgressSink, &Stop) -> Result<N>
     + Send
@@ -48,11 +46,11 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
         }
         std::process::exit(code);
     };
-    let provider_progress = start_provider_progress(ctx.stderr_is_terminal);
+    let provider_progress =
+        start_provider_progress(ctx.stderr_is_terminal && !crate::message_box::terse());
     let secret_sink = provider_progress.sink();
     let network_sink = provider_progress.sink();
     let mut provider_progress = Some(provider_progress);
-    let warmup = warmup.then(|| tokio::task::spawn_blocking(event::warmup));
     // zsh and bash cancel the command on SIGINT themselves.
     let mut keys = matches!(preexec, Some(Shell::Fish))
         .then(|| Keys::enter(ctx))
@@ -98,11 +96,6 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
         unlink_ticket_before_exit(secrets.ticket_unlink);
         cancel_command(crate::exit_codes::INTERRUPTED);
     };
-    if let Some(warmup) = warmup {
-        let started = std::time::Instant::now();
-        let _ = warmup.await;
-        log_phase("diary open wait", started);
-    }
     stop_provider_progress(&mut provider_progress);
     let error = match acquisition {
         Acquisition::Ready(secret_result, network_result) => {
@@ -209,8 +202,11 @@ async fn prepare_secrets(
     progress: ProviderProgressSink,
 ) -> Result<SecretBundle> {
     let started = std::time::Instant::now();
-    let hit = match &cache {
-        Some(scope) => crate::hub::lookup(scope.cwd, scope.walk, scope.saved_user, scope.patterned),
+    let cache = cache.map(|scope| {
+        crate::hub::Cache::open(scope.cwd, scope.walk, scope.saved_user, scope.patterned)
+    });
+    let hit = match cache.as_ref() {
+        Some(cache) => cache.lookup(),
         None => crate::hub::CacheHit::empty(),
     };
     log_phase("hub lookup", started);
@@ -223,7 +219,7 @@ async fn prepare_secrets(
         mut vars,
         mut sources,
         mut maskable,
-        mut warnings,
+        warnings,
     } = {
         let started = std::time::Instant::now();
         let loaded = hydrate_secrets_from_ticket_with_progress(
@@ -249,25 +245,13 @@ async fn prepare_secrets(
             .insert(secret.key.clone(), value.clone());
     }
 
-    if let Some(scope) = &cache {
+    if let Some(cache) = cache.as_ref() {
         let started = std::time::Instant::now();
         let mut flat = std::collections::HashMap::new();
         for values in vars.values() {
             flat.extend(values.clone());
         }
-        crate::hub::store(
-            scope.cwd,
-            scope.walk,
-            scope.saved_user,
-            scope.patterned,
-            &flat,
-            &hit.keys,
-        );
-        if let Some(gap) =
-            crate::hub::cache_gap(scope.cwd, scope.walk, scope.saved_user, scope.patterned)
-        {
-            warnings.push(gap);
-        }
+        cache.store(&flat, &hit.keys);
         log_phase("hub store", started);
     }
 

@@ -56,7 +56,7 @@ fn hook_install_and_uninstall_cover_both_scopes() {
         (
             "claude",
             home.path().join(".claude").join("settings.json"),
-            dir.path().join(".claude").join("settings.json"),
+            dir.path().join(".claude").join("settings.local.json"),
         ),
         (
             "codex",
@@ -154,7 +154,7 @@ fn hook_install_preserves_claude_permissions_and_model() {
     )
     .unwrap();
     common::init_git(dir.path());
-    let path = dir.path().join(".claude").join("settings.json");
+    let path = dir.path().join(".claude").join("settings.local.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(
         &path,

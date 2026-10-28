@@ -162,10 +162,36 @@ fn is_env_assignment(token: &str) -> bool {
 /// rest of the command. The hook re-emits them before the rewritten command
 /// so an approval prefix lands in the child environment.
 pub(crate) fn split_env_prefix(command: &str) -> (String, String) {
+    split_prefix(command, is_env_assignment)
+}
+
+/// The leading `NAME=value` words the hook may move in front of the
+/// rewrite. A value with quotes, expansion, or an operator may hold
+/// spaces (`d=$(getconf X)`), so splitting on them would cut a word in two
+/// and break the line: it stays inside the wrap instead.
+pub(super) fn split_plain_env_prefix(command: &str) -> (String, String) {
+    let (prefix, rest) = split_prefix(command, |token| {
+        is_env_assignment(token) && !token.contains(NOT_PLAIN_VALUE)
+    });
+    // Before an operator or a line break, the words set shell variables
+    // and prefix no command (`T=x && cd $T`): moved out, they would leave
+    // the operator at the start of the wrap.
+    let head = &command[..command.len() - rest.len()];
+    if head.contains('\n') || rest.starts_with(['&', '|', ';', ')']) {
+        return (String::new(), command.trim_start().to_string());
+    }
+    (prefix, rest)
+}
+
+const NOT_PLAIN_VALUE: &[char] = &[
+    '\'', '"', '$', '`', '\\', '(', ')', '{', '}', ';', '&', '|', '<', '>', '#',
+];
+
+fn split_prefix(command: &str, take: impl Fn(&str) -> bool) -> (String, String) {
     let mut prefix: Vec<&str> = Vec::new();
     let mut rest = command.trim_start();
     while let Some((head, tail)) = rest.split_once(char::is_whitespace) {
-        if is_env_assignment(head) {
+        if take(head) {
             prefix.push(head);
             rest = tail.trim_start();
         } else {

@@ -1,8 +1,7 @@
 mod apply;
 mod cap;
 mod client;
-mod crypto;
-mod key;
+mod guard;
 mod peer;
 mod release;
 mod server;
@@ -11,12 +10,13 @@ mod transport;
 mod tunnels;
 mod wire;
 
-pub(crate) use apply::{CacheHit, cache_gap, lookup, session_ttl, store};
+pub(crate) use apply::{Cache, CacheHit, session_ttl};
 pub(crate) use client::{
-    CacheListing, HubInfo, HubState, HubStop, forget_names, listing, probe, put_t, put_t_notice,
-    scope, set_window, stop, tunnel_open, tunnel_poll, tunnel_release, unlink_t, unset_window,
-    version_ledger, window,
+    CacheListing, HubInfo, HubState, HubStop, forget_names, listing, notice_slot, probe, put_t,
+    put_t_notice, scope, set_window, stop, tunnel_open, tunnel_poll, tunnel_release, unlink_t,
+    unset_window, version_ledger, window,
 };
+pub(crate) use guard::{MemoryGuard, memory_guard};
 pub(crate) use server::serve;
 pub(crate) use tables::path_related;
 pub(crate) use wire::{

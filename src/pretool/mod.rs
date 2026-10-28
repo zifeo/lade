@@ -28,6 +28,8 @@ Disclaimer enforcement lives in inject.
 
 pub(crate) mod bin;
 mod classify;
+mod cwd;
+pub(crate) use cwd::{run_dir, same_dir};
 pub mod install;
 mod platform;
 mod response;
@@ -36,7 +38,7 @@ mod tests;
 mod verb;
 
 use crate::audience::Via;
-use crate::config::{Audience, Config};
+use crate::config::{Audience, Config, LadeFile};
 use crate::event::{self, Emit, Kind};
 use crate::global_config::GlobalConfig;
 use crate::message_box::MessageBox;
@@ -44,14 +46,14 @@ use crate::ticket::{PreEvent, TicketNetwork, write as write_ticket};
 use anyhow::Result;
 use classify::{Class, classify, join_prefix, sanitize_env_prefix, wrap_idless, wrap_ticket};
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use platform::{collect_agent, extract_command, resolve_platform, split_env_prefix};
+use platform::{collect_agent, extract_command, resolve_platform, split_plain_env_prefix};
 use verb::{hook_event, is_post_event, is_verb, normalize, verb_agent, verb_args};
 
 pub(crate) use bin::invoked_lade_bin;
 pub(crate) use platform::split_env_prefix as split_command_env_prefix;
-use response::{format_allow, format_allow_verb, format_modify};
+use response::{allow, allow_verb, modify};
 
 pub fn handle(
     config: &Config,
@@ -87,7 +89,7 @@ pub fn handle(
 
     // Keep any leading `LADE_APPROVE=...` (or other env assignments) so the
     // approval prefix reaches the wrapped process. Protocol leftovers are dropped.
-    let (raw_prefix, rest) = split_env_prefix(&raw);
+    let (raw_prefix, rest) = split_plain_env_prefix(&raw);
     let prefix = sanitize_env_prefix(&raw_prefix);
     let tool_input = parsed.get("tool_input").cloned().unwrap_or(json!({}));
     let class = classify(&rest);
@@ -100,6 +102,7 @@ pub fn handle(
                 &rest,
                 json!([]),
                 agent,
+                config.start(),
             );
             return Ok(allow(platform));
         }
@@ -108,7 +111,34 @@ pub fn handle(
     let from_vehicle = matches!(class, Class::Vehicle { .. });
     let command = class.inner().unwrap_or(rest);
 
-    let patterned = config.collect_for_with_pattern(&command, audience);
+    let (dir, matched) = cwd::run_dir(&cwd::payload_dir(&parsed, config.start()), &command);
+    let moved;
+    let config = if cwd::same_dir(&dir, config.start()) {
+        config
+    } else {
+        moved = match LadeFile::build(dir.clone()) {
+            Ok(config) => config,
+            Err(e) => {
+                crate::config::report_load_error(&e);
+                std::process::exit(crate::exit_codes::FAILURE);
+            }
+        };
+        &moved
+    };
+
+    if raw_prefix.is_empty() && cwd::is_shell_move(&command) {
+        emit_seen_pretool(
+            config.log_on_walk_for(audience),
+            audience,
+            &command,
+            json!([]),
+            agent,
+            &dir,
+        );
+        return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
+    }
+
+    let patterned = config.collect_for_with_pattern(matched, audience);
     if patterned.is_empty() {
         emit_seen_pretool(
             config.log_on_walk_for(audience),
@@ -116,6 +146,7 @@ pub fn handle(
             &command,
             json!([]),
             agent,
+            &dir,
         );
         return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
     }
@@ -130,23 +161,23 @@ pub fn handle(
                 &command,
                 json!([]),
                 agent,
+                &dir,
             );
             return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
         }
     };
     if !Config::needs_wrap(
         &work,
-        &command,
+        matched,
         patterned.iter().map(|(_, _, rule)| rule),
         &saved_user,
     ) {
-        emit_seen_pretool(work.log, audience, &command, work.matches, agent);
+        emit_seen_pretool(work.log, audience, &command, work.matches, agent, &dir);
         return Ok(done(platform, &tool_input, &prefix, &command, from_vehicle));
     }
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut pre = PreEvent::new(
         &command,
-        cwd.clone(),
+        dir.clone(),
         Via::Pretool,
         audience,
         event::actor(&saved_user),
@@ -168,10 +199,13 @@ pub fn handle(
     pre.agent = agent.clone();
     let lade_bin = invoked_lade_bin();
     let wrapped = match write_ticket(&pre) {
-        Ok(id) => wrap_ticket(&lade_bin, &id, &command),
+        Ok(id) => {
+            crate::ticket::sweep_pretool(crate::ticket::PRETOOL_UNREAD);
+            wrap_ticket(&lade_bin, &id, &command)
+        }
         Err(_) => {
             warn_ticket();
-            emit_seen_pretool(work.log, audience, &command, work.matches, agent);
+            emit_seen_pretool(work.log, audience, &command, work.matches, agent, &dir);
             wrap_idless(&lade_bin, &command)
         }
     };
@@ -237,11 +271,11 @@ fn emit_seen_pretool(
     command: &str,
     matches: serde_json::Value,
     agent: serde_json::Value,
+    cwd: &Path,
 ) {
     if !log {
         return;
     }
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let saved_user = GlobalConfig::resolved_user();
     event::emit_if(
         true,
@@ -250,7 +284,7 @@ fn emit_seen_pretool(
             via: Via::Pretool,
             audience,
             actor: event::actor(&saved_user),
-            cwd,
+            cwd: cwd.to_path_buf(),
             command: command.to_string(),
             argv: None,
             hydrated: None,
@@ -289,25 +323,4 @@ fn warn_unread(reason: &str) {
         .line(format!("Could not read this hook payload ({reason})."))
         .line("The command will run without injection.")
         .print_stderr();
-}
-
-fn allow(platform: Option<platform::Platform>) -> String {
-    match platform {
-        Some(platform) => format_allow(&platform),
-        None => String::new(),
-    }
-}
-
-fn allow_verb(platform: Option<platform::Platform>) -> String {
-    match platform {
-        Some(platform) => format_allow_verb(&platform),
-        None => "{}".to_string(),
-    }
-}
-
-fn modify(platform: Option<platform::Platform>, tool_input: &Value, new_command: &str) -> String {
-    match platform {
-        Some(platform) => format_modify(&platform, tool_input, new_command),
-        None => format_modify(&platform::Platform::ClaudeCode, tool_input, new_command),
-    }
 }

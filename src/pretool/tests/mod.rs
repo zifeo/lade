@@ -1,6 +1,7 @@
 use crate::config::{Config, LadeFile};
 use tempfile::{TempDir, tempdir};
 
+mod cwd;
 mod detect;
 mod model;
 mod perf;

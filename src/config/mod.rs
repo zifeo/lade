@@ -92,6 +92,7 @@ pub struct Config {
     patterns: Vec<String>,
     compiled: CompiledPatterns,
     walk_hash: [u8; 32],
+    start: PathBuf,
 }
 
 impl Config {
@@ -100,13 +101,20 @@ impl Config {
         patterns: Vec<String>,
         compiled: CompiledPatterns,
         walk_hash: [u8; 32],
+        start: PathBuf,
     ) -> Self {
         Config {
             rules,
             patterns,
             compiled,
             walk_hash,
+            start,
         }
+    }
+
+    /// The directory the walk started from.
+    pub(crate) fn start(&self) -> &std::path::Path {
+        &self.start
     }
 
     pub(crate) fn walk_hash(&self) -> [u8; 32] {
