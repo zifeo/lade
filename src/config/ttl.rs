@@ -12,7 +12,7 @@ pub fn body_put_ttl_ms(rule: &LadeRule, session: Option<&RuleTtl>) -> Option<u32
     put_ttl_ms(rule.ttl(), session)
 }
 
-/// Vault / file / sops / age default on. Shell needs `.ttl:` or a session
+/// Every provider URI defaults on. Shell needs `.ttl:` or a session
 /// window. Raw, tunnel, and package never.
 pub fn uri_is_cacheable(uri: &str, ttl: Option<&RuleTtl>, session: Option<&RuleTtl>) -> bool {
     cacheable_uri(uri, ttl, session)

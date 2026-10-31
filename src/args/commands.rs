@@ -333,8 +333,8 @@ Names only. Never values. This binary's hub only.
 `--global` lists every row.
 `lade ttl set` marks this cwd on the hub. Ancestors share it. Secrets and
 tunnels of matching rules keep that long. `unset` clears this cwd.
-Vault and file stay in RAM 5m. Tunnels stop with their command unless the
-rule or a window sets ttl. `forget` drops them now.
+Secrets stay in RAM 5m, shell ones only with ttl. Tunnels stop with their
+command unless the rule or a window sets ttl. `forget` drops them now.
 `lade log prune --hub` is an alias of `lade ttl forget`.
 Loader marks: (c) cached, (o) overridden, (u) unset. See docs/cli.md.
 ";
