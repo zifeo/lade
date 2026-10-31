@@ -280,7 +280,10 @@ fn empty_key_string_is_the_lade_version() {
 fn version_key_accepts_a_compound_range() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
-    std::fs::write(&file_path, ": >0.18.0,<=0.20.0\n\"cmd\":\n  KEY: val\n").unwrap();
+    // Pinned bounds break on the next bump: cap at this crate's own version.
+    let v = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    let range = format!(">0.18.0,<={}.{}.{}", v.major, v.minor, v.patch);
+    std::fs::write(&file_path, format!(": {range}\n\"cmd\":\n  KEY: val\n")).unwrap();
     let lade_file = LadeFile::from_path(&file_path).unwrap();
     assert!(
         lade_file.commands.get("cmd").unwrap()[0]

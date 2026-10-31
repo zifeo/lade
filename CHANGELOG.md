@@ -2,8 +2,7 @@
 
 All notable changes to [Lade](https://github.com/zifeo/lade) are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes are also published on [GitHub Releases](https://github.com/zifeo/lade/releases).
 
@@ -11,430 +10,88 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [0.20.0] - 2026-10-31
 
-Since 0.19.2, a hub process keeps hydrated secrets and tunnels in RAM,
-so commands in a row share one fetch and one tunnel, and a failed
-secret or tunnel cancels the command instead of running it without
-Lade. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md)
-and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md).
+Since 0.19.2, a hub process keeps hydrated secrets and tunnels in RAM, so commands in a row share one fetch and one tunnel, and a failed secret or tunnel cancels the command instead of running it without Lade. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md) and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md).
 
 ### Upgrading from 0.19.2
 
-- Rename a rule's `silence: true` to `silent: true`. The old key is
-  ignored ([#224](https://github.com/zifeo/lade/pull/224)).
-- `lade hook enable/disable --scope user` is now `--global`, and
-  `--scope` fails ([#225](https://github.com/zifeo/lade/pull/225)).
-- Run `lade hook enable` again in each repo. Without `--global` the
-  pre-tool hook goes at the git root and needs a git repo. Claude
-  Code's repo hook moves to `.claude/settings.local.json`
-  ([#228](https://github.com/zifeo/lade/pull/228),
-  [#231](https://github.com/zifeo/lade/pull/231)).
-- A failed secret, tunnel, pin, ticket, or env conflict cancels the
-  command, in pre-exec too. Only a human pressing Enter within 5 s
-  runs it without Lade ([#227](https://github.com/zifeo/lade/pull/227),
-  [#228](https://github.com/zifeo/lade/pull/228),
-  [#231](https://github.com/zifeo/lade/pull/231)).
-- A binding exported to the env must be a valid env var name, so
-  `DB-PASS` fails. A binding written to a file keeps any name
-  ([#227](https://github.com/zifeo/lade/pull/227)).
-- Shell secrets (`sh://`, `bash://`, `zsh://`, `fish://`) and Vault
-  time out after 10 s, was 30 s. A failing shell secret is an error,
-  not its stdout ([#230](https://github.com/zifeo/lade/pull/230)).
-- `LADE_SHELL` and `SHELL` are no longer read. A task runner's
-  `lade inject` runs its line in `sh`
-  ([#231](https://github.com/zifeo/lade/pull/231)).
-- No home directory is an error. Set `HOME`, or `LADE_CACHE_DIR`
-  ([#227](https://github.com/zifeo/lade/pull/227)).
-- On macOS, a `cargo install` caches no secret until it is signed
-  with `codesign --force --sign - --options runtime "$(command -v lade)"`.
-  Release binaries and `scripts/install-local.sh` are signed
-  ([#231](https://github.com/zifeo/lade/pull/231)).
-- After `lade upgrade`, reload the wrap in each open terminal
-  (`eval "$(lade on)"` on zsh)
-  ([#222](https://github.com/zifeo/lade/pull/222)).
-- `lade-sdk`: `hydrate` is now `hydrate_many`, `Provider` requires
-  `timeout()`, and `network::build_command` takes a `Listen`. See
-  **lade-sdk** under Changed
-  ([#227](https://github.com/zifeo/lade/pull/227),
-  [#229](https://github.com/zifeo/lade/pull/229),
-  [#230](https://github.com/zifeo/lade/pull/230)).
+- Rename a rule's `silence: true` to `silent: true`. The old key is ignored ([#224](https://github.com/zifeo/lade/pull/224)).
+- `lade hook enable/disable --scope user` is now `--global`, and `--scope` fails ([#225](https://github.com/zifeo/lade/pull/225)).
+- Run `lade hook enable` again in each repo. Without `--global` the pre-tool hook goes at the git root and needs a git repo. Claude Code's repo hook moves to `.claude/settings.local.json` ([#228](https://github.com/zifeo/lade/pull/228), [#231](https://github.com/zifeo/lade/pull/231)).
+- A failed secret, tunnel, pin, ticket, or env conflict cancels the command, in pre-exec too. Only a human pressing Enter within 5 s runs it without Lade ([#227](https://github.com/zifeo/lade/pull/227), [#228](https://github.com/zifeo/lade/pull/228), [#231](https://github.com/zifeo/lade/pull/231)).
+- A binding exported to the env must be a valid env var name, so `DB-PASS` fails. A binding written to a file keeps any name ([#227](https://github.com/zifeo/lade/pull/227)).
+- Shell secrets (`sh://`, `bash://`, `zsh://`, `fish://`) and Vault time out after 10 s, was 30 s. A failing shell secret is an error, not its stdout ([#230](https://github.com/zifeo/lade/pull/230)).
+- `LADE_SHELL` and `SHELL` are no longer read. A task runner's `lade inject` runs its line in `sh` ([#231](https://github.com/zifeo/lade/pull/231)).
+- No home directory is an error. Set `HOME`, or `LADE_CACHE_DIR` ([#227](https://github.com/zifeo/lade/pull/227)).
+- On macOS, a `cargo install` caches no secret until it is signed with `codesign --force --sign - --options runtime "$(command -v lade)"`. Release binaries and `scripts/install-local.sh` are signed ([#231](https://github.com/zifeo/lade/pull/231)).
+- After `lade upgrade`, reload the wrap in each open terminal (`eval "$(lade on)"` on zsh) ([#222](https://github.com/zifeo/lade/pull/222)).
+- `lade-sdk`: `hydrate` is now `hydrate_many`, `Provider` requires `timeout()`, and `network::build_command` takes a `Listen`. See **lade-sdk** under Changed ([#227](https://github.com/zifeo/lade/pull/227), [#229](https://github.com/zifeo/lade/pull/229), [#230](https://github.com/zifeo/lade/pull/230)).
 
 ### Added
 
-- **Secret cache** ([#223](https://github.com/zifeo/lade/pull/223),
-  [#224](https://github.com/zifeo/lade/pull/224),
-  [#225](https://github.com/zifeo/lade/pull/225),
-  [#227](https://github.com/zifeo/lade/pull/227)): a hub process
-  keeps hydrated values in RAM for a rule body, so `terraform plan`
-  then `terraform apply` share one fetch. Every URI a provider
-  resolves (vault, op, file, age, sops, cloud) is cached 5m by
-  default, which also skips a repeated Touch ID or key touch for 5m,
-  agents included. Shell URIs are cached only when the body sets
-  `ttl:` or the cwd has a window. `ttl:` on the rule's `.` is `off`
-  or up to 24h. Rows are keyed by working directory, so each worktree
-  has its own. `lade ttl` lists this cwd's key names, yaml path, and
-  time left (`--global`: every row, `--json`). `lade ttl forget KEY`
-  drops one row. With no key it stops the hub and every tunnel.
-  `lade ttl set 2h` / `unset` marks a window on this cwd and its
-  parents and children. `lade log prune --hub` is an alias of
-  `forget`. Progress marks `(c)` cached, `(o)` overridden, `(u)`
-  unset. A TTL keeps counting while the machine sleeps. After 1h with
-  no request, a hub with no cached secret, ticket, window, or tunnel
-  exits. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md).
-- **Who may read the cache** ([#231](https://github.com/zifeo/lade/pull/231)):
-  values cross the socket and sit in the hub's RAM in plaintext. The
-  hub serves only its own binary: on macOS the kernel checks the
-  client's cdhash through its audit token, on Linux its executable.
-  It caches secrets only where no other process of the user can read
-  its memory: on Linux, where the hub makes itself not dumpable, and
-  on macOS for a binary signed with hardened runtime. Release
-  binaries are, ad hoc, with no Apple account, and so is
-  `scripts/install-local.sh`. A plain `cargo install` caches once
-  signed with `codesign --force --sign - --options runtime "$(command -v lade)"`.
-  No step needs `sudo`. `lade status` says which applies. See
-  [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md#memory-guard).
-- **`max_cache`** ([#230](https://github.com/zifeo/lade/pull/230)): a
-  field in `config.json` caps every secret and tunnel ttl, and every
-  window: `"1h"`, or `"0"` to turn the cache off, up to 24h. Any
-  change drops every cached secret and stops every idle tunnel. An
-  invalid value turns the cache off, and `lade status` reports it
-  with `ok: false`. `lade ttl` shows a window the cap shortens
-  (`8h, capped to 1h by max_cache`), and `lade ttl --json` adds
-  `max_cache_ms`.
-- **Persistent tunnels** ([#227](https://github.com/zifeo/lade/pull/227)):
-  `ttl:` on a rule's `.`, or a `lade ttl set` window, keeps its
-  tunnels that long after the last command that used them. The next
-  command to the same target reuses them. Tunnels have no default
-  ttl. `lade ttl` lists them, `lade ttl forget KEY` stops one.
-- **Hydrate timing** ([#224](https://github.com/zifeo/lade/pull/224),
-  [#230](https://github.com/zifeo/lade/pull/230),
-  [#231](https://github.com/zifeo/lade/pull/231)):
-  `LADE_LOG=lade::timing=info` (or `-vv`) logs how long the hub
-  lookup, each provider, the hub store, tunnels, warnings, the ticket,
-  and the start of the command took.
-- **Help examples** ([#223](https://github.com/zifeo/lade/pull/223)):
-  `lade --help` and each command's `--help` end with examples. The
-  root help sums up the cache ttl and the progress marks.
-- **Cached diary rows** ([#223](https://github.com/zifeo/lade/pull/223)):
-  a binding served from the hub has `cached: true` in its diary row.
-- **age plugin post-quantum keys** ([#226](https://github.com/zifeo/lade/pull/226)):
-  `age-plugin-lade` wraps and unwraps with Go age 1.3 keys
-  (`age1pq1`, `AGE-SECRET-KEY-PQ-1`) through `age-plugin-pq` on
-  `PATH`. The age 1.3.2 release and mise ship it. Homebrew's `age`
-  does not. This bridge goes away when rage 0.13 supports these keys.
+- **Secret cache** ([#223](https://github.com/zifeo/lade/pull/223), [#224](https://github.com/zifeo/lade/pull/224), [#225](https://github.com/zifeo/lade/pull/225), [#227](https://github.com/zifeo/lade/pull/227)): a hub process keeps hydrated values in RAM for a rule body, so `terraform plan` then `terraform apply` share one fetch. Every URI a provider resolves (vault, op, file, age, sops, cloud) is cached 5m by default, which also skips a repeated Touch ID or key touch for 5m, agents included. Shell URIs are cached only when the body sets `ttl:` or the cwd has a window. `ttl:` on the rule's `.` is `off` or up to 24h. Rows are keyed by working directory, so each worktree has its own. `lade ttl` lists this cwd's key names, yaml path, and time left (`--global`: every row, `--json`). `lade ttl forget KEY` drops one row. With no key it stops the hub and every tunnel. `lade ttl set 2h` / `unset` marks a window on this cwd and its parents and children. `lade log prune --hub` is an alias of `forget`. Progress marks `(c)` cached, `(o)` overridden, `(u)` unset. A TTL keeps counting while the machine sleeps. After 1h with no request, a hub with no cached secret, ticket, window, or tunnel exits. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md).
+- **Who may read the cache** ([#231](https://github.com/zifeo/lade/pull/231)): values cross the socket and sit in the hub's RAM in plaintext. The hub serves only its own binary: on macOS the kernel checks the client's cdhash through its audit token, on Linux its executable. It caches secrets only where no other process of the user can read its memory: on Linux, where the hub makes itself not dumpable, and on macOS for a binary signed with hardened runtime. Release binaries are, ad hoc, with no Apple account, and so is `scripts/install-local.sh`. A plain `cargo install` caches once signed with `codesign --force --sign - --options runtime "$(command -v lade)"`. No step needs `sudo`. `lade status` says which applies. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md#memory-guard).
+- **`max_cache`** ([#230](https://github.com/zifeo/lade/pull/230)): a field in `config.json` caps every secret and tunnel ttl, and every window: `"1h"`, or `"0"` to turn the cache off, up to 24h. Any change drops every cached secret and stops every idle tunnel. An invalid value turns the cache off, and `lade status` reports it with `ok: false`. `lade ttl` shows a window the cap shortens (`8h, capped to 1h by max_cache`), and `lade ttl --json` adds `max_cache_ms`.
+- **Persistent tunnels** ([#227](https://github.com/zifeo/lade/pull/227)): `ttl:` on a rule's `.`, or a `lade ttl set` window, keeps its tunnels that long after the last command that used them. The next command to the same target reuses them. Tunnels have no default ttl. `lade ttl` lists them, `lade ttl forget KEY` stops one.
+- **Hydrate timing** ([#224](https://github.com/zifeo/lade/pull/224), [#230](https://github.com/zifeo/lade/pull/230), [#231](https://github.com/zifeo/lade/pull/231)): `LADE_LOG=lade::timing=info` (or `-vv`) logs how long the hub lookup, each provider, the hub store, tunnels, warnings, the ticket, and the start of the command took.
+- **Help examples** ([#223](https://github.com/zifeo/lade/pull/223)): `lade --help` and each command's `--help` end with examples. The root help sums up the cache ttl and the progress marks.
+- **Cached diary rows** ([#223](https://github.com/zifeo/lade/pull/223)): a binding served from the hub has `cached: true` in its diary row.
+- **age plugin post-quantum keys** ([#226](https://github.com/zifeo/lade/pull/226)): `age-plugin-lade` wraps and unwraps with Go age 1.3 keys (`age1pq1`, `AGE-SECRET-KEY-PQ-1`) through `age-plugin-pq` on `PATH`. The age 1.3.2 release and mise ship it. Homebrew's `age` does not. This bridge goes away when rage 0.13 supports these keys.
 
 ### Changed
 
-- **Every tunnel runs in the hub** ([#225](https://github.com/zifeo/lade/pull/225),
-  [#227](https://github.com/zifeo/lade/pull/227),
-  [#231](https://github.com/zifeo/lade/pull/231)): for pre-exec,
-  inject, pre-tool, and MCP alike, and the hub restarts a provider
-  that exits. A command fails when the hub cannot start. Two commands
-  on the same target share one provider, started with the environment
-  of the first (`KUBECONFIG`, tsh identity, ssh agent). A reinstall or
-  `lade upgrade` stops the old hub within a minute, and the tunnels of
-  commands still running with it. A binary not named `lade` runs no
-  tunnel. A pre-exec tunnel gets 60 s to start, was 20 s. See
-  [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md).
-- **A failure cancels the command** ([#227](https://github.com/zifeo/lade/pull/227),
-  [#228](https://github.com/zifeo/lade/pull/228),
-  [#231](https://github.com/zifeo/lade/pull/231)): a failed secret or
-  tunnel cancels it: a human at a terminal gets 5 s to press Enter
-  and run it without Lade, which writes no diary row. Any other
-  `lade set` failure (the user, a ticket, an env conflict, a mise pin
-  that cannot install) cancels it with no such choice. No terminal,
-  no answer, or Ctrl-C cancels it, in pre-exec too, where the command
-  used to run anyway after 5 s. In pre-exec, the shell gets an empty
-  `PATH` for that one command and prints `Lade cancelled <command>.`
-  macOS's `/bin/bash` 3.2 prints its own `command not found`. A
-  command typed with its full path still runs. Ctrl-C while Lade
-  connects cancels the command in fish too, which used to run it.
-- **The shell is always the one that started Lade** ([#231](https://github.com/zifeo/lade/pull/231)):
-  `lade on` no longer exports `LADE_SHELL`, and Lade no longer reads
-  it, nor `SHELL`: inherited, both name the terminal's shell, not the
-  one running the line. A direct `lade inject` with no shell as
-  parent, such as one a task runner (make, npm scripts, just) execs
-  through `sh -c`, runs its line in `sh`. See
-  [docs/protocol.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/protocol.md#shell).
-- **What an agent reads** ([#231](https://github.com/zifeo/lade/pull/231)):
-  an agent's stderr holds only what it needs to act, as one `lade:`
-  line each: nothing when secrets load, the cause of a failed
-  provider or tunnel and that the command did not run, a warning, a
-  withheld disclaimer, and, at most hourly when the wrap uses the
-  hub, a new release or hooks to fix with `Tell the human:`. No box,
-  colour, progress, or keyboard advice. A disclaimer no longer gives
-  an agent the approve code: only a human approves, from a terminal.
-  The hourly check also rewrites stale hooks for agent-only users.
-  See [docs/cli.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cli.md#what-an-agent-reads).
-- **Pre-tool rewrite** ([#224](https://github.com/zifeo/lade/pull/224),
-  [#231](https://github.com/zifeo/lade/pull/231)): a match rewrites
-  to `lade --pretool=<id> '…' && true`, so bash and zsh keep the
-  harness shell. The hook peels `lade inject`, `lade --`, and
-  `lade <cmd>` to the inner command; no match rewrites to it.
-  Leading `cd <dir> &&` segments set the directory whose yaml the
-  hook reads and are left out of the line the rules see, so `^tofu`
-  matches `cd infra && tofu apply`. Pre-exec `set` and a direct
-  `inject` read the same directory and line. A ticket that cannot be
-  written still wraps the command, as `lade --pretool -- '…' && true`.
-  See [docs/protocol.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/protocol.md).
-- **`log:` follows the audience** ([#224](https://github.com/zifeo/lade/pull/224)):
-  with no rule matched, the walk's last explicit `log` applies only
-  when its rule applies to this audience (`when:`).
-- **Rule `silent: true`** ([#224](https://github.com/zifeo/lade/pull/224)):
-  replaces `silence: true`, which is now ignored. Breaking: rename
-  the key. It hides that rule's progress line in a terminal.
-- **`lade hook enable/disable`** ([#225](https://github.com/zifeo/lade/pull/225),
-  [#228](https://github.com/zifeo/lade/pull/228),
-  [#231](https://github.com/zifeo/lade/pull/231)): `--global`
-  replaces `--scope user`, and `--scope` now fails. With no flag the
-  hook goes at the root of the git repo, and outside one the pre-tool
-  hook is skipped. A repo hook and a home hook for the same harness
-  are refused together. Claude Code's repo hook goes in
-  `.claude/settings.local.json`, which Claude reads from the git root
-  even when it starts in a subdirectory; it reads
-  `.claude/settings.json` only in the directory it starts in. Enable
-  moves a Lade hook out of `settings.json`, and `lade status` flags
-  one left there.
-- **Release check and notices** ([#225](https://github.com/zifeo/lade/pull/225),
-  [#231](https://github.com/zifeo/lade/pull/231)): the hub checks
-  GitHub at most once a day, started by `lade set` in a human
-  terminal for a command that uses the hub, and keeps the result in
-  RAM. Such a command gets at most one box an hour: a new release, or
-  pre-tool hooks that differ from what this Lade writes, are not
-  valid JSON, or use the wrong OpenCode API. That check also rewrites
-  hooks a newer Lade changed. A pre-tool wrap that uses the hub gets
-  the same slot. Starting `opencode`, `claude`, `codex`,
-  `cursor-agent`, or `agent` checks that harness's hooks every time.
-  `lade status`, `setup`, and `update` read the hub's last result and
-  never call GitHub themselves.
-- **`lade status` layout** ([#223](https://github.com/zifeo/lade/pull/223),
-  [#225](https://github.com/zifeo/lade/pull/225),
-  [#230](https://github.com/zifeo/lade/pull/230),
-  [#231](https://github.com/zifeo/lade/pull/231)): aligned sections,
-  and tables for pre-tool hooks, pinned tools, and providers (with
-  each timeout). A Hub section shows its pid, the `max_cache` in
-  force, whether the cache is on and what guards it, key, tunnel, and
-  ticket counts, this cwd's window, key names, and tunnels. It lists
-  the same hook notices as the hourly box. `--json` adds `hub`
-  (`state`, `pid`, `secrets`, `tickets`, `window`, `keys`,
-  `key_count`, `tunnels`, `max_cache_ms`, `memory`), `max_cache`,
-  `max_cache_ms`, and `max_cache_error` to `global_config`, and
-  `timeout_s` to each provider. `hooks.preexec` is `null` when no
-  shell started Lade. A failed GitHub check no longer makes it exit 1.
-- **`config.json`** ([#225](https://github.com/zifeo/lade/pull/225),
-  [#230](https://github.com/zifeo/lade/pull/230)): holds `user` and
-  `max_cache`. Keys older Lade binaries still read are written back
-  untouched.
-- **`tsh://` app tunnels** ([#227](https://github.com/zifeo/lade/pull/227)):
-  `tsh proxy app` picks its own port and prints it, like
-  `kubectl port-forward`, so no other process can take the port
-  between Lade choosing it and tsh binding it.
-- **`ssh://` tunnels** ([#227](https://github.com/zifeo/lade/pull/227)):
-  a jump without a port takes it from `~/.ssh/config` instead of
-  `-p 22`. Lade runs its own connection (`ControlPath=none`) with
-  `ServerAliveInterval=15`, so a dead link exits and restarts instead
-  of hanging.
-- **MCP startup** ([#228](https://github.com/zifeo/lade/pull/228)): a
-  server that exits before `initialize` is restarted for 60 s, then
-  Lade gives up with a box.
-- **No home directory** ([#227](https://github.com/zifeo/lade/pull/227)):
-  stops Lade with a box instead of caching in `.lade-cache` under the
-  current directory.
-- **`lade upgrade`** ([#222](https://github.com/zifeo/lade/pull/222)):
-  after a successful update, a box says this terminal still has the
-  previous wrap and prints the reload command (`eval "$(lade on)"` on
-  zsh).
-- **OpenCode plugin** ([#225](https://github.com/zifeo/lade/pull/225)):
-  Lade writes the 1.x plugin or the 2.x one
-  (`export default { id, setup }`, `bash` and `shell` tools) from
-  `opencode --version`, and fails when `opencode` is not on PATH.
-  Refresh keeps the API of the file, so a shared repo plugin does not
-  flip between teammates. A plugin edited by hand is reported, not
-  rewritten. Lade 0.18 to 0.19.2 leave the 2.x plugin alone.
-- **`lade bench`** ([#223](https://github.com/zifeo/lade/pull/223)):
-  hidden from `--help`.
-- **lade-sdk** ([#227](https://github.com/zifeo/lade/pull/227),
-  [#229](https://github.com/zifeo/lade/pull/229),
-  [#230](https://github.com/zifeo/lade/pull/230),
-  [#231](https://github.com/zifeo/lade/pull/231)): `hydrate` is now
-  `hydrate_many`, which returns a `Hydrated`. `hydrate_one` and
-  `hydrate_with_maskable` return an error instead of panicking on a
-  missing value. `Provider` requires `timeout()`, and provider CLIs
-  run in their own process group, killed on timeout. The `mcp` and
-  `network` features are on by default. `network::build_command`
-  takes a kube context and a `Listen`, and `ProviderSpec::Ssh`'s
-  `jump_port` is an `Option<u16>`. New: `Providers::claimed_by`,
-  `Listen`, `ListenKind`, `listen_kind`, `kube_context`,
-  `terminal_lent`, and `terminal_hooks`. Breaking for SDK users.
+- **Every tunnel runs in the hub** ([#225](https://github.com/zifeo/lade/pull/225), [#227](https://github.com/zifeo/lade/pull/227), [#231](https://github.com/zifeo/lade/pull/231)): for pre-exec, inject, pre-tool, and MCP alike, and the hub restarts a provider that exits. A command fails when the hub cannot start. Two commands on the same target share one provider, started with the environment of the first (`KUBECONFIG`, tsh identity, ssh agent). A reinstall or `lade upgrade` stops the old hub within a minute, and the tunnels of commands still running with it. A binary not named `lade` runs no tunnel. A pre-exec tunnel gets 60 s to start, was 20 s. See [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md).
+- **A failure cancels the command** ([#227](https://github.com/zifeo/lade/pull/227), [#228](https://github.com/zifeo/lade/pull/228), [#231](https://github.com/zifeo/lade/pull/231)): a failed secret or tunnel cancels it: a human at a terminal gets 5 s to press Enter and run it without Lade, which writes no diary row. Any other `lade set` failure (the user, a ticket, an env conflict, a mise pin that cannot install) cancels it with no such choice. No terminal, no answer, or Ctrl-C cancels it, in pre-exec too, where the command used to run anyway after 5 s. In pre-exec, the shell gets an empty `PATH` for that one command and prints `Lade cancelled <command>.` macOS's `/bin/bash` 3.2 prints its own `command not found`. A command typed with its full path still runs. Ctrl-C while Lade connects cancels the command in fish too, which used to run it.
+- **The shell is always the one that started Lade** ([#231](https://github.com/zifeo/lade/pull/231)): `lade on` no longer exports `LADE_SHELL`, and Lade no longer reads it, nor `SHELL`: inherited, both name the terminal's shell, not the one running the line. A direct `lade inject` with no shell as parent, such as one a task runner (make, npm scripts, just) execs through `sh -c`, runs its line in `sh`. See [docs/protocol.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/protocol.md#shell).
+- **What an agent reads** ([#231](https://github.com/zifeo/lade/pull/231)): an agent's stderr holds only what it needs to act, as one `lade:` line each: nothing when secrets load, the cause of a failed provider or tunnel and that the command did not run, a warning, a withheld disclaimer, and, at most hourly when the wrap uses the hub, a new release or hooks to fix with `Tell the human:`. No box, colour, progress, or keyboard advice. A disclaimer no longer gives an agent the approve code: only a human approves, from a terminal. The hourly check also rewrites stale hooks for agent-only users. See [docs/cli.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cli.md#what-an-agent-reads).
+- **Pre-tool rewrite** ([#224](https://github.com/zifeo/lade/pull/224), [#231](https://github.com/zifeo/lade/pull/231)): a match rewrites to `lade --pretool=<id> '…' && true`, so bash and zsh keep the harness shell. The hook peels `lade inject`, `lade --`, and `lade <cmd>` to the inner command; no match rewrites to it. Leading `cd <dir> &&` segments set the directory whose yaml the hook reads and are left out of the line the rules see, so `^tofu` matches `cd infra && tofu apply`. Pre-exec `set` and a direct `inject` read the same directory and line. A ticket that cannot be written still wraps the command, as `lade --pretool -- '…' && true`. See [docs/protocol.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/protocol.md).
+- **`log:` follows the audience** ([#224](https://github.com/zifeo/lade/pull/224)): with no rule matched, the walk's last explicit `log` applies only when its rule applies to this audience (`when:`).
+- **Rule `silent: true`** ([#224](https://github.com/zifeo/lade/pull/224)): replaces `silence: true`, which is now ignored. Breaking: rename the key. It hides that rule's progress line in a terminal.
+- **`lade hook enable/disable`** ([#225](https://github.com/zifeo/lade/pull/225), [#228](https://github.com/zifeo/lade/pull/228), [#231](https://github.com/zifeo/lade/pull/231)): `--global` replaces `--scope user`, and `--scope` now fails. With no flag the hook goes at the root of the git repo, and outside one the pre-tool hook is skipped. A repo hook and a home hook for the same harness are refused together. Claude Code's repo hook goes in `.claude/settings.local.json`, which Claude reads from the git root even when it starts in a subdirectory; it reads `.claude/settings.json` only in the directory it starts in. Enable moves a Lade hook out of `settings.json`, and `lade status` flags one left there.
+- **Release check and notices** ([#225](https://github.com/zifeo/lade/pull/225), [#231](https://github.com/zifeo/lade/pull/231)): the hub checks GitHub at most once a day, started by `lade set` in a human terminal for a command that uses the hub, and keeps the result in RAM. Such a command gets at most one box an hour: a new release, or pre-tool hooks that differ from what this Lade writes, are not valid JSON, or use the wrong OpenCode API. That check also rewrites hooks a newer Lade changed. A pre-tool wrap that uses the hub gets the same slot. Starting `opencode`, `claude`, `codex`, `cursor-agent`, or `agent` checks that harness's hooks every time. `lade status`, `setup`, and `update` read the hub's last result and never call GitHub themselves.
+- **`lade status` layout** ([#223](https://github.com/zifeo/lade/pull/223), [#225](https://github.com/zifeo/lade/pull/225), [#230](https://github.com/zifeo/lade/pull/230), [#231](https://github.com/zifeo/lade/pull/231)): aligned sections, and tables for pre-tool hooks, pinned tools, and providers (with each timeout). A Hub section shows its pid, the `max_cache` in force, whether the cache is on and what guards it, key, tunnel, and ticket counts, this cwd's window, key names, and tunnels. It lists the same hook notices as the hourly box. `--json` adds `hub` (`state`, `pid`, `secrets`, `tickets`, `window`, `keys`, `key_count`, `tunnels`, `max_cache_ms`, `memory`), `max_cache`, `max_cache_ms`, and `max_cache_error` to `global_config`, and `timeout_s` to each provider. `hooks.preexec` is `null` when no shell started Lade. A failed GitHub check no longer makes it exit 1.
+- **`config.json`** ([#225](https://github.com/zifeo/lade/pull/225), [#230](https://github.com/zifeo/lade/pull/230)): holds `user` and `max_cache`. Keys older Lade binaries still read are written back untouched.
+- **`tsh://` app tunnels** ([#227](https://github.com/zifeo/lade/pull/227)): `tsh proxy app` picks its own port and prints it, like `kubectl port-forward`, so no other process can take the port between Lade choosing it and tsh binding it.
+- **`ssh://` tunnels** ([#227](https://github.com/zifeo/lade/pull/227)): a jump without a port takes it from `~/.ssh/config` instead of `-p 22`. Lade runs its own connection (`ControlPath=none`) with `ServerAliveInterval=15`, so a dead link exits and restarts instead of hanging.
+- **MCP startup** ([#228](https://github.com/zifeo/lade/pull/228)): a server that exits before `initialize` is restarted for 60 s, then Lade gives up with a box.
+- **No home directory** ([#227](https://github.com/zifeo/lade/pull/227)): stops Lade with a box instead of caching in `.lade-cache` under the current directory.
+- **`lade upgrade`** ([#222](https://github.com/zifeo/lade/pull/222)): after a successful update, a box says this terminal still has the previous wrap and prints the reload command (`eval "$(lade on)"` on zsh).
+- **OpenCode plugin** ([#225](https://github.com/zifeo/lade/pull/225)): Lade writes the 1.x plugin or the 2.x one (`export default { id, setup }`, `bash` and `shell` tools) from `opencode --version`, and fails when `opencode` is not on PATH. Refresh keeps the API of the file, so a shared repo plugin does not flip between teammates. A plugin edited by hand is reported, not rewritten. Lade 0.18 to 0.19.2 leave the 2.x plugin alone.
+- **`lade bench`** ([#223](https://github.com/zifeo/lade/pull/223)): hidden from `--help`.
+- **lade-sdk** ([#227](https://github.com/zifeo/lade/pull/227), [#229](https://github.com/zifeo/lade/pull/229), [#230](https://github.com/zifeo/lade/pull/230), [#231](https://github.com/zifeo/lade/pull/231)): `hydrate` is now `hydrate_many`, which returns a `Hydrated`. `hydrate_one` and `hydrate_with_maskable` return an error instead of panicking on a missing value. `Provider` requires `timeout()`, and provider CLIs run in their own process group, killed on timeout. The `mcp` and `network` features are on by default. `network::build_command` takes a kube context and a `Listen`, and `ProviderSpec::Ssh`'s `jump_port` is an `Option<u16>`. New: `Providers::claimed_by`, `Listen`, `ListenKind`, `listen_kind`, `kube_context`, `terminal_lent`, and `terminal_hooks`. Breaking for SDK users.
 
 ### Fixed
 
-- **Pre-tool hooks in a subdirectory** ([#231](https://github.com/zifeo/lade/pull/231)):
-  the hook read the yaml of its own directory, so a `lade.yml` below
-  it never loaded. With a `.` rule that injects, even `cd sub` was
-  wrapped and moved only Lade's child, so the harness shell stayed
-  put. The hook now starts at the payload's working directory (`cwd`,
-  Cursor `working_directory`, Codex `workdir`) and follows leading
-  `cd <dir> &&` segments. The wrap reads the same directory for pins,
-  the cache, and the diary. A bare `cd`, `pushd`, or `popd` to a
-  literal path is never wrapped.
-- **Pre-tool commands in the wrong shell** ([#231](https://github.com/zifeo/lade/pull/231)):
-  a harness started from a terminal with `lade on` inherited its
-  `LADE_SHELL`, so a fish terminal ran every wrapped bash or zsh
-  command in fish and broke it (`for … do … done`, `>` redirections,
-  `--include=*.rs`). A pre-tool run now uses the shell that started
-  Lade, and fails with a box when that is no shell.
-- **Leaked tickets** ([#231](https://github.com/zifeo/lade/pull/231)):
-  a pre-tool ticket stayed on disk when the harness denied the
-  command, another hook blocked it, or Lade was killed, and a long
-  command held its own until it ended. The wrap deletes its ticket
-  once read, and each new pre-tool ticket sweeps those nobody read
-  within an hour.
-- **Assignments in a pre-tool line** ([#231](https://github.com/zifeo/lade/pull/231)):
-  a leading `d=$(getconf X)` or `T="a b"; cmd` was cut at its first
-  space and moved in front of the rewrite, which broke the line. A
-  leading assignment moves only when its value is plain and a command
-  follows it; `T=/tmp/x && cd $T` stays inside the wrap.
-- **Faster wraps** ([#231](https://github.com/zifeo/lade/pull/231)):
-  a wrap starts the shell by its path on `PATH`. By name, the whole
-  Lade process was forked first, 20 to 30 ms under load. The diary
-  row is written once the command has started, on a connection opened
-  while it got ready. See
-  [docs/observability.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/observability.md).
-- **Lost end of output on Linux** ([#231](https://github.com/zifeo/lade/pull/231)):
-  in a terminal, a command run with secrets lost its last bytes, up to
-  the length of the longest secret. The pty answers `EIO` once the
-  command exits, and Lade dropped what it held back to redact a secret
-  cut across two reads.
-- **Ctrl-C with secrets** ([#228](https://github.com/zifeo/lade/pull/228)):
-  a command whose output Lade redacts ran with the terminal in raw
-  mode, so Ctrl-C reached it as a key, not an interrupt, and a hung
-  apply did not stop. Ctrl-C now interrupts it.
-- **Corrupted snapshot on `lade unset`** ([#228](https://github.com/zifeo/lade/pull/228)):
-  a `LADE_RESTORE` that could not be decoded made `lade unset` exit
-  before erasing anything, so the secrets stayed in the shell. It now
-  unsets the ticket's secret keys and Lade's own variables, then
-  exits 1.
-- **MCP verb rows** ([#231](https://github.com/zifeo/lade/pull/231)):
-  the hook of an MCP call looked through the whole diary for the
-  other hook of the same call, under the write lock (1.3 s on 120,000
-  rows). It now looks at the last 5 minutes.
-- **Provider timeout** ([#230](https://github.com/zifeo/lade/pull/230),
-  [#231](https://github.com/zifeo/lade/pull/231)): a provider that
-  never answered, such as `op` waiting on a locked 1Password app, hung
-  the command forever. Every secret provider, the `lade add` lookups,
-  and the `kubectl` and `tsh` lookups of a tunnel now answer within
-  10 s or fail with an error that names the provider. The CLI runs in
-  its own process group, and a timeout kills the whole group, so an
-  `op` under `sh://` dies too. At a terminal, Lade lends it the
-  terminal while it runs, so it can still ask (`bw unlock`, an MFA
-  code, `sh://read`). 1Password, age, and SOPS get 30 s for Touch ID
-  or a key touch. Shell secrets and Vault drop from 30 s to 10 s.
-- **Failing shell secrets** ([#230](https://github.com/zifeo/lade/pull/230)):
-  an `sh://`, `bash://`, `zsh://`, or `fish://` command that exited
-  non-zero gave its stdout, often empty, as the value. It now fails
-  with the command's stderr, never its stdout, which may hold the
-  secret.
-- **Nested vault paths** ([#228](https://github.com/zifeo/lade/pull/228)):
-  `vault://host/mount/a/b/field` read key `a` and field `b`. The key
-  is now every segment between the mount and the field (`a/b`).
-- **1Password service account** ([#228](https://github.com/zifeo/lade/pull/228)):
-  with `1password_service_account` on rules at two levels, a pre-exec
-  or pre-tool command fetched every secret with the last one. Each
-  secret now uses its own rule's account, as `lade inject` did.
-- **1Password fallback** ([#230](https://github.com/zifeo/lade/pull/230)):
-  any `op inject` failure, a locked app or a missing vault included,
-  fell back to one `op item get` per secret behind a warning that
-  blamed a `&` in a name. Only a reference `op inject` cannot parse
-  falls back now. Any other failure shows op's own error.
-- **False tampered diary** ([#230](https://github.com/zifeo/lade/pull/230)):
-  `lade log` could report `chain_head does not match the last row`
-  when a command wrote to the diary during the check. The rows and
-  the head are now read in one snapshot.
-- **Secrets in debug logs** ([#230](https://github.com/zifeo/lade/pull/230)):
-  `-vvv` printed resolved 1Password, Passbolt, Doppler, and Infisical
-  values in clear text. Those lines are gone.
-- **Raw values with a scheme** ([#230](https://github.com/zifeo/lade/pull/230)):
-  a value like `https://…` or `postgres://…` showed a `connecting`
-  line as if fetched and spun until the slowest provider of its batch
-  answered. It is raw now, like any value no provider claims.
-- **fish quoting** ([#227](https://github.com/zifeo/lade/pull/227)):
-  a value with a `\` broke the code `lade set` and `lade unset` print
-  for fish, and a value ending in `\'` could run commands when the
-  hook sourced it. fish now gets `\\` and `\'`.
-- **Binding names** ([#227](https://github.com/zifeo/lade/pull/227)):
-  a binding exported to the env must be a valid env var name
-  (letters, digits, `_`, not starting with a digit). A name like
-  `X;touch f` was pasted into the shell code the hook evals. A
-  binding written to a file keeps any field name.
-- **Panics** ([#227](https://github.com/zifeo/lade/pull/227),
-  [#228](https://github.com/zifeo/lade/pull/228),
-  [#229](https://github.com/zifeo/lade/pull/229)): a huge `ttl:` or
-  `--since` duration, an `op://`, `passbolt://`, or `doppler://` URI
-  without a host, a key missing from a Doppler or Passbolt answer, a
-  bad `%` escape in a `file://` path, and a rule `file:` path with no
-  extension now fail with an error instead of crashing. A missing
-  parent folder of a `file:` path is created.
-- **Tunnel start errors** ([#227](https://github.com/zifeo/lade/pull/227)):
-  a provider that exits at once, such as `tsh` when logged out,
-  reported an empty "timeout waiting for the tunnel to listen". It now
-  fails with the provider's own output.
-- **Tunnel port clash** ([#227](https://github.com/zifeo/lade/pull/227),
-  [#228](https://github.com/zifeo/lade/pull/228)): two commands on one
-  fixed local port shared the first tunnel. The second reported ready
-  by connecting to the first, and reached the first one's target, for
-  example a stg apply reaching the prd database. Lade now binds the
-  port itself and relays to the provider. A second target waits up to
-  10 min for the first command to end, and a tunnel kept only by its
-  ttl gives the port up at once. A port another program holds, or
-  another Lade binary, is refused with a box. A fixed port counts as
-  held when `0.0.0.0`, `::`, `127.0.0.1`, or `::1` is taken on it,
-  since macOS lets `127.0.0.1:P` bind while `0.0.0.0:P` listens.
-  `kubefwd` binds its own port: Lade checks it is free, and counts
-  the tunnel ready only when kubefwd itself listens on it.
-- **Tunnel restarts** ([#227](https://github.com/zifeo/lade/pull/227)):
-  a provider that exited more than 60 s after the tunnel started was
-  never restarted. Each restart now gets a full 60 s, and a helper
-  the provider left behind (a `ProxyCommand`) no longer blocks it.
-- **Tunnel cleanup** ([#227](https://github.com/zifeo/lade/pull/227),
-  [#228](https://github.com/zifeo/lade/pull/228)): when one tunnel
-  failed, the others still starting outlived the command. They now
-  stop at the first error. Ctrl-C, `kill`, or closing the terminal
-  while tunnels connect stops them before Lade exits, and so does a
-  `tsh kube login` still waiting. A pre-exec tunnel stopped only when
-  `lade unset` ran, so closing the terminal mid-command left it
-  running. The hub now stops it within a second of the shell exiting,
-  unless a ttl keeps it. A provider whose helpers ignore `SIGTERM` is
-  killed with its whole process group. A `kubectl`, `ssh`, or `tsh`
-  whose Lade or hub was killed (`SIGKILL`, crash) is stopped by a
-  guard process instead of running on.
-- **Pins in the wrap** ([#226](https://github.com/zifeo/lade/pull/226)):
-  a `fish` or `zsh` mise shim on `PATH` removed every pinned CLI from
-  `PATH` before a wrapped command or a `fish://` / `zsh://` /
-  `bash://` / `sh://` snippet ran. The script now sets `PATH` again
-  first.
-- **Pinned CLI folder** ([#226](https://github.com/zifeo/lade/pull/226)):
-  a release that unpacks to a folder named like its binary (age:
-  `age/age`) put that folder's parent on `PATH`, where no binary
-  lives. A pin now needs a file, not a folder.
-- **age plugin labels** ([#226](https://github.com/zifeo/lade/pull/226)):
-  `age-plugin-lade` reports the labels of the keys it hydrates. age
-  now refuses to mix a post-quantum Lade key (`age1tagpq1`,
-  `age1pq1`) with a classic recipient, and accepts it next to a
-  native post-quantum one.
-- **age plugin identities** ([#226](https://github.com/zifeo/lade/pull/226)):
-  an `AGE-PLUGIN-` line anywhere in a hydrated value is refused, not
-  only on the first line, so the plugin cannot call itself.
-- **OS user** ([#223](https://github.com/zifeo/lade/pull/223)): when
-  `config.json` has no user, per-user yaml maps fall back to `$USER` /
-  `$USERNAME`.
-- **Shell progress** ([#224](https://github.com/zifeo/lade/pull/224)):
-  `sh://` shows `sh: KEY`, like `File: KEY`, not the command text.
-  Each provider line gets its own clock and turns ✔ when that group
-  finishes, not when the whole hydrate returns.
-- **Shell wrap** ([#224](https://github.com/zifeo/lade/pull/224)):
-  `lade hook enable --shell` writes `lade on`, the PATH name, not the
-  install path. A later mise or cargo bin is picked up on the next
-  shell.
+- **Pre-tool hooks in a subdirectory** ([#231](https://github.com/zifeo/lade/pull/231)): the hook read the yaml of its own directory, so a `lade.yml` below it never loaded. With a `.` rule that injects, even `cd sub` was wrapped and moved only Lade's child, so the harness shell stayed put. The hook now starts at the payload's working directory (`cwd`, Cursor `working_directory`, Codex `workdir`) and follows leading `cd <dir> &&` segments. The wrap reads the same directory for pins, the cache, and the diary. A bare `cd`, `pushd`, or `popd` to a literal path is never wrapped.
+- **Pre-tool commands in the wrong shell** ([#231](https://github.com/zifeo/lade/pull/231)): a harness started from a terminal with `lade on` inherited its `LADE_SHELL`, so a fish terminal ran every wrapped bash or zsh command in fish and broke it (`for … do … done`, `>` redirections, `--include=*.rs`). A pre-tool run now uses the shell that started Lade, and fails with a box when that is no shell.
+- **Leaked tickets** ([#231](https://github.com/zifeo/lade/pull/231)): a pre-tool ticket stayed on disk when the harness denied the command, another hook blocked it, or Lade was killed, and a long command held its own until it ended. The wrap deletes its ticket once read, and each new pre-tool ticket sweeps those nobody read within an hour.
+- **Assignments in a pre-tool line** ([#231](https://github.com/zifeo/lade/pull/231)): a leading `d=$(getconf X)` or `T="a b"; cmd` was cut at its first space and moved in front of the rewrite, which broke the line. A leading assignment moves only when its value is plain and a command follows it; `T=/tmp/x && cd $T` stays inside the wrap.
+- **Faster wraps** ([#231](https://github.com/zifeo/lade/pull/231)): a wrap starts the shell by its path on `PATH`. By name, the whole Lade process was forked first, 20 to 30 ms under load. The diary row is written once the command has started, on a connection opened while it got ready. See [docs/observability.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/observability.md).
+- **Lost end of output on Linux** ([#231](https://github.com/zifeo/lade/pull/231)): in a terminal, a command run with secrets lost its last bytes, up to the length of the longest secret. The pty answers `EIO` once the command exits, and Lade dropped what it held back to redact a secret cut across two reads.
+- **Ctrl-C with secrets** ([#228](https://github.com/zifeo/lade/pull/228)): a command whose output Lade redacts ran with the terminal in raw mode, so Ctrl-C reached it as a key, not an interrupt, and a hung apply did not stop. Ctrl-C now interrupts it.
+- **Corrupted snapshot on `lade unset`** ([#228](https://github.com/zifeo/lade/pull/228)): a `LADE_RESTORE` that could not be decoded made `lade unset` exit before erasing anything, so the secrets stayed in the shell. It now unsets the ticket's secret keys and Lade's own variables, then exits 1.
+- **MCP verb rows** ([#231](https://github.com/zifeo/lade/pull/231)): the hook of an MCP call looked through the whole diary for the other hook of the same call, under the write lock (1.3 s on 120,000 rows). It now looks at the last 5 minutes.
+- **Provider timeout** ([#230](https://github.com/zifeo/lade/pull/230), [#231](https://github.com/zifeo/lade/pull/231)): a provider that never answered, such as `op` waiting on a locked 1Password app, hung the command forever. Every secret provider, the `lade add` lookups, and the `kubectl` and `tsh` lookups of a tunnel now answer within 10 s or fail with an error that names the provider. The CLI runs in its own process group, and a timeout kills the whole group, so an `op` under `sh://` dies too. At a terminal, Lade lends it the terminal while it runs, so it can still ask (`bw unlock`, an MFA code, `sh://read`). 1Password, age, and SOPS get 30 s for Touch ID or a key touch. Shell secrets and Vault drop from 30 s to 10 s.
+- **Failing shell secrets** ([#230](https://github.com/zifeo/lade/pull/230)): an `sh://`, `bash://`, `zsh://`, or `fish://` command that exited non-zero gave its stdout, often empty, as the value. It now fails with the command's stderr, never its stdout, which may hold the secret.
+- **Nested vault paths** ([#228](https://github.com/zifeo/lade/pull/228)): `vault://host/mount/a/b/field` read key `a` and field `b`. The key is now every segment between the mount and the field (`a/b`).
+- **1Password service account** ([#228](https://github.com/zifeo/lade/pull/228)): with `1password_service_account` on rules at two levels, a pre-exec or pre-tool command fetched every secret with the last one. Each secret now uses its own rule's account, as `lade inject` did.
+- **1Password fallback** ([#230](https://github.com/zifeo/lade/pull/230)): any `op inject` failure, a locked app or a missing vault included, fell back to one `op item get` per secret behind a warning that blamed a `&` in a name. Only a reference `op inject` cannot parse falls back now. Any other failure shows op's own error.
+- **False tampered diary** ([#230](https://github.com/zifeo/lade/pull/230)): `lade log` could report `chain_head does not match the last row` when a command wrote to the diary during the check. The rows and the head are now read in one snapshot.
+- **Secrets in debug logs** ([#230](https://github.com/zifeo/lade/pull/230)): `-vvv` printed resolved 1Password, Passbolt, Doppler, and Infisical values in clear text. Those lines are gone.
+- **Raw values with a scheme** ([#230](https://github.com/zifeo/lade/pull/230)): a value like `https://…` or `postgres://…` showed a `connecting` line as if fetched and spun until the slowest provider of its batch answered. It is raw now, like any value no provider claims.
+- **fish quoting** ([#227](https://github.com/zifeo/lade/pull/227)): a value with a `\` broke the code `lade set` and `lade unset` print for fish, and a value ending in `\'` could run commands when the hook sourced it. fish now gets `\\` and `\'`.
+- **Binding names** ([#227](https://github.com/zifeo/lade/pull/227)): a binding exported to the env must be a valid env var name (letters, digits, `_`, not starting with a digit). A name like `X;touch f` was pasted into the shell code the hook evals. A binding written to a file keeps any field name.
+- **Panics** ([#227](https://github.com/zifeo/lade/pull/227), [#228](https://github.com/zifeo/lade/pull/228), [#229](https://github.com/zifeo/lade/pull/229)): a huge `ttl:` or `--since` duration, an `op://`, `passbolt://`, or `doppler://` URI without a host, a key missing from a Doppler or Passbolt answer, a bad `%` escape in a `file://` path, and a rule `file:` path with no extension now fail with an error instead of crashing. A missing parent folder of a `file:` path is created.
+- **Tunnel start errors** ([#227](https://github.com/zifeo/lade/pull/227)): a provider that exits at once, such as `tsh` when logged out, reported an empty "timeout waiting for the tunnel to listen". It now fails with the provider's own output.
+- **Tunnel port clash** ([#227](https://github.com/zifeo/lade/pull/227), [#228](https://github.com/zifeo/lade/pull/228)): two commands on one fixed local port shared the first tunnel. The second reported ready by connecting to the first, and reached the first one's target, for example a stg apply reaching the prd database. Lade now binds the port itself and relays to the provider. A second target waits up to 10 min for the first command to end, and a tunnel kept only by its ttl gives the port up at once. A port another program holds, or another Lade binary, is refused with a box. A fixed port counts as held when `0.0.0.0`, `::`, `127.0.0.1`, or `::1` is taken on it, since macOS lets `127.0.0.1:P` bind while `0.0.0.0:P` listens. `kubefwd` binds its own port: Lade checks it is free, and counts the tunnel ready only when kubefwd itself listens on it.
+- **Tunnel restarts** ([#227](https://github.com/zifeo/lade/pull/227)): a provider that exited more than 60 s after the tunnel started was never restarted. Each restart now gets a full 60 s, and a helper the provider left behind (a `ProxyCommand`) no longer blocks it.
+- **Tunnel cleanup** ([#227](https://github.com/zifeo/lade/pull/227), [#228](https://github.com/zifeo/lade/pull/228)): when one tunnel failed, the others still starting outlived the command. They now stop at the first error. Ctrl-C, `kill`, or closing the terminal while tunnels connect stops them before Lade exits, and so does a `tsh kube login` still waiting. A pre-exec tunnel stopped only when `lade unset` ran, so closing the terminal mid-command left it running. The hub now stops it within a second of the shell exiting, unless a ttl keeps it. A provider whose helpers ignore `SIGTERM` is killed with its whole process group. A `kubectl`, `ssh`, or `tsh` whose Lade or hub was killed (`SIGKILL`, crash) is stopped by a guard process instead of running on.
+- **Pins in the wrap** ([#226](https://github.com/zifeo/lade/pull/226)): a `fish` or `zsh` mise shim on `PATH` removed every pinned CLI from `PATH` before a wrapped command or a `fish://` / `zsh://` / `bash://` / `sh://` snippet ran. The script now sets `PATH` again first.
+- **Pinned CLI folder** ([#226](https://github.com/zifeo/lade/pull/226)): a release that unpacks to a folder named like its binary (age: `age/age`) put that folder's parent on `PATH`, where no binary lives. A pin now needs a file, not a folder.
+- **age plugin labels** ([#226](https://github.com/zifeo/lade/pull/226)): `age-plugin-lade` reports the labels of the keys it hydrates. age now refuses to mix a post-quantum Lade key (`age1tagpq1`, `age1pq1`) with a classic recipient, and accepts it next to a native post-quantum one.
+- **age plugin identities** ([#226](https://github.com/zifeo/lade/pull/226)): an `AGE-PLUGIN-` line anywhere in a hydrated value is refused, not only on the first line, so the plugin cannot call itself.
+- **OS user** ([#223](https://github.com/zifeo/lade/pull/223)): when `config.json` has no user, per-user yaml maps fall back to `$USER` / `$USERNAME`.
+- **Shell progress** ([#224](https://github.com/zifeo/lade/pull/224)): `sh://` shows `sh: KEY`, like `File: KEY`, not the command text. Each provider line gets its own clock and turns ✔ when that group finishes, not when the whole hydrate returns.
+- **Shell wrap** ([#224](https://github.com/zifeo/lade/pull/224)): `lade hook enable --shell` writes `lade on`, the PATH name, not the install path. A later mise or cargo bin is picked up on the next shell.
 
 [0.20.0]: https://github.com/zifeo/lade/compare/v0.19.2...v0.20.0
 
@@ -442,12 +99,8 @@ and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md
 
 ### Fixed
 
-- **Project mise.toml** ([#220](https://github.com/zifeo/lade/pull/220)): when a
-  repo already has a `mise.toml`, implied CLIs use the in-range row as
-  written. A yaml pin still wins. A missing tool is added with `mise use`.
-  Lock is the nearest `mise.lock`. A leftover `lade.lock` is unread.
-- **Release latest:** the mark-latest job checks out the repo before
-  `gh release edit`.
+- **Project mise.toml** ([#220](https://github.com/zifeo/lade/pull/220)): when a repo already has a `mise.toml`, implied CLIs use the in-range row as written. A yaml pin still wins. A missing tool is added with `mise use`. Lock is the nearest `mise.lock`. A leftover `lade.lock` is unread.
+- **Release latest:** the mark-latest job checks out the repo before `gh release edit`.
 - **Release cache:** cross builds no longer reuse a broken target dir.
 
 [0.19.2]: https://github.com/zifeo/lade/compare/v0.19.1...v0.19.2
@@ -456,19 +109,9 @@ and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md
 
 ### Fixed
 
-- **mise ranges** ([#212](https://github.com/zifeo/lade/pull/212)): a range is not passed to `mise latest`, `mise install`,
-  or `mise lock`. mise 2026.9.15 rejects a range on aqua, github, npm,
-  pipx, and vfox, prints nothing, and exits 0. A range already stored in
-  the project `mise.toml` is left out of the lock request. Setup lists
-  versions with `mise ls-remote` and installs the highest match.
-  `aqua:1password/cli` still has no listing, so the implied `op` pin
-  installs 2.39.0. Doppler, Infisical, Azure CLI, and gcloud use
-  GitHub releases, `pipx` (`github` on Windows), and the gcloud vfox plugin.
-- **Release archives:** `age-plugin-lade` is compiled into the release
-  archives. Packaging failed when the release build only compiled `lade`.
-- **Release notes** ([#211](https://github.com/zifeo/lade/pull/211)):
-  the tag workflow publishes the changelog section as the GitHub release
-  body. A re-run leaves existing notes and assets in place.
+- **mise ranges** ([#212](https://github.com/zifeo/lade/pull/212)): a range is not passed to `mise latest`, `mise install`, or `mise lock`. mise 2026.9.15 rejects a range on aqua, github, npm, pipx, and vfox, prints nothing, and exits 0. A range already stored in the project `mise.toml` is left out of the lock request. Setup lists versions with `mise ls-remote` and installs the highest match. `aqua:1password/cli` still has no listing, so the implied `op` pin installs 2.39.0. Doppler, Infisical, Azure CLI, and gcloud use GitHub releases, `pipx` (`github` on Windows), and the gcloud vfox plugin.
+- **Release archives:** `age-plugin-lade` is compiled into the release archives. Packaging failed when the release build only compiled `lade`.
+- **Release notes** ([#211](https://github.com/zifeo/lade/pull/211)): the tag workflow publishes the changelog section as the GitHub release body. A re-run leaves existing notes and assets in place.
 
 [0.19.1]: https://github.com/zifeo/lade/compare/v0.19.0...v0.19.1
 
@@ -476,102 +119,39 @@ and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md
 
 Since 0.18.0, a repo gets its CLIs from mise in one of two ways.
 
-- **Native mise.** A committed `mise.toml` or `mise.lock` is the plane
-  (not `$HOME`, unless the yaml is there). `mise.local.toml` is not a
-  plane. `lade setup` extends that toml and that lock. It does not
-  also write `lade.lock`.
-- **No native mise.** Explicit `mise://` pins and implied pins (a URI
-  such as `op://` locks `op` without a yaml pin) go to one `lade.lock`
-  at the git root. `ssh://` stays the OpenSSH binary already on `PATH`.
-  `vault://` still hydrates over HTTP and also locks the Vault CLI.
+- **Native mise.** A committed `mise.toml` or `mise.lock` is the plane (not `$HOME`, unless the yaml is there). `mise.local.toml` is not a plane. `lade setup` extends that toml and that lock. It does not also write `lade.lock`.
+- **No native mise.** Explicit `mise://` pins and implied pins (a URI such as `op://` locks `op` without a yaml pin) go to one `lade.lock` at the git root. `ssh://` stays the OpenSSH binary already on `PATH`. `vault://` still hydrates over HTTP and also locks the Vault CLI.
 
-Installs live in Lade's cache. Shims are not placed on the interactive
-`PATH`. A `.` pin applies to every matching command. `zsh`, `fish`, and
-`bash` on a catch-all rule inject only when that shell is the command.
+Installs live in Lade's cache. Shims are not placed on the interactive `PATH`. A `.` pin applies to every matching command. `zsh`, `fish`, and `bash` on a catch-all rule inject only when that shell is the command.
 
 ### Added
 
-- **mise pins** ([#205](https://github.com/zifeo/lade/pull/205),
-  [#207](https://github.com/zifeo/lade/pull/207),
-  [#209](https://github.com/zifeo/lade/pull/209)): `mise://backend/package@version`
-  on a matched rule prepends that install for the command. A miss
-  installs from the lock in an isolated temp dir, then refuses if the
-  binary is still missing. Homebrew is not the pin. `lade setup`
-  installs the lock. `lade update` re-resolves implied and ranged pins.
-  `lade setup --unlock` ignores the lock once. `mise://…@latest` is
-  written back as the resolved version.
-- **Diary chain**: each `events.db` row is HMAC-SHA256 of the previous
-  hash plus the payload. The salt is compiled into this Lade version.
-  `lade log verify` walks the chain and exits non-zero on a break.
-  `lade log` and `lade usage` still print, and say how many rows verify
-  before and after the bad row. `lade log share` reseals the redacted
-  snapshot. `lade log prune` starts a new epoch on the rows that remain.
-  Tamper-evident, not tamper-proof.
-- **Bitwarden** ([#204](https://github.com/zifeo/lade/pull/204)):
-  `bw://ITEM/FIELD` uses the Bitwarden CLI and one `bw list items` per
-  resolve. `password` is the default field.
-- **lade.yaml version** ([#207](https://github.com/zifeo/lade/pull/207)):
-  optional first key `: >=0.18.0`. Below the range, Lade refuses and
-  shows the box. An empty command regex is not a rule. Use `.` to match
-  every command. Edit `:` by hand.
-- **age plugin** ([#203](https://github.com/zifeo/lade/pull/203)):
-  `age-plugin-lade` is its own crate. It speaks C2SP and execs
-  `lade eval` (sibling, `PATH`, or `LADE_BIN`). The release tarball,
-  installer, and image ship both files. age and rage resolve a Lade URI
-  the same way `lade eval` does. `lade status` reports whether the
-  plugin is next to `lade` or on `PATH`. A miss does not flip `ok`.
+- **mise pins** ([#205](https://github.com/zifeo/lade/pull/205), [#207](https://github.com/zifeo/lade/pull/207), [#209](https://github.com/zifeo/lade/pull/209)): `mise://backend/package@version` on a matched rule prepends that install for the command. A miss installs from the lock in an isolated temp dir, then refuses if the binary is still missing. Homebrew is not the pin. `lade setup` installs the lock. `lade update` re-resolves implied and ranged pins. `lade setup --unlock` ignores the lock once. `mise://…@latest` is written back as the resolved version.
+- **Diary chain**: each `events.db` row is HMAC-SHA256 of the previous hash plus the payload. The salt is compiled into this Lade version. `lade log verify` walks the chain and exits non-zero on a break. `lade log` and `lade usage` still print, and say how many rows verify before and after the bad row. `lade log share` reseals the redacted snapshot. `lade log prune` starts a new epoch on the rows that remain. Tamper-evident, not tamper-proof.
+- **Bitwarden** ([#204](https://github.com/zifeo/lade/pull/204)): `bw://ITEM/FIELD` uses the Bitwarden CLI and one `bw list items` per resolve. `password` is the default field.
+- **lade.yaml version** ([#207](https://github.com/zifeo/lade/pull/207)): optional first key `: >=0.18.0`. Below the range, Lade refuses and shows the box. An empty command regex is not a rule. Use `.` to match every command. Edit `:` by hand.
+- **age plugin** ([#203](https://github.com/zifeo/lade/pull/203)): `age-plugin-lade` is its own crate. It speaks C2SP and execs `lade eval` (sibling, `PATH`, or `LADE_BIN`). The release tarball, installer, and image ship both files. age and rage resolve a Lade URI the same way `lade eval` does. `lade status` reports whether the plugin is next to `lade` or on `PATH`. A miss does not flip `ok`.
 
 ### Changed
 
-- **`lade setup` / `lade teardown`** ([#207](https://github.com/zifeo/lade/pull/207)):
-  replace `install` / `uninstall`. Setup is this git repo. The shell
-  wrap is written only the first time this machine has no pre-exec.
-  Later, a missing wrap is `lade hook enable --shell`. `CI` set skips
-  the wrap. Teardown does not remove it. `--harness` replaces
-  `--cursor` / `--claude` / `--codex` / `--opencode`. Enter on the
-  harness prompt installs only the harnesses already on this machine.
-  `all` installs every harness. Results use Report, not a box.
-- **`lade add` / `lade remove`**: write the nearest `lade.yaml`. Add
-  runs setup. The third family is `package`, not `bin`. Both
-  `lade.yaml` and `lade.yml` in one directory is an error. No skill
-  files. The README blockquote is the harness prompt.
-- **mise binary**: `lade setup` uses PATH mise when it is already in
-  range. Otherwise it installs the official binary
-  (`$MISE_DATA_DIR/bin/mise`, else `~/.local/share/mise/bin/mise`).
-  There is no second copy under Lade's data dir. Inject does not fetch
-  mise.
-- **Providers**: Azure Key Vault URIs use `azurekv://`. Infisical
-  hydrates through the Infisical CLI again, so a desktop
-  `infisical login` is enough. Vault hydrate is HTTP KV v2
-  (`VAULT_TOKEN`, `LADE_VAULT_TOKEN`, or `~/.vault-token`). Secret and
-  tunnel CLIs share one spec table. User-facing tunnel errors say tunnel.
+- **`lade setup` / `lade teardown`** ([#207](https://github.com/zifeo/lade/pull/207)): replace `install` / `uninstall`. Setup is this git repo. The shell wrap is written only the first time this machine has no pre-exec. Later, a missing wrap is `lade hook enable --shell`. `CI` set skips the wrap. Teardown does not remove it. `--harness` replaces `--cursor` / `--claude` / `--codex` / `--opencode`. Enter on the harness prompt installs only the harnesses already on this machine. `all` installs every harness. Results use Report, not a box.
+- **`lade add` / `lade remove`**: write the nearest `lade.yaml`. Add runs setup. The third family is `package`, not `bin`. Both `lade.yaml` and `lade.yml` in one directory is an error. No skill files. The README blockquote is the harness prompt.
+- **mise binary**: `lade setup` uses PATH mise when it is already in range. Otherwise it installs the official binary (`$MISE_DATA_DIR/bin/mise`, else `~/.local/share/mise/bin/mise`). There is no second copy under Lade's data dir. Inject does not fetch mise.
+- **Providers**: Azure Key Vault URIs use `azurekv://`. Infisical hydrates through the Infisical CLI again, so a desktop `infisical login` is enough. Vault hydrate is HTTP KV v2 (`VAULT_TOKEN`, `LADE_VAULT_TOKEN`, or `~/.vault-token`). Secret and tunnel CLIs share one spec table. User-facing tunnel errors say tunnel.
 
 ### Removed
 
-- **APM package** (`apm.yml`, `.apm/skills/lade`, `agent-setup.sh`).
-  Hooks are written by the binary.
+- **APM package** (`apm.yml`, `.apm/skills/lade`, `agent-setup.sh`). Hooks are written by the binary.
 
 ### Fixed
 
-- **Pin identity**: `op` (`aqua/1password/cli`) and `doppler`
-  (`aqua/DopplerHQ/cli`) no longer collapse into one pin because both
-  packages end in `cli`. On a native `mise.toml`, a bin name that is
-  not the package name is stored as the mise backend id, so the next
-  `lade update` still locks that package.
-- **Login shells** ([#209](https://github.com/zifeo/lade/pull/209)):
-  `zsh`, `fish`, and `bash` on a catch-all rule do not replace
-  `/bin/zsh`. They inject only when the wrapped command is that shell.
-- **Empty match** ([#206](https://github.com/zifeo/lade/pull/206)):
-  a match with nothing to inject does not wrap.
-- **`lade upgrade`**: if `age-plugin-lade` is missing beside `lade`,
-  the next upgrade installs it even when Lade is already current.
-- **Installer during a release**: GitHub `latest` stays on the previous
-  tag until the binary assets are uploaded.
-- **Diary first open**: two processes creating `events.db` no longer
-  drop a row when one sees a half-finished schema.
-- **Inject with a store hit**: a pinned CLI already in
-  `$MISE_INSTALLS_DIR` still starts when mise itself is absent. Extra
-  env stays empty. Inject does not fetch mise.
+- **Pin identity**: `op` (`aqua/1password/cli`) and `doppler` (`aqua/DopplerHQ/cli`) no longer collapse into one pin because both packages end in `cli`. On a native `mise.toml`, a bin name that is not the package name is stored as the mise backend id, so the next `lade update` still locks that package.
+- **Login shells** ([#209](https://github.com/zifeo/lade/pull/209)): `zsh`, `fish`, and `bash` on a catch-all rule do not replace `/bin/zsh`. They inject only when the wrapped command is that shell.
+- **Empty match** ([#206](https://github.com/zifeo/lade/pull/206)): a match with nothing to inject does not wrap.
+- **`lade upgrade`**: if `age-plugin-lade` is missing beside `lade`, the next upgrade installs it even when Lade is already current.
+- **Installer during a release**: GitHub `latest` stays on the previous tag until the binary assets are uploaded.
+- **Diary first open**: two processes creating `events.db` no longer drop a row when one sees a half-finished schema.
+- **Inject with a store hit**: a pinned CLI already in `$MISE_INSTALLS_DIR` still starts when mise itself is absent. Extra env stays empty. Inject does not fetch mise.
 
 [0.19.0]: https://github.com/zifeo/lade/compare/v0.18.0...v0.19.0
 
@@ -579,182 +159,52 @@ Installs live in Lade's cache. Shims are not placed on the interactive
 
 ### Added
 
-- **Lookaround in command regexes** ([#198](https://github.com/zifeo/lade/pull/198)):
-  `lade.yml` keys use `fancy-regex` so `(?=…)`, `(?!…)`, and other
-  lookaround forms match. Closes #87.
-- **MCP verbs and diary argv** ([#199](https://github.com/zifeo/lade/pull/199)):
-  `tools/call` leaves a `seen` row without wrapping the verb. Storage
-  peels argv0 from the rest so `lade log` can group by command and
-  still print the full line. `argv` is JSONB.
-- **APM package** ([#200](https://github.com/zifeo/lade/pull/200)): `apm.yml` plus `.apm/skills/lade` (link to
-  `.agents/skills/lade/SKILL.md`). Consumers pin the GitHub tag
-  `zifeo/lade#vX.Y.Z`. `apm.yml` `version` tracks the crate (release bump
-  rewrites it). Hooks stay native.
-- **`lade hook install` / `uninstall`** ([#200](https://github.com/zifeo/lade/pull/200)): `--scope user|project` and
-  `--harness claude|cursor|codex|opencode`. The binary serves the repo
-  snapshots. Merge keeps `permissions` / `model`. Codex user scope honors
-  `CODEX_HOME`. `lade status` labels user and project (JSON `global` is
-  the user plane) and prints `run \`lade install\`` on drift.
-- **`lade install --cursor|--claude|--codex|--opencode`** ([#201](https://github.com/zifeo/lade/pull/201)): select
-  harnesses. A git cwd defaults to this repo (hooks and skills). No
-  git defaults to this machine. Confirm detected agents (default all).
-  A complete default plane skips prompts. Installing the repo plane
-  warns when machine hooks already exist (both processes still run).
-  A stale Lade-managed file is rewritten. Unmanaged skills stay.
-- **Unreadable `lade hook` payload**: invalid JSON or a preTool event
-  with no command still allows the tool call (empty Claude/Codex stdout).
-  stderr now says so, so a later vault or lock error is not the first
-  clue. No-match remains silent.
-- **Local command diary** ([#197](https://github.com/zifeo/lade/pull/197)): `lade log` and `lade usage` read a local SQLite
-  WAL at `ProjectDirs` `data_local_dir()/events.db` (same library and
-  qualifier as `config.json` on `config_local_dir()`). Recording is opt-in
-  with `log: true` on matching `lade.yml` rules. Secret values are never
-  stored. Default read window is 90 days. `--since` / `--until` bound
-  it. `--limit` is an extra cap. `lade log --group command` counts
-  commands. `lade usage` lists matched rules in this tree, most
-  frequent first, with the file path.   `lade.yml` walk stops at
-  `$HOME`. Queries stay on the current git root, including
-  worktrees. `--all` reads every repo. `--path` scopes to another
-  tree.
-  `lade log prune --keep` is the only delete. `lade status` reports
-  event count and a human size. `--json` keeps raw `bytes` and does
-  not change `ok`.
-- **`.when` audience detection** ([#184](https://github.com/zifeo/lade/pull/184)): `detect()` classifies every invocation as
-  preexec, pretool, or unset. `--pretool` (global) wins, then the
-  subcommand, then env signals when Via is empty. Leftover `LADE_VIA` is
-  ignored. MCP and a bare `lade inject` use the same function. The same
-  pattern can be a list of bodies with different `when`.
-- **`.silence` hydration progress** ([#184](https://github.com/zifeo/lade/pull/184)): `silence: true` under `.` skips that
-  rule's secret progress lines at hydrate time. Hydration itself is unchanged.
-- **`lade bench`** ([#190](https://github.com/zifeo/lade/pull/190)): times the incompressible path (parse all `lade.yml` files
-  and regex match) and the variable path (secret hydrate per loaded rule).
-  Human mode prints parse/match first, then each rule as it finishes, then
-  wall-clock `total`. Hydrates run concurrently. `--timeout` caps each rule
-  (`5s` by default). Errors sit on the next indented line. `--json` includes
-  `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire
-  is not run.
-- **Claude-compatible preTool hosts** ([#191](https://github.com/zifeo/lade/pull/191)): `lade hook` keeps an explicit detect
-  path for Codex and OpenCode, then rewrites with the same `updatedInput`
-  envelope as Claude Code. `lade install` / `status` cover
-  `~/.codex/hooks.json` and
-  `~/.config/opencode/plugins/lade-pretool.js`.
-- **Organic versus unknown via** ([#192](https://github.com/zifeo/lade/pull/192)): `detect()` treats a TTY inject with no
-  `--pretool` and no agent signal as organic human, and a non-TTY empty via
-  as unknown. The child never inherits `LADE_VIA`.
-- **MCP stdio restart** ([#195](https://github.com/zifeo/lade/pull/195)): if the
-  stdio child exits before the client `initialize` line is forwarded, Lade
-  respawns it with the already hydrated env instead of calling vaults again.
-  After `initialize`, a child exit does not restart.
-- **T protocol** ([#197](https://github.com/zifeo/lade/pull/197)): first match writes `{temp}/lade-t/{id}.json`. The wrap
-  and `lade set` hydrate from that file. No rematch. `set` writes T on
-  every match and exports `LADE_T`. The ticket holds `via`,
-  `network_pids`, and `pending`. Env keeps `LADE_T`, `LADE_RESTORE`,
-  and `LADE_APPROVE`. Pretool wrap unlinks after the child. `lade unset`
-  reads pids from T, unlinks, and clears `LADE_T`. Diary `log` is last
-  explicit `log` on matching rules. No-match `seen` uses the last
-  explicit `log` on the loaded walk. See `docs/protocol.md` and
-  `docs/observability.md`.
-- **Diary `agent` object**: free-form JSON on each event (`harness`,
-  `model`, `session`, plus later keys). Hook payload wins over env.
-  Missing or unknown fields stay absent. Empty objects are omitted.
-- **`lade hook --harness`**: each installed hook names its host
-  (`cursor`, `claude`, `codex`, `opencode`). Unknown values are
-  ignored. Detect and ticket writes fail open so a harness change does
-  not block the tool call.
-- **Daily hook refresh**: the same 24h window as the GitHub version
-  check rewrites already-installed hook files when the command is
-  stale. It never creates a hook the user did not install. `lade
-  upgrade` clears `update_check` and `self_version` so the first run
-  of the new binary checks GitHub and refreshes those files.
+- **Lookaround in command regexes** ([#198](https://github.com/zifeo/lade/pull/198)): `lade.yml` keys use `fancy-regex` so `(?=…)`, `(?!…)`, and other lookaround forms match. Closes #87.
+- **MCP verbs and diary argv** ([#199](https://github.com/zifeo/lade/pull/199)): `tools/call` leaves a `seen` row without wrapping the verb. Storage peels argv0 from the rest so `lade log` can group by command and still print the full line. `argv` is JSONB.
+- **APM package** ([#200](https://github.com/zifeo/lade/pull/200)): `apm.yml` plus `.apm/skills/lade` (link to `.agents/skills/lade/SKILL.md`). Consumers pin the GitHub tag `zifeo/lade#vX.Y.Z`. `apm.yml` `version` tracks the crate (release bump rewrites it). Hooks stay native.
+- **`lade hook install` / `uninstall`** ([#200](https://github.com/zifeo/lade/pull/200)): `--scope user|project` and `--harness claude|cursor|codex|opencode`. The binary serves the repo snapshots. Merge keeps `permissions` / `model`. Codex user scope honors `CODEX_HOME`. `lade status` labels user and project (JSON `global` is the user plane) and prints `run \`lade install\`` on drift.
+- **`lade install --cursor|--claude|--codex|--opencode`** ([#201](https://github.com/zifeo/lade/pull/201)): select harnesses. A git cwd defaults to this repo (hooks and skills). No git defaults to this machine. Confirm detected agents (default all). A complete default plane skips prompts. Installing the repo plane warns when machine hooks already exist (both processes still run). A stale Lade-managed file is rewritten. Unmanaged skills stay.
+- **Unreadable `lade hook` payload**: invalid JSON or a preTool event with no command still allows the tool call (empty Claude/Codex stdout). stderr now says so, so a later vault or lock error is not the first clue. No-match remains silent.
+- **Local command diary** ([#197](https://github.com/zifeo/lade/pull/197)): `lade log` and `lade usage` read a local SQLite WAL at `ProjectDirs` `data_local_dir()/events.db` (same library and qualifier as `config.json` on `config_local_dir()`). Recording is opt-in with `log: true` on matching `lade.yml` rules. Secret values are never stored. Default read window is 90 days. `--since` / `--until` bound it. `--limit` is an extra cap. `lade log --group command` counts commands. `lade usage` lists matched rules in this tree, most frequent first, with the file path.   `lade.yml` walk stops at `$HOME`. Queries stay on the current git root, including worktrees. `--all` reads every repo. `--path` scopes to another tree. `lade log prune --keep` is the only delete. `lade status` reports event count and a human size. `--json` keeps raw `bytes` and does not change `ok`.
+- **`.when` audience detection** ([#184](https://github.com/zifeo/lade/pull/184)): `detect()` classifies every invocation as preexec, pretool, or unset. `--pretool` (global) wins, then the subcommand, then env signals when Via is empty. Leftover `LADE_VIA` is ignored. MCP and a bare `lade inject` use the same function. The same pattern can be a list of bodies with different `when`.
+- **`.silence` hydration progress** ([#184](https://github.com/zifeo/lade/pull/184)): `silence: true` under `.` skips that rule's secret progress lines at hydrate time. Hydration itself is unchanged.
+- **`lade bench`** ([#190](https://github.com/zifeo/lade/pull/190)): times the incompressible path (parse all `lade.yml` files and regex match) and the variable path (secret hydrate per loaded rule). Human mode prints parse/match first, then each rule as it finishes, then wall-clock `total`. Hydrates run concurrently. `--timeout` caps each rule (`5s` by default). Errors sit on the next indented line. `--json` includes `total_ms` and `timeout_ms`. Secret values are not printed. Network acquire is not run.
+- **Claude-compatible preTool hosts** ([#191](https://github.com/zifeo/lade/pull/191)): `lade hook` keeps an explicit detect path for Codex and OpenCode, then rewrites with the same `updatedInput` envelope as Claude Code. `lade install` / `status` cover `~/.codex/hooks.json` and `~/.config/opencode/plugins/lade-pretool.js`.
+- **Organic versus unknown via** ([#192](https://github.com/zifeo/lade/pull/192)): `detect()` treats a TTY inject with no `--pretool` and no agent signal as organic human, and a non-TTY empty via as unknown. The child never inherits `LADE_VIA`.
+- **MCP stdio restart** ([#195](https://github.com/zifeo/lade/pull/195)): if the stdio child exits before the client `initialize` line is forwarded, Lade respawns it with the already hydrated env instead of calling vaults again. After `initialize`, a child exit does not restart.
+- **T protocol** ([#197](https://github.com/zifeo/lade/pull/197)): first match writes `{temp}/lade-t/{id}.json`. The wrap and `lade set` hydrate from that file. No rematch. `set` writes T on every match and exports `LADE_T`. The ticket holds `via`, `network_pids`, and `pending`. Env keeps `LADE_T`, `LADE_RESTORE`, and `LADE_APPROVE`. Pretool wrap unlinks after the child. `lade unset` reads pids from T, unlinks, and clears `LADE_T`. Diary `log` is last explicit `log` on matching rules. No-match `seen` uses the last explicit `log` on the loaded walk. See `docs/protocol.md` and `docs/observability.md`.
+- **Diary `agent` object**: free-form JSON on each event (`harness`, `model`, `session`, plus later keys). Hook payload wins over env. Missing or unknown fields stay absent. Empty objects are omitted.
+- **`lade hook --harness`**: each installed hook names its host (`cursor`, `claude`, `codex`, `opencode`). Unknown values are ignored. Detect and ticket writes fail open so a harness change does not block the tool call.
+- **Daily hook refresh**: the same 24h window as the GitHub version check rewrites already-installed hook files when the command is stale. It never creates a hook the user did not install. `lade upgrade` clears `update_check` and `self_version` so the first run of the new binary checks GitHub and refreshes those files.
 
 ### Changed
 
-- **User-facing copy** ([#201](https://github.com/zifeo/lade/pull/201)): crates.io / README / `lade --help` lead with
-  temporary access for one command, then gone, same wrap for humans and
-  agents, plus which access was used. Spoken terms are pre-exec /
-  pre-tool. Empty parse Hints dropped. README keeps one install tell;
-  last-wins / `seen` stay in `docs/observability.md`.
-- **Observability** ([#201](https://github.com/zifeo/lade/pull/201)): `docs/log.md` is `docs/observability.md`. README
-  section matches. `lade log` / `lade usage` verbs stay.
-- **Version bump** ([#201](https://github.com/zifeo/lade/pull/201)): `scripts/set-version.sh` runs `cargo set-version`
-  and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml`
-  from `build.rs`.
-- **Tunnel providers in `lade-sdk`** ([#196](https://github.com/zifeo/lade/pull/196)): network CLI specs, kube context
-  resolve, and command builders live with URI parse. The CLI still
-  owns acquire, PTY, and process groups.
-- **`lade install` terms** ([#201](https://github.com/zifeo/lade/pull/201)): pre-exec is this shell only (other shells
-  are listed, not installed). pre-tool is agents, hook and skill
-  together. One box for both jobs. `lade uninstall` uses the same
-  default plane as install, then the other plane if that one is empty.
-  Drift verbs are `current`, `updated`, `installed`. Paths are
-  repo-relative or `~/…`.
-- **Lade skill** ([#201](https://github.com/zifeo/lade/pull/201)): pointer only. Run the command normally. Never `lade
-  eval`, `--no-mask`, or `lade approve`. On missing or drifted hooks,
-  run `lade install`. On withheld access, stop. Previous official
-  skills stay Lade-managed and refresh to this text.
-- **Single rustls stack** ([#196](https://github.com/zifeo/lade/pull/196)): CLI `reqwest` and `self_update` use rustls
-  like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and
-  unused zip/bzip2 codecs on `self_update`. Parent shell detect reads
-  the parent comm on Linux/macOS when `LADE_SHELL` is unset.
-- **`self_update` 1.3**: first stable crate line. GitHub tags `v9.x` are
-  example fixtures, not crate versions. `compression-flate2` is now
-  `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to
-  rustls). `lade upgrade` uses `release_tag` and `ReleaseStatus`.
-- **`lade status --json` hooks object** (breaking): `hooks` is now
-  `{ "preexec": { shell, profile, installed, inject_skips_startup_files, inject_startup_skipped }, "pretool": { cursor, claude, codex, opencode } }`
-  with global and project paths. `ok` still depends only on preexec install,
-  version, project config, and vault CLIs.
-- **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human
-  `inject`/`approve` has both stdin and stderr as TTYs.
-- **OpenCode plugin**: `lade hook --harness opencode` takes
-  `{ command, session_id }` and returns `{ command }`. No Claude
-  envelope, no `OPENCODE=1`.
-- **`--pretool`**: `lade hook` rewrites matching commands to
-  `<lade> --pretool=<id> '…'` (the inject alias). The id is a 4-character
-  T ticket. `--pretool` wins over the subcommand. Via is stored on the
-  ticket. The child never sees `LADE_T` or `LADE_VIA`.
-- **Protocol env**: `LADE_T` is the preexec pointer. `LADE_RESTORE` is
-  the previous env. `LADE_APPROVE` is `sha256(command + window)[:5]`.
-  `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_PENDING`, and
-  `LADE_DISCLAIMER_APPROVED` are no longer classifiers or messengers.
-- **No stale protocol broom**: `set` / `unset` no longer emit `unset`
-  for dropped keys. `unset` stops tunnels from the T ticket only.
-- **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade`
-  stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`.
-  Re-running `lade install` updates an existing hook that still has a path.
+- **User-facing copy** ([#201](https://github.com/zifeo/lade/pull/201)): crates.io / README / `lade --help` lead with temporary access for one command, then gone, same wrap for humans and agents, plus which access was used. Spoken terms are pre-exec / pre-tool. Empty parse Hints dropped. README keeps one install tell; last-wins / `seen` stay in `docs/observability.md`.
+- **Observability** ([#201](https://github.com/zifeo/lade/pull/201)): `docs/log.md` is `docs/observability.md`. README section matches. `lade log` / `lade usage` verbs stay.
+- **Version bump** ([#201](https://github.com/zifeo/lade/pull/201)): `scripts/set-version.sh` runs `cargo set-version` and rewrites `apm.yml`. Release CI uses it. Do not write `apm.yml` from `build.rs`.
+- **Tunnel providers in `lade-sdk`** ([#196](https://github.com/zifeo/lade/pull/196)): network CLI specs, kube context resolve, and command builders live with URI parse. The CLI still owns acquire, PTY, and process groups.
+- **`lade install` terms** ([#201](https://github.com/zifeo/lade/pull/201)): pre-exec is this shell only (other shells are listed, not installed). pre-tool is agents, hook and skill together. One box for both jobs. `lade uninstall` uses the same default plane as install, then the other plane if that one is empty. Drift verbs are `current`, `updated`, `installed`. Paths are repo-relative or `~/…`.
+- **Lade skill** ([#201](https://github.com/zifeo/lade/pull/201)): pointer only. Run the command normally. Never `lade eval`, `--no-mask`, or `lade approve`. On missing or drifted hooks, run `lade install`. On withheld access, stop. Previous official skills stay Lade-managed and refresh to this text.
+- **Single rustls stack** ([#196](https://github.com/zifeo/lade/pull/196)): CLI `reqwest` and `self_update` use rustls like the SDK. Dropped vendored OpenSSL, `path-clean`, `sysinfo`, and unused zip/bzip2 codecs on `self_update`. Parent shell detect reads the parent comm on Linux/macOS when `LADE_SHELL` is unset.
+- **`self_update` 1.3**: first stable crate line. GitHub tags `v9.x` are example fixtures, not crate versions. `compression-flate2` is now `compression-tar-gz`. TLS stays `native-tls` (1.0 defaulted to rustls). `lade upgrade` uses `release_tag` and `ReleaseStatus`.
+- **`lade status --json` hooks object** (breaking): `hooks` is now `{ "preexec": { shell, profile, installed, inject_skips_startup_files, inject_startup_skipped }, "pretool": { cursor, claude, codex, opencode } }` with global and project paths. `ok` still depends only on preexec install, version, project config, and vault CLIs.
+- **UI mode**: `Hook` is renamed `Quiet`. Interactive only when a human `inject`/`approve` has both stdin and stderr as TTYs.
+- **OpenCode plugin**: `lade hook --harness opencode` takes `{ command, session_id }` and returns `{ command }`. No Claude envelope, no `OPENCODE=1`.
+- **`--pretool`**: `lade hook` rewrites matching commands to `<lade> --pretool=<id> '…'` (the inject alias). The id is a 4-character T ticket. `--pretool` wins over the subcommand. Via is stored on the ticket. The child never sees `LADE_T` or `LADE_VIA`.
+- **Protocol env**: `LADE_T` is the preexec pointer. `LADE_RESTORE` is the previous env. `LADE_APPROVE` is `sha256(command + window)[:5]`. `LADE_VIA`, `LADE_NETWORK_PIDS`, `LADE_PENDING`, and `LADE_DISCLAIMER_APPROVED` are no longer classifiers or messengers.
+- **No stale protocol broom**: `set` / `unset` no longer emit `unset` for dropped keys. `unset` stops tunnels from the T ticket only.
+- **Hook bin name**: `lade install` and match rewrites use argv[0]. `lade` stays `lade`. A path invocation (`/opt/lade install`) uses `current_exe`. Re-running `lade install` updates an existing hook that still has a path.
 
 ### Fixed
 
-- **`.when` ignores `CURSOR_VERSION`**: Cursor sets it in human terminals, so it
-  must not select agent rules on `inject` / `mcp`.
-- **preTool envelope**: `CURSOR_VERSION` no longer wins over a `PreToolUse`
-  payload or an explicit Codex or OpenCode detect path. Those hosts ignore
-  Cursor's `updated_input`.
-- **Already-injected hook rewrite**: stamp `--pretool` when the command is
-  already `lade inject` or `lade --pretool` without that flag, so `.when: agent`
-  still matches. Older `--via=pretool` and `LADE_VIA=pretool` prefixes still
-  count as stamped.
-- **`lade status` project preTool paths** walk toward `$HOME` and stop there, so
-  home-level agent hook files stay in the global slot.
-- **`lade status` latest version**: persist the GitHub tag from a successful
-  daily check so `status` can show it after shell use. If the fetch failed,
-  print when we last tried (`tried today at 14:25`, `tried yesterday at 09:05`)
-  instead of `not checked recently`.
-- **Wrap profile overwrite** ([#194](https://github.com/zifeo/lade/pull/194)):
-  `lade inject` and `lade hook` wrap fish with `--no-config` and zsh with `-f`,
-  and clear `$BASH_ENV`, so a user profile cannot overwrite resolved secrets
-  after spawn. `sh://` / `fish://` / `zsh://` use the same argv. Preexec
-  (`lade set`) still evals in the live interactive shell. `lade status`
-  reports `inject wrap: skips startup files` and names `config.fish`,
-  `.zshenv`, or `BASH_ENV` when present.
-- **Child signals** ([#195](https://github.com/zifeo/lade/pull/195)): `lade mcp`
-  and `lade inject` share Unix signal wrapping. Hangup is ignored. Stop
-  signals (`INT`/`TERM`/`QUIT`) end the wrapper. `USR1`/`USR2`/`WINCH` are
-  forwarded. MCP children get their own session and process group. Inject
-  stays on the TTY session.
-- **Diary writers** ([#201](https://github.com/zifeo/lade/pull/201)): if
-  `to_latest` fails but `pending_migrations` is 0, the peer finished
-  the schema and the loser still inserts. Busy wait stays 250ms.
+- **`.when` ignores `CURSOR_VERSION`**: Cursor sets it in human terminals, so it must not select agent rules on `inject` / `mcp`.
+- **preTool envelope**: `CURSOR_VERSION` no longer wins over a `PreToolUse` payload or an explicit Codex or OpenCode detect path. Those hosts ignore Cursor's `updated_input`.
+- **Already-injected hook rewrite**: stamp `--pretool` when the command is already `lade inject` or `lade --pretool` without that flag, so `.when: agent` still matches. Older `--via=pretool` and `LADE_VIA=pretool` prefixes still count as stamped.
+- **`lade status` project preTool paths** walk toward `$HOME` and stop there, so home-level agent hook files stay in the global slot.
+- **`lade status` latest version**: persist the GitHub tag from a successful daily check so `status` can show it after shell use. If the fetch failed, print when we last tried (`tried today at 14:25`, `tried yesterday at 09:05`) instead of `not checked recently`.
+- **Wrap profile overwrite** ([#194](https://github.com/zifeo/lade/pull/194)): `lade inject` and `lade hook` wrap fish with `--no-config` and zsh with `-f`, and clear `$BASH_ENV`, so a user profile cannot overwrite resolved secrets after spawn. `sh://` / `fish://` / `zsh://` use the same argv. Preexec (`lade set`) still evals in the live interactive shell. `lade status` reports `inject wrap: skips startup files` and names `config.fish`, `.zshenv`, or `BASH_ENV` when present.
+- **Child signals** ([#195](https://github.com/zifeo/lade/pull/195)): `lade mcp` and `lade inject` share Unix signal wrapping. Hangup is ignored. Stop signals (`INT`/`TERM`/`QUIT`) end the wrapper. `USR1`/`USR2`/`WINCH` are forwarded. MCP children get their own session and process group. Inject stays on the TTY session.
+- **Diary writers** ([#201](https://github.com/zifeo/lade/pull/201)): if `to_latest` fails but `pending_migrations` is 0, the peer finished the schema and the loser still inserts. Busy wait stays 250ms.
 
 [0.18.0]: https://github.com/zifeo/lade/compare/v0.17.2...v0.18.0
 
@@ -762,10 +212,7 @@ Installs live in Lade's cache. Shims are not placed on the interactive
 
 ### Fixed
 
-- **Shell hook stall** ([#182](https://github.com/zifeo/lade/pull/182)): stamp
-  and time out the upgrade check, export `LADE_SHELL` from `lade on` so `set`
-  skips a full process scan, and unregister hooks without leaving empty array
-  slots.
+- **Shell hook stall** ([#182](https://github.com/zifeo/lade/pull/182)): stamp and time out the upgrade check, export `LADE_SHELL` from `lade on` so `set` skips a full process scan, and unregister hooks without leaving empty array slots.
 
 [0.17.2]: https://github.com/zifeo/lade/compare/v0.17.1...v0.17.2
 
@@ -773,9 +220,7 @@ Installs live in Lade's cache. Shims are not placed on the interactive
 
 ### Fixed
 
-- **Network tunnel restart** ([#180](https://github.com/zifeo/lade/pull/180)):
-  supervise command-scoped forwards and restart a provider that exits during
-  the command, instead of leaving the local port dead.
+- **Network tunnel restart** ([#180](https://github.com/zifeo/lade/pull/180)): supervise command-scoped forwards and restart a provider that exits during the command, instead of leaving the local port dead.
 
 [0.17.1]: https://github.com/zifeo/lade/compare/v0.17.0...v0.17.1
 
@@ -783,21 +228,12 @@ Installs live in Lade's cache. Shims are not placed on the interactive
 
 ### Added
 
-- **`lade mcp`** ([#171](https://github.com/zifeo/lade/pull/171)): resolve the
-  matching `lade.yml` rule for a local stdio MCP server or a remote Streamable
-  HTTP endpoint. Public bindings become child env vars or HTTP headers.
-  Intermediate `.NAME` bindings stay resolver-local.
-- **Binding DAG** ([#171](https://github.com/zifeo/lade/pull/171)): bindings
-  can reference each other with `$NAME` / `${NAME}` / `${.NAME}`. Ready
-  providers resolve concurrently. Shell providers receive those values as
-  environment variables without rewriting the script.
+- **`lade mcp`** ([#171](https://github.com/zifeo/lade/pull/171)): resolve the matching `lade.yml` rule for a local stdio MCP server or a remote Streamable HTTP endpoint. Public bindings become child env vars or HTTP headers. Intermediate `.NAME` bindings stay resolver-local.
+- **Binding DAG** ([#171](https://github.com/zifeo/lade/pull/171)): bindings can reference each other with `$NAME` / `${NAME}` / `${.NAME}`. Ready providers resolve concurrently. Shell providers receive those values as environment variables without rewriting the script.
 
 ### Fixed
 
-- **Teleport `tsh` URIs** ([#172](https://github.com/zifeo/lade/pull/172)):
-  accept `/app/<name>[/<target-port>]` and
-  `/kube_cluster/<cluster>/<namespace>/<kind>/<name>/<remote-port>`. Loopback
-  local binds stay on `127.0.0.1`.
+- **Teleport `tsh` URIs** ([#172](https://github.com/zifeo/lade/pull/172)): accept `/app/<name>[/<target-port>]` and `/kube_cluster/<cluster>/<namespace>/<kind>/<name>/<remote-port>`. Loopback local binds stay on `127.0.0.1`.
 
 [0.17.0]: https://github.com/zifeo/lade/compare/v0.16.0...v0.17.0
 
