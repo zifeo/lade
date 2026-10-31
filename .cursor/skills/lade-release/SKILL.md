@@ -42,6 +42,7 @@ Never commit, tag, or push — the user handles git.
 5. **Writing style** (match existing entries):
    - Lead with **bold feature name**, then PR link `([#NNN](https://github.com/zifeo/lade/pull/NNN))`.
    - One line per item; explain *why* when behavior changes.
+   - No hard wraps: each paragraph and each bullet is a single line. The section becomes the GitHub release body, which renders every newline.
    - Categories: Added, Changed, Fixed, Removed (omit empty categories).
 
 ## Version bump
