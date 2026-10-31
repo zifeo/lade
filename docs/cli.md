@@ -170,7 +170,8 @@ lade ttl forget 15432
 
 `lade ttl set` marks this cwd on the hub. A parent cwd
 shares it. Secrets and tunnels of matching rules keep that long.
-Vault and file stay in RAM 5m until then. Tunnels have no default.
+Without one, secrets stay in RAM 5m, shell ones only with
+ttl. Tunnels have no default.
 `lade ttl unset` clears this cwd.
 `lade ttl forget` drops the RAM and stops every tunnel now.
 `lade ttl forget KEY` drops that secret name or tunnel key.

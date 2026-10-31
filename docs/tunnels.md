@@ -69,7 +69,7 @@ request loop. A client whose request times out pings the hub for a
 second before calling it stale: replacing a busy hub would stop its
 tunnels.
 
-Every provider, in the hub or in `lade --`, runs under
+Every provider runs under
 `lade __tunnel-guard` in its own session. The guard's stdin is a pipe
 whose other end only its Lade holds. The kernel closes it however
 that Lade ends, `SIGKILL` included, and the guard then kills its
