@@ -228,3 +228,48 @@ fn opencode_plugin_follows_the_installed_opencode() {
             .contains(r#"id: "lade-pretool""#)
     );
 }
+
+#[test]
+fn hook_enable_and_disable_never_touch_the_committed_claude_hook() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::init_git(dir.path());
+    let shared = dir.path().join(".claude").join("settings.json");
+    fs::create_dir_all(shared.parent().unwrap()).unwrap();
+    let committed = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude","onFailure":"block"}]}]}}"#;
+    fs::write(&shared, committed).unwrap();
+    let nested = dir.path().join("src");
+    fs::create_dir_all(&nested).unwrap();
+
+    common::lade(home.path())
+        .current_dir(&nested)
+        .args(["hook", "enable", "--harness", "claude"])
+        .assert()
+        .success();
+    assert_eq!(fs::read_to_string(&shared).unwrap(), committed);
+    let local: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dir.path().join(".claude").join("settings.local.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        local["hooks"]["PreToolUse"][0]["hooks"][0],
+        serde_json::json!({"type":"command","command":"lade hook --harness claude","onFailure":"block"})
+    );
+    let pretool = status_pretool(home.path(), dir.path());
+    assert_eq!(pretool["claude"]["project"]["current"], true);
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["hook", "disable", "--harness", "claude"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("stays: it is the repo's"));
+    assert_eq!(fs::read_to_string(&shared).unwrap(), committed);
+
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("teardown")
+        .assert()
+        .success();
+    assert_eq!(fs::read_to_string(&shared).unwrap(), committed);
+}

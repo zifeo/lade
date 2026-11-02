@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local, NaiveTime};
 
 use super::format::{format_bytes, format_tried_at, table_lines};
-use super::print::pretool_flag;
+use super::print::{committed_flag, pretool_flag};
 use crate::command::ttl::{format_duration_ms, window_with_cap};
 
 #[test]
@@ -35,6 +35,13 @@ fn local_at(now: DateTime<Local>, days_ago: u64, hour: u32, minute: u32) -> Date
         .and_local_timezone(Local)
         .earliest()
         .unwrap()
+}
+
+#[test]
+fn committed_flag_tells_blocking_hooks() {
+    assert_eq!(committed_flag(true, true), "blocking");
+    assert_eq!(committed_flag(true, false), "not blocking");
+    assert_eq!(committed_flag(false, false), "none");
 }
 
 #[test]

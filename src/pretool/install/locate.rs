@@ -9,19 +9,8 @@ pub(super) fn leftover_json_hook(agent: Agent, home: &Path) -> Result<Option<(Pa
     let Some(path) = agent.legacy_json_path(home) else {
         return Ok(None);
     };
-    leftover_hook_file(Agent::Claude, &path)
-}
-
-/// The shared file, which Claude reads only in the directory it starts in:
-/// a Lade hook there misses a session started in a subdirectory. Enable
-/// moves it to `settings.local.json`; disable strips both.
-pub(super) fn claude_shared_hook(dest: &Path) -> Result<Option<(PathBuf, String)>> {
-    leftover_hook_file(Agent::Claude, &dest.join(".claude").join("settings.json"))
-}
-
-fn leftover_hook_file(agent: Agent, path: &Path) -> Result<Option<(PathBuf, String)>> {
-    match fs::read_to_string(path) {
-        Ok(content) if agent.has_hook(&content)? => Ok(Some((path.to_path_buf(), content))),
+    match fs::read_to_string(&path) {
+        Ok(content) if Agent::Claude.has_hook(&content)? => Ok(Some((path, content))),
         _ => Ok(None),
     }
 }

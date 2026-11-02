@@ -88,25 +88,29 @@ impl Agent {
                         .and_then(|h| h.get_mut("PreToolUse"))
                         .and_then(Value::as_array_mut)
                     {
-                        for entry in arr.iter_mut() {
-                            if let Some(hooks) =
-                                entry.get_mut("hooks").and_then(Value::as_array_mut)
-                            {
-                                hooks.retain(|h| !command_is_lade_hook(h));
-                            }
-                        }
-                        arr.retain(|e| {
-                            e.get("hooks")
-                                .and_then(Value::as_array)
-                                .map(|h| !h.is_empty())
-                                .unwrap_or(true)
-                        });
+                        strip_matcher_hooks(arr);
                     }
                 }
             }
         }
         to_pretty(&root)
     }
+}
+
+/// Drops every Lade hook from Claude-style `PreToolUse` entries, then the
+/// entries left with no hook.
+pub(super) fn strip_matcher_hooks(arr: &mut Vec<Value>) {
+    for entry in arr.iter_mut() {
+        if let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) {
+            hooks.retain(|h| !command_is_lade_hook(h));
+        }
+    }
+    arr.retain(|e| {
+        e.get("hooks")
+            .and_then(Value::as_array)
+            .map(|h| !h.is_empty())
+            .unwrap_or(true)
+    });
 }
 
 /// Recognize `lade hook` and `lade hook --harness cursor`, including an
@@ -145,7 +149,7 @@ pub(super) fn parse_root(existing: &str, agent: Agent) -> Result<Value> {
         .with_context(|| format!("{} config is not valid JSON", agent.name()))
 }
 
-fn to_pretty(value: &Value) -> Result<String> {
+pub(super) fn to_pretty(value: &Value) -> Result<String> {
     // Relies on serde_json's `preserve_order` feature so rewriting a user's
     // config appends our entry without reordering their existing keys.
     Ok(format!("{}\n", serde_json::to_string_pretty(value)?))

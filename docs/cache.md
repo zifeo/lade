@@ -86,8 +86,9 @@ every time, without the hub.
 `update`, and `upgrade` read the ledger for the release line.
 `lade log prune --hub` sends `Quit`. None of them spawns.
 
-`age-plugin-lade`, `lade eval`, `on`, `off`, and `bench` never
-connect. The pretool handler (`lade hook` on stdin) writes the T
+`age-plugin-lade`, `lade eval` without `--ttl`, `on`, `off`, and
+`bench` never connect. `lade eval --ttl` may spawn the hub, and waits
+up to 2s for a cold one to store the value. The pretool handler (`lade hook` on stdin) writes the T
 file only.
 
 `CI` is not a signal.
@@ -113,6 +114,18 @@ CWD to `$HOME`. For each existing file, in walk order: 8-byte
 big-endian path length, path UTF-8, 8-byte big-endian content
 length, raw bytes. Comments change the hash. No mtime. Any edit
 is a miss and a refetch.
+
+## `lade eval --ttl`
+
+`lade eval --ttl 5m <uri>` keeps the value in the hub, like a rule
+body's `ttl:`: same duration format, at most 24h, `off` caches
+nothing, `max_cache` caps it, and a shell URI is cached since the
+flag opts it in. A raw, tunnel, or package URI fails. The row key is
+`(cwd, "", uri, "eval", zero walk hash, saved_user)`: the URI is the
+rule and the key name, so `lade ttl` lists it and `lade ttl forget
+<uri>` drops it. A `lade ttl set` window does not change it: the flag
+is the ttl. A hit does not refresh the clock. A hub with no memory
+guard caches nothing, as for rules.
 
 ## What the hub holds
 
@@ -289,7 +302,7 @@ Extra, like `agent`. See [cli.md](cli.md).
 
 - Shell URIs unless that body has `ttl:` or this cwd has a hub window
 - Raw literals, tunnels, packages
-- `lade eval` / `age-plugin-lade`
+- `lade eval` without `--ttl`, `age-plugin-lade`
 - A pending disclaimer treated as already consented
 - Values in the diary, the ticket, or a hub log
 

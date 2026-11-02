@@ -89,6 +89,7 @@ pub(crate) async fn run_standalone(
         Command::Eval {
             uri,
             access_command,
+            ttl,
         } => {
             let Some(uri) = uri else {
                 anyhow::bail!("the secret URI is required");
@@ -96,10 +97,22 @@ pub(crate) async fn run_standalone(
             if access_command.as_ref().is_some_and(|name| name.is_empty()) {
                 anyhow::bail!("--access-command cannot be empty");
             }
+            let ttl = ttl
+                .map(|raw| {
+                    crate::config::RuleTtl::parse(&raw).map_err(|e| anyhow::anyhow!("--ttl: {e}"))
+                })
+                .transpose()?;
             let command = access_command.unwrap_or_else(|| "eval".to_string());
             let current_dir = std::env::current_dir()?;
-            let value =
-                eval::resolve_uri(uri, &current_dir, &command, ctx.via, ctx.audience).await?;
+            let value = eval::resolve_uri(
+                uri,
+                &current_dir,
+                &command,
+                ctx.via,
+                ctx.audience,
+                ttl.as_ref(),
+            )
+            .await?;
             println!("{value}");
             Ok(None)
         }

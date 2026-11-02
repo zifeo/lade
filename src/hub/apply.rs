@@ -6,8 +6,11 @@ use crate::config::{
     uri_is_cacheable, when_label,
 };
 
-use super::transport::rpc;
+use super::transport::{COMMAND_DEADLINE, rpc, rpc_within};
 use super::wire::{Rep, Req};
+
+/// `when` of a `lade eval --ttl` row: never a yaml `when:`.
+const EVAL_WHEN: &str = "eval";
 
 pub struct CacheHit {
     pub values: HashMap<String, String>,
@@ -138,6 +141,80 @@ fn get_body(body: &PlannedBody) -> Option<Vec<(String, String)>> {
         .into_iter()
         .map(|(name, value)| Some((name, String::from_utf8(value).ok()?)))
         .collect()
+}
+
+/// `lade eval --ttl`: one row per URI, cwd, and Lade user, outside any yaml
+/// body. The URI is the row's rule and its key name, so `lade ttl forget
+/// <uri>` drops it. A `lade ttl set` window does not apply: the flag is the ttl.
+pub struct EvalCache {
+    cwd: String,
+    uri: String,
+    user: String,
+    ttl_ms: u32,
+}
+
+impl EvalCache {
+    /// `None`: `ttl` is `off`, or the hub has no memory guard. A URI no
+    /// rule caches (raw, tunnel, package) is an error.
+    pub fn open(
+        cwd: &Path,
+        uri: &str,
+        ttl: &RuleTtl,
+        saved_user: &Option<String>,
+    ) -> anyhow::Result<Option<Self>> {
+        let Some(ttl_ms) = ttl.ttl_ms() else {
+            return Ok(None);
+        };
+        if !uri_is_cacheable(uri, Some(ttl), None) {
+            anyhow::bail!("--ttl: this URI is never cached");
+        }
+        if matches!(super::memory_guard(), super::MemoryGuard::Off { .. }) {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            cwd: crate::hub::scope(cwd),
+            uri: uri.to_string(),
+            user: saved_user.clone().unwrap_or_default(),
+            ttl_ms,
+        }))
+    }
+
+    fn get(&self) -> Req {
+        Req::Get {
+            cwd: self.cwd.clone(),
+            path: String::new(),
+            rule: self.uri.clone(),
+            when: EVAL_WHEN.to_string(),
+            walk: [0; 32],
+            user: self.user.clone(),
+        }
+    }
+
+    pub fn lookup(&self) -> Option<String> {
+        let Rep::Hit { bindings } = rpc(self.get())? else {
+            return None;
+        };
+        let (_, value) = bindings.into_iter().find(|(name, _)| name == &self.uri)?;
+        String::from_utf8(value).ok()
+    }
+
+    /// Waits for a cold hub: the user asked for this value to stay.
+    pub fn store(&self, value: &str) {
+        let _ = rpc_within(
+            Req::Put {
+                cwd: self.cwd.clone(),
+                path: String::new(),
+                rule: self.uri.clone(),
+                when: EVAL_WHEN.to_string(),
+                walk: [0; 32],
+                user: self.user.clone(),
+                ttl_ms: self.ttl_ms,
+                bindings: vec![(self.uri.clone(), value.as_bytes().to_vec())],
+            },
+            true,
+            COMMAND_DEADLINE,
+        );
+    }
 }
 
 /// The `lade ttl set` window over `cwd`. Never starts a hub.

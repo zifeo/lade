@@ -221,7 +221,11 @@ lade -- tofu apply
 lade mcp -- npx -y @modelcontextprotocol/server-everything
 lade mcp https://example.com/mcp
 lade eval op://vault/item/field
+lade eval --ttl 5m op://vault/item/field
 ```
+
+`--ttl` keeps the value in the hub for this cwd. See
+[cache.md](cache.md#lade-eval---ttl).
 
 ### `lade approve`
 
