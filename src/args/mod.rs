@@ -55,6 +55,10 @@ pub enum Command {
         /// Diary command name. age-plugin-lade passes its binary name.
         #[arg(long = "access-command", hide = true)]
         access_command: Option<String>,
+        /// Keep the value in the hub for this long (`30s`, `5m`, `2h`, at
+        /// most `24h`, or `off`), capped by `max_cache`, like a rule's `ttl:`.
+        #[arg(long)]
+        ttl: Option<String>,
         /// Secret URI (`op://`, `file://`, `vault://`, …).
         #[arg(required_unless_present = "help")]
         uri: Option<String>,

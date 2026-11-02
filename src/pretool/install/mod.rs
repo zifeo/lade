@@ -5,6 +5,7 @@
 //! skips the harness confirm.
 
 mod agent;
+mod committed;
 mod health;
 mod inspect;
 mod locate;
@@ -14,6 +15,7 @@ mod offer;
 mod opencode;
 mod paths;
 mod ui;
+mod want;
 mod write;
 
 #[cfg(test)]

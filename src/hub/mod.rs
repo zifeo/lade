@@ -10,7 +10,7 @@ mod transport;
 mod tunnels;
 mod wire;
 
-pub(crate) use apply::{Cache, CacheHit, session_ttl};
+pub(crate) use apply::{Cache, CacheHit, EvalCache, session_ttl};
 pub(crate) use client::{
     CacheListing, HubInfo, HubState, HubStop, forget_names, listing, notice_slot, probe, put_t,
     put_t_notice, scope, set_window, stop, tunnel_open, tunnel_poll, tunnel_release, unlink_t,

@@ -6,15 +6,14 @@ use anyhow::{Context, Result, bail};
 use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
+use super::committed::committed;
 use super::locate::{
-    canonical_project_path, claude_shared_hook, find_project, hook_state, leftover_json_hook,
-    project_dest,
+    canonical_project_path, find_project, hook_state, leftover_json_hook, project_dest,
 };
 use super::opencode::{OpenCodeApi, is_pristine, plugin};
-use super::paths::{
-    ItemVerb, WriteOutcome, home_dir, hook_command, project_hook_command, short_path, tilde,
-};
+use super::paths::{ItemVerb, WriteOutcome, home_dir, short_path, tilde};
 use super::ui::{PretoolReport, PretoolRow, report, where_line};
+use super::want::{Want, want};
 
 /// User home config versus the files in the current directory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,43 +64,42 @@ pub(crate) fn write_scoped(
         (_, Some(dest)) => dest,
         (Scope::User, None) => cwd.to_path_buf(),
     };
-    let path = match scope {
-        Scope::User => agent.config_path(home),
-        Scope::Project => canonical_project_path(agent, &dest),
-    };
-    let command = match scope {
-        Scope::User => hook_command(agent),
-        Scope::Project => project_hook_command(agent),
-    };
-    if install {
-        if project_dest(home, cwd).is_some() {
-            refuse_if_other_plane(agent, scope, home, &dest)?;
-        }
-        if let Some((legacy_path, content)) = leftover_for(agent, home, &dest, scope)? {
-            fs::write(&legacy_path, agent.remove(&content)?)?;
-        }
-        let out = write_hook(agent, &path, &command)?;
-        Ok(format!(
-            "{}: hook {} in {}",
-            agent.name(),
-            out.verb.label(),
-            tilde(&out.path, home)
-        ))
-    } else {
-        remove_hook(agent, &path, home, scope, &dest)
+    let path = hook_path(agent, scope, home, &dest);
+    if !install {
+        return remove_hook(agent, &path, home, scope, &dest);
     }
+    let want = want(agent, scope, &dest)?;
+    if project_dest(home, cwd).is_some() {
+        refuse_if_other_plane(agent, scope, home, &dest)?;
+    }
+    if let Some((legacy_path, content)) = leftover_for(agent, home, scope)? {
+        fs::write(&legacy_path, agent.remove(&content)?)?;
+    }
+    let out = write_hook(agent, &path, &want)?;
+    let copied = match &want {
+        Want::Copy(committed) => {
+            format!(", a copy of the committed {}", tilde(&committed.path, home))
+        }
+        Want::Command(_) => String::new(),
+    };
+    Ok(format!(
+        "{}: hook {} in {}{copied}",
+        agent.name(),
+        out.verb.label(),
+        tilde(&out.path, home)
+    ))
 }
 
-pub(super) fn write_hook(agent: Agent, path: &Path, command: &str) -> Result<WriteOutcome> {
+pub(super) fn write_hook(agent: Agent, path: &Path, want: &Want) -> Result<WriteOutcome> {
     let existing = fs::read_to_string(path).unwrap_or_default();
     let current = WriteOutcome {
         verb: ItemVerb::Current,
         path: path.to_path_buf(),
     };
-    let updated = match agent {
-        Agent::OpenCode => plugin(OpenCodeApi::installed()?, command),
-        _ if agent.hook_uses_command(&existing, command)? => return Ok(current),
-        _ => agent.merge(&existing, command)?,
+    let updated = match (agent, want) {
+        (Agent::OpenCode, Want::Command(command)) => plugin(OpenCodeApi::installed()?, command),
+        _ if want.is_current(agent, &existing)? => return Ok(current),
+        _ => want.merged(agent, &existing)?,
     };
     if updated.trim_end() == existing.trim_end() {
         return Ok(current);
@@ -121,16 +119,11 @@ pub(super) fn write_hook(agent: Agent, path: &Path, command: &str) -> Result<Wri
     })
 }
 
-fn leftover_for(
-    agent: Agent,
-    home: &Path,
-    dest: &Path,
-    scope: Scope,
-) -> Result<Option<(PathBuf, String)>> {
-    match (scope, agent) {
-        (Scope::User, _) => leftover_json_hook(agent, home),
-        (Scope::Project, Agent::Claude) => claude_shared_hook(dest),
-        (Scope::Project, _) => Ok(None),
+/// A committed Claude hook is the repo's, never a leftover.
+fn leftover_for(agent: Agent, home: &Path, scope: Scope) -> Result<Option<(PathBuf, String)>> {
+    match scope {
+        Scope::User => leftover_json_hook(agent, home),
+        Scope::Project => Ok(None),
     }
 }
 
@@ -171,17 +164,27 @@ fn remove_hook(
     dest: &Path,
 ) -> Result<String> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    let legacy = leftover_for(agent, home, dest, scope)?;
+    let legacy = leftover_for(agent, home, scope)?;
+    let kept = match (scope, agent) {
+        (Scope::Project, Agent::Claude) => match committed(dest)? {
+            Some(committed) => format!(
+                ". The committed hook in {} stays: it is the repo's",
+                tilde(&committed.path, home)
+            ),
+            None => String::new(),
+        },
+        _ => String::new(),
+    };
     if !agent.has_hook(&existing)? && legacy.is_none() {
         return Ok(format!(
-            "{}: hook not present in {}",
+            "{}: hook not present in {}{kept}",
             agent.name(),
             tilde(path, home)
         ));
     }
     strip_hook_files(agent, path, &existing, legacy)?;
     Ok(format!(
-        "{}: hook removed from {}",
+        "{}: hook removed from {}{kept}",
         agent.name(),
         tilde(path, home)
     ))
@@ -234,7 +237,7 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
     for agent in AGENTS {
         let path = hook_path(agent, scope, home, dest);
         let existing = fs::read_to_string(&path).unwrap_or_default();
-        let legacy = leftover_for(agent, home, dest, scope)?;
+        let legacy = leftover_for(agent, home, scope)?;
         if agent.has_hook(&existing)? || legacy.is_some() {
             strip_hook_files(agent, &path, &existing, legacy)?;
             rows.push(PretoolRow {
@@ -242,6 +245,17 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
                 verb: ItemVerb::Removed,
                 path: short_path(&path, home, dest),
                 note: "",
+            });
+        }
+        if scope == Scope::Project
+            && agent == Agent::Claude
+            && let Some(committed) = committed(dest)?
+        {
+            rows.push(PretoolRow {
+                agent: agent.name(),
+                verb: ItemVerb::Kept,
+                path: short_path(&committed.path, home, dest),
+                note: "committed, the repo's",
             });
         }
     }
@@ -258,17 +272,22 @@ pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
     for &agent in agents {
         let home_path = agent.config_path(home);
         let home_installed = hook_state(&home_path, agent, None).0;
-        refresh_path(agent, &home_path, &hook_command(agent));
+        if let Ok(want) = want(agent, Scope::User, home) {
+            refresh_path(agent, &home_path, &want);
+        }
         if home_installed {
             continue;
         }
-        if let Ok((project_path, true)) = find_project(agent, home, cwd) {
-            refresh_path(agent, &project_path, &project_hook_command(agent));
+        if let (Ok((project_path, true)), Some(dest)) =
+            (find_project(agent, home, cwd), project_dest(home, cwd))
+            && let Ok(want) = want(agent, Scope::Project, &dest)
+        {
+            refresh_path(agent, &project_path, &want);
         }
     }
 }
 
-pub(super) fn refresh_path(agent: Agent, path: &Path, command: &str) {
+pub(super) fn refresh_path(agent: Agent, path: &Path, want: &Want) {
     let Ok(existing) = fs::read_to_string(path) else {
         return;
     };
@@ -279,12 +298,12 @@ pub(super) fn refresh_path(agent: Agent, path: &Path, command: &str) {
     if matches!(agent, Agent::OpenCode) && !is_pristine(&existing) {
         return;
     }
-    match agent.hook_uses_command(&existing, command) {
+    match want.is_current(agent, &existing) {
         Ok(true) => return,
         Ok(false) => {}
         Err(_) => return,
     }
-    if let Ok(updated) = agent.merge(&existing, command) {
+    if let Ok(updated) = want.merged(agent, &existing) {
         let _ = fs::write(path, updated);
     }
 }

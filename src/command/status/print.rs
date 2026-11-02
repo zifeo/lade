@@ -119,6 +119,14 @@ fn print_pretool(out: &Printer, report: &StatusReport) {
                 path_for_display(&location.path),
             ]);
         }
+        if let Some(committed) = &status.committed {
+            rows.push(vec![
+                name.to_string(),
+                "committed".to_string(),
+                committed_flag(committed.present, committed.blocking).to_string(),
+                path_for_display(&committed.path),
+            ]);
+        }
     }
     out.table(&["HARNESS", "SCOPE", "STATE", "PATH"], &rows);
     for notice in &report.hook_notices {
@@ -297,6 +305,14 @@ fn memory_line(guard: &crate::hub::MemoryGuard) -> String {
         MemoryGuard::NotDumpable => "cache on: hub not dumpable, no debugger attaches".into(),
         MemoryGuard::DebugBuild => "cache on: debug build, no memory guard".into(),
         MemoryGuard::Off { detail } => format!("cache off: {detail}"),
+    }
+}
+
+pub(super) fn committed_flag(present: bool, blocking: bool) -> &'static str {
+    match (present, blocking) {
+        (true, true) => "blocking",
+        (true, false) => "not blocking",
+        (false, _) => "none",
     }
 }
 

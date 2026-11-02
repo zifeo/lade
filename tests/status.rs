@@ -1,4 +1,5 @@
 mod common;
+use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use tempfile::tempdir;
 
@@ -195,13 +196,27 @@ fn test_status_reports_project_pretool_hook() {
 }
 
 #[test]
-fn test_status_flags_a_claude_hook_left_in_settings_json() {
+fn test_status_reports_the_committed_claude_hook_and_its_copy() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     common::init_git(dir.path());
     fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let committed = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude","onFailure":"block"}]}]}}"#;
+    fs::write(dir.path().join(".claude").join("settings.json"), committed).unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("status")
+        .assert()
+        .stdout(
+            predicates::str::is_match(
+                r"\n +Claude Code +committed +blocking +\S*\.claude/settings\.json\n",
+            )
+            .unwrap(),
+        )
+        .stdout(predicates::str::contains("no copy of the committed hook"))
+        .stdout(predicates::str::contains("moves it").not());
     fs::write(
-        dir.path().join(".claude").join("settings.json"),
+        dir.path().join(".claude").join("settings.local.json"),
         r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
     )
     .unwrap();
@@ -210,8 +225,29 @@ fn test_status_flags_a_claude_hook_left_in_settings_json() {
         .arg("status")
         .assert()
         .stdout(predicates::str::contains(
-            "`lade hook enable --harness claude` moves it to settings.local.json",
+            "differs from the committed one in .claude/settings.json",
         ));
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["status", "--json"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let claude = &value["hooks"]["pretool"]["claude"];
+    assert_eq!(claude["committed"]["present"], true);
+    assert_eq!(claude["committed"]["blocking"], true);
+    assert_eq!(claude["project"]["current"], false);
+    assert!(
+        value["hooks"]["pretool"]["cursor"]
+            .get("committed")
+            .is_none()
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".claude").join("settings.json")).unwrap(),
+        committed
+    );
 }
 
 #[test]

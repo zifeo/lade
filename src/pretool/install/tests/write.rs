@@ -3,6 +3,7 @@ use serde_json::Value;
 use super::super::agent::{AGENTS, Agent};
 use super::super::offer::{Plan, apply_plan};
 use super::super::paths::{ItemVerb, hook_command, install_bin_from, project_hook_command};
+use super::super::want::Want;
 use super::super::write::{
     Scope, refresh_at, refresh_path, teardown_at, uninstall_plane, write_scoped,
 };
@@ -67,8 +68,9 @@ fn refresh_updates_stale_hook_and_skips_missing() {
     let stale = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#;
     std::fs::write(&global, stale).unwrap();
     let command = "/usr/local/bin/lade hook --harness codex";
-    refresh_path(Agent::Codex, &global, command);
-    refresh_path(Agent::Claude, &other, command);
+    let want = Want::Command(command.to_string());
+    refresh_path(Agent::Codex, &global, &want);
+    refresh_path(Agent::Claude, &other, &want);
     let updated = std::fs::read_to_string(&global).unwrap();
     assert!(Agent::Codex.hook_uses_command(&updated, command).unwrap());
     assert!(!other.exists());
@@ -193,54 +195,12 @@ fn write_scoped_enable_refuses_when_the_other_plane_exists() {
 }
 
 #[test]
-fn write_scoped_enable_moves_claude_settings_json() {
-    let home = tempfile::tempdir().unwrap();
-    let repo = tempfile::tempdir().unwrap();
-    std::fs::create_dir(repo.path().join(".git")).unwrap();
-    let leftover = repo.path().join(".claude").join("settings.json");
-    std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
-    std::fs::write(
-        &leftover,
-        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
-    )
-    .unwrap();
-    write_scoped(Scope::Project, "claude", home.path(), repo.path(), true).unwrap();
-    let cleaned = std::fs::read_to_string(&leftover).unwrap();
-    assert!(!Agent::Claude.has_hook(&cleaned).unwrap());
-    assert!(
-        Agent::Claude
-            .has_hook(
-                &std::fs::read_to_string(repo.path().join(".claude").join("settings.local.json"))
-                    .unwrap()
-            )
-            .unwrap()
-    );
-}
-
-#[test]
 fn write_scoped_project_without_git_is_skipped() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
     let err = write_scoped(Scope::Project, "cursor", home.path(), cwd.path(), true).unwrap_err();
     assert!(err.to_string().contains("not a git repo"), "{err}");
     assert!(!cwd.path().join(".cursor").join("hooks.json").exists());
-}
-
-#[test]
-fn write_scoped_disable_strips_claude_settings_json() {
-    let home = tempfile::tempdir().unwrap();
-    let repo = tempfile::tempdir().unwrap();
-    std::fs::create_dir(repo.path().join(".git")).unwrap();
-    let leftover = repo.path().join(".claude").join("settings.json");
-    std::fs::create_dir_all(leftover.parent().unwrap()).unwrap();
-    std::fs::write(
-        &leftover,
-        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
-    )
-    .unwrap();
-    write_scoped(Scope::Project, "claude", home.path(), repo.path(), false).unwrap();
-    let cleaned = std::fs::read_to_string(&leftover).unwrap();
-    assert!(!Agent::Claude.has_hook(&cleaned).unwrap());
 }
 
 #[test]

@@ -8,6 +8,23 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-02
+
+### Upgrading from 0.20.0
+
+- A repo that committed a Lade hook in `.claude/settings.json` keeps it: `lade setup` and `lade hook enable --harness claude` no longer move it to `settings.local.json`. If 0.20.0 moved it, put it back in `.claude/settings.json` and run `lade setup` again ([#241](https://github.com/zifeo/lade/pull/241)).
+
+### Added
+
+- **Required Lade on Claude Code** ([#241](https://github.com/zifeo/lade/pull/241)): a Lade hook in the committed `.claude/settings.json` is the repo's requirement. `lade setup` and `lade hook enable --harness claude` copy it verbatim into `.claude/settings.local.json` for sessions started in a subdirectory, with the same command so Claude runs it once, and `onFailure` included: Claude runs the local copy's fields, so a copy without `"onFailure": "block"` would turn the block off. With `"onFailure": "block"`, a missing or failing Lade blocks the command instead of running it without Lade. Disable and teardown leave the committed hook and say so. `lade status` adds a `committed` row (`blocking`, `not blocking`, or `none`) and JSON `hooks.pretool.claude.committed` (`path`, `present`, `blocking`), and flags a local copy that is missing or differs. See the [README](https://github.com/zifeo/lade/blob/v0.20.1/README.md#require-lade-on-claude-code).
+- **`lade eval --ttl`** ([#241](https://github.com/zifeo/lade/pull/241)): `lade eval --ttl 5m <uri>` keeps the value in the hub for this cwd, with the format, the 24h limit, `off`, and the `max_cache` cap of a rule's `ttl:`. `lade ttl` lists the row under the URI, and `lade ttl forget <uri>` drops it. A hit has `cached: true` in the diary. Without `--ttl`, eval never uses the hub. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.1/docs/cache.md#lade-eval---ttl).
+
+### Fixed
+
+- **Committed Claude hook** ([#241](https://github.com/zifeo/lade/pull/241)): enable and setup no longer strip the Lade hook from the committed `.claude/settings.json`, and `lade status` no longer flags it.
+
+[0.20.1]: https://github.com/zifeo/lade/compare/v0.20.0...v0.20.1
+
 ## [0.20.0] - 2026-10-31
 
 Since 0.19.2, a hub process keeps hydrated secrets and tunnels in RAM, so commands in a row share one fetch and one tunnel, and a failed secret or tunnel cancels the command instead of running it without Lade. See [docs/cache.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/cache.md) and [docs/tunnels.md](https://github.com/zifeo/lade/blob/v0.20.0/docs/tunnels.md).

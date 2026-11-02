@@ -8,10 +8,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
-use super::locate::{claude_shared_hook, find_project, hook_state, project_dest};
+use super::committed::{Committed, committed, committed_path};
+use super::locate::{find_project, hook_state, project_dest};
 use super::opencode::OpenCodeApi;
-use super::paths::{home_dir, hook_command, project_hook_command, tilde};
-use super::write::refresh_at;
+use super::paths::{home_dir, hook_command, tilde};
+use super::want::{Want, want};
+use super::write::{Scope, refresh_at};
 
 /// Every harness. Rewrites what Lade wrote, then lists what is left for the
 /// user.
@@ -55,35 +57,47 @@ pub(crate) fn report_at(
     opencode: &dyn Fn() -> Option<OpenCodeApi>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
+    let dest = project_dest(home, cwd);
     for &agent in agents {
-        let global = (agent.config_path(home), hook_command(agent), true);
-        let project = match find_project(agent, home, cwd) {
-            Ok((path, true)) => Some((path, project_hook_command(agent), false)),
+        let committed = match (agent, &dest) {
+            (Agent::Claude, Some(dest)) => committed_or_line(dest, home, &mut lines),
+            _ => None,
+        };
+        let global = (
+            agent.config_path(home),
+            Want::Command(hook_command(agent)),
+            true,
+        );
+        let project = match (find_project(agent, home, cwd), &dest) {
+            (Ok((path, true)), Some(dest)) => match want(agent, Scope::Project, dest) {
+                Ok(want) => Some((path, want, false)),
+                Err(_) => None,
+            },
             _ => None,
         };
         let home_has = hook_state(&agent.config_path(home), agent, None).0;
-        if home_has && project.is_some() {
+        if home_has && (project.is_some() || committed.is_some()) {
             lines.push(format!(
                 "{}: hooks in this repo and under the home directory. Both will run. Remove the home hooks first: `lade hook disable --global --harness {}`",
                 agent.name(),
                 agent.slug()
             ));
         }
-        if agent == Agent::Claude
-            && let Some(dest) = project_dest(home, cwd)
-            && let Ok(Some((path, _))) = claude_shared_hook(&dest)
-        {
+        if let (Some(committed), None, false) = (&committed, &project, home_has) {
             lines.push(format!(
-                "Claude Code (this repo, {}): a Lade hook in settings.json, which Claude reads only when started at the repo root. `lade hook enable --harness claude` moves it to settings.local.json, read from any subdirectory.",
-                tilde(&path, home)
+                "Claude Code (this repo, {}): no copy of the committed hook, so a session started in a subdirectory runs commands without Lade. `lade hook enable --harness claude` writes it.",
+                tilde(
+                    &committed.path.with_file_name("settings.local.json"),
+                    home
+                )
             ));
         }
-        for (path, command, global) in std::iter::once(global).chain(project) {
+        for (path, want, global) in std::iter::once(global).chain(project) {
             let Ok(content) = fs::read_to_string(&path) else {
                 continue;
             };
             let place = if global { "this machine" } else { "this repo" };
-            let fix = match location_line(agent, &content, &command, opencode) {
+            let fix = match location_line(agent, &content, &want, opencode) {
                 None => continue,
                 Some(Problem::Unreadable) => {
                     "not valid JSON. Fix it by hand: Lade does not overwrite it.".to_string()
@@ -102,6 +116,20 @@ pub(crate) fn report_at(
     lines
 }
 
+/// The repo's committed Claude hook. An unreadable file is a line, not a hook.
+fn committed_or_line(dest: &Path, home: &Path, lines: &mut Vec<String>) -> Option<Committed> {
+    match committed(dest) {
+        Ok(found) => found,
+        Err(_) => {
+            lines.push(format!(
+                "Claude Code (this repo, {}): not valid JSON. Fix it by hand: Lade does not overwrite it.",
+                tilde(&committed_path(dest), home)
+            ));
+            None
+        }
+    }
+}
+
 enum Problem {
     Unreadable,
     Rewritable(String),
@@ -110,7 +138,7 @@ enum Problem {
 fn location_line(
     agent: Agent,
     content: &str,
-    command: &str,
+    want: &Want,
     opencode: &dyn Fn() -> Option<OpenCodeApi>,
 ) -> Option<Problem> {
     match agent.has_hook(content) {
@@ -128,9 +156,12 @@ fn location_line(
             installed.label()
         )));
     }
-    match agent.hook_uses_command(content, command) {
-        Ok(true) => None,
-        _ => Some(Problem::Rewritable(
+    match (want.is_current(agent, content), want) {
+        (Ok(true), _) => None,
+        (_, Want::Copy(_)) => Some(Problem::Rewritable(
+            "the Lade hook differs from the committed one in .claude/settings.json, so a session started at the repo root runs this copy.".to_string(),
+        )),
+        (_, Want::Command(_)) => Some(Problem::Rewritable(
             "the Lade hook differs from what this Lade writes.".to_string(),
         )),
     }

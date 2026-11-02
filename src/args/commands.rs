@@ -56,6 +56,7 @@ pub const EVAL_AFTER_HELP: &str = "\
 Examples:
   lade eval op://vault/item/field
   lade eval 'file://./secrets.json?query=.token'
+  lade eval --ttl 5m op://vault/item/field
 ";
 
 pub const MCP_AFTER_HELP: &str = "\

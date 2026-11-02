@@ -132,9 +132,11 @@ fn eval_access_command_is_hidden() {
         Some(Command::Eval {
             uri,
             access_command,
+            ttl,
         }) => {
             assert_eq!(uri.as_deref(), Some("file:///tmp/k?query=.k"));
             assert_eq!(access_command.as_deref(), Some("age-plugin-lade"));
+            assert!(ttl.is_none());
         }
         other => panic!("{other:?}"),
     }
@@ -280,6 +282,18 @@ fn verbose_help_lists_internal_commands() {
     assert!(help.contains("--pretool"));
     assert!(help.contains("Protocol verbs"));
     assert!(!help.contains("Internal commands: lade --help -v"));
+}
+
+#[test]
+fn eval_takes_a_ttl() {
+    let args = Args::try_parse_from(["lade", "eval", "--ttl", "5m", "op://v/i/f"]).unwrap();
+    match args.command {
+        Some(Command::Eval { uri, ttl, .. }) => {
+            assert_eq!(uri.as_deref(), Some("op://v/i/f"));
+            assert_eq!(ttl.as_deref(), Some("5m"));
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

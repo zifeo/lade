@@ -278,7 +278,9 @@ An invalid value, longer ones included, turns the cache off, and
 
 `lade eval <uri>` resolves one URI. Authenticate the provider CLI
 first. Lade does not pick the login command. See that product's
-docs, then retry.
+docs, then retry. `lade eval --ttl 5m <uri>` keeps the value in the
+hub for this cwd, like a rule's `ttl:` (up to 24h, `off`, capped by
+`max_cache`). Without `--ttl`, eval never uses the hub.
 
 `.file` on the rule writes a temp JSON/YAML for the command, then
 deletes it. That is output, not the file provider.
@@ -435,6 +437,41 @@ bare `cd`, `pushd`, or `popd` is never wrapped, so the harness shell
 moves. A wrapped command runs in the harness's own shell, even when
 the harness started in a terminal with `lade on` in another shell.
 
+### Require Lade on Claude Code
+
+Commit the hook in `.claude/settings.json` to require Lade from
+everyone who clones the repo. With `"onFailure": "block"`, a missing
+or failing Lade blocks the command instead of running it without
+Lade:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lade hook --harness claude",
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude reads that file only in a session started at the repo root.
+`lade setup` (or `lade hook enable --harness claude`) copies the hook,
+`onFailure` included, into the untracked `.claude/settings.local.json`,
+which Claude reads from any subdirectory. The command is the same, so
+Claude runs it once. Lade never moves or strips the committed hook,
+and `lade hook disable` leaves it. `lade status` shows it as
+`committed` (`blocking` or `not blocking`) and flags a local copy that
+is missing or differs from it.
+
 ## When, users, approval
 
 `when` is `always` (default), `human`, or `agent`.
@@ -477,7 +514,7 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | `lade on` / `lade off` | Toggle pre-exec snippets for this shell. |
 | `lade user` | Set per-user secret map key. `--reset` for OS default. |
 | `lade approve <code>` | After a `disclaimer`, or prefix `LADE_APPROVE=<code>`. Exit `3` when withheld. |
-| `lade eval <uri>` | Resolve one secret URI to stdout. |
+| `lade eval <uri>` | Resolve one secret URI to stdout. `--ttl 5m` keeps it in the hub. |
 | `lade bench` | Time parse, match, hydrate. Hidden from `lade --help`. `--json`, `--timeout`. |
 | `lade upgrade` | Install newer `lade` and `age-plugin-lade`. `--version`, `-y`. |
 | `lade status` | Version, hooks, mise, providers, hub counts. `--json`, `--all`. |

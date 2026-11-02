@@ -5,8 +5,9 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::locate::project_dest;
-use super::paths::{ItemVerb, home_dir, hook_command, project_hook_command, short_path};
+use super::paths::{ItemVerb, home_dir, short_path};
 use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
+use super::want::{Want, want};
 use super::write::{Scope, hook_path, refuse_double_plane, write_hook};
 
 pub(crate) struct PlannedSetup {
@@ -164,16 +165,16 @@ fn refuse_stacked_planes(agents: &[Agent], home: &Path, dest: &Path) -> Result<(
 pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<PretoolReport> {
     let mut rows = Vec::new();
     for agent in &plan.agents {
-        let out = write_hook(
-            *agent,
-            &hook_path(*agent, plan.scope, home, dest),
-            &hook_command_for(plan.scope, *agent),
-        )?;
+        let want = want(*agent, plan.scope, dest)?;
+        let out = write_hook(*agent, &hook_path(*agent, plan.scope, home, dest), &want)?;
         rows.push(PretoolRow {
             agent: agent.name(),
             verb: out.verb,
             path: short_path(&out.path, home, dest),
-            note: "",
+            note: match want {
+                Want::Copy(_) => "copy of the committed .claude/settings.json",
+                Want::Command(_) => "",
+            },
         });
     }
     Ok(PretoolReport {
@@ -190,13 +191,6 @@ fn pending_project(agents: &[Agent], home: &Path, dest: &Path) -> Vec<Agent> {
         .collect()
 }
 
-fn hook_command_for(scope: Scope, agent: Agent) -> String {
-    match scope {
-        Scope::User => hook_command(agent),
-        Scope::Project => project_hook_command(agent),
-    }
-}
-
 fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
     let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
     agent.has_hook(&existing).unwrap_or(false)
@@ -204,7 +198,7 @@ fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
 
 fn hook_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
     let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
-    !agent
-        .hook_uses_command(&existing, &hook_command_for(scope, agent))
+    !want(agent, scope, dest)
+        .and_then(|want| want.is_current(agent, &existing))
         .unwrap_or(false)
 }
