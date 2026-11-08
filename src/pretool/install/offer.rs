@@ -8,7 +8,7 @@ use super::locate::project_dest;
 use super::paths::{ItemVerb, home_dir, short_path};
 use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
 use super::want::{Want, want};
-use super::write::{Scope, hook_path, refuse_double_plane, write_hook};
+use super::write::{Scope, hook_path, refuse_double_plane, strip_worktree_copy, write_hook};
 
 pub(crate) struct PlannedSetup {
     home: std::path::PathBuf,
@@ -167,6 +167,9 @@ pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<Pretoo
     for agent in &plan.agents {
         let want = want(*agent, plan.scope, dest)?;
         let out = write_hook(*agent, &hook_path(*agent, plan.scope, home, dest), &want)?;
+        if plan.scope == Scope::Project {
+            strip_worktree_copy(*agent, dest)?;
+        }
         rows.push(PretoolRow {
             agent: agent.name(),
             verb: out.verb,

@@ -7,9 +7,7 @@ use crate::message_box::MessageBox;
 
 use super::agent::{AGENTS, Agent};
 use super::committed::committed;
-use super::locate::{
-    canonical_project_path, find_project, hook_state, leftover_json_hook, project_dest,
-};
+use super::locate::{canonical_project_path, hook_state, leftover_json_hook, project_dest};
 use super::opencode::{OpenCodeApi, is_pristine, plugin};
 use super::paths::{ItemVerb, WriteOutcome, home_dir, short_path, tilde};
 use super::ui::{PretoolReport, PretoolRow, report, where_line};
@@ -72,7 +70,7 @@ pub(crate) fn write_scoped(
     if project_dest(home, cwd).is_some() {
         refuse_if_other_plane(agent, scope, home, &dest)?;
     }
-    if let Some((legacy_path, content)) = leftover_for(agent, home, scope)? {
+    if let Some((legacy_path, content)) = leftover_for(agent, home, scope, &dest)? {
         fs::write(&legacy_path, agent.remove(&content)?)?;
     }
     let out = write_hook(agent, &path, &want)?;
@@ -120,11 +118,37 @@ pub(super) fn write_hook(agent: Agent, path: &Path, want: &Want) -> Result<Write
 }
 
 /// A committed Claude hook is the repo's, never a leftover.
-fn leftover_for(agent: Agent, home: &Path, scope: Scope) -> Result<Option<(PathBuf, String)>> {
+fn leftover_for(
+    agent: Agent,
+    home: &Path,
+    scope: Scope,
+    dest: &Path,
+) -> Result<Option<(PathBuf, String)>> {
     match scope {
         Scope::User => leftover_json_hook(agent, home),
-        Scope::Project => Ok(None),
+        Scope::Project => worktree_copy(agent, dest),
     }
+}
+
+/// A Lade hook in `settings.local.json` at the root of the linked worktree
+/// `dest`, where 0.20 wrote it. A session started in a subdirectory never
+/// reads it, so it can only drift from the copy in the main checkout.
+fn worktree_copy(agent: Agent, dest: &Path) -> Result<Option<(PathBuf, String)>> {
+    let path = dest.join(".claude").join("settings.local.json");
+    if agent != Agent::Claude || path == canonical_project_path(agent, dest) {
+        return Ok(None);
+    }
+    match fs::read_to_string(&path) {
+        Ok(content) if agent.has_hook(&content)? => Ok(Some((path, content))),
+        _ => Ok(None),
+    }
+}
+
+pub(super) fn strip_worktree_copy(agent: Agent, dest: &Path) -> Result<()> {
+    if let Some((path, content)) = worktree_copy(agent, dest)? {
+        fs::write(&path, agent.remove(&content)?)?;
+    }
+    Ok(())
 }
 
 fn refuse_if_other_plane(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<()> {
@@ -164,7 +188,7 @@ fn remove_hook(
     dest: &Path,
 ) -> Result<String> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    let legacy = leftover_for(agent, home, scope)?;
+    let legacy = leftover_for(agent, home, scope, dest)?;
     let kept = match (scope, agent) {
         (Scope::Project, Agent::Claude) => match committed(dest)? {
             Some(committed) => format!(
@@ -237,7 +261,7 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
     for agent in AGENTS {
         let path = hook_path(agent, scope, home, dest);
         let existing = fs::read_to_string(&path).unwrap_or_default();
-        let legacy = leftover_for(agent, home, scope)?;
+        let legacy = leftover_for(agent, home, scope, dest)?;
         if agent.has_hook(&existing)? || legacy.is_some() {
             strip_hook_files(agent, &path, &existing, legacy)?;
             rows.push(PretoolRow {
@@ -265,9 +289,10 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
     })
 }
 
-/// Rewrite already-installed hook files to today's command. Never creates
-/// a hook the user did not install, and never touches an OpenCode plugin
-/// edited by hand. Errors are ignored: `health` reports what is left.
+/// Rewrite already-installed hook files to today's command, and write the
+/// copy of a Claude hook the repo committed. Never creates a hook the repo
+/// or the user did not ask for, and never touches an OpenCode plugin edited
+/// by hand. Errors are ignored: `health` reports what is left.
 pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
     for &agent in agents {
         let home_path = agent.config_path(home);
@@ -278,11 +303,19 @@ pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
         if home_installed {
             continue;
         }
-        if let (Ok((project_path, true)), Some(dest)) =
-            (find_project(agent, home, cwd), project_dest(home, cwd))
-            && let Ok(want) = want(agent, Scope::Project, &dest)
-        {
-            refresh_path(agent, &project_path, &want);
+        let Some(dest) = project_dest(home, cwd) else {
+            continue;
+        };
+        let Ok(want) = want(agent, Scope::Project, &dest) else {
+            continue;
+        };
+        let path = canonical_project_path(agent, &dest);
+        match want {
+            Want::Copy(_) => {
+                let _ = write_hook(agent, &path, &want);
+                let _ = strip_worktree_copy(agent, &dest);
+            }
+            Want::Command(_) => refresh_path(agent, &path, &want),
         }
     }
 }

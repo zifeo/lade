@@ -8,6 +8,18 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-11-09
+
+### Changed
+
+- **The committed Claude hook applies by itself**: when the committed `.claude/settings.json` holds a Lade hook, the hook refresh (a shell that starts Claude Code, and the hourly check) writes its copy in `.claude/settings.local.json`, so a session started in a subdirectory runs Lade with no `lade hook enable`. With a Lade hook in the home config, nothing is written and `lade status` still flags both.
+
+### Fixed
+
+- **Claude Code in a git worktree**: Claude reads `.claude/settings.local.json` at the main checkout's root, not at the worktree's, so the copy Lade wrote at the worktree root never ran in a session started in a subdirectory. The repo plane now writes the Claude hook in the main checkout, removes a Lade hook left in the worktree's own `settings.local.json`, and the `lade status` notice names the right path.
+
+[0.20.2]: https://github.com/zifeo/lade/compare/v0.20.1...v0.20.2
+
 ## [0.20.1] - 2026-11-02
 
 ### Upgrading from 0.20.0

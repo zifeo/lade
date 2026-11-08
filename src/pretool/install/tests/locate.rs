@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::super::agent::Agent;
-use super::super::locate::{canonical_project_path, find_project, project_dest};
+use super::super::locate::{canonical_project_path, find_project, main_checkout, project_dest};
 
 fn git_dir(path: &Path) {
     std::fs::create_dir(path.join(".git")).unwrap();
@@ -137,4 +137,16 @@ fn find_project_ignores_claude_settings_json() {
     assert!(!installed);
     assert_eq!(path, dest.join(".claude").join("settings.local.json"));
     assert!(repo.path().join(".claude").join("settings.json").is_file());
+}
+
+#[test]
+fn main_checkout_skips_a_gitfile_without_commondir() {
+    let root = tempfile::tempdir().unwrap();
+    let modules = root.path().join(".git").join("modules").join("sub");
+    let sub = root.path().join("sub");
+    std::fs::create_dir_all(&modules).unwrap();
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
+    assert_eq!(main_checkout(&sub), sub);
+    assert_eq!(main_checkout(root.path()), root.path());
 }

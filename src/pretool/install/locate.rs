@@ -49,14 +49,43 @@ pub(super) fn find_project(agent: Agent, home: &Path, cwd: &Path) -> Result<(Pat
 pub(super) fn canonical_project_path(agent: Agent, dest: &Path) -> PathBuf {
     match agent {
         Agent::Cursor => dest.join(".cursor").join("hooks.json"),
-        // Read from the git root even when Claude starts in a subdirectory.
-        Agent::Claude => dest.join(".claude").join("settings.local.json"),
+        // Claude reads it at the git root even from a subdirectory, and at
+        // the main checkout's root from a linked worktree.
+        Agent::Claude => main_checkout(dest)
+            .join(".claude")
+            .join("settings.local.json"),
         Agent::Codex => dest.join(".codex").join("hooks.json"),
         Agent::OpenCode => dest
             .join(".opencode")
             .join("plugins")
             .join("lade-pretool.js"),
     }
+}
+
+/// The main checkout of the linked worktree at `dest`, else `dest`. Only a
+/// linked worktree's gitdir has a `commondir`: a submodule's does not.
+pub(super) fn main_checkout(dest: &Path) -> PathBuf {
+    linked_main_checkout(dest).unwrap_or_else(|| dest.to_path_buf())
+}
+
+fn linked_main_checkout(dest: &Path) -> Option<PathBuf> {
+    let gitfile = dest.join(".git");
+    if !gitfile.is_file() {
+        return None;
+    }
+    let text = fs::read_to_string(&gitfile).ok()?;
+    let gitdir = dest.join(
+        text.lines()
+            .find_map(|line| line.strip_prefix("gitdir:"))?
+            .trim(),
+    );
+    let common = fs::read_to_string(gitdir.join("commondir")).ok()?;
+    let common = fs::canonicalize(gitdir.join(common.trim())).ok()?;
+    // A bare repo's worktrees have no main checkout.
+    if common.file_name()? != ".git" {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
