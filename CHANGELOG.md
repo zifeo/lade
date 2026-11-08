@@ -17,6 +17,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 ### Fixed
 
 - **Claude Code in a git worktree** ([#243](https://github.com/zifeo/lade/pull/243)): Claude reads `.claude/settings.local.json` at the main checkout's root, not at the worktree's, so the copy Lade wrote at the worktree root never ran in a session started in a subdirectory. The repo plane now writes the Claude hook in the main checkout, removes a Lade hook left in the worktree's own `settings.local.json`, and the `lade status` notice names the right path.
+- **Docker image release** ([#243](https://github.com/zifeo/lade/pull/243)): the Docker workflow waited only for the x86_64 archive, while the image also fetches the aarch64 archive and both `.sha256` files, so the arm64 build could start before its assets were uploaded. It now waits for all four.
 
 [0.20.2]: https://github.com/zifeo/lade/compare/v0.20.1...v0.20.2
 
