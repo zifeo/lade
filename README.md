@@ -2,24 +2,15 @@
 
 ![Crates.io](https://img.shields.io/crates/v/lade)
 
-Temporary access to secrets and private networks for one command,
-then gone. Same wrap for humans and harnesses. See which access was used.
+Temporary access to secrets and private networks for one command, then gone. Same wrap for humans and harnesses. See which access was used.
 
-A command needs secrets or a private network. That access should
-exist for the process, then disappear. One `lade.yaml`. Three
-families: secret, tunnel, package. Install, `lade setup`, type
-the command.
+A command needs secrets or a private network. That access should exist for the process, then disappear. One `lade.yaml`. Three families: secret, tunnel, package. Install, `lade setup`, type the command.
 
 <p align="center">
   <img src="./examples/tape/main.gif" alt="Demo" />
 </p>
 
-Lade on [Fish](https://fishshell.com),
-[Bash](https://www.gnu.org/software/bash/), or [Zsh](https://zsh.sourceforge.io).
-macOS and Linux. [Cursor](https://cursor.com),
-[Claude Code](https://code.claude.com),
-[Codex](https://developers.openai.com/codex), and
-[OpenCode](https://opencode.ai).
+Lade on [Fish](https://fishshell.com), [Bash](https://www.gnu.org/software/bash/), or [Zsh](https://zsh.sourceforge.io). macOS and Linux. [Cursor](https://cursor.com), [Claude Code](https://code.claude.com), [Codex](https://developers.openai.com/codex), and [OpenCode](https://opencode.ai).
 
 ## Getting started
 
@@ -29,20 +20,13 @@ cd your-repo
 lade setup
 ```
 
-Setup installs a **shell hook** (pre-exec) once, in your profile, so
-every command you type can match. The rest stays in the repo: pre-tool
-hooks for Cursor, Claude Code, Codex, and OpenCode harnesses, and the
-lock for pinned packages. The wrap is yours. The access is this repo's.
+Setup installs a **shell hook** (pre-exec) once, in your profile, so every command you type can match. The rest stays in the repo: pre-tool hooks for Cursor, Claude Code, Codex, and OpenCode harnesses, and the lock for pinned packages. The wrap is yours. The access is this repo's.
 
-Humans use the shell hook (pre-exec). Harnesses use pre-tool hooks in
-the repo. Same `lade.yaml`, same resolve.
+Humans use the shell hook (pre-exec). Harnesses use pre-tool hooks in the repo. Same `lade.yaml`, same resolve.
 
 You do not prefix the command. Without a wrap: `lade -- tofu apply`.
 
-`lade on` / `lade off` pause pre-exec in this shell.
-`lade hook enable --shell` installs pre-exec in this shell's profile.
-`lade teardown` removes this repo's pre-tool hooks and runs
-`?teardown=` commands. The shell hook stays.
+`lade on` / `lade off` pause pre-exec in this shell. `lade hook enable --shell` installs pre-exec in this shell's profile. `lade teardown` removes this repo's pre-tool hooks and runs `?teardown=` commands. The shell hook stays.
 
 Or from GitHub:
 
@@ -58,8 +42,7 @@ codesign --force --sign - --options runtime "$(command -v lade)"
 <tr>
 <td width="50%">
 
-**pre-exec.** Run commands normally. Lade injects access only when
-the command matches `lade.yaml`.
+**pre-exec.** Run commands normally. Lade injects access only when the command matches `lade.yaml`.
 
 </td>
 <td width="50%">
@@ -71,8 +54,7 @@ the command matches `lade.yaml`.
 <tr>
 <td width="50%">
 
-**Provider resolution.** Match commands and load values from vaults,
-files, or inline config only when needed.
+**Provider resolution.** Match commands and load values from vaults, files, or inline config only when needed.
 
 </td>
 <td width="50%">
@@ -84,8 +66,7 @@ files, or inline config only when needed.
 <tr>
 <td width="50%">
 
-**In-memory cache.** A second match reads the hub. Progress tags
-`(c)`. `lade ttl` lists names. `lade ttl forget` drops RAM.
+**In-memory cache.** A second match reads the hub. Progress tags `(c)`. `lade ttl` lists names. `lade ttl forget` drops RAM.
 
 </td>
 <td width="50%">
@@ -97,8 +78,7 @@ files, or inline config only when needed.
 <tr>
 <td width="50%">
 
-**Private networks.** Open a local forward only while the command
-runs, then close it automatically.
+**Private networks.** Open a local forward only while the command runs, then close it automatically.
 
 </td>
 <td width="50%">
@@ -110,8 +90,7 @@ runs, then close it automatically.
 <tr>
 <td width="50%">
 
-**Secrets as files.** Write temporary config files for commands that
-expect credentials on disk.
+**Secrets as files.** Write temporary config files for commands that expect credentials on disk.
 
 </td>
 <td width="50%">
@@ -123,8 +102,7 @@ expect credentials on disk.
 <tr>
 <td width="50%">
 
-**One command.** Use `lade -- tofu apply` in scripts, CI, or shells
-without hooks.
+**One command.** Use `lade -- tofu apply` in scripts, CI, or shells without hooks.
 
 </td>
 <td width="50%">
@@ -136,8 +114,7 @@ without hooks.
 <tr>
 <td width="50%">
 
-**Human approval.** A `disclaimer` withholds access until you
-review it and run `lade approve <code>`.
+**Human approval.** A `disclaimer` withholds access until you review it and run `lade approve <code>`.
 
 </td>
 <td width="50%">
@@ -149,8 +126,7 @@ review it and run `lade approve <code>`.
 <tr>
 <td width="50%">
 
-**Intermediate bindings.** `.NAME` builds another value in the
-same rule and is not exported.
+**Intermediate bindings.** `.NAME` builds another value in the same rule and is not exported.
 
 </td>
 <td width="50%">
@@ -165,15 +141,9 @@ More: [examples/tape/](examples/tape/).
 
 ## Config
 
-A `lade.yaml` (or `lade.yml`) at the folder that owns the command.
-Lade walks from the current directory up to `$HOME`. The nearest
-file wins on a key. The parent is the default.
+A `lade.yaml` (or `lade.yml`) at the folder that owns the command. Lade walks from the current directory up to `$HOME`. The nearest file wins on a key. The parent is the default.
 
-The file may pin the required Lade range with an empty YAML key
-(`: >=0.18.0`). An empty command regex is not a rule. Use `.` to
-match every command. Edit `:` by hand when the repo needs a Lade
-that is new enough. There is no pin command. `lade upgrade` still
-runs if this binary is too old.
+The file may pin the required Lade range with an empty YAML key (`: >=0.18.0`). An empty command regex is not a rule. Use `.` to match every command. Edit `:` by hand when the repo needs a Lade that is new enough. There is no pin command. `lade upgrade` still runs if this binary is too old.
 
 ```yaml
 : >=0.18.0
@@ -194,20 +164,13 @@ tofu apply
 | `tunnel` | A local forward for the process (`kubectl://`, `tsh://`, …) |
 | `package` | A pinned CLI or setup package (`mise://`, `apm://`, `skills://`) |
 
-`lade add secret` / `lade add tunnel` / `lade add package` write the
-nearest yaml, then run `lade setup`. `lade remove` drops a binding and
-does not run setup.
+`lade add secret` / `lade add tunnel` / `lade add package` write the nearest yaml, then run `lade setup`. `lade remove` drops a binding and does not run setup.
 
-Family aliases (CLI only): `env` → `secret`; `net` / `network` / `fwd`
-→ `tunnel`; `pkg` / `cli` / `tool` / `apm` / `skill` → `package`.
+Family aliases (CLI only): `env` → `secret`; `net` / `network` / `fwd` → `tunnel`; `pkg` / `cli` / `tool` / `apm` / `skill` → `package`.
 
 ### Secret
 
-A vault, a file, a shell snippet, or a raw string. Provider-resolved
-values are masked unless `--no-mask`. Raw is **not** a vault secret.
-It is a value you put in the yaml. `lade add` warns once. A wrap
-does not. It still lives in this family because it becomes an env
-var.
+A vault, a file, a shell snippet, or a raw string. Provider-resolved values are masked unless `--no-mask`. Raw is **not** a vault secret. It is a value you put in the yaml. `lade add` warns once. A wrap does not. It still lives in this family because it becomes an env var.
 
 ```yaml
 "^psql":
@@ -232,33 +195,11 @@ var.
 | Shell | `sh://gcloud auth print-access-token` | Also `bash://`, `zsh://`, `fish://`. |
 | Raw | `"visible-in-the-yaml"` | Not a secret. An unknown scheme, like `https://`, is raw. `!` forces raw, `!!` keeps a leading `!`. |
 
-Every provider answers within **10 seconds**, or the command stops
-with an error naming it. A locked or logged-out vault fails fast.
-1Password, age, and SOPS get **30 seconds**: they can wait on Touch
-ID or a hardware key touch. `lade status` lists each timeout. At a
-terminal, a provider CLI gets the keyboard while it runs, so it can
-ask (`bw unlock`, an MFA code, `sh://read`). A tunnel cannot: it runs
-in the hub, away from any terminal.
+Every provider answers within **10 seconds**, or the command stops with an error naming it. A locked or logged-out vault fails fast. 1Password, age, and SOPS get **30 seconds**: they can wait on Touch ID or a hardware key touch. `lade status` lists each timeout. At a terminal, a provider CLI gets the keyboard while it runs, so it can ask (`bw unlock`, an MFA code, `sh://read`). A tunnel cannot: it runs in the hub, away from any terminal.
 
-Every value a provider resolves (vault, 1Password, file, sops, age,
-cloud) stays in RAM for **5 minutes** after the first hydrate, so a
-Touch ID or key touch is not asked again in that time. Set `ttl:` on that rule's `.` to turn it off or
-raise it, up to **24 hours**. Shell URIs stay off unless that body
-sets `ttl:`. Raw and packages never cache. Tunnels have no
-default: see [Tunnel](#tunnel).
-`lade ttl set 2h` marks this cwd on the hub. Parent folders
-share it. `ttl: off` on the body still wins. `lade ttl unset`
-clears this cwd.
-`lade ttl` lists cached names and tunnels. `lade ttl forget`
-drops the RAM and stops the tunnels now.
+Every value a provider resolves (vault, 1Password, file, sops, age, cloud) stays in RAM for **5 minutes** after the first hydrate, so a Touch ID or key touch is not asked again in that time. Set `ttl:` on that rule's `.` to turn it off or raise it, up to **24 hours**. Shell URIs stay off unless that body sets `ttl:`. Raw and packages never cache. Tunnels have no default: see [Tunnel](#tunnel). `lade ttl set 2h` marks this cwd on the hub. Parent folders share it. `ttl: off` on the body still wins. `lade ttl unset` clears this cwd. `lade ttl` lists cached names and tunnels. `lade ttl forget` drops the RAM and stops the tunnels now.
 
-`max_cache` in `config.json` caps every secret and tunnel ttl, and
-every window, for this user: `"1h"`, or `"0"` to turn the cache
-off. The hub watches the file. Any change, up or down, drops every
-cached secret and stops every tunnel no command holds, so a raised
-cap never extends what is already there. Durations go up to 24h.
-An invalid value, longer ones included, turns the cache off, and
-`lade status` says so.
+`max_cache` in `config.json` caps every secret and tunnel ttl, and every window, for this user: `"1h"`, or `"0"` to turn the cache off. The hub watches the file. Any change, up or down, drops every cached secret and stops every tunnel no command holds, so a raised cap never extends what is already there. Durations go up to 24h. An invalid value, longer ones included, turns the cache off, and `lade status` says so.
 
 ```json
 { "max_cache": "1h" }
@@ -276,14 +217,9 @@ An invalid value, longer ones included, turns the cache off, and
   API_TOKEN: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-`lade eval <uri>` resolves one URI. Authenticate the provider CLI
-first. Lade does not pick the login command. See that product's
-docs, then retry. `lade eval --ttl 5m <uri>` keeps the value in the
-hub for this cwd, like a rule's `ttl:` (up to 24h, `off`, capped by
-`max_cache`). Without `--ttl`, eval never uses the hub.
+`lade eval <uri>` resolves one URI. Authenticate the provider CLI first. Lade does not pick the login command. See that product's docs, then retry. `lade eval --ttl 5m <uri>` keeps the value in the hub for this cwd, like a rule's `ttl:` (up to 24h, `off`, capped by `max_cache`). Without `--ttl`, eval never uses the hub.
 
-`.file` on the rule writes a temp JSON/YAML for the command, then
-deletes it. That is output, not the file provider.
+`.file` on the rule writes a temp JSON/YAML for the command, then deletes it. That is output, not the file provider.
 
 ```yaml
 "deploy .*":
@@ -294,34 +230,15 @@ deletes it. That is output, not the file provider.
 
 ### Tunnel
 
-A local forward for this process. An env-var key gets an ephemeral
-local port unless `local=` sets one. A numeric key is a fixed port.
+A local forward for this process. An env-var key gets an ephemeral local port unless `local=` sets one. A numeric key is a fixed port.
 
-Lade binds the local port itself and relays to the provider, so
-holding the port is the claim. When a command uses another Lade
-tunnel to a different target on that fixed port, the new command
-waits up to 10 min for it to end, then gives up with a box. A tunnel
-kept only by its ttl gives the port up at once. A port another
-program holds, on any loopback or wildcard address, is refused with a
-box right away.
+Lade binds the local port itself and relays to the provider, so holding the port is the claim. When a command uses another Lade tunnel to a different target on that fixed port, the new command waits up to 10 min for it to end, then gives up with a box. A tunnel kept only by its ttl gives the port up at once. A port another program holds, on any loopback or wildcard address, is refused with a box right away.
 
-When a tunnel or a secret fails, the command is cancelled: it would
-run without what it needs, or reach the wrong listener. A human at a
-terminal first gets 5 s to press Enter and run it anyway, without
-Lade. In pre-exec, Lade empties `PATH` for that one command so the
-shell finds nothing to run and prints `Lade cancelled <command>.`
-(bash 3.2, macOS's `/bin/bash`, prints its own `command not found`). A
-command typed with its full path still runs.
+When a tunnel or a secret fails, the command is cancelled: it would run without what it needs, or reach the wrong listener. A human at a terminal first gets 5 s to press Enter and run it anyway, without Lade. In pre-exec, Lade empties `PATH` for that one command so the shell finds nothing to run and prints `Lade cancelled <command>.` (bash 3.2, macOS's `/bin/bash`, prints its own `command not found`). A command typed with its full path still runs.
 
-The kernel frees the port when its holder dies: no lock file. Every
-tunnel runs in the hub, which restarts the provider if it exits. `kubefwd://` is the exception: kubefwd binds its own
-addresses, so Lade only checks the port is free before it starts.
+The kernel frees the port when its holder dies: no lock file. Every tunnel runs in the hub, which restarts the provider if it exits. `kubefwd://` is the exception: kubefwd binds its own addresses, so Lade only checks the port is free before it starts.
 
-A tunnel stops with its command. `ttl:` on the rule's `.`, or a
-`lade ttl set` window, keeps it that long after the last command
-that used it. The next command to the same target reuses it, with or
-without a ttl of its own. Ctrl-C while tunnels connect stops them
-and cancels the command.
+A tunnel stops with its command. `ttl:` on the rule's `.`, or a `lade ttl set` window, keeps it that long after the last command that used it. The next command to the same target reuses it, with or without a ttl of its own. Ctrl-C while tunnels connect stops them and cancels the command.
 
 ```yaml
 "^psql":
@@ -331,9 +248,7 @@ and cancels the command.
   1223: ssh://jump.example.com/db.internal/5432
 ```
 
-An `ssh://` jump without a port takes it from `~/.ssh/config`. Lade
-runs its own ssh connection (`ControlPath=none`) and restarts it when
-the link dies. Mechanics: [docs/tunnels.md](docs/tunnels.md).
+An `ssh://` jump without a port takes it from `~/.ssh/config`. Lade runs its own ssh connection (`ControlPath=none`) and restarts it when the link dies. Mechanics: [docs/tunnels.md](docs/tunnels.md).
 
 | Provider | URI | Query |
 | --- | --- | --- |
@@ -344,10 +259,7 @@ the link dies. Mechanics: [docs/tunnels.md](docs/tunnels.md).
 
 ### Package
 
-A CLI for the matched command, or a setup-only package. The key
-is the argv0 you type. If the binary is `tofu1.8`, the key is
-`tofu1.8`. Lade asks the tool manager to pin it, then puts that
-install first on PATH for this process.
+A CLI for the matched command, or a setup-only package. The key is the argv0 you type. If the binary is `tofu1.8`, the key is `tofu1.8`. Lade asks the tool manager to pin it, then puts that install first on PATH for this process.
 
 ```yaml
 ^tofu:
@@ -355,13 +267,7 @@ install first on PATH for this process.
   TF_VAR_FOO: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
-Today the URI scheme is `mise://`. That is how the current
-manager is addressed. A Homebrew binary on PATH is not the pin.
-`lade setup` walks toward `$HOME` once. A committed `mise.toml`
-or `mise.lock` in the repo is the plane: setup extends both.
-`$HOME` itself counts only for `~/lade.yaml`. Otherwise one
-`lade.lock` at the git root. A git repo in `$HOME` is not that
-root. Missing slots are resolved once and written.
+Today the URI scheme is `mise://`. That is how the current manager is addressed. A Homebrew binary on PATH is not the pin. `lade setup` walks toward `$HOME` once. A committed `mise.toml` or `mise.lock` in the repo is the plane: setup extends both. `$HOME` itself counts only for `~/lade.yaml`. Otherwise one `lade.lock` at the git root. A git repo in `$HOME` is not that root. Missing slots are resolved once and written.
 
 | Command | Lock | Yaml |
 | --- | --- | --- |
@@ -370,11 +276,9 @@ root. Missing slots are resolved once and written.
 | `lade update` | Rewrite after a new resolve | Exact pins stay. Implied and ranged pins move to the latest match |
 | `lade upgrade` | Untouched | Untouched. This is the Lade binary |
 
-`lade teardown` is this repo only: pre-tool hooks and `?teardown=`
-on setup packages. It does not remove the shell wrap.
+`lade teardown` is this repo only: pre-tool hooks and `?teardown=` on setup packages. It does not remove the shell wrap.
 
-Optional `?setup=` / `?teardown=` run on `lade setup` /
-`lade teardown` in this repo.
+Optional `?setup=` / `?teardown=` run on `lade setup` / `lade teardown` in this repo.
 
 ```yaml
 .:
@@ -389,21 +293,15 @@ Optional `?setup=` / `?teardown=` run on `lade setup` /
 
 ## Hierarchy
 
-Walk cwd → `$HOME`. Later file overlays the same key. Child wins.
-Parent is the default. A command in `app/` uses `app/lade.yaml`
-over the repo root. `~/lade.yaml` is a parent like any other.
+Walk cwd → `$HOME`. Later file overlays the same key. Child wins. Parent is the default. A command in `app/` uses `app/lade.yaml` over the repo root. `~/lade.yaml` is a parent like any other.
 
-YAML `~` on a key cancels a parent value. `${NAME}` composes
-bindings in the same rule. `.NAME` is intermediate: used to
-build another value, not exported.
+YAML `~` on a key cancels a parent value. `${NAME}` composes bindings in the same rule. `.NAME` is intermediate: used to build another value, not exported.
 
 Same directory must not have both `lade.yaml` and `lade.yml`.
 
 ## Observability
 
-Opt-in. `log: true` on a rule records that the command ran, what
-matched, which package resolved. Values are never stored. The row is
-an audit snapshot at write time.
+Opt-in. `log: true` on a rule records that the command ran, what matched, which package resolved. Values are never stored. The row is an audit snapshot at write time.
 
 ```yaml
 .:
@@ -417,32 +315,17 @@ lade usage
 lade status
 ```
 
-Queries stay on this git root. `--all` / `--global` reads wider.
-Details: [docs/observability.md](docs/observability.md).
+Queries stay on this git root. `--all` / `--global` reads wider. Details: [docs/observability.md](docs/observability.md).
 
 ## Shell and harnesses
 
-Same yaml. Same resolve. Humans type commands in a wrapped shell
-(pre-exec). Harnesses run commands through pre-tool hooks.
-`lade setup` writes both when needed. Limit harness installs with
-`lade setup --harness cursor` (repeat for several). If pre-exec is
-missing later, `lade status` and setup point at
-`lade hook enable --shell`. Harness hooks:
-`lade hook enable --harness <slug>` (recovery; hidden from default
-`--help`, see [docs/protocol.md](docs/protocol.md)).
+Same yaml. Same resolve. Humans type commands in a wrapped shell (pre-exec). Harnesses run commands through pre-tool hooks. `lade setup` writes both when needed. Limit harness installs with `lade setup --harness cursor` (repeat for several). If pre-exec is missing later, `lade status` and setup point at `lade hook enable --shell`. Harness hooks: `lade hook enable --harness <slug>` (recovery; hidden from default `--help`, see [docs/protocol.md](docs/protocol.md)).
 
-A pre-tool hook reads the yaml of the directory the command runs in:
-the harness's working directory, then any leading `cd <dir> &&`. A
-bare `cd`, `pushd`, or `popd` is never wrapped, so the harness shell
-moves. A wrapped command runs in the harness's own shell, even when
-the harness started in a terminal with `lade on` in another shell.
+A pre-tool hook reads the yaml of the directory the command runs in: the harness's working directory, then any leading `cd <dir> &&`. A bare `cd`, `pushd`, or `popd` is never wrapped, so the harness shell moves. A wrapped command runs in the harness's own shell, even when the harness started in a terminal with `lade on` in another shell.
 
 ### Require Lade on Claude Code
 
-Commit the hook in `.claude/settings.json` to require Lade from
-everyone who clones the repo. With `"onFailure": "block"`, a missing
-or failing Lade blocks the command instead of running it without
-Lade:
+Commit the hook in `.claude/settings.json` to require Lade from everyone who clones the repo. With `"onFailure": "block"`, a missing or failing Lade blocks the command instead of running it without Lade:
 
 ```json
 {
@@ -463,14 +346,7 @@ Lade:
 }
 ```
 
-Claude reads that file only in a session started at the repo root.
-`lade setup` (or `lade hook enable --harness claude`) copies the hook,
-`onFailure` included, into the untracked `.claude/settings.local.json`,
-which Claude reads from any subdirectory. The command is the same, so
-Claude runs it once. Lade never moves or strips the committed hook,
-and `lade hook disable` leaves it. `lade status` shows it as
-`committed` (`blocking` or `not blocking`) and flags a local copy that
-is missing or differs from it.
+Claude reads that file only in a session started at the repo root. Lade copies the hook, `onFailure` included, into the untracked `.claude/settings.local.json`, which Claude reads from any subdirectory. From a git worktree, Claude reads it at the main checkout's root, so the copy goes there. Lade writes the copy when a shell starts Claude Code, in the hourly check, and on `lade setup` or `lade hook enable --harness claude`. The command is the same, so Claude runs it once. Lade never moves or strips the committed hook, and `lade hook disable` leaves it. `lade status` shows it as `committed` (`blocking` or `not blocking`) and flags a local copy that is missing or differs from it.
 
 ## When, users, approval
 
@@ -501,9 +377,7 @@ A `disclaimer` withholds access. Review, then `lade approve <code>`.
 
 ## Commands
 
-User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
-`hook` on stdin) stay out of `lade --help`; see
-[docs/protocol.md](docs/protocol.md).
+User-facing verbs. Internal injection mechanics (`set`, `unset`, bare `hook` on stdin) stay out of `lade --help`; see [docs/protocol.md](docs/protocol.md).
 
 | Command | Role |
 | --- | --- |
@@ -523,20 +397,11 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare
 | `lade mcp` | MCP bridge (below). |
 | `lade -- <cmd>` | One-shot wrap (same as documented inject path). |
 
-Progress tags: `(c)` cached from the hub, `(o)` overridden by a
-closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
+Progress tags: `(c)` cached from the hub, `(o)` overridden by a closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
 
-A vault edit does not evict RAM. `lade ttl` lists names.
-`lade ttl set 2h` raises the 5m default for this cwd on the
-hub, and keeps its tunnels that long. Parent folders share it. `lade ttl unset` clears this
-cwd. `lade ttl forget` (or
-`lade log prune --hub`) drops this binary's hub. Next hydrate
-refetches. [docs/cache.md](docs/cache.md).
+A vault edit does not evict RAM. `lade ttl` lists names. `lade ttl set 2h` raises the 5m default for this cwd on the hub, and keeps its tunnels that long. Parent folders share it. `lade ttl unset` clears this cwd. `lade ttl forget` (or `lade log prune --hub`) drops this binary's hub. Next hydrate refetches. [docs/cache.md](docs/cache.md).
 
-`silent: true` on a rule skips secret progress lines for that rule.
-Provider URIs can **imply** a locked CLI on setup (`op://` → `op`,
-`vault://` → `vault`, …) even when the yaml has no `mise://` pin.
-`lade status` reports min CLI versions and `sdk` vs `cli` transport.
+`silent: true` on a rule skips secret progress lines for that rule. Provider URIs can **imply** a locked CLI on setup (`op://` → `op`, `vault://` → `vault`, …) even when the yaml has no `mise://` pin. `lade status` reports min CLI versions and `sdk` vs `cli` transport.
 
 ## MCP
 
@@ -550,9 +415,7 @@ lade mcp -- npx -y @modelcontextprotocol/server-everything
 lade mcp https://example.com/mcp
 ```
 
-Bindings become upstream headers (HTTP) or env for the child (stdio).
-Same rule matching, disclaimers, and diary as `lade -- <cmd>`. Details:
-[docs/architecture.md](docs/architecture.md).
+Bindings become upstream headers (HTTP) or env for the child (stdio). Same rule matching, disclaimers, and diary as `lade -- <cmd>`. Details: [docs/architecture.md](docs/architecture.md).
 
 ## CI build
 
@@ -563,23 +426,15 @@ curl -fsSL https://raw.githubusercontent.com/zifeo/lade/main/installer.sh | CI=1
 lade setup
 ```
 
-Installer env: `OUT_DIR`, `VERSION`, `PLATFORM`, `ASSUME_YES`, `CI`,
-`DOWNLOADER` ([docs/env.md](docs/env.md)).
+Installer env: `OUT_DIR`, `VERSION`, `PLATFORM`, `ASSUME_YES`, `CI`, `DOWNLOADER` ([docs/env.md](docs/env.md)).
 
-GitHub Action `zifeo/lade` (`setup-lade`): inputs `version` (default
-`latest`), `out-dir` (default `${{ github.workspace }}/.lade-bin`).
-Installs `lade` and `age-plugin-lade` with cache.
+GitHub Action `zifeo/lade` (`setup-lade`): inputs `version` (default `latest`), `out-dir` (default `${{ github.workspace }}/.lade-bin`). Installs `lade` and `age-plugin-lade` with cache.
 
 Image: `ghcr.io/zifeo/lade` (`linux` musl, `ENTRYPOINT` is `lade`).
 
 ## age plugin
 
-`age-plugin-lade` lets [age](https://github.com/FiloSottile/age)
-hydrate a secret through Lade. The plugin execs `lade eval`. Keep
-`lade` next to it or on `PATH`. Post-quantum keys from age 1.3
-(`age1pq1`, `AGE-SECRET-KEY-PQ-1`) also need `age-plugin-pq` on
-`PATH`. The age 1.3.2 release and mise ship it. Homebrew's `age` does
-not.
+`age-plugin-lade` lets [age](https://github.com/FiloSottile/age) hydrate a secret through Lade. The plugin execs `lade eval`. Keep `lade` next to it or on `PATH`. Post-quantum keys from age 1.3 (`age1pq1`, `AGE-SECRET-KEY-PQ-1`) also need `age-plugin-pq` on `PATH`. The age 1.3.2 release and mise ship it. Homebrew's `age` does not.
 
 ```bash
 cargo install age-plugin-lade --locked
@@ -593,38 +448,23 @@ cargo install --path crates/age-plugin-lade --locked
 
 ## More
 
-A command can build one value from another (`${NAME}`), run a
-shell snippet (`sh://`), or pull a field from age or SOPS. Blueprint:
-[docs/architecture.md](docs/architecture.md). T tickets and internal
-env: [docs/protocol.md](docs/protocol.md),
-[docs/env.md](docs/env.md). Provider examples:
-[examples/providers/lade.yml](examples/providers/lade.yml).
+A command can build one value from another (`${NAME}`), run a shell snippet (`sh://`), or pull a field from age or SOPS. Blueprint: [docs/architecture.md](docs/architecture.md). T tickets and internal env: [docs/protocol.md](docs/protocol.md), [docs/env.md](docs/env.md). Provider examples: [examples/providers/lade.yml](examples/providers/lade.yml).
 
-CLI manual (every public verb, examples, loader marks):
-[docs/cli.md](docs/cli.md). `lade log` and `lade usage` flags:
-[docs/observability.md](docs/observability.md).
+CLI manual (every public verb, examples, loader marks): [docs/cli.md](docs/cli.md). `lade log` and `lade usage` flags: [docs/observability.md](docs/observability.md).
 
-CI that talks to 1Password without a person: set
-`1password_service_account` on `.` (per-user map supported; see
-examples).
+CI that talks to 1Password without a person: set `1password_service_account` on `.` (per-user map supported; see examples).
 
 ## Development
 
-Users: mise pins `lade`. The binary on PATH is the CLI and the
-hub. Each image has its own socket, so several hubs can be up.
-A hub exits after 1h idle with nothing cached, and within a minute
-once a reinstall replaces its binary. Cache does not cross binaries.
+Users: mise pins `lade`. The binary on PATH is the CLI and the hub. Each image has its own socket, so several hubs can be up. A hub exits after 1h idle with nothing cached, and within a minute once a reinstall replaces its binary. Cache does not cross binaries.
 
-Local work: `cargo install --path .` must beat every mise lade
-on this machine. One global mise setting, once:
+Local work: `cargo install --path .` must beat every mise lade on this machine. One global mise setting, once:
 
 ```bash
 mise settings add disable_tools github:zifeo/lade
 ```
 
-`which` may still show the mise shim. That shim execs
-`~/.cargo/bin/lade`. Do not set `MISE_DISABLE_TOOLS` in the
-shell. mise reads this file at activate.
+`which` may still show the mise shim. That shim execs `~/.cargo/bin/lade`. Do not set `MISE_DISABLE_TOOLS` in the shell. mise reads this file at activate.
 
 ```bash
 eval "$(lade off)"

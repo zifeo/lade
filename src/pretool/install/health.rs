@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::committed::{Committed, committed, committed_path};
-use super::locate::{find_project, hook_state, project_dest};
+use super::locate::{canonical_project_path, find_project, hook_state, project_dest};
 use super::opencode::OpenCodeApi;
 use super::paths::{home_dir, hook_command, tilde};
 use super::want::{Want, want};
@@ -83,13 +83,10 @@ pub(crate) fn report_at(
                 agent.slug()
             ));
         }
-        if let (Some(committed), None, false) = (&committed, &project, home_has) {
+        if let (Some(_), None, false, Some(dest)) = (&committed, &project, home_has, &dest) {
             lines.push(format!(
-                "Claude Code (this repo, {}): no copy of the committed hook, so a session started in a subdirectory runs commands without Lade. `lade hook enable --harness claude` writes it.",
-                tilde(
-                    &committed.path.with_file_name("settings.local.json"),
-                    home
-                )
+                "Claude Code (this repo, {}): no copy of the committed hook, so a session started in a subdirectory runs commands without Lade. Lade writes it when a shell starts Claude Code, `lade hook enable --harness claude` now.",
+                tilde(&canonical_project_path(agent, dest), home)
             ));
         }
         for (path, want, global) in std::iter::once(global).chain(project) {

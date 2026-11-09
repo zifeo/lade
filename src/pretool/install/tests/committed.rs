@@ -198,10 +198,95 @@ fn refresh_follows_the_committed_hook_not_the_snapshot() {
 }
 
 #[test]
-fn refresh_never_creates_the_copy() {
+fn refresh_writes_the_copy_the_repo_committed() {
+    let (home, repo, shared) = repo(BLOCKING);
+    refresh_at(home.path(), repo.path(), &[Agent::Claude]);
+    assert_eq!(
+        lade_hooks(&read_json(&local(repo.path())))[0]["onFailure"],
+        "block"
+    );
+    assert_eq!(fs::read_to_string(&shared).unwrap(), BLOCKING);
+    assert!(report_at(home.path(), repo.path(), &[Agent::Claude], &|| None).is_empty());
+}
+
+#[test]
+fn refresh_writes_no_copy_over_a_home_hook() {
     let (home, repo, _) = repo(BLOCKING);
+    let cwd = tempfile::tempdir().unwrap();
+    write_scoped(Scope::User, "claude", home.path(), cwd.path(), true).unwrap();
     refresh_at(home.path(), repo.path(), &[Agent::Claude]);
     assert!(!local(repo.path()).exists());
+}
+
+/// A main checkout and a linked worktree whose committed
+/// `.claude/settings.json` holds `committed`, laid out as `git worktree add`
+/// does. Returns the main checkout and the worktree.
+fn worktree(committed: &str) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf) {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().canonicalize().unwrap().join("main");
+    let wt = root.path().canonicalize().unwrap().join("wt");
+    let gitdir = main.join(".git").join("worktrees").join("wt");
+    fs::create_dir_all(&gitdir).unwrap();
+    fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    fs::create_dir_all(wt.join(".claude")).unwrap();
+    fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    fs::write(wt.join(".claude").join("settings.json"), committed).unwrap();
+    fs::create_dir_all(wt.join("sub")).unwrap();
+    (home, root, main, wt)
+}
+
+#[test]
+fn in_a_worktree_the_copy_goes_to_the_main_checkout() {
+    let (home, _root, main, wt) = worktree(BLOCKING);
+    let sub = wt.join("sub");
+    let lines = report_at(home.path(), &sub, &[Agent::Claude], &|| None);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains(&local(&main).display().to_string()),
+        "{lines:?}"
+    );
+
+    refresh_at(home.path(), &sub, &[Agent::Claude]);
+    assert_eq!(
+        lade_hooks(&read_json(&local(&main)))[0]["onFailure"],
+        "block"
+    );
+    assert!(!local(&wt).exists());
+    assert!(report_at(home.path(), &sub, &[Agent::Claude], &|| None).is_empty());
+    assert!(
+        inspect_at(home.path(), &sub)
+            .unwrap()
+            .claude
+            .project
+            .current
+    );
+
+    teardown_at(home.path(), &sub).unwrap();
+    assert!(lade_hooks(&read_json(&local(&main))).is_empty());
+}
+
+#[test]
+fn a_worktree_root_copy_is_moved_to_the_main_checkout() {
+    let (home, _root, main, wt) = worktree(BLOCKING);
+    fs::write(
+        local(&wt),
+        r#"{"permissions":{"allow":["Read"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
+    )
+    .unwrap();
+    let line = write_scoped(Scope::Project, "claude", home.path(), &wt, true).unwrap();
+    assert!(line.contains(&local(&main).display().to_string()), "{line}");
+    let stale = read_json(&local(&wt));
+    assert_eq!(stale["permissions"]["allow"], json!(["Read"]));
+    assert!(
+        !fs::read_to_string(local(&wt))
+            .unwrap()
+            .contains("lade hook")
+    );
+    assert_eq!(
+        lade_hooks(&read_json(&local(&main)))[0]["onFailure"],
+        "block"
+    );
 }
 
 #[test]

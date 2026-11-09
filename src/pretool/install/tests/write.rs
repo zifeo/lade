@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::super::agent::{AGENTS, Agent};
+use super::super::agent::Agent;
 use super::super::offer::{Plan, apply_plan};
 use super::super::paths::{ItemVerb, hook_command, install_bin_from, project_hook_command};
 use super::super::want::Want;
@@ -48,7 +48,8 @@ fn instantiate_does_not_double_an_absolute_bin() {
 fn refresh_at_repo_cwd_keeps_portable_project_hooks() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let home = tempfile::tempdir().unwrap();
-    refresh_at(home.path(), &root, &AGENTS);
+    // Claude would write the copy of this repo's committed hook.
+    refresh_at(home.path(), &root, &[Agent::Cursor, Agent::OpenCode]);
     let cursor = std::fs::read_to_string(root.join(".cursor/hooks.json")).unwrap();
     assert!(cursor.contains("lade hook --harness cursor"), "{cursor}");
     assert!(!cursor.contains("target/debug"), "{cursor}");

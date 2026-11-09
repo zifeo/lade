@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "age-plugin-lade"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "age",
  "age-core",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "lade"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "lade-sdk"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "access-json",
  "age",

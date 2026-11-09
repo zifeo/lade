@@ -32,17 +32,27 @@ jobs:
 
       - name: Wait for release assets
         run: |
-          base="https://github.com/zifeo/lade/releases/download/v${{ steps.version.outputs.version }}"
-          asset="lade-v${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz"
+          version="${{ steps.version.outputs.version }}"
+          base="https://github.com/zifeo/lade/releases/download/v${version}"
+          # Every asset the Dockerfile fetches: the platforms build in
+          # parallel, and the release jobs upload them one by one.
+          assets=""
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            assets="$assets lade-v${version}-${target}.tar.gz lade-v${version}-${target}.tar.gz.sha256"
+          done
           for _ in $(seq 1 30); do
-            if curl -fsSLI "$base/$asset" >/dev/null 2>&1; then
-              echo "Release asset available."
+            missing=""
+            for asset in $assets; do
+              curl -fsSLI "$base/$asset" >/dev/null 2>&1 || missing="$missing $asset"
+            done
+            if [ -z "$missing" ]; then
+              echo "Release assets available."
               exit 0
             fi
-            echo "Waiting for release asset $asset ..."
+            echo "Waiting for release assets:$missing"
             sleep 20
           done
-          echo "Release asset not found in time." >&2
+          echo "Release assets not found in time:$missing" >&2
           exit 1
 
       - uses: docker/setup-qemu-action@v4
