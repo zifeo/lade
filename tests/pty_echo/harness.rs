@@ -21,6 +21,22 @@ pub const CPR_MARKER: &[u8] = b";1R";
 
 pub const CHILD_READY: &str = "__lade_pty_ready__";
 
+const AGENT_SIGNALS: [&str; 13] = [
+    "AGENT",
+    "AI_AGENT",
+    "CLAUDECODE",
+    "CLAUDE_CODE",
+    "CODEX_CI",
+    "CODEX_SANDBOX",
+    "CODEX_THREAD_ID",
+    "COPILOT_MODEL",
+    "CURSOR_AGENT",
+    "CURSOR_EXTENSION_HOST_ROLE",
+    "CURSOR_SANDBOX",
+    "OPENCODE",
+    "OPENCODE_PID",
+];
+
 fn cooked_termios() -> Termios {
     // Build a termios from scratch matching a typical login tty on Linux /
     // macOS: canonical input, ECHO on, sane output post-processing. Using
@@ -66,6 +82,34 @@ pub fn spawn_with(lade_bin: &Path, project: &Path, inject_cmd: &str) -> Harness 
 /// `controlling`: the pty is the shell's controlling terminal, with job
 /// control, as in a real one. Closing it then hangs the pty up.
 pub fn spawn_in(lade_bin: &Path, project: &Path, inject_cmd: &str, controlling: bool) -> Harness {
+    spawn_with_env(lade_bin, project, inject_cmd, controlling, &[])
+}
+
+/// [`spawn_in`] with extra variables for lade, for a fake provider CLI.
+pub fn spawn_with_env(
+    lade_bin: &Path,
+    project: &Path,
+    inject_cmd: &str,
+    controlling: bool,
+    envs: &[(&str, &Path)],
+) -> Harness {
+    spawn_lade(
+        lade_bin,
+        project,
+        &["inject", inject_cmd],
+        controlling,
+        envs,
+    )
+}
+
+/// `lade <args>` on the pty, from bash.
+pub fn spawn_lade(
+    lade_bin: &Path,
+    project: &Path,
+    args: &[&str],
+    controlling: bool,
+    envs: &[(&str, &Path)],
+) -> Harness {
     let size = Winsize {
         ws_row: 40,
         ws_col: 120,
@@ -84,13 +128,18 @@ pub fn spawn_in(lade_bin: &Path, project: &Path, inject_cmd: &str, controlling: 
     let mut cmd = Command::new("bash");
     cmd.args(["-c", "\"$0\" \"$@\" && true"])
         .arg(lade_bin)
-        .args(["inject", inject_cmd])
+        .args(args)
         .current_dir(project)
         .env("HOME", project)
         .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .envs(envs.iter().copied())
         .stdin(Stdio::from(slave_in))
         .stdout(Stdio::from(slave_out))
         .stderr(Stdio::from(slave_err));
+    // A person at this terminal: no harness the tests themselves run under.
+    for key in AGENT_SIGNALS {
+        cmd.env_remove(key);
+    }
     // SAFETY: only async-signal-safe calls between fork and exec.
     if controlling {
         unsafe {
@@ -204,6 +253,15 @@ pub fn run_in(
     harness: Harness,
     trigger: Option<(&[u8], &[u8])>,
 ) -> (Vec<u8>, std::process::ExitStatus) {
+    run_answering(harness, trigger.as_slice())
+}
+
+/// Each `(needle, response)` writes its response once, when its needle first
+/// shows in the output, in whatever order the needles show.
+pub fn run_answering(
+    harness: Harness,
+    answers: &[(&[u8], &[u8])],
+) -> (Vec<u8>, std::process::ExitStatus) {
     let Harness {
         master,
         slave,
@@ -228,7 +286,7 @@ pub fn run_in(
     });
 
     let mut captured: Vec<u8> = Vec::new();
-    let mut triggered = trigger.is_none();
+    let mut answered = vec![false; answers.len()];
     let deadline = Instant::now() + Duration::from_secs(8);
 
     let status = loop {
@@ -245,12 +303,12 @@ pub fn run_in(
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(chunk) => {
                 captured.extend_from_slice(&chunk);
-                if let (false, Some((needle, response))) = (triggered, trigger)
-                    && contains(&captured, needle)
-                {
-                    writer.write_all(response).unwrap();
-                    writer.flush().unwrap();
-                    triggered = true;
+                for ((needle, response), done) in answers.iter().zip(answered.iter_mut()) {
+                    if !*done && contains(&captured, needle) {
+                        writer.write_all(response).unwrap();
+                        writer.flush().unwrap();
+                        *done = true;
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}

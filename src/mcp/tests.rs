@@ -52,6 +52,7 @@ async fn restarts_before_initialize_and_keeps_env() {
         dir.path().to_path_buf(),
         input_reader,
         output_writer,
+        STARTUP_TIMEOUT,
     ));
     let mut output = String::new();
     let started = Instant::now();
@@ -100,6 +101,7 @@ async fn stop_during_pre_initialize_backoff_does_not_restart() {
         dir.path().to_path_buf(),
         input_reader,
         output_writer,
+        STARTUP_TIMEOUT,
     ));
     let deadline = Instant::now() + Duration::from_secs(3);
     while !started.exists() {
@@ -144,6 +146,7 @@ async fn after_initialize_answers_in_flight_ids_and_does_not_restart() {
         dir.path().to_path_buf(),
         input_reader,
         output_writer,
+        STARTUP_TIMEOUT,
     ));
     input_writer
         .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n")
@@ -177,6 +180,7 @@ async fn stdout_eof_while_child_lives_honors_stop() {
         dir.path().to_path_buf(),
         input_reader,
         output_writer,
+        STARTUP_TIMEOUT,
     ));
     tokio::time::sleep(Duration::from_millis(150)).await;
     crate::child_signals::request_stop_for_test();
@@ -187,5 +191,38 @@ async fn stdout_eof_while_child_lives_honors_stop() {
         .unwrap();
     drop(input_writer);
     crate::child_signals::reset_for_test();
-    assert!(code.is_none() || code == Some(1), "got {code:?}");
+    // The stop ends the server by a signal, reported as a shell does.
+    assert!(code.is_none_or(|code| code > 128), "got {code:?}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_server_that_keeps_exiting_before_initialize_fails_once_the_window_ends() {
+    let _lock = crate::child_signals::SUPERVISE_TEST_LOCK.lock().await;
+    crate::child_signals::reset_for_test();
+    let dir = tempfile::tempdir().unwrap();
+    let starts = dir.path().join("starts");
+    let script = format!("printf x >> '{}'; exit 1", starts.display());
+    let (_input_writer, input_reader) = tokio::io::duplex(1024);
+    let (output_writer, _output_reader) = tokio::io::duplex(1024);
+    let code = timeout(
+        Duration::from_secs(20),
+        supervise_stdio(
+            vec![
+                OsString::from("sh"),
+                OsString::from("-c"),
+                OsString::from(script),
+            ],
+            HashMap::new(),
+            dir.path().to_path_buf(),
+            input_reader,
+            output_writer,
+            Duration::from_millis(1500),
+        ),
+    )
+    .await
+    .expect("supervise kept restarting past its window")
+    .unwrap();
+    assert_eq!(code, Some(crate::exit_codes::FAILURE));
+    assert!(std::fs::read_to_string(&starts).unwrap().len() > 1);
 }

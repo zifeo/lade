@@ -82,14 +82,17 @@ pub(super) struct Keys {
 impl Keys {
     /// Only for a human at a terminal.
     pub(super) fn enter(ctx: &InvocationContext) -> Option<Self> {
+        // § kgqztjzym.c@v795s
         if ctx.audience != Audience::Human || !ctx.stderr_is_terminal {
             return None;
         }
+        // § one ntr20kvnb.c@zevj8
         let tty = File::open("/dev/tty").ok()?;
         let (wake, woken) = UnixStream::pair().ok()?;
         let reader_tty = tty.try_clone().ok()?;
         let saved = tcgetattr(&tty).ok()?;
         let mut raw = saved.clone();
+        // § one s6j22qtcr.b@ppq1p
         raw.local_flags &= !(LocalFlags::ICANON | LocalFlags::ECHO | LocalFlags::ISIG);
         raw.control_chars[SpecialCharacterIndices::VMIN as usize] = 1;
         raw.control_chars[SpecialCharacterIndices::VTIME as usize] = 0;
@@ -162,6 +165,7 @@ impl Keys {
 
     /// Before a question: keys typed earlier are not an answer.
     pub(super) fn forget_typed(&mut self) {
+        // § ntr20kvnb.d@a20fk
         let _ = tcflush(&self.tty, FlushArg::TCIFLUSH);
         while self.keys.try_recv().is_ok() {}
     }

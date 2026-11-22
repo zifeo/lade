@@ -12,6 +12,7 @@ pub struct DeclaredTool {
 
 /// Upsert `[tools]` entries. Other tables and comments stay.
 pub fn upsert_tools(path: &Path, entries: &[(String, String)]) -> Result<(), String> {
+    // § cp6eyqnnj.b@jh7yx
     if path.exists() && path.is_dir() {
         return Err(format!("{} is a directory", path.display()));
     }

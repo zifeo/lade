@@ -38,7 +38,7 @@ impl PinReport {
 pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
     let cwd = std::env::current_dir().map_err(|e| Error::install(e.to_string()))?;
     let config = crate::config::LadeFile::build(cwd.clone())?;
-    let saved = crate::global_config::GlobalConfig::resolved_user();
+    let saved = crate::global_config::GlobalConfig::resolved_user()?;
     if !implied::repo_needs_mise(&config, &saved) {
         return Ok(PinReport::default());
     }
@@ -61,6 +61,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             yaml_keys.insert(key.clone());
             key_dir.insert(key, dir.clone());
         }
+        // § one ba4zs2twj.c@1ga8p
         for (key, spec) in implied::pins_for(&config.sources_in_dir(&dir, &saved), &pending) {
             lookup::upsert_pin(&mut pending, key.clone(), spec);
             key_dir.entry(key).or_insert_with(|| dir.clone());
@@ -102,14 +103,19 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             }
             PinMode::Unlock | PinMode::Locked => choice,
         };
+        let yaml_spec = &spec;
         let spec = choice.spec();
+        // § byd2nhybz.c@9netf
         let lock_ok = mode != PinMode::Unlock
             && existing
                 .as_ref()
                 .is_some_and(|(_, slot)| lock::agrees(slot, &spec.version, &spec.backend_id()));
+        // § end byd2nhybz.c
         let mut spec = if lock_ok && let Some((_, slot)) = existing.as_ref() {
+            // § byd2nhybz.a@y3tt5
             spec::at_version(spec, &slot.version)
         } else if spec.is_range() {
+            // § byd2nhybz.b@bt5x1
             let label = named_version(&key, &spec.version);
             crate::live_progress::running(&key, &label);
             let version = match super::resolve::concrete_version(spec) {
@@ -119,12 +125,16 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
                     return Err(e.into());
                 }
             };
-            rewrite_floating_pin(&key_dir, &key, spec, &version)?;
             crate::live_progress::done(&key, named_version(&key, &version));
             spec::at_version(spec, &version)
         } else {
             spec.clone()
         };
+        // A locked or updated `@latest` is written back too, not only one
+        // resolved here.
+        // § one h01jcjwrv.c@txh25
+        // silcrow:follow
+        rewrite_floating_pin(&key_dir, &key, yaml_spec, &spec.version)?;
         let choice = if snap.is_mise() && matches!(&choice, Choice::Builtin(_)) {
             spec.options.clear();
             Choice::Builtin(spec)
@@ -149,6 +159,7 @@ pub async fn setup_pins(mode: PinMode) -> anyhow::Result<PinReport> {
             Plane::Lade { .. } | Plane::None => Vec::new(),
         };
         let upgrade = mode == PinMode::Update;
+        // § cp6eyqnnj.b@67mwc
         if let Plane::Mise { toml_write, .. } = &snap.plane {
             for (_, choice) in &works {
                 if let Choice::Builtin(spec) = choice {
@@ -215,6 +226,7 @@ async fn install_group(
     if pins.is_empty() {
         return Ok(());
     }
+    // § one byd2nhybz.b@r8wzg
     let rewrite_lock = upgrade || !lock_matches_pins(lock_path, pins);
     if rewrite_lock {
         let label = if upgrade {
@@ -255,6 +267,7 @@ fn rewrite_floating_pin(
     spec: &Spec,
     resolved: &str,
 ) -> Result<(), Error> {
+    // § h01jcjwrv.c@pz2p6
     if !spec::version_is_floating(&spec.version) || resolved == spec.version {
         return Ok(());
     }
@@ -280,6 +293,7 @@ fn lock_matches_pins(lock_path: &Path, pins: &[(String, Spec)]) -> bool {
 }
 
 fn resolve_for_update(key: &str, spec: &Spec, current: &str) -> Result<Spec, Error> {
+    // § byd2nhybz.d@wptxd
     let implied = implied::by_key(key).is_some();
     if !implied && !spec.is_range() {
         return Ok(spec.clone());
@@ -298,16 +312,7 @@ fn resolve_for_update(key: &str, spec: &Spec, current: &str) -> Result<Spec, Err
 }
 
 fn warn_plane(snap: &Snapshot) {
-    let mut lines: Vec<String> = Vec::new();
-    if snap.split_warning {
-        lines.push("mise.lock and mise.toml are in different directories.".to_string());
-        lines.push(
-            "Lade writes both in the nearer directory. The other file is left as-is.".to_string(),
-        );
-    }
-    for path in &snap.leftover_lade_locks {
-        lines.push(format!("Leftover {} is ignored.", path.display()));
-    }
+    let lines = plane_warnings(snap);
     if lines.is_empty() {
         return;
     }
@@ -316,6 +321,22 @@ fn warn_plane(snap: &Snapshot) {
         mb = mb.line(line);
     }
     mb.print_stderr();
+}
+
+pub(super) fn plane_warnings(snap: &Snapshot) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    // § one a45aqmr7m.e@kxr0m
+    if snap.split_warning {
+        lines.push("mise.lock and mise.toml are in different directories.".to_string());
+        lines.push(
+            "Lade writes both in the nearer directory. The other file is left as-is.".to_string(),
+        );
+    }
+    // § one a45aqmr7m.d@fcvjs
+    for path in &snap.leftover_lade_locks {
+        lines.push(format!("Leftover {} is ignored.", path.display()));
+    }
+    lines
 }
 
 pub fn print_pin_update(bumped: &[(String, String, String)]) {

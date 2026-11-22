@@ -60,10 +60,8 @@ pub(crate) async fn run_cli(
     install_url: &str,
     cwd: Option<&Path>,
 ) -> Result<std::process::Output> {
-    let mut c = cli_command(cmd, extra_env, cwd);
-    let child = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
-    let group = GroupKill::of(child.id());
-    let _terminal = super::terminal::Lease::take(child.id());
+    // § j9zpdd26a.a@thg66
+    let (child, group, _terminal) = spawn_cli(cli_command(cmd, extra_env, cwd), name, install_url)?;
     let output = child
         .wait_with_output()
         .await
@@ -72,7 +70,22 @@ pub(crate) async fn run_cli(
     Ok(output)
 }
 
+/// Every provider CLI starts here: in its own group, lent the terminal while
+/// it runs. The lease is last so it drops first, before a timeout kills the
+/// group.
+fn spawn_cli(
+    mut c: Command,
+    name: &str,
+    install_url: &str,
+) -> Result<(tokio::process::Child, GroupKill, super::terminal::Lease)> {
+    let child = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
+    let group = GroupKill::of(child.id());
+    let lease = super::terminal::Lease::take(child.id());
+    Ok((child, group, lease))
+}
+
 fn cli_command(cmd: &[&str], extra_env: &HashMap<String, String>, cwd: Option<&Path>) -> Command {
+    // § j5kahfy4q.e@kgw66
     let mut c = Command::new(cmd[0]);
     c.args(&cmd[1..])
         .envs(extra_env.iter())
@@ -91,6 +104,7 @@ fn cli_command(cmd: &[&str], extra_env: &HashMap<String, String>, cwd: Option<&P
 }
 
 fn spawn_error(e: std::io::Error, name: &str, install_url: &str) -> anyhow::Error {
+    // § cbck003hy.b@mk3y2
     match e.kind() {
         std::io::ErrorKind::NotFound => anyhow!(
             "{name} CLI not found. Make sure the binary is in your PATH or install it from {install_url}."
@@ -118,6 +132,7 @@ impl GroupKill {
 
 impl Drop for GroupKill {
     fn drop(&mut self) {
+        // § j5kahfy4q.e@vp6pz
         if let Some(pgid) = self.0 {
             // SAFETY: killpg only sends a signal to the group the child leads.
             unsafe { libc::killpg(pgid, libc::SIGKILL) };
@@ -133,17 +148,20 @@ pub(crate) fn search_cli(
 ) -> Result<std::process::Output> {
     let mut cmd = std::process::Command::new(bin);
     cmd.args(args).envs(extra_env);
-    output_within(cmd, bin, limit)
+    output_within(cmd, bin, limit, |e| anyhow!("{bin} error: {e}"))
 }
 
 /// Blocking `Command::output` bounded by `limit`, pipes included: a
 /// grandchild that keeps a pipe open cannot hold the call past it. Past
-/// `limit`, the child's process group is killed.
+/// `limit`, the child's process group is killed. `on_spawn` names a CLI that
+/// could not start.
 pub(crate) fn output_within(
     mut cmd: std::process::Command,
     name: &str,
     limit: Duration,
+    on_spawn: impl FnOnce(std::io::Error) -> anyhow::Error,
 ) -> Result<std::process::Output> {
+    // § j5kahfy4q.d@trh2y
     use std::os::unix::process::CommandExt;
     let deadline = Instant::now() + limit;
     let mut child = cmd
@@ -152,8 +170,11 @@ pub(crate) fn output_within(
         .stderr(Stdio::piped())
         .process_group(0)
         .spawn()
-        .map_err(|e| anyhow!("{name} error: {e}"))?;
+        .map_err(on_spawn)?;
     let group = GroupKill::of(Some(child.id()));
+    // A lookup can ask too, as `op item list` asks for the account password.
+    // § one j9zpdd26a.a@t4mgn
+    let terminal = super::terminal::Lease::take(Some(child.id()));
     // Drain both pipes on threads so a chatty child cannot block on a full pipe.
     let (tx, rx) = std::sync::mpsc::channel();
     drain(child.stdout.take().expect("piped stdout"), true, tx.clone());
@@ -163,12 +184,14 @@ pub(crate) fn output_within(
             break status;
         }
         if Instant::now() >= deadline {
+            drop(terminal);
             drop(group);
             let _ = child.wait();
             return Err(super::provider_timeout_error(name, limit));
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+    drop(terminal);
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     for _ in 0..2 {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -197,15 +220,20 @@ fn drain(
     });
 }
 
-/// Runs the list CLI and maps a failing exit to `login_msg`.
+/// Runs `provider`'s list CLI and maps a failing exit to `login_msg`.
 pub(crate) fn search_cli_ok(
+    provider: &dyn super::Provider,
     bin: &str,
     args: &[&str],
     extra_env: &HashMap<String, String>,
-    limit: Duration,
     login_msg: &str,
 ) -> Result<std::process::Output> {
-    let output = search_cli(bin, args, extra_env, limit)?;
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(args).envs(extra_env);
+    let output = output_within(cmd, bin, provider.timeout(), |e| {
+        // § cbck003hy.b@r221f
+        spawn_error(e, provider.name(), provider.install_url())
+    })?;
     if !output.status.success() {
         bail!("{login_msg}");
     }
@@ -221,10 +249,10 @@ pub(crate) async fn run_cli_stdin(
     install_url: &str,
     cwd: Option<&Path>,
 ) -> Result<std::process::Output> {
+    // § j9zpdd26a.a@29n8f
     let mut c = cli_command(cmd, extra_env, cwd);
     c.stdin(Stdio::piped());
-    let mut process = c.spawn().map_err(|e| spawn_error(e, name, install_url))?;
-    let group = GroupKill::of(process.id());
+    let (mut process, group, _terminal) = spawn_cli(c, name, install_url)?;
     let mut stdin = process.stdin.take().expect("Failed to open stdin");
     if let Err(e) = stdin.write_all(input.as_bytes()).await
         && e.kind() != std::io::ErrorKind::BrokenPipe

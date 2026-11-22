@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use super::opencode::instantiate_plugin;
+use super::write::Scope;
 
+// § mqnfssecp.c@5e2y2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Agent {
     Cursor,
@@ -11,6 +13,7 @@ pub(super) enum Agent {
 }
 
 pub(super) const AGENTS: [Agent; 4] = [Agent::Cursor, Agent::Claude, Agent::Codex, Agent::OpenCode];
+// § end mqnfssecp.c
 
 fn env_path(key: &str) -> Option<PathBuf> {
     std::env::var_os(key)
@@ -42,6 +45,7 @@ impl Agent {
     }
 
     pub(super) fn from_slug(slug: &str) -> Option<Self> {
+        // § mqnfssecp.c@hqtyt
         match slug {
             "cursor" => Some(Agent::Cursor),
             "claude" => Some(Agent::Claude),
@@ -53,6 +57,7 @@ impl Agent {
 
     /// The harness a shell command line starts, by its program name.
     pub(super) fn launched_by(command: &str) -> Option<Self> {
+        // § mqnfssecp.c@ew2n7
         let program = command.split_whitespace().next()?;
         match Path::new(program).file_name()?.to_str()? {
             // Cursor's installer links `agent` to `cursor-agent`.
@@ -97,11 +102,16 @@ impl Agent {
         }
     }
 
-    pub(super) fn instantiate(self, command: &str) -> String {
-        if matches!(self, Agent::OpenCode) {
-            return instantiate_plugin(self.snapshot(), command);
+    /// The hook file of `scope` with this command.
+    pub(super) fn instantiate(self, scope: Scope, command: &str) -> String {
+        match (self, scope) {
+            (Agent::OpenCode, _) => instantiate_plugin(self.snapshot(), command),
+            (Agent::Cursor, Scope::User) => {
+                // § ck03z9rny.a@q1dsm
+                instantiate_json(self.snapshot(), self.slug(), command).replace(CURSOR_REQUIRED, "")
+            }
+            _ => instantiate_json(self.snapshot(), self.slug(), command),
         }
-        instantiate_json(self.snapshot(), self.slug(), command)
     }
 
     /// Claude-compat `hooks.json` left by an older install. Native OpenCode
@@ -113,6 +123,10 @@ impl Agent {
         }
     }
 }
+
+/// The repo's Cursor hook blocks the tool call when Lade cannot run. The home
+/// hook drops it, so a machine without Lade leaves the failure to Cursor.
+const CURSOR_REQUIRED: &str = ",\n        \"failClosed\": true";
 
 fn instantiate_json(snapshot: &str, slug: &str, command: &str) -> String {
     snapshot.replace(

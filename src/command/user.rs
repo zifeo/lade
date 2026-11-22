@@ -5,6 +5,7 @@ use crate::global_config::GlobalConfig;
 use crate::message_box::{self, Report};
 
 pub async fn run(username: Option<String>, reset: bool) -> Result<()> {
+    // § dcrxp986s.c@9hb2x
     if reset {
         GlobalConfig::update(|c| c.user = None).await?;
         Report::new()

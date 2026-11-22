@@ -2,7 +2,9 @@ use serde::Serialize;
 
 use super::server::socket_path;
 use super::transport::{COMMAND_DEADLINE, rpc_existing, rpc_within};
-use super::wire::{CacheRow, ERR_DENIED, Rep, Req, TunnelAsk, TunnelRep, TunnelRow, VersionLedger};
+use super::wire::{
+    CacheRow, ERR_DENIED, LinkRow, Rep, Req, TunnelAsk, TunnelRep, TunnelRow, VersionLedger,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,6 +20,9 @@ pub struct HubInfo {
     pub pid: Option<u32>,
     pub secrets: u32,
     pub tickets: u32,
+    /// Why a hub that is up caches no secret. `memory` in status says it.
+    #[serde(skip)]
+    pub unguarded: Option<String>,
 }
 
 impl HubInfo {
@@ -27,6 +32,7 @@ impl HubInfo {
             pid: None,
             secrets: 0,
             tickets: 0,
+            unguarded: None,
         }
     }
 
@@ -36,26 +42,30 @@ impl HubInfo {
             pid: None,
             secrets: 0,
             tickets: 0,
+            unguarded: None,
         }
     }
 
-    fn up(pid: u32, secrets: u32, tickets: u32) -> Self {
+    fn up(pid: u32, secrets: u32, tickets: u32, unguarded: Option<String>) -> Self {
         Self {
             state: HubState::Up,
             pid: Some(pid),
             secrets,
             tickets,
+            unguarded,
         }
     }
 }
 
 pub fn probe() -> HubInfo {
+    // § f18xcggkd.c@j5w9a
     match rpc_existing(Req::Ping) {
         Some(Rep::Stat {
             pid,
             secrets,
             tickets,
-        }) => HubInfo::up(pid, secrets, tickets),
+            unguarded,
+        }) => HubInfo::up(pid, secrets, tickets, unguarded),
         Some(Rep::Err(code)) if code == ERR_DENIED => HubInfo::stale(),
         _ => HubInfo::down(),
     }
@@ -120,6 +130,7 @@ impl CacheListing {
 }
 
 pub fn listing() -> CacheListing {
+    // § f18xcggkd.c@qx9fd
     match rpc_existing(Req::List) {
         Some(Rep::Listing {
             pid,
@@ -166,6 +177,7 @@ pub fn unset_window(scope: &str) -> Option<()> {
 }
 
 pub fn window(scope: &str) -> Option<String> {
+    // § f18xcggkd.c@k3g7z
     match rpc_existing(Req::GetWindow {
         scope: scope.to_string(),
     }) {
@@ -178,6 +190,7 @@ pub fn forget_names(names: &[String]) -> Option<()> {
     if names.is_empty() {
         return None;
     }
+    // § f18xcggkd.c@st89g
     match rpc_within(
         Req::Forget {
             names: names.to_vec(),
@@ -191,20 +204,24 @@ pub fn forget_names(names: &[String]) -> Option<()> {
 }
 
 pub fn stop() -> HubStop {
+    // § f18xcggkd.c@x8tpg
     let result = match rpc_existing(Req::Quit) {
         Some(Rep::Ok) => HubStop::Stopped,
         Some(Rep::Err(code)) if code == ERR_DENIED => HubStop::Stale,
         _ => HubStop::Down,
     };
     // A timeout is not Quit. Unlinking that socket orphans a live hub.
-    if matches!(result, HubStop::Stopped | HubStop::Stale) {
-        let _ = std::fs::remove_file(socket_path());
+    if matches!(result, HubStop::Stopped | HubStop::Stale)
+        && let Some(sock) = socket_path()
+    {
+        let _ = std::fs::remove_file(sock);
     }
     result
 }
 
 /// Never starts a hub. `None`: off, down, or stale.
 pub fn version_ledger() -> Option<VersionLedger> {
+    // § f18xcggkd.c@kxqzf
     match rpc_existing(Req::Version) {
         Some(Rep::Version(version)) => Some(version),
         _ => None,
@@ -212,6 +229,7 @@ pub fn version_ledger() -> Option<VersionLedger> {
 }
 
 pub fn put_t(id: &str) {
+    // § spzvjnk1e.a@mkz1y
     if let Some(req) = put_t_req(id, false) {
         let _ = rpc_existing(req);
     }
@@ -256,6 +274,7 @@ pub fn unlink_t(id: &str) {
     }
     let mut t = [0u8; 4];
     t.copy_from_slice(id.as_bytes());
+    // § one f18xcggkd.b@h0p7q, spzvjnk1e.a@e8s8p
     let _ = rpc_existing(Req::UnlinkT { t });
 }
 
@@ -276,6 +295,7 @@ pub fn tunnel_poll(id: u64) -> Option<TunnelRep> {
 
 /// Never starts a hub: a hub that is down holds no tunnel.
 pub fn tunnel_release(lease: &str) {
+    // § f18xcggkd.b@m803q
     let _ = rpc_within(
         Req::TunnelRelease {
             lease: lease.to_string(),
@@ -283,4 +303,64 @@ pub fn tunnel_release(lease: &str) {
         false,
         COMMAND_DEADLINE,
     );
+}
+
+/// Starts the hub when it is down: it holds the link from here on.
+pub fn link_start(
+    key: String,
+    host: String,
+    spec: String,
+    env: Vec<(Vec<u8>, Vec<u8>)>,
+    walk: Option<(String, String)>,
+) -> Option<Vec<LinkRow>> {
+    match rpc_within(
+        Req::LinkStart {
+            key,
+            host,
+            spec,
+            env,
+            walk,
+        },
+        true,
+        COMMAND_DEADLINE,
+    ) {
+        Some(Rep::Links(rows)) => Some(rows),
+        _ => None,
+    }
+}
+
+pub fn link_poll(key: &str) -> Option<Vec<LinkRow>> {
+    match rpc_within(
+        Req::LinkPoll {
+            key: key.to_string(),
+        },
+        false,
+        COMMAND_DEADLINE,
+    ) {
+        Some(Rep::Links(rows)) => Some(rows),
+        _ => None,
+    }
+}
+
+/// `Some(false)`: no link on `key`. `None`: no hub.
+pub fn link_stop(key: &str) -> Option<bool> {
+    match rpc_within(
+        Req::LinkStop {
+            key: key.to_string(),
+        },
+        false,
+        COMMAND_DEADLINE,
+    ) {
+        Some(Rep::Ok) => Some(true),
+        Some(Rep::Links(_)) => Some(false),
+        _ => None,
+    }
+}
+
+/// Empty when no hub runs.
+pub fn link_list() -> Vec<LinkRow> {
+    match rpc_within(Req::LinkList, false, COMMAND_DEADLINE) {
+        Some(Rep::Links(rows)) => rows,
+        _ => Vec::new(),
+    }
 }

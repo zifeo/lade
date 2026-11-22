@@ -45,6 +45,7 @@ pub(crate) struct Lease(Option<libc::pid_t>);
 impl Lease {
     /// Only when stdin is a terminal Lade holds in the foreground.
     pub(crate) fn take(pid: Option<u32>) -> Self {
+        // § j9zpdd26a.a@aq79s
         let Some(group) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Self(None);
         };
@@ -69,6 +70,7 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
+        // § j9zpdd26a.b@82gx6
         let (Some(group), Ok(mut line)) = (self.0, LINE.lock()) else {
             return;
         };

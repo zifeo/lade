@@ -347,3 +347,61 @@ fn assert_shell_cache(yml: &str, session_ttl: Option<&str>, expect_hit: bool) {
         assert!(!second_err.contains("KEY (c)"), "{second_err}");
     }
 }
+
+#[test]
+#[cfg(unix)]
+fn unset_window_refetches_shell_name() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let secret = dir.path().join("secret.txt");
+    fs::write(&secret, "first-value").unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        format!("\"echo\":\n  KEY: \"sh://cat {}\"\n", secret.display()),
+    )
+    .unwrap();
+    let lade = |args: &[&str]| {
+        let out = common::lade(home.path())
+            .current_dir(dir.path())
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    lade(&["ttl", "set", "5m"]);
+    let (first, _) = lade(&["set", "echo hi"]);
+    assert!(first.contains("first-value"), "{first}");
+    lade(&["ttl", "unset"]);
+    fs::write(&secret, "second-value").unwrap();
+    let (second, second_err) = lade(&["set", "echo hi"]);
+    lade(&["ttl", "forget"]);
+    assert!(second.contains("second-value"), "{second}");
+    assert!(!second_err.contains("KEY (c)"), "{second_err}");
+}
+
+#[test]
+fn raw_only_rule_never_starts_the_hub() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^true$\":\n  KEY: plain-value\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["--", "true"])
+        .assert()
+        .success();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["ttl"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("hub: down"));
+}

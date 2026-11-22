@@ -1,6 +1,7 @@
 use std::path::Path;
 
 pub fn git_stamp(cwd: &Path) -> (Option<String>, Option<String>) {
+    // § ck86fwnt7.a@v1yas
     let mut dir = cwd.to_path_buf();
     loop {
         let git = dir.join(".git");
@@ -43,11 +44,29 @@ fn read_worktree_head(gitfile: &Path) -> Option<String> {
 fn read_head(git: &Path) -> Option<String> {
     let head = std::fs::read_to_string(git.join("HEAD")).ok()?;
     let head = head.trim();
-    if let Some(rel) = head.strip_prefix("ref: ") {
-        let val = std::fs::read_to_string(git.join(rel)).ok()?;
-        return hex40(val.trim());
+    match head.strip_prefix("ref: ") {
+        Some(name) => read_ref(git, name.trim()),
+        None => hex40(head),
     }
-    hex40(head)
+}
+
+/// A linked worktree keeps its branches in the common dir, and `git gc`
+/// moves loose refs into `packed-refs`.
+fn read_ref(git: &Path, name: &str) -> Option<String> {
+    let common = match std::fs::read_to_string(git.join("commondir")) {
+        Ok(rel) => git.join(rel.trim()),
+        Err(_) => git.to_path_buf(),
+    };
+    for dir in [git, common.as_path()] {
+        if let Ok(val) = std::fs::read_to_string(dir.join(name)) {
+            return hex40(val.trim());
+        }
+    }
+    let packed = std::fs::read_to_string(common.join("packed-refs")).ok()?;
+    packed.lines().find_map(|line| {
+        let (hash, rest) = line.split_once(' ')?;
+        (rest.trim() == name).then(|| hex40(hash)).flatten()
+    })
 }
 
 fn hex40(s: &str) -> Option<String> {

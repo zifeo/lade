@@ -15,6 +15,7 @@ pub enum SignalAction {
 #[cfg(unix)]
 pub fn signal_action(signal: nix::sys::signal::Signal) -> SignalAction {
     use nix::sys::signal::Signal::*;
+    // § fe8gp3s51.a@n4bnj
     match signal {
         SIGHUP => SignalAction::Ignore,
         SIGINT | SIGTERM | SIGQUIT => SignalAction::Stop,
@@ -48,6 +49,11 @@ impl ChildWatch {
 
     pub fn stop_requested(&self) -> bool {
         STOP.load(Ordering::Acquire)
+    }
+
+    /// 128 plus the stop signal, as a shell reports a process a signal ended.
+    pub fn stop_code(&self) -> i32 {
+        128 + STOP_SIGNAL.load(Ordering::Acquire)
     }
 }
 
@@ -142,6 +148,7 @@ mod unix {
         }
         let pid = CHILD_PID.load(Ordering::Acquire);
         if pid > 0 {
+            // § fe8gp3s51.a@y05ba
             let pid = Pid::from_raw(pid);
             if KILL_GROUP.load(Ordering::Acquire) {
                 let _ = killpg(pid, signal);

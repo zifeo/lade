@@ -58,6 +58,13 @@ impl InvocationContext {
     pub fn is_interactive(&self) -> bool {
         self.mode == UiMode::Interactive
     }
+
+    /// Whether a command may ask a question on stdin. A harness that holds a
+    /// terminal is still not a person who can answer.
+    pub fn may_ask(&self) -> bool {
+        // § kgqztjzym.c@7s3zq
+        self.stdin_is_terminal && self.stderr_is_terminal && self.audience == Audience::Human
+    }
 }
 
 #[cfg(test)]

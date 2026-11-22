@@ -34,6 +34,7 @@ struct Incompressible {
 
 #[derive(Serialize)]
 struct RuleReport {
+    // § w8e03rv88.b@34xk1
     file: PathBuf,
     pattern: String,
     when: &'static str,
@@ -103,6 +104,7 @@ pub async fn run(opts: BenchCommand) -> Result<()> {
 
     let config = Arc::new(config);
     let saved = Arc::new(saved_user().await?);
+    // § w8e03rv88.a@kyghs
     let mut running = FuturesUnordered::new();
     for (path, pattern, rule) in entries {
         let config = Arc::clone(&config);
@@ -112,6 +114,7 @@ pub async fn run(opts: BenchCommand) -> Result<()> {
             time_rule(&config, &path, &pattern, &rule, &saved, hydrate_timeout).await
         });
     }
+    // § end w8e03rv88.a
 
     let mut rules = Vec::new();
     while let Some(report) = running.next().await {
@@ -152,6 +155,7 @@ async fn time_rule(
 ) -> RuleReport {
     let providers = provider_kinds(path, rule, saved_user);
     let started = Instant::now();
+    // § w8e03rv88.a@w6161
     let error = match timeout(
         hydrate_timeout,
         config.hydrate_rules(&[(path.to_path_buf(), rule.clone())], saved_user),
@@ -162,6 +166,7 @@ async fn time_rule(
         Ok(Err(e)) => Some(short_error(&e.to_string())),
         Err(_) => Some(format!("timeout {}", format_timeout(hydrate_timeout))),
     };
+    // § end w8e03rv88.a
     RuleReport {
         file: rule_file(path),
         pattern: pattern.to_string(),

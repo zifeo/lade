@@ -50,6 +50,7 @@ impl Provider for GcpSm {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@mwtgh
         super::PROVIDER_TIMEOUT
     }
 
@@ -63,10 +64,10 @@ impl Provider for GcpSm {
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
         let output = search_cli_ok(
+            self,
             "gcloud",
             &["secrets", "list", "--format=value(name)"],
             extra_env,
-            self.timeout(),
             "gcloud login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

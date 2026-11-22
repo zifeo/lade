@@ -126,7 +126,7 @@ codesign --force --sign - --options runtime "$(command -v lade)"
 <tr>
 <td width="50%">
 
-**Intermediate bindings.** `.NAME` builds another value in the same rule and is not exported.
+**Intermediate bindings.** `.NAME` builds another value of the same command and is not exported.
 
 </td>
 <td width="50%">
@@ -164,13 +164,13 @@ tofu apply
 | `tunnel` | A local forward for the process (`kubectl://`, `tsh://`, …) |
 | `package` | A pinned CLI or setup package (`mise://`, `apm://`, `skills://`) |
 
-`lade add secret` / `lade add tunnel` / `lade add package` write the nearest yaml, then run `lade setup`. `lade remove` drops a binding and does not run setup.
+`lade add secret` / `lade add tunnel` / `lade add package` write the nearest yaml, then run `lade setup`. `lade remove` drops a binding and does not run setup. Both edit only the binding's lines and keep your comments and formatting.
 
 Family aliases (CLI only): `env` → `secret`; `net` / `network` / `fwd` → `tunnel`; `pkg` / `cli` / `tool` / `apm` / `skill` → `package`.
 
 ### Secret
 
-A vault, a file, a shell snippet, or a raw string. Provider-resolved values are masked unless `--no-mask`. Raw is **not** a vault secret. It is a value you put in the yaml. `lade add` warns once. A wrap does not. It still lives in this family because it becomes an env var.
+A vault, a file, a shell snippet, or a raw string. In a wrap (`lade -- cmd`, pre-tool), provider-resolved values are masked unless `--no-mask`. Pre-exec runs the command in your shell: its output is not masked. Raw is **not** a vault secret. It is a value you put in the yaml. `lade add` warns once. A wrap does not. It still lives in this family because it becomes an env var.
 
 ```yaml
 "^psql":
@@ -191,13 +191,13 @@ A vault, a file, a shell snippet, or a raw string. Provider-resolved values are 
 | GCP Secret Manager | `gcpsm://PROJECT/NAME` | Optional `?query=`, `?location=`. |
 | age | `age://CIPHERTEXT` | `?plugin=`, `?identity=`. |
 | SOPS | `sops://PATH?query=.field` | `?plugin=` remaps env into the SOPS child. |
-| File | `file://PATH?query=.fields[0].field` | `?query=` required. INI, JSON, YAML, TOML. |
+| File | `file://PATH?query=.fields[0].field` | `?query=` required, else the command fails. `!file://...` keeps the text raw. INI, JSON, YAML, TOML. |
 | Shell | `sh://gcloud auth print-access-token` | Also `bash://`, `zsh://`, `fish://`. |
 | Raw | `"visible-in-the-yaml"` | Not a secret. An unknown scheme, like `https://`, is raw. `!` forces raw, `!!` keeps a leading `!`. |
 
-Every provider answers within **10 seconds**, or the command stops with an error naming it. A locked or logged-out vault fails fast. 1Password, age, and SOPS get **30 seconds**: they can wait on Touch ID or a hardware key touch. `lade status` lists each timeout. At a terminal, a provider CLI gets the keyboard while it runs, so it can ask (`bw unlock`, an MFA code, `sh://read`). A tunnel cannot: it runs in the hub, away from any terminal.
+Every provider answers within **10 seconds**, or the command stops with an error naming it. A locked or logged-out vault fails fast. 1Password, age, and SOPS get **30 seconds**: they can wait on Touch ID or a hardware key touch. `lade status` lists each timeout. At a terminal, a provider CLI gets the keyboard while it runs, so it can ask (`bw unlock`, an MFA code, the 1Password account password, `sh://read`). A tunnel cannot: it runs in the hub, away from any terminal. Nor can an age plugin: the age library starts it, and an `age://?plugin=` identity that asks for a PIN fails with the plugin's error.
 
-Every value a provider resolves (vault, 1Password, file, sops, age, cloud) stays in RAM for **5 minutes** after the first hydrate, so a Touch ID or key touch is not asked again in that time. Set `ttl:` on that rule's `.` to turn it off or raise it, up to **24 hours**. Shell URIs stay off unless that body sets `ttl:`. Raw and packages never cache. Tunnels have no default: see [Tunnel](#tunnel). `lade ttl set 2h` marks this cwd on the hub. Parent folders share it. `ttl: off` on the body still wins. `lade ttl unset` clears this cwd. `lade ttl` lists cached names and tunnels. `lade ttl forget` drops the RAM and stops the tunnels now.
+Every value a provider resolves (vault, 1Password, file, sops, age, cloud) stays in RAM for **5 minutes** after the first hydrate, so a Touch ID or key touch is not asked again in that time. Set `ttl:` on that rule's `.` to turn it off or raise it, up to **24 hours**. Shell URIs stay off unless that body sets `ttl:`. Raw and packages never cache. Tunnels have no default: see [Tunnel](#tunnel). `lade ttl set 2h` marks this cwd on the hub. Ancestors and children share it. `ttl: off` on the body still wins. `lade ttl unset` clears this cwd. `lade ttl` lists cached names and tunnels. `lade ttl forget` drops the RAM and stops the tunnels now.
 
 `max_cache` in `config.json` caps every secret and tunnel ttl, and every window, for this user: `"1h"`, or `"0"` to turn the cache off. The hub watches the file. Any change, up or down, drops every cached secret and stops every tunnel no command holds, so a raised cap never extends what is already there. Durations go up to 24h. An invalid value, longer ones included, turns the cache off, and `lade status` says so.
 
@@ -236,7 +236,7 @@ Lade binds the local port itself and relays to the provider, so holding the port
 
 When a tunnel or a secret fails, the command is cancelled: it would run without what it needs, or reach the wrong listener. A human at a terminal first gets 5 s to press Enter and run it anyway, without Lade. In pre-exec, Lade empties `PATH` for that one command so the shell finds nothing to run and prints `Lade cancelled <command>.` (bash 3.2, macOS's `/bin/bash`, prints its own `command not found`). A command typed with its full path still runs.
 
-The kernel frees the port when its holder dies: no lock file. Every tunnel runs in the hub, which restarts the provider if it exits. `kubefwd://` is the exception: kubefwd binds its own addresses, so Lade only checks the port is free before it starts.
+The kernel frees the port when its holder dies: no lock file. Every tunnel runs in the hub, which restarts the provider if it exits. `kubefwd://` is the exception: kubefwd binds its own addresses, so Lade only checks the port is free before it starts. A restart that finds another program on the port fails the tunnel, and no command reuses it.
 
 A tunnel stops with its command. `ttl:` on the rule's `.`, or a `lade ttl set` window, keeps it that long after the last command that used it. The next command to the same target reuses it, with or without a ttl of its own. Ctrl-C while tunnels connect stops them and cancels the command.
 
@@ -263,7 +263,7 @@ A CLI for the matched command, or a setup-only package. The key is the argv0 you
 
 ```yaml
 ^tofu:
-  tofu1.8: mise://aqua/opentofu/opentofu@1.8.2
+  tofu: mise://aqua/opentofu/opentofu@1.8.2
   TF_VAR_FOO: op://DOMAIN/VAULT/ITEM/FIELD
 ```
 
@@ -282,7 +282,7 @@ Optional `?setup=` / `?teardown=` run on `lade setup` / `lade teardown` in this 
 
 ```yaml
 .:
-  dcg: mise://github:Dicklesworthstone/destructive_command_guard@0.6.6?setup=install&teardown=uninstall
+  dcg: mise://github/Dicklesworthstone/destructive_command_guard@0.6.6?setup=install&teardown=uninstall
 ```
 
 | Scheme | URI | What |
@@ -295,9 +295,11 @@ Optional `?setup=` / `?teardown=` run on `lade setup` / `lade teardown` in this 
 
 Walk cwd → `$HOME`. Later file overlays the same key. Child wins. Parent is the default. A command in `app/` uses `app/lade.yaml` over the repo root. `~/lade.yaml` is a parent like any other.
 
-YAML `~` on a key cancels a parent value. `${NAME}` composes bindings in the same rule. `.NAME` is intermediate: used to build another value, not exported.
+YAML `~` on a key cancels a parent value, whatever its family: `NAME: ~` and `.NAME: ~` cancel the same name, and never a value of their own body. `${NAME}` composes bindings of the same command. `.NAME` is intermediate: used to build another value, not exported.
 
 Same directory must not have both `lade.yaml` and `lade.yml`.
+
+A `lade.yaml` on the walk that does not load stops every command there: `lade --` and `lade mcp` refuse it, the shell hook cancels the line, and a pre-tool hook denies it to the harness. The message names the file and the error. Lade's own lines still run: `lade status` shows the error, and in a wrapped shell `eval "$(lade off)"` pauses Lade until the file is fixed.
 
 ## Observability
 
@@ -315,7 +317,7 @@ lade usage
 lade status
 ```
 
-Queries stay on this git root. `--all` / `--global` reads wider. Details: [docs/observability.md](docs/observability.md).
+Queries stay on this git root. `--all` / `--global` reads wider, and is required outside a git root. Details: [docs/observability.md](docs/observability.md).
 
 ## Shell and harnesses
 
@@ -347,6 +349,16 @@ Commit the hook in `.claude/settings.json` to require Lade from everyone who clo
 ```
 
 Claude reads that file only in a session started at the repo root. Lade copies the hook, `onFailure` included, into the untracked `.claude/settings.local.json`, which Claude reads from any subdirectory. From a git worktree, Claude reads it at the main checkout's root, so the copy goes there. Lade writes the copy when a shell starts Claude Code, in the hourly check, and on `lade setup` or `lade hook enable --harness claude`. The command is the same, so Claude runs it once. Lade never moves or strips the committed hook, and `lade hook disable` leaves it. `lade status` shows it as `committed` (`blocking` or `not blocking`) and flags a local copy that is missing or differs from it.
+
+### Require Lade on Cursor, OpenCode and Codex
+
+Commit the repo hooks `lade setup` writes. They require Lade on Cursor and OpenCode: a missing or failing Lade blocks the command instead of running it without Lade.
+
+- Cursor: the repo's `.cursor/hooks.json` carries `"failClosed": true`. A refresh adds it to a repo hook an earlier Lade wrote.
+- OpenCode: the plugin in the repo's `.opencode/plugins/` blocks the tool call and says why.
+- Codex: the hook rewrites lines and Codex decides what a failed hook does. Codex runs the command when the hook cannot run.
+
+Home hooks (`--global`) leave a failure to the harness: Cursor and Codex run the command, and the OpenCode home plugin says why on stderr and runs it.
 
 ## When, users, approval
 
@@ -399,7 +411,7 @@ User-facing verbs. Internal injection mechanics (`set`, `unset`, bare `hook` on 
 
 Progress tags: `(c)` cached from the hub, `(o)` overridden by a closer yaml, `(u)` unset. Manual: [docs/cli.md](docs/cli.md).
 
-A vault edit does not evict RAM. `lade ttl` lists names. `lade ttl set 2h` raises the 5m default for this cwd on the hub, and keeps its tunnels that long. Parent folders share it. `lade ttl unset` clears this cwd. `lade ttl forget` (or `lade log prune --hub`) drops this binary's hub. Next hydrate refetches. [docs/cache.md](docs/cache.md).
+A vault edit does not evict RAM. `lade ttl` lists names. `lade ttl set 2h` raises the 5m default for this cwd on the hub, and keeps its tunnels that long. Ancestors and children share it. `lade ttl unset` clears this cwd. `lade ttl forget` (or `lade log prune --hub`) drops this binary's hub. Next hydrate refetches. [docs/cache.md](docs/cache.md).
 
 `silent: true` on a rule skips secret progress lines for that rule. Provider URIs can **imply** a locked CLI on setup (`op://` → `op`, `vault://` → `vault`, …) even when the yaml has no `mise://` pin. `lade status` reports min CLI versions and `sdk` vs `cli` transport.
 
@@ -415,7 +427,7 @@ lade mcp -- npx -y @modelcontextprotocol/server-everything
 lade mcp https://example.com/mcp
 ```
 
-Bindings become upstream headers (HTTP) or env for the child (stdio). Same rule matching, disclaimers, and diary as `lade -- <cmd>`. Details: [docs/architecture.md](docs/architecture.md).
+Bindings become upstream headers (HTTP) or env for the child (stdio). Same rule matching, disclaimers, package pins, and diary as `lade -- <cmd>`. Details: [docs/architecture.md](docs/architecture.md).
 
 ## CI build
 

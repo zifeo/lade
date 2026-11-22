@@ -1,5 +1,28 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn a_mise_run_drops_every_variable_that_names_a_config_file() {
+    let names = [
+        "MISE_ENV",
+        "MISE_GLOBAL_CONFIG_FILE",
+        "MISE_CONFIG_DIR",
+        "MISE_SYSTEM_CONFIG_FILE",
+        "MISE_OVERRIDE_CONFIG_FILENAMES",
+        "MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES",
+        "MISE_DEFAULT_CONFIG_FILENAME",
+        "MISE_DEFAULT_TOOL_VERSIONS_FILENAME",
+    ];
+    temp_env::with_vars(names.map(|name| (name, Some("user.toml"))), || {
+        let mut cmd = std::process::Command::new("/usr/bin/env");
+        install::isolate(&mut cmd, &[]);
+        let out = String::from_utf8(cmd.output().unwrap().stdout).unwrap();
+        for name in names {
+            assert!(!out.contains(&format!("{name}=")), "{name}: {out}");
+        }
+    });
+}
+
 #[test]
 fn install_from_url_refuses_a_range_without_calling_mise() {
     let dir = tempdir().unwrap();
@@ -296,7 +319,10 @@ fn stale_sidecar_is_ignored_and_refreshed() {
     });
     write_exec(
         &stub.join("mise"),
-        r#"printf '%s\n' '{"RUSTUP_TOOLCHAIN":{"value":"1.96.0","tool":"core:rust"},"JAVA_HOME":{"value":"/opt/java","tool":"java"}}'"#,
+        r#"
+if [ "$1" = "--version" ]; then printf '%s\n' "mise 2024.8.12"; exit 0; fi
+printf '%s\n' '{"RUSTUP_TOOLCHAIN":{"value":"1.96.0","tool":"core:rust"},"JAVA_HOME":{"value":"/opt/java","tool":"java"}}'
+"#,
     );
     std::fs::write(
         dir.path().join("lade.yml"),

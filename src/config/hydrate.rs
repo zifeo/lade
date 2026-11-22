@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 
-use super::resolve::{ResolvedEntry, binding_name, check_env_name, resolve_entry};
+use super::resolve::{ResolvedEntry, binding_name, body_entries, check_env_name, replacing_name};
 use super::secret::resolve_lade_secret;
 use super::{Config, LadeRule, Output, is_shell_uri};
 use crate::ticket::TicketSecret;
@@ -21,6 +21,11 @@ struct Binding {
     extra_env: HashMap<String, String>,
 }
 
+fn routed_upstream(uri: &str) -> bool {
+    uri.split_once("://")
+        .is_some_and(|(scheme, _)| lade_sdk::upstream::routes(scheme))
+}
+
 async fn bindings_from_rules(
     rules: &[(PathBuf, LadeRule)],
     saved_user: &Option<String>,
@@ -28,11 +33,15 @@ async fn bindings_from_rules(
     let mut bindings = HashMap::<String, Binding>::new();
     for (cwd, rule) in rules {
         let output = rule.config.as_ref().and_then(|config| config.file.clone());
+        // § zk7sjvann.a@j6bxs
         let extra_env = if let Some(uri) = rule
             .config
             .as_ref()
             .and_then(|config| config.onepassword_service_account.as_ref())
             .and_then(|secret| resolve_lade_secret(secret, saved_user))
+            // On an attached remote the laptop resolves the body with its
+            // config: the token stays there.
+            .filter(|uri| !routed_upstream(uri))
         {
             HashMap::from([(
                 "OP_SERVICE_ACCOUNT_TOKEN".to_string(),
@@ -41,21 +50,21 @@ async fn bindings_from_rules(
         } else {
             HashMap::new()
         };
-        for (key, secret) in &rule.secrets {
-            match resolve_entry(key, secret, saved_user) {
-                Some(ResolvedEntry::Unset { key })
-                | Some(ResolvedEntry::Tunnel { key, .. })
-                | Some(ResolvedEntry::Pin { key, .. })
-                | Some(ResolvedEntry::Package { key, .. }) => {
-                    let (name, _) = binding_name(&key)?;
-                    bindings.remove(&name);
+        for entry in body_entries(rule, saved_user) {
+            match entry {
+                ResolvedEntry::Unset { key } => {
+                    bindings.remove(&replacing_name(&key, true)?);
                 }
-                Some(ResolvedEntry::InvalidNumericSecret { key }) => bail!(
+                ResolvedEntry::Tunnel { key, .. }
+                | ResolvedEntry::Pin { key, .. }
+                | ResolvedEntry::Package { key, .. } => {
+                    bindings.remove(&replacing_name(&key, false)?);
+                }
+                ResolvedEntry::InvalidNumericSecret { key } => bail!(
                     "numeric key '{}' must use a tunnel URI (kubectl://, kubefwd://, tsh://)",
                     key
                 ),
-                None => {}
-                Some(ResolvedEntry::Secret { key, value }) => {
+                ResolvedEntry::Secret { key, value } => {
                     let (name, private) = binding_name(&key)?;
                     check_env_name(&name, output.is_some())?;
                     let binding = Binding {
@@ -65,11 +74,6 @@ async fn bindings_from_rules(
                         output: output.as_ref().map(|path| cwd.join(path)),
                         extra_env: extra_env.clone(),
                     };
-                    if let Some(existing) = bindings.get(&name)
-                        && existing.private != binding.private
-                    {
-                        bail!("binding '{name}' is declared both public and private");
-                    }
                     bindings.insert(name, binding);
                 }
             }
@@ -80,12 +84,15 @@ async fn bindings_from_rules(
 
 async fn bindings_from_ticket(
     secrets: &[TicketSecret],
-    op_sa: Option<&str>,
+    seed: &HashMap<String, String>,
 ) -> Result<HashMap<String, Binding>> {
     let mut op_tokens = HashMap::<(PathBuf, String), String>::new();
     let mut bindings = HashMap::<String, Binding>::new();
     for secret in secrets {
-        let extra_env = if let Some(uri) = secret.op_sa.as_deref().or(op_sa) {
+        // § one zk7sjvann.b@awfxj, zk7sjvann.a@d7p4v
+        let extra_env = if seed.contains_key(&secret.key) {
+            HashMap::new()
+        } else if let Some(uri) = secret.op_sa.as_deref() {
             let key = (secret.cwd.clone(), uri.to_string());
             let token = if let Some(token) = op_tokens.get(&key) {
                 token.clone()
@@ -101,6 +108,7 @@ async fn bindings_from_ticket(
         if let Some(existing) = bindings.get(&secret.key)
             && existing.private != secret.private
         {
+            // § dyat01nyj.a@7mvtr
             bail!(
                 "binding '{}' is declared both public and private",
                 secret.key
@@ -120,26 +128,60 @@ async fn bindings_from_ticket(
     Ok(bindings)
 }
 
-async fn hydrate_bindings(
-    bindings: HashMap<String, Binding>,
-    mut on_group: impl FnMut(&HashSet<String>),
-) -> Result<(
+/// Exported values by output, name to config source, maskable names and
+/// sources, warnings, and the values of private bindings by name.
+pub(crate) type Hydrated = (
     HashMap<Output, HashMap<String, String>>,
     HashMap<String, String>,
     FxHashSet<String>,
     Vec<String>,
-)> {
+    HashMap<String, String>,
+);
+
+/// `seed` holds values the hub served: those bindings stay in the graph as
+/// resolved nodes, so a reference to one resolves like a fetched one.
+async fn hydrate_bindings(
+    bindings: HashMap<String, Binding>,
+    seed: &HashMap<String, String>,
+    mut on_group: impl FnMut(&HashSet<String>),
+) -> Result<Hydrated> {
+    // § v3rjmav3z@dq35b
     let templates = bindings
         .iter()
         .map(|(name, binding)| (name.clone(), Template::parse(&binding.source)))
         .collect::<HashMap<_, _>>();
     let dag = Dag::new(templates)?;
     let mut degrees = dag.indegrees();
-    let mut ready = dag.initial_ready();
     let mut values = HashMap::<String, String>::new();
     let mut sources = HashMap::<String, String>::new();
     let mut maskable = FxHashSet::default();
     let mut warnings = Vec::new();
+    let mut ready = Vec::new();
+    // § v3rjmav3z.a@2dh50
+    let served = |name: &str| bindings.contains_key(name) && seed.contains_key(name);
+    for name in dag.initial_ready() {
+        if !served(&name) {
+            ready.push(name);
+        }
+    }
+    for (name, value) in seed {
+        let Some(binding) = bindings.get(name) else {
+            continue;
+        };
+        values.insert(name.clone(), value.clone());
+        sources.insert(name.clone(), binding.source.clone());
+        // § qq076qjq2.a@sysb8
+        maskable.insert(name.clone());
+        for dependent in dag.dependents(name) {
+            let degree = degrees.get_mut(dependent).expect("planned dependent");
+            *degree -= 1;
+            if *degree == 0 && !served(dependent) {
+                ready.push(dependent.clone());
+            }
+        }
+    }
+    ready.sort();
+    // § end v3rjmav3z.a
 
     let mut running = FuturesUnordered::new();
     while !ready.is_empty() || !running.is_empty() {
@@ -147,6 +189,7 @@ async fn hydrate_bindings(
         let mut groups =
             BTreeMap::<(PathBuf, Vec<(String, String)>, bool), HashMap<String, String>>::new();
         for name in &batch {
+            // § v3rjmav3z.c@ttz6h
             let binding = bindings.get(name).expect("planned binding");
             let template = dag.template(name).expect("planned template");
             let shell_source = is_shell_uri(&binding.source);
@@ -181,12 +224,15 @@ async fn hydrate_bindings(
                 Ok::<_, anyhow::Error>((configured, result))
             });
         }
+        // The first group that fails ends the hydrate with nothing returned.
+        // § d5fjsqxna.a@p1ydh
         let (configured, (resolved, group_maskable, group_warnings)) = running
             .next()
             .await
             .expect("a planned DAG must have an active group")?;
         on_group(&configured.keys().cloned().collect());
         for (name, value) in resolved {
+            // § qq076qjq2.a@t44z7
             let source = configured.get(&name).expect("configured source").clone();
             if group_maskable.contains(&source)
                 || dag
@@ -209,25 +255,48 @@ async fn hydrate_bindings(
             for dependent in dag.dependents(name) {
                 let degree = degrees.get_mut(dependent).expect("planned dependent");
                 *degree -= 1;
-                if *degree == 0 {
+                if *degree == 0 && !served(dependent) {
                     newly_ready.insert(dependent.clone());
                 }
             }
         }
         ready.extend(newly_ready);
     }
+    // § end v3rjmav3z
 
     let mut vars = FxHashMap::<Output, HashMap<String, String>>::default();
+    let mut private = HashMap::new();
     for (name, binding) in bindings {
+        let value = values.remove(&name).expect("resolved binding");
+        // § dyat01nyj@fsv9h
         if binding.private {
+            // § qq076qjq2.b@e91vt
+            private.insert(name, value);
             continue;
         }
-        vars.entry(binding.output).or_default().insert(
-            name.clone(),
-            values.remove(&name).expect("resolved binding"),
-        );
+        vars.entry(binding.output).or_default().insert(name, value);
     }
-    Ok((vars.into_iter().collect(), sources, maskable, warnings))
+    Ok((
+        vars.into_iter().collect(),
+        sources,
+        maskable,
+        warnings,
+        private,
+    ))
+}
+
+/// Hydrate `rules` with no `Config`: a walk read from text, the remote's
+/// on the laptop.
+pub(crate) async fn hydrate_bodies(
+    rules: &[(PathBuf, LadeRule)],
+    saved_user: &Option<String>,
+) -> Result<Hydrated> {
+    // § w8e03rv88.c@8199k
+    // Plans first, so a binding or reference error fails before a
+    // service-account token is fetched.
+    super::plan::secrets_from_rules(rules, saved_user)?;
+    let bindings = bindings_from_rules(rules, saved_user).await?;
+    hydrate_bindings(bindings, &HashMap::new(), |_| {}).await
 }
 
 impl Config {
@@ -246,42 +315,21 @@ impl Config {
         FxHashSet<String>,
         Vec<String>,
     )> {
-        self.hydrate_rules_except(rules, saved_user, &std::collections::HashSet::new())
-            .await
+        let (vars, sources, maskable, warnings, _private) =
+            hydrate_bodies(rules, saved_user).await?;
+        Ok((vars, sources, maskable, warnings))
     }
 
-    pub async fn hydrate_rules_except(
-        &self,
-        rules: &[(PathBuf, LadeRule)],
-        saved_user: &Option<String>,
-        skip: &std::collections::HashSet<String>,
-    ) -> Result<(
-        HashMap<Output, HashMap<String, String>>,
-        HashMap<String, String>,
-        FxHashSet<String>,
-        Vec<String>,
-    )> {
-        let mut bindings = bindings_from_rules(rules, saved_user).await?;
-        for name in skip {
-            bindings.remove(name);
-        }
-        hydrate_bindings(bindings, |_| {}).await
-    }
-
-    /// Hydrate ticket secrets from a pre-event. `op_sa` is the resolved
-    /// `1password_service_account` URI, not the token.
+    /// Hydrate ticket secrets from a pre-event. Each secret carries its own
+    /// rule's `1password_service_account` URI. `seed` holds the values the
+    /// hub served.
     pub async fn hydrate_work_on_group(
         secrets: &[TicketSecret],
-        op_sa: Option<&str>,
+        seed: &HashMap<String, String>,
         on_group: impl FnMut(&HashSet<String>),
-    ) -> Result<(
-        HashMap<Output, HashMap<String, String>>,
-        HashMap<String, String>,
-        FxHashSet<String>,
-        Vec<String>,
-    )> {
-        let bindings = bindings_from_ticket(secrets, op_sa).await?;
-        hydrate_bindings(bindings, on_group).await
+    ) -> Result<Hydrated> {
+        let bindings = bindings_from_ticket(secrets, seed).await?;
+        hydrate_bindings(bindings, seed, on_group).await
     }
 
     #[cfg(test)]
@@ -295,7 +343,7 @@ impl Config {
         Vec<String>,
     )> {
         let saved_user = super::saved_user().await?;
-        self.hydrate_rules(&self.collect(command), &saved_user)
+        self.hydrate_rules(&self.collect(command)?, &saved_user)
             .await
     }
 }

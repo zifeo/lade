@@ -236,6 +236,12 @@ fn append_preexec(mut report: Report, shell: &crate::preexec::SetupShell) -> Rep
                 .line(row("missing", "this profile"))
                 .dim("Run `lade hook enable --shell`, then reload this shell."),
             crate::preexec::SetupShell::SkippedCi => report.dim("CI. No shell wrap."),
+            crate::preexec::SetupShell::Unknown(reason) => report
+                .line(row("unknown", "this shell"))
+                .dim(unknown_shell_hint(reason)),
+            crate::preexec::SetupShell::Unreadable(reason) => report
+                .line(row("unknown", "this machine"))
+                .dim(unreadable_profile_hint(reason)),
         };
     }
     for sh in &listed {
@@ -252,8 +258,24 @@ fn append_preexec(mut report: Report, shell: &crate::preexec::SetupShell) -> Rep
             report.dim("Run `lade hook enable --shell`, then reload this shell.")
         }
         crate::preexec::SetupShell::SkippedCi => report.dim("CI. No shell wrap."),
+        crate::preexec::SetupShell::Unknown(reason) => report.dim(unknown_shell_hint(reason)),
+        crate::preexec::SetupShell::Unreadable(reason) => {
+            report.dim(unreadable_profile_hint(reason))
+        }
         crate::preexec::SetupShell::Current { .. } => report,
     }
+}
+
+fn unreadable_profile_hint(reason: &str) -> String {
+    format!(
+        "{reason} Setup wrote no shell hook. Fix the file, then run `lade hook enable --shell` if no profile has it."
+    )
+}
+
+fn unknown_shell_hint(reason: &str) -> String {
+    format!(
+        "{reason}. The hook goes in a bash, zsh or fish profile: run `lade hook enable --shell` from one of them."
+    )
 }
 
 fn append_pretool_rows(mut report: Report, pretool: &PretoolReport, show_verb: bool) -> Report {

@@ -63,6 +63,7 @@ impl Provider for Infisical {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@8fcgj
         super::PROVIDER_TIMEOUT
     }
 

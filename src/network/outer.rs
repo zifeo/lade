@@ -49,11 +49,13 @@ impl Outer {
 
     fn assemble(host: &str, port: u16) -> Result<Self, ClaimError> {
         let addrs = resolve(host, port)?;
+        // § ewd09vh5j.b@2edw1
         for ip in PROBES {
             if !addrs.iter().any(|addr| addr.ip() == ip) {
                 probe(ip, port)?;
             }
         }
+        // § end ewd09vh5j.b
         let mut listeners = Vec::new();
         let mut unbound = None;
         for addr in &addrs {

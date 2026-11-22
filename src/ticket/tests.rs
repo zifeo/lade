@@ -36,7 +36,6 @@ fn sample_pre_event() -> PreEvent {
             ttl: Some("8h".to_string()),
         }],
         matches: json!([]),
-        op_sa: None,
         agent: json!({"harness": "cursor"}),
         pending: false,
     }
@@ -135,6 +134,31 @@ fn peel_pretool_does_not_consume_inject() {
 }
 
 #[test]
+fn peel_pretool_leaves_the_commands_own_pretool() {
+    with_ticket_dir(|| {
+        fs::write(path("x7Km"), "{}").unwrap();
+        for argv in [
+            vec!["lade", "--", "tool", "--pretool=abcd"],
+            vec!["lade", "tool", "--pretool", "x7Km"],
+            vec!["lade", "inject", "tool", "--pretool=x7Km"],
+        ] {
+            let argv = argv.into_iter().map(OsString::from).collect::<Vec<_>>();
+            let (id, peeled) = peel_pretool(argv.clone());
+            assert!(id.is_none(), "{argv:?}");
+            assert_eq!(peeled, argv);
+        }
+        unlink("x7Km").unwrap();
+    });
+}
+
+#[test]
+fn a_drawn_id_that_spells_a_verb_is_drawn_again() {
+    // CHARSET indexes: e=30, v=47, a=26, l=37 spell `eval`.
+    let mut draws = [[30, 47, 26, 37], [0, 1, 2, 3]].into_iter();
+    assert_eq!(id_from_draws(|| draws.next().unwrap()), "ABCD");
+}
+
+#[test]
 fn write_twice_in_one_ms_does_not_spin() {
     with_ticket_dir(|| {
         let pre = sample_pre_event();
@@ -145,6 +169,19 @@ fn write_twice_in_one_ms_does_not_spin() {
         for id in ids {
             unlink(&id).unwrap();
         }
+    });
+}
+
+#[test]
+fn write_never_overwrites_a_drawn_id_that_exists() {
+    with_ticket_dir(|| {
+        fs::create_dir_all(dir()).unwrap();
+        fs::write(path("aaaa"), b"other ticket").unwrap();
+        let mut ids = ["aaaa", "bbbb"].into_iter();
+        let id = write_drawing(&sample_pre_event(), || ids.next().unwrap().to_string())
+            .expect("write ticket");
+        assert_eq!(id, "bbbb");
+        assert_eq!(fs::read(path("aaaa")).unwrap(), b"other ticket");
     });
 }
 

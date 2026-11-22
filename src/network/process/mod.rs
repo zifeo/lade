@@ -9,6 +9,8 @@ mod tests;
 
 pub(crate) use direct::Direct;
 pub(crate) use forward::{EndpointSlot, RunningForward, Stop};
+pub(crate) use policy::LINKED_STARTUP_TIMEOUT;
+pub(super) use policy::STARTUP_TIMEOUT;
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -25,6 +27,7 @@ const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(30);
 pub(crate) fn configure_child_process(command: &mut Command) {
     #[cfg(target_family = "unix")]
     {
+        // § n6qm5smv5.d@wyd4a
         use std::os::unix::process::CommandExt;
         unsafe {
             command.pre_exec(|| {

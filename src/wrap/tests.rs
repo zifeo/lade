@@ -7,8 +7,25 @@ use std::collections::{HashMap, HashSet};
 fn select_tool_env_rejects_pin_secret_collision() {
     let mut env = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "stable".to_string())]);
     let tool = HashMap::from([("RUSTUP_TOOLCHAIN".to_string(), "1.96.0".to_string())]);
-    let err = select_tool_env(&mut env, tool).unwrap_err();
-    assert!(err.to_string().contains("conflicting env"), "{err}");
+    let err = select_tool_env(&mut env, tool).unwrap_err().to_string();
+    assert!(err.contains("conflicting env 'RUSTUP_TOOLCHAIN'"), "{err}");
+    assert!(err.contains("mise pin"), "{err}");
+    assert!(!err.contains("stable") && !err.contains("1.96.0"), "{err}");
+}
+
+#[test]
+fn merge_env_conflict_names_the_key_not_the_values() {
+    let mut env = HashMap::from([("DB_HOST".to_string(), "secret-host".to_string())]);
+    let tunnel = HashMap::from([("DB_HOST".to_string(), "127.0.0.1".to_string())]);
+    let err = merge_env_with_conflicts(&mut env, tunnel)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("conflicting env 'DB_HOST'"), "{err}");
+    assert!(err.contains("tunnel"), "{err}");
+    assert!(
+        !err.contains("secret-host") && !err.contains("127.0.0.1"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -20,8 +37,20 @@ fn select_tool_env_keeps_matching_secret() {
 }
 
 #[test]
-fn select_tool_env_path_always_wins() {
-    let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
+fn select_tool_env_refuses_a_binding_named_path() {
+    let mut env = HashMap::from([("PATH".to_string(), "/secret/bin".to_string())]);
+    let tool = HashMap::from([("PATH".to_string(), "/pin/bin:/usr/bin".to_string())]);
+    let err = select_tool_env(&mut env, tool).unwrap_err().to_string();
+    assert!(err.contains("conflicting env 'PATH'"), "{err}");
+    assert!(
+        !err.contains("/secret/bin") && !err.contains("/pin/bin"),
+        "{err}"
+    );
+}
+
+#[test]
+fn select_tool_env_sets_the_pin_path() {
+    let mut env = HashMap::new();
     let tool = HashMap::from([("PATH".to_string(), "/pin/bin:/usr/bin".to_string())]);
     select_tool_env(&mut env, tool).unwrap();
     assert_eq!(env.get("PATH").unwrap(), "/pin/bin:/usr/bin");
@@ -46,6 +75,7 @@ async fn provider_race_fails_fast_and_does_not_deadlock_progress_renderer() {
                 FxHashSet::default(),
                 Vec::new(),
                 HashSet::new(),
+                HashMap::new(),
             ))
         };
         let network_task = async { Err::<(), _>(anyhow::anyhow!("tunnel error: fast failure")) };

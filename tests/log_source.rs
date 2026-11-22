@@ -92,6 +92,7 @@ fn source_drops_temp_extract_dirs() {
         .env("TMPDIR", scratch.path())
         .args([
             "log",
+            "--all",
             "--json",
             "--since",
             "1d",
@@ -114,6 +115,7 @@ fn usage_source_pack_json() {
         .current_dir(dir.path())
         .args([
             "usage",
+            "--all",
             "--json",
             "--since",
             "1d",
@@ -166,6 +168,7 @@ fn source_since_filters_packed_window() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "--json",
             "--limit",
             "10",
@@ -196,6 +199,7 @@ fn source_invalid_pack_and_missing_db_clean_temps() {
         .env("TMPDIR", scratch.path())
         .args([
             "log",
+            "--all",
             "--json",
             "--since",
             "1d",
@@ -226,6 +230,7 @@ fn source_invalid_pack_and_missing_db_clean_temps() {
         .env("TMPDIR", scratch.path())
         .args([
             "log",
+            "--all",
             "--json",
             "--since",
             "1d",
@@ -275,7 +280,7 @@ fn log_and_usage_warn_and_still_print_a_tampered_row() {
         .unwrap();
     let log = lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--since", "1d"])
+        .args(["log", "--all", "--json", "--since", "1d"])
         .assert()
         .success();
     let log_err = String::from_utf8_lossy(&log.get_output().stderr);
@@ -290,7 +295,7 @@ fn log_and_usage_warn_and_still_print_a_tampered_row() {
     );
     let usage = lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--json", "--since", "1d"])
+        .args(["usage", "--all", "--json", "--since", "1d"])
         .assert()
         .success();
     let usage_err = String::from_utf8_lossy(&usage.get_output().stderr);
@@ -310,7 +315,7 @@ fn log_warns_later_tamper_with_rows_before() {
         .unwrap();
     let log = lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--since", "1d"])
+        .args(["log", "--all", "--json", "--since", "1d"])
         .assert()
         .success();
     let err = String::from_utf8_lossy(&log.get_output().stderr);
@@ -327,7 +332,7 @@ fn intact_log_has_no_tamper_warning() {
     inject(home.path(), dir.path(), &["echo", "ok"]);
     let log = lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--since", "1d"])
+        .args(["log", "--all", "--json", "--since", "1d"])
         .assert()
         .success();
     let err = String::from_utf8_lossy(&log.get_output().stderr);
@@ -388,6 +393,7 @@ fn source_pack_warns_when_snapshot_is_tampered() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "--json",
             "--since",
             "1d",
@@ -400,4 +406,125 @@ fn source_pack_warns_when_snapshot_is_tampered() {
     let out = String::from_utf8_lossy(&log.get_output().stdout);
     assert!(err.contains("tampered"), "{err}");
     assert!(!out.trim().is_empty(), "{out}");
+}
+
+#[test]
+fn source_local_never_writes_the_live_diary() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "kept"]);
+    let db = home.path().join("events.db");
+    let snapshot = || {
+        let bytes = fs::read(&db).unwrap();
+        let wal = fs::read(home.path().join("events.db-wal")).unwrap_or_default();
+        (bytes, wal)
+    };
+    let before = snapshot();
+    lade(home.path())
+        .current_dir(dir.path())
+        .args([
+            "log", "--all", "--json", "--since", "1d", "--source", "local",
+        ])
+        .assert()
+        .success();
+    lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "verify", "--source", "local"])
+        .assert()
+        .success();
+    assert!(
+        before == snapshot(),
+        "a --source read changed the live diary"
+    );
+}
+
+#[test]
+fn verify_reports_a_pack_without_a_chain() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    let work = tempdir().unwrap();
+    let conn = rusqlite::Connection::open(work.path().join("events.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE events (
+           id TEXT PRIMARY KEY, ts TEXT NOT NULL, kind TEXT NOT NULL, via TEXT,
+           audience TEXT, actor TEXT, repo TEXT, git_commit TEXT,
+           command TEXT NOT NULL, command_truncated INTEGER NOT NULL,
+           hydrate_ms REAL, matches BLOB NOT NULL
+         );
+         INSERT INTO events (id, ts, kind, command, command_truncated, matches)
+         VALUES ('1', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'seen', 'echo', 0, jsonb('[]'));",
+    )
+    .unwrap();
+    drop(conn);
+    fs::write(work.path().join("manifest.json"), "{}").unwrap();
+    let pack = dir.path().join("old.tar.gz");
+    let status = std::process::Command::new("tar")
+        .current_dir(work.path())
+        .args(["-czf", pack.to_str().unwrap(), "manifest.json", "events.db"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let verify = lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "verify", "--source", pack.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert_eq!(verify.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("no chain"), "{stderr}");
+    let log = lade(home.path())
+        .current_dir(dir.path())
+        .args([
+            "log",
+            "--all",
+            "--json",
+            "--since",
+            "1d",
+            "--source",
+            pack.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let err = String::from_utf8_lossy(&log.get_output().stderr);
+    let out = String::from_utf8_lossy(&log.get_output().stdout);
+    assert!(err.contains("no chain"), "{err}");
+    assert!(out.contains("echo"), "{out}");
+}
+
+#[test]
+fn source_pack_matches_this_root_by_name() {
+    let home = tempdir().unwrap();
+    let roots = tempdir().unwrap();
+    let a = roots.path().join("one/a");
+    let other_a = roots.path().join("two/a");
+    let b = roots.path().join("three/b");
+    for dir in [&a, &other_a, &b] {
+        fs::create_dir_all(dir).unwrap();
+        common::init_git(dir);
+        write_yml(dir, "{}\n");
+    }
+    inject(home.path(), &a, &["echo", "in-a"]);
+    let pack = share_pack(home.path(), &a, &[]);
+    let read = |dir: &std::path::Path| {
+        let out = lade(home.path())
+            .current_dir(dir)
+            .args([
+                "log",
+                "--json",
+                "--since",
+                "1d",
+                "--source",
+                pack.to_str().unwrap(),
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<Vec<serde_json::Value>>(&out).unwrap()
+    };
+    assert_eq!(read(&other_a).len(), 1);
+    assert_eq!(read(&b).len(), 0);
 }

@@ -13,6 +13,8 @@ use super::policy::{Policy, Step};
 use super::{Endpoint, Inner};
 
 pub(crate) type EndpointSlot = Arc<Mutex<Option<Endpoint>>>;
+/// Why a ready provider stopped for good: another process took its port.
+type LostSlot = Arc<Mutex<Option<String>>>;
 
 /// Stops a supervisor from another thread, also while its first start
 /// still blocks [`RunningForward::supervise`].
@@ -46,11 +48,13 @@ pub(crate) struct RunningForward {
     stop: Stop,
     child_pid: Arc<AtomicI32>,
     endpoint: EndpointSlot,
+    lost: LostSlot,
     supervisor: Option<JoinHandle<()>>,
 }
 
 impl RunningForward {
     /// Blocks until the first child is ready, then keeps restarting it.
+    #[cfg(test)]
     pub(crate) fn supervise<F>(
         name: String,
         inner: Inner,
@@ -60,16 +64,32 @@ impl RunningForward {
     where
         F: Fn() -> Result<Command> + Send + 'static,
     {
+        Self::supervise_within(name, inner, stop, super::STARTUP_TIMEOUT, command)
+    }
+
+    /// [`Self::supervise`], with `budget` for the first child to listen.
+    pub(crate) fn supervise_within<F>(
+        name: String,
+        inner: Inner,
+        stop: Stop,
+        budget: Duration,
+        command: F,
+    ) -> Result<(Self, u32)>
+    where
+        F: Fn() -> Result<Command> + Send + 'static,
+    {
         let child_pid = Arc::new(AtomicI32::new(0));
         let endpoint: EndpointSlot = Arc::new(Mutex::new(None));
+        let lost: LostSlot = Arc::new(Mutex::new(None));
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let shared = Shared {
             stop: stop.clone(),
             child_pid: Arc::clone(&child_pid),
             endpoint: Arc::clone(&endpoint),
+            lost: Arc::clone(&lost),
         };
         let supervisor =
-            std::thread::spawn(move || supervise(&name, &inner, command, shared, ready_tx));
+            std::thread::spawn(move || supervise(&name, &inner, budget, command, shared, ready_tx));
         let pid = ready_rx
             .recv()
             .map_err(|_| anyhow!("tunnel supervisor stopped before readiness"))??;
@@ -78,6 +98,7 @@ impl RunningForward {
                 stop,
                 child_pid,
                 endpoint,
+                lost,
                 supervisor: Some(supervisor),
             },
             pid,
@@ -88,10 +109,20 @@ impl RunningForward {
     pub(crate) fn endpoint(&self) -> EndpointSlot {
         Arc::clone(&self.endpoint)
     }
+
+    /// `Some`: once ready, a restart found another process on the port,
+    /// and the supervisor stopped.
+    pub(crate) fn lost(&self) -> Option<String> {
+        self.lost
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
 }
 
 impl Drop for RunningForward {
     fn drop(&mut self) {
+        // § vdbmtzqtb.b@4yasf
         self.stop.stop();
         let pid = self.child_pid.load(Ordering::Acquire);
         if pid > 0 {
@@ -107,6 +138,7 @@ struct Shared {
     stop: Stop,
     child_pid: Arc<AtomicI32>,
     endpoint: EndpointSlot,
+    lost: LostSlot,
 }
 
 fn set_endpoint(slot: &EndpointSlot, value: Option<Endpoint>) {
@@ -116,6 +148,7 @@ fn set_endpoint(slot: &EndpointSlot, value: Option<Endpoint>) {
 fn supervise<F>(
     name: &str,
     inner: &Inner,
+    budget: Duration,
     command: F,
     shared: Shared,
     ready_tx: mpsc::SyncSender<Result<u32>>,
@@ -123,7 +156,7 @@ fn supervise<F>(
     F: Fn() -> Result<Command>,
 {
     let origin = Instant::now();
-    let mut policy = Policy::new();
+    let mut policy = Policy::new(budget);
     loop {
         if shared.stop.is_stopped() {
             if policy.shutdown() {
@@ -144,7 +177,11 @@ fn supervise<F>(
             Run::Stopped => continue,
             Run::Exited => policy.exited(),
             Run::LostPort(error) => {
-                if !policy.reported() {
+                // § bkmpmswkm.e@ptdmc
+                if policy.reported() {
+                    *shared.lost.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(format!("{name}: {error:#}"));
+                } else {
                     let _ = ready_tx.send(Err(error));
                 }
                 return;
@@ -187,6 +224,7 @@ fn run_once<F>(
 where
     F: Fn() -> Result<Command>,
 {
+    // § one jfg5ews57.c@j9wa7
     if let Inner::Direct(direct) = inner {
         direct.yield_port();
     }
@@ -220,6 +258,7 @@ where
     let status = child.child.wait();
     // Helpers it left in its group (a ProxyCommand) would hold the log
     // pipes open, and the readers would never let it restart.
+    // § one bkmpmswkm.c@p386d
     let _ = killpg(Pid::from_raw(child.child.id() as i32), Signal::SIGKILL);
     set_endpoint(&shared.endpoint, None);
     shared.child_pid.store(0, Ordering::Release);

@@ -32,6 +32,7 @@ impl ReleaseCheck {
     pub(super) fn notice(&mut self) -> Rep {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let version = {
+            // § d1d316x4b.a@dt2dk
             let mut ledger = lock(&self.version);
             if ledger
                 .tried_at_ms
@@ -43,12 +44,14 @@ impl ReleaseCheck {
             }
             ledger.clone()
         };
+        // § jpm1fzdj4.c@8791p
         let check = self
             .last_check_slot
             .is_none_or(|at| since(at) >= CHECK_SLOT);
         if check {
             self.last_check_slot = Some(now());
         }
+        // § end jpm1fzdj4.c
         Rep::Notice { check, version }
     }
 
@@ -67,15 +70,20 @@ impl ReleaseCheck {
 
 /// A failed fetch keeps the last known `latest`.
 pub(super) fn spawn_version_fetch(ledger: Arc<Mutex<VersionLedger>>) {
+    // § d1d316x4b.b@rq9gs
     tokio::task::spawn_blocking(move || {
         let result = crate::command::upgrade::fetch_latest_tag(VERSION_FETCH_TIMEOUT);
-        let mut ledger = lock(&ledger);
-        match result {
-            Ok(tag) => {
-                ledger.latest = Some(tag);
-                ledger.error = None;
-            }
-            Err(error) => ledger.error = Some(format!("{error:#}")),
-        }
+        record_fetch(&mut lock(&ledger), result);
     });
+}
+
+pub(super) fn record_fetch(ledger: &mut VersionLedger, result: anyhow::Result<String>) {
+    // § d1d316x4b.c@nteef
+    match result {
+        Ok(tag) => {
+            ledger.latest = Some(tag);
+            ledger.error = None;
+        }
+        Err(error) => ledger.error = Some(format!("{error:#}")),
+    }
 }

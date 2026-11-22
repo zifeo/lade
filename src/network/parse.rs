@@ -36,6 +36,7 @@ pub(crate) fn parse_binding(binding: &NetworkBinding) -> Result<ParsedBinding> {
         && local_host != "127.0.0.1"
         && local_host != "localhost"
     {
+        // § q6k9k1zr8.c@nzgmf
         bail!("tsh app proxy supports only 127.0.0.1 or localhost local hosts");
     }
 
@@ -54,6 +55,7 @@ pub(crate) fn reconcile_local_port(
 ) -> Result<Option<u16>> {
     match target {
         LocalTarget::FixedPort(key_port) => {
+            // § q6k9k1zr8.a@n15vr
             if let Some(uri_port) = uri_local
                 && uri_port != *key_port
             {
@@ -65,14 +67,21 @@ pub(crate) fn reconcile_local_port(
             }
             Ok(Some(*key_port))
         }
+        // § q6k9k1zr8.b@c7pdg
         LocalTarget::EnvVar(_) => Ok(uri_local),
     }
 }
 
 fn parse_target(key: &str) -> Result<LocalTarget> {
     if let Ok(port) = key.parse::<u16>() {
+        // The kernel would pick another port while the tunnel records 0.
+        // § q6k9k1zr8.a@c3mpn
+        if port == 0 {
+            bail!("invalid network binding key '0': a fixed local port is 1 to 65535");
+        }
         return Ok(LocalTarget::FixedPort(port));
     }
+    // § ps6s9115k@9k8wy
     if !is_valid_env_key(key) {
         bail!(
             "invalid network binding key '{}': use a local port number or a valid env var name",
@@ -112,6 +121,9 @@ fn parse_local_endpoint(local: Option<&str>) -> Result<(String, Option<u16>)> {
                 bail!("invalid local endpoint '{}': missing host", value);
             }
             let port = port.parse::<u16>()?;
+            if port == 0 {
+                bail!("invalid local endpoint '{}': the port is 1 to 65535", value);
+            }
             Ok((host.to_string(), Some(port)))
         }
     }
@@ -182,5 +194,41 @@ mod tests {
         };
         let err = parse_binding(&binding).expect_err("must reject host");
         assert!(err.to_string().contains("supports only"));
+    }
+
+    #[test]
+    fn a_port_zero_key_or_local_fails_the_binding() {
+        let uri = "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432";
+        let zero_key = NetworkBinding {
+            key: "0".to_string(),
+            uri: uri.to_string(),
+            ttl: None,
+        };
+        let err = parse_binding(&zero_key).expect_err("key 0");
+        assert!(err.to_string().contains("1 to 65535"), "{err:#}");
+        let zero_local = NetworkBinding {
+            key: "PGPORT".to_string(),
+            uri: format!("{uri}?local=127.0.0.1:0"),
+            ttl: None,
+        };
+        let err = parse_binding(&zero_local).expect_err("local port 0");
+        assert!(err.to_string().contains("1 to 65535"), "{err:#}");
+    }
+
+    #[test]
+    fn reconcile_refuses_a_local_port_that_differs_from_the_key() {
+        let binding = NetworkBinding {
+            key: "15432".to_string(),
+            uri: "kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432?local=127.0.0.1:15433"
+                .to_string(),
+            ttl: None,
+        };
+        let parsed = parse_binding(&binding).expect("parsed");
+        let err = reconcile_local_port(&parsed.target, parsed.local_port).expect_err("mismatch");
+        assert!(err.to_string().contains("local port mismatch"), "{err:#}");
+        assert_eq!(
+            reconcile_local_port(&parsed.target, Some(15432)).unwrap(),
+            Some(15432)
+        );
     }
 }

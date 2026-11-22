@@ -6,9 +6,28 @@
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
 
 const V1: &str = include_str!("opencode_v1.js");
 const V2: &str = include_str!("../../../.opencode/plugins/lade-pretool.js");
+
+/// SHA-256 of each plugin text a released Lade wrote and the current one
+/// replaces, unpinned (`"lade"`) and with trailing whitespace trimmed. A
+/// refresh rewrites them like the current text. Add the old text's hash here
+/// whenever a released plugin changes, or every user's file reads as edited
+/// by hand.
+const RELEASED: [(OpenCodeApi, &str); 2] = [
+    // 0.18.0 to 0.20.2.
+    (
+        OpenCodeApi::V1,
+        "885c975107ac06d6ab8a5164c45dec381327fa80a7a22a0f9355b8c5c3051fcf",
+    ),
+    // 0.20.0 to 0.20.2.
+    (
+        OpenCodeApi::V2,
+        "6fae8e8fdb3eb1a9ec441218c23173094136f6d0a62fc346c7deda774648da38",
+    ),
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OpenCodeApi {
@@ -54,6 +73,7 @@ impl OpenCodeApi {
 }
 
 fn detect() -> Result<OpenCodeApi> {
+    // § heg7hfveq.a@6a7zx
     let output = std::process::Command::new("opencode")
         .arg("--version")
         .output()
@@ -96,7 +116,7 @@ pub(super) fn plugin(api: OpenCodeApi, command: &str) -> String {
     instantiate_plugin(api.snapshot(), command)
 }
 
-const BIN_PREFIX: &str = r#"process.env.LADE_BIN ?? ""#;
+const BIN_PREFIX: &str = r#"const lade = process.env.LADE_BIN ?? ""#;
 
 pub(super) fn instantiate_plugin(snapshot: &str, command: &str) -> String {
     let bin = command
@@ -119,13 +139,34 @@ fn pin(snapshot: &str, bin: &str) -> String {
     )
 }
 
-/// One of our snapshots, whatever binary it pins. Refresh leaves any other
-/// content alone: it was edited by hand.
+/// One of our snapshots, current or released, whatever binary it pins.
+/// Refresh leaves any other content alone: it was edited by hand.
 pub(super) fn is_pristine(content: &str) -> bool {
-    let (Some(api), Some(bin)) = (OpenCodeApi::of(content), pinned_bin(content)) else {
+    // § khcwz2ec3.b@tb5gd
+    let Some(api) = OpenCodeApi::of(content) else {
         return false;
     };
-    content.trim_end() == pin(api.snapshot(), bin).trim_end()
+    let Some(bin) = pinned_bin(content) else {
+        return false;
+    };
+    if content.trim_end() == pin(api.snapshot(), bin).trim_end() {
+        return true;
+    }
+    let unpinned = content.replace(
+        &format!("{BIN_PREFIX}{bin}\""),
+        &format!("{BIN_PREFIX}lade\""),
+    );
+    let digest = released_digest(&unpinned);
+    RELEASED
+        .iter()
+        .any(|(released, hash)| *released == api && *hash == digest)
+}
+
+fn released_digest(text: &str) -> String {
+    Sha256::digest(text.trim_end().as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn pinned_bin(content: &str) -> Option<&str> {

@@ -177,7 +177,32 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run installer unit test
-        run: bash tests/installer_test.sh
+        run: |
+          sh scripts/home-canary.sh mark "$RUNNER_TEMP/home.mark"
+          bash tests/installer_test.sh
+          sh scripts/home-canary.sh check "$RUNNER_TEMP/home.mark"
+
+  action-latest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve the latest release
+        id: latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/zifeo/lade/releases/latest)
+          echo "version=${url##*/v}" >> "$GITHUB_OUTPUT"
+      - uses: ./
+        with:
+          version: latest
+      - name: Latest is the newest release, with its age plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          lade --version | grep -F "${{ steps.latest.outputs.version }}"
+          command -v age-plugin-lade
 
   installer-e2e:
     strategy:

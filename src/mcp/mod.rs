@@ -5,10 +5,7 @@ use log::info;
 use serde_json::{Value, json};
 use url::Url;
 
-use crate::{
-    args::McpCommand, config::Config, context::InvocationContext, event, message_box::MessageBox,
-    prompt, wrap,
-};
+use crate::{args::McpCommand, config::Config, context::InvocationContext, event, prompt, wrap};
 
 mod stdio;
 #[cfg(test)]
@@ -21,6 +18,7 @@ const INITIAL_RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_m
 const MAX_RESTART_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
 const STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const CLIENT_EOF_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(20);
 
 pub async fn run(
     command: McpCommand,
@@ -31,24 +29,18 @@ pub async fn run(
     let target = target(&command)?;
     let stored = spawn_command(&command);
     let argv = spawn_argv(&command);
-    let patterned = config.collect_for_with_pattern(&target, ctx.audience);
-    let rules = patterned
-        .iter()
-        .map(|(path, _, rule)| (path.clone(), rule.clone()))
-        .collect::<Vec<_>>();
     let saved_user = crate::config::saved_user().await?;
-    let work = if patterned.is_empty() {
-        None
-    } else {
-        Some(Config::pre_event_work(&patterned, &saved_user)?)
-    };
-    let disclaimers = Config::disclaimers_from_rules(&rules);
-    if let Err(e) = prompt::resolve_disclaimers(ctx, &disclaimers, &target).await {
+    // § one g6sqmp8tb.c@2ad09
+    let plan = wrap::attach::plan(ctx, config, &target, current_dir, &saved_user).await?;
+    // § betd87z6r.d@9m3qa
+    if let Err(e) = prompt::resolve_disclaimers(ctx, plan.disclaimers(), &target).await {
         if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some()
-            && let Some(work) = &work
+            && let Some((log, matches)) = plan.matched()
         {
+            // § bvttr6qk1.b@m356b
+            // silcrow:follow
             event::emit_if(
-                work.log,
+                log,
                 event::Emit {
                     kind: event::Kind::Denied,
                     via: ctx.via,
@@ -58,39 +50,40 @@ pub async fn run(
                     command: stored.clone(),
                     argv: argv.clone(),
                     hydrated: None,
-                    matches: work.matches.clone(),
+                    matches: matches.clone(),
                     hydrate_ms: None,
                     agent: crate::agent_meta::merge(serde_json::Value::Null),
                 },
             );
         }
+        // § t7kcndtra.c@84mnk
         return Err(e);
     }
+    let matched = plan.matched().map(|(log, matches)| (log, matches.clone()));
+    // § one bvttr6qk1.a@acaaq
+    let prepared = plan.prepares();
     let hydrate_started = std::time::Instant::now();
-    let mut access = crate::access::acquire_attached(
-        config,
-        &rules,
-        &patterned,
-        current_dir,
-        ctx.stderr_is_terminal && !ctx.stdin_is_terminal,
-    )
-    .await?;
+    // § one g6sqmp8tb.c@941x3
+    let access =
+        wrap::attach::acquire(plan, ctx, config, &target, current_dir, &saved_user).await?;
+    // § end betd87z6r.d
     let hydrate_ms = Some(hydrate_started.elapsed().as_secs_f64() * 1000.0);
-    match &work {
-        Some(work) => {
-            let mut matches = work.matches.clone();
+    match matched {
+        Some((log, mut matches)) => {
+            // § cj4kjwcp7.b@cn3wz
+            // silcrow:follow
             event::mark_cached(&mut matches, &access.cached);
             event::emit_if(
-                work.log,
+                log,
                 event::Emit {
-                    kind: event::logged_kind(&matches),
+                    kind: event::logged_kind(prepared),
                     via: ctx.via,
                     audience: ctx.audience,
                     actor: event::actor(&saved_user),
                     cwd: current_dir.to_path_buf(),
                     command: stored.clone(),
                     argv: argv.clone(),
-                    hydrated: Some(access.public_hydrate()),
+                    hydrated: Some(access.scrub_values()),
                     matches,
                     hydrate_ms,
                     agent: crate::agent_meta::merge(serde_json::Value::Null),
@@ -99,24 +92,24 @@ pub async fn run(
         }
         None => wrap::emit_seen_if_walk_log(config, ctx, &stored, current_dir, &saved_user, argv),
     }
-    for warning in &access.warnings {
-        MessageBox::new().warning().line(warning).print_stderr();
-    }
     let result = match command.url {
         Some(raw_url) => {
             info!("mcp started transport=http");
+            // The bindings become headers; a pin's PATH is no header.
+            // § jfxr4rmae.a@3tdmn
             run_http(raw_url, access.env.clone()).await
         }
         None => {
             info!("mcp started transport=stdio");
-            let mut env = access.env.clone();
+            let mut env = access.child_env()?;
+            // § nv6nfbbs2.c@df31s
             for key in crate::preexec::CHILD_UNSET {
                 env.remove(key);
             }
             stdio::run_stdio(command.argv, env, current_dir.to_path_buf()).await
         }
     };
-    access.cleanup()?;
+    drop(access);
     info!("mcp stopped");
     result
 }
@@ -177,11 +170,25 @@ fn canonical_argv(argv: &[OsString]) -> Result<String> {
 /// `lade_sdk::mcp::bridge_http` and do not re-resolve secrets.
 async fn run_http(raw_url: String, headers: HashMap<String, String>) -> Result<Option<i32>> {
     let url = Url::parse(&raw_url)?;
-    lade_sdk::mcp::bridge_http(
+    let watch = crate::child_signals::ChildWatch::new();
+    let bridge = lade_sdk::mcp::bridge_http(
         lade_sdk::mcp::HttpBridgeConfig { url, headers },
         tokio::io::stdin(),
         tokio::io::stdout(),
-    )
-    .await?;
-    Ok(None)
+    );
+    // A stop signal ends the bridge here, so the caller still drops the
+    // access and its `.file` outputs. The exit code also keeps the runtime
+    // from waiting on the stdin read.
+    // § fz8r6d2ka.d@823t5
+    tokio::select! {
+        result = bridge => {
+            result?;
+            Ok(None)
+        }
+        () = async {
+            while !watch.stop_requested() {
+                tokio::time::sleep(STOP_POLL).await;
+            }
+        } => Ok(Some(watch.stop_code())),
+    }
 }

@@ -149,3 +149,63 @@ fn test_bench_hydrate_timeout_flag() {
     assert_eq!(value["rules"][0]["error"], "timeout 1s");
     assert!(value["rules"][0]["hydrate_ms"].as_f64().unwrap() >= 1000.0);
 }
+
+#[test]
+fn bench_prints_no_value() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^echo sh\":\n  B: sh://printf bench_value_8c1f\n",
+    )
+    .unwrap();
+    for args in [&["bench"][..], &["bench", "--json"]] {
+        let out = common::lade(home.path())
+            .current_dir(dir.path())
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!text.contains("bench_value_8c1f"), "{args:?}: {text}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bench_starts_no_tunnel() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let bin = tempdir().unwrap();
+    let mark = dir.path().join("ssh-ran");
+    common::fake_cli(&bin, "ssh", "touch \"$SSH_MARK\"\nexec sleep 30");
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^psql\":\n  DB_PORT: ssh://jump.example.com/db.internal/5432\n  A: one\n",
+    )
+    .unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("SSH_MARK", &mark)
+        .args(["bench", "--json"])
+        .assert()
+        .success();
+    assert!(!mark.exists(), "bench started ssh");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["ttl"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("hub: down"));
+}

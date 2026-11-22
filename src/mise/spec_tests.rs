@@ -75,7 +75,8 @@ fn reject_legacy_cli_and_other_uris() {
     assert!(!looks_like_spec("op://vault/item"));
     assert!(!looks_like_spec("1.7.1"));
     assert!(!looks_like_spec("https://example.com/x"));
-    assert!(!looks_like_spec("mise://tools"));
+    assert!(looks_like_spec("mise://tools"));
+    assert!(parse("mise://tools").is_err());
     assert!(
         parse("mise://nosuch/pkg@1.0")
             .unwrap_err()
@@ -167,4 +168,50 @@ fn argv0_uses_basename() {
     assert!(is_user_shell("zsh"));
     assert!(is_user_shell("fish"));
     assert!(!is_user_shell("kubectl"));
+}
+
+#[test]
+fn an_unknown_backend_is_a_pin_that_fails() {
+    assert!(looks_like_spec("mise://foo/pkg@1"));
+    let err = parse("mise://foo/pkg@1").unwrap_err();
+    assert!(err.contains("unknown mise backend 'foo'"), "{err}");
+}
+
+#[test]
+fn a_backend_mise_lists_is_a_pin_backend() {
+    for backend in [
+        "aqua", "asdf", "cargo", "conda", "core", "dotnet", "forgejo", "gem", "github", "gitlab",
+        "go", "http", "npm", "packslip", "pipx", "pypi", "s3", "spinel", "spm", "ubi", "vfox",
+    ] {
+        let value = format!("mise://{backend}/owner/repo@1.0.0");
+        assert!(parse(&value).is_ok(), "{value}");
+    }
+    let err = parse("mise://pkgx/jq@1.7.1").unwrap_err();
+    assert!(err.contains("unknown mise backend 'pkgx'"), "{err}");
+}
+
+#[test]
+fn a_cli_form_inside_the_uri_fails_and_names_the_uri() {
+    let value = "mise://github:owner/repo@1.0.0?setup=install";
+    assert!(looks_like_spec(value));
+    let err = parse(value).unwrap_err();
+    assert!(
+        err.contains("mise://github/owner/repo@1.0.0?setup=install"),
+        "{err}"
+    );
+}
+
+#[test]
+fn every_readme_pin_example_parses() {
+    let readme = include_str!("../../README.md");
+    let mut seen = 0;
+    for line in readme.lines() {
+        let Some((_, value)) = line.trim().split_once(": mise://") else {
+            continue;
+        };
+        let uri = format!("mise://{}", value.trim());
+        parse(&uri).unwrap_or_else(|err| panic!("README pin {uri}: {err}"));
+        seen += 1;
+    }
+    assert!(seen >= 2, "README pin examples not found");
 }

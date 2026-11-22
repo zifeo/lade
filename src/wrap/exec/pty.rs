@@ -45,6 +45,7 @@ pub fn run(
             .stderr(Stdio::from(slave_err));
         Ok(())
     });
+    // § mzce8bpjn.a@ftzxg
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
@@ -71,10 +72,12 @@ pub fn run(
     let _ = pump.join();
 
     let status = child.wait()?;
+    // § end mzce8bpjn.a
     watch.clear_pid();
     drop(_resize);
     drop(master);
-    Ok(status.code().unwrap_or(1))
+    // § one tk1e8j9nf.b@ep0bg
+    Ok(super::exit_code(status))
 }
 
 /// Linux answers `EIO`, not end of file, on a master whose child side has
@@ -84,6 +87,7 @@ struct MasterReader(File);
 
 impl std::io::Read for MasterReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // § bjcpdnsd2.d@v4dw6
         match self.0.read(buf) {
             Err(error) if error.raw_os_error() == Some(nix::libc::EIO) => Ok(0),
             read => read,
@@ -177,6 +181,7 @@ impl RawStdinGuard {
         let mut raw = original.clone();
         cfmakeraw(&mut raw);
         // cfmakeraw clears ISIG. Keep Ctrl-C as SIGINT so ChildWatch stops the child.
+        // § one fe8gp3s51.c@zks5g
         raw.local_flags |= LocalFlags::ISIG;
         if tcsetattr(stdin, SetArg::TCSANOW, &raw).is_err() {
             return Self { original: None };

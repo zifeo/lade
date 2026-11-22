@@ -18,6 +18,7 @@ pub fn managed_mise_in_play() -> bool {
 }
 
 pub fn managed_bin() -> PathBuf {
+    // § kwbgdgf2x.b@2av4h
     super::store::data_dir().join("bin/mise")
 }
 
@@ -61,16 +62,23 @@ fn version_of_blocking(bin: &Path) -> Option<MiseStatus> {
     )))
 }
 
-pub fn mise_program() -> PathBuf {
+pub fn mise_program() -> Result<PathBuf, Error> {
+    // § kwbgdgf2x.a@8m8st
+    let mut first = None;
     for bin in candidate_bins() {
-        if version_of_blocking(&bin).is_some_and(|status| status.in_range) {
-            return bin;
+        let Some(status) = version_of_blocking(&bin) else {
+            continue;
+        };
+        if status.in_range {
+            return Ok(bin);
         }
+        first.get_or_insert(status);
     }
-    candidate_bins()
-        .into_iter()
-        .find(|bin| bin.is_file())
-        .unwrap_or_else(|| PathBuf::from("mise"))
+    let status = first.unwrap_or(MiseStatus {
+        version: None,
+        in_range: false,
+    });
+    Err(Error::missing_mise(mise_gap(&status)))
 }
 
 async fn version_of(bin: &Path) -> Option<MiseStatus> {
@@ -124,7 +132,9 @@ fn repo_needs_mise() -> bool {
     let Ok(config) = crate::config::LadeFile::build(cwd) else {
         return false;
     };
-    let saved = crate::global_config::GlobalConfig::resolved_user();
+    let Ok(saved) = crate::global_config::GlobalConfig::resolved_user() else {
+        return false;
+    };
     implied::repo_needs_mise(&config, &saved)
 }
 
@@ -148,6 +158,16 @@ pub async fn ensure_for_setup() -> Result<(), Error> {
     if !repo_needs_mise() {
         return Ok(());
     }
+    ensure_in_range().await
+}
+
+/// After `lade upgrade`, which never reads the walk.
+pub async fn ensure_managed() -> Result<(), Error> {
+    ensure_in_range().await
+}
+
+async fn ensure_in_range() -> Result<(), Error> {
+    // § kwbgdgf2x.a@3mee4
     let status = path_status().await;
     if status.in_range {
         crate::live_progress::done(
@@ -183,6 +203,7 @@ pub async fn ensure_for_setup() -> Result<(), Error> {
 }
 
 pub async fn require_for_inject() -> Result<(), Error> {
+    // § kwbgdgf2x.c@hz66p
     let status = path_status().await;
     if status.in_range {
         return Ok(());

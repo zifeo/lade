@@ -45,6 +45,7 @@ pub fn group_commands(events: &[Event]) -> Vec<CommandRow> {
 }
 
 pub fn group_rules(events: &[Event]) -> Vec<RuleRow> {
+    // § jaz8q7kqe.a@c3cbr
     let mut map: HashMap<(String, String), RuleRow> = HashMap::new();
     for ev in events {
         let Some(items) = ev.matches.as_array() else {
@@ -54,6 +55,7 @@ pub fn group_rules(events: &[Event]) -> Vec<RuleRow> {
             let Some(rule) = item.get("rule").and_then(|r| r.as_str()) else {
                 continue;
             };
+            // § one jaz8q7kqe.b@esq0f
             if is_catch_all(rule) {
                 continue;
             }

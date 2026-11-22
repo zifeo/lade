@@ -24,6 +24,7 @@ pub(crate) struct Relay {
 
 impl Relay {
     pub(crate) fn start(outer: Outer, upstream: EndpointSlot) -> Result<Self> {
+        // § ewd09vh5j.a@pgmtf
         let (wake, woken) = UnixStream::pair()?;
         let mut accepts = Vec::new();
         for listener in outer.listeners {

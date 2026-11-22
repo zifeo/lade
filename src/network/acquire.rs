@@ -46,6 +46,7 @@ pub fn start_detached_network_session(
     if bindings.is_empty() {
         return Ok(session);
     }
+    // § kd0fkaw1x@4fjd0
     let lease = own_lease()?;
     session.lease = Some(HubLease(lease.id.clone()));
     let ttl = crate::hub::session_ttl(cwd);
@@ -55,6 +56,7 @@ pub fn start_detached_network_session(
         }
         session.asks.push(acquired.ask);
     }
+    // § end kd0fkaw1x
     Ok(session)
 }
 
@@ -68,6 +70,7 @@ fn run_workers(
     progress: ProviderProgressSink,
     cancel: &Stop,
 ) -> Result<Vec<Acquired>> {
+    // § kd0fkaw1x@eq11r
     let (done, results) = mpsc::channel();
     let stops = bindings.iter().map(|_| Stop::default()).collect::<Vec<_>>();
     let workers = bindings
@@ -81,6 +84,7 @@ fn run_workers(
             let progress = progress.clone();
             let done = done.clone();
             std::thread::spawn(move || {
+                // silcrow:skip
                 let result = acquire_binding(binding, lease, session, progress, &stop);
                 let _ = done.send((index, result));
             })

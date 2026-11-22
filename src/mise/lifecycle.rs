@@ -9,16 +9,17 @@ use super::spec;
 
 pub async fn run_lifecycle_commands(verb: &str) -> Result<()> {
     let cwd = std::env::current_dir()?;
+    // § vwj3wvrzs.d@z81b1
     let Some(git) = crate::catalog::git_root(&cwd) else {
         return Ok(());
     };
     let config = LadeFile::build(cwd.clone())?;
-    let saved = crate::global_config::GlobalConfig::resolved_user();
+    let saved = crate::global_config::GlobalConfig::resolved_user()?;
     let mut ran = Vec::new();
     for (key, value) in config.pins(&saved) {
-        let Ok(spec) = spec::parse(&value) else {
-            continue;
-        };
+        // § vwj3wvrzs.c@bkv40
+        // § one vwj3wvrzs.e@2b9vk
+        let spec = spec::parse(&value).map_err(|e| anyhow::anyhow!(e))?;
         let Some(command) = spec.options.get(verb) else {
             continue;
         };
@@ -50,6 +51,7 @@ pub async fn run_lifecycle_commands(verb: &str) -> Result<()> {
 }
 
 async fn run_bin_command(repo: &Path, key: &str, spec: &spec::Spec, command: &str) -> Result<()> {
+    // § vwj3wvrzs.e@4wsqp
     let bin = super::locked_bin(Some(repo), key, spec)
         .with_context(|| format!("locked {key} is missing. run `lade setup`"))?;
     let args: Vec<String> = command.split_whitespace().map(str::to_string).collect();

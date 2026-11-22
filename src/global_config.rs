@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::debug;
 
 use serde::{Deserialize, Serialize};
@@ -9,10 +9,12 @@ use tokio::fs;
 #[derive(Deserialize, Serialize)]
 pub struct GlobalConfig {
     pub user: Option<String>,
+    // § one pq5ebbcs0.a@jfge2
     /// Cap on what the hub keeps after a command. Kept raw: a bad value must
     /// not stop `user` from loading. See [`max_cache_ms`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_cache: Option<serde_json::Value>,
+    // § one pq5ebbcs0.b@wm64r
     /// Keys this binary does not read, written back untouched. Lade 0.15
     /// fails to load the file without its `update_check`, and older
     /// binaries still share it.
@@ -22,6 +24,7 @@ pub struct GlobalConfig {
 
 impl GlobalConfig {
     pub fn path() -> PathBuf {
+        // § pq5ebbcs0.c@fdq7n
         // Allow tests to override the config path without relying on OS-specific
         // path resolution (e.g. SHGetKnownFolderPath on Windows ignores env vars).
         if let Ok(p) = std::env::var("LADE_CONFIG_PATH") {
@@ -37,21 +40,30 @@ impl GlobalConfig {
         debug!("config_path: {:?}", config_path);
         config_path
     }
-    pub fn user_from_disk() -> Option<String> {
-        let text = std::fs::read_to_string(Self::path()).ok()?;
-        serde_json::from_str::<GlobalConfig>(&text)
-            .ok()
-            .and_then(|c| c.user)
-    }
-
     pub fn os_user() -> Option<String> {
         std::env::var("USER")
             .ok()
+            .filter(|user| !user.is_empty())
             .or_else(|| std::env::var("USERNAME").ok())
+            .filter(|user| !user.is_empty())
     }
 
-    pub fn resolved_user() -> Option<String> {
-        Self::user_from_disk().or_else(Self::os_user)
+    /// The one resolution of the Lade user, on every path.
+    pub fn resolved_user() -> Result<Option<String>> {
+        // § dcrxp986s.b@9aqw0
+        let path = Self::path();
+        let saved = match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                serde_json::from_str::<GlobalConfig>(&text)
+                    .with_context(|| format!("could not parse {}", path.display()))?
+                    .user
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(e).with_context(|| format!("could not read {}", path.display()));
+            }
+        };
+        Ok(saved.or_else(Self::os_user))
     }
 
     pub async fn load() -> Result<Self> {
@@ -95,6 +107,7 @@ impl GlobalConfig {
 /// is off. The hub reads an `Err` as off too.
 pub fn max_cache_ms(value: Option<&serde_json::Value>) -> Result<Option<u32>, String> {
     const HINT: &str = "max_cache is a duration like \"1h\", or \"0\" to turn the cache off";
+    // § cfan04ksd.c@91e64
     let raw = match value {
         None | Some(serde_json::Value::Null) => return Ok(None),
         Some(serde_json::Value::String(raw)) => raw.trim(),
@@ -174,8 +187,94 @@ mod tests {
                 ("USERNAME", None),
             ],
             || {
-                assert_eq!(GlobalConfig::user_from_disk(), None);
-                assert_eq!(GlobalConfig::resolved_user().as_deref(), Some("alice"));
+                assert_eq!(
+                    GlobalConfig::resolved_user().unwrap().as_deref(),
+                    Some("alice")
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn resolved_user_skips_an_empty_os_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("")),
+                ("USERNAME", Some("bob")),
+            ],
+            || {
+                assert_eq!(
+                    GlobalConfig::resolved_user().unwrap().as_deref(),
+                    Some("bob")
+                );
+            },
+        );
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("")),
+                ("USERNAME", None),
+            ],
+            || assert_eq!(GlobalConfig::resolved_user().unwrap(), None),
+        );
+    }
+
+    #[test]
+    fn resolved_user_fails_on_broken_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "{").unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("alice")),
+                ("USERNAME", None),
+            ],
+            || {
+                let err = GlobalConfig::resolved_user().unwrap_err();
+                assert!(format!("{err:#}").contains("could not parse"), "{err:#}");
+            },
+        );
+    }
+
+    #[test]
+    fn resolved_user_without_file_is_the_os_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("alice")),
+                ("USERNAME", None),
+            ],
+            || {
+                assert_eq!(
+                    GlobalConfig::resolved_user().unwrap().as_deref(),
+                    Some("alice")
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bad_max_cache_keeps_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, r#"{"user":"carol","max_cache":"soon"}"#).unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("alice")),
+                ("USERNAME", None),
+            ],
+            || {
+                assert_eq!(
+                    GlobalConfig::resolved_user().unwrap().as_deref(),
+                    Some("carol")
+                );
             },
         );
     }
@@ -192,7 +291,10 @@ mod tests {
                 ("USERNAME", None),
             ],
             || {
-                assert_eq!(GlobalConfig::resolved_user().as_deref(), Some("carol"));
+                assert_eq!(
+                    GlobalConfig::resolved_user().unwrap().as_deref(),
+                    Some("carol")
+                );
             },
         );
     }

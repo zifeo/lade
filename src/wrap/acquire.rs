@@ -4,8 +4,7 @@ use std::future::Future;
 use crate::config::{NetworkBinding, SecretSources};
 use crate::context::InvocationContext;
 use crate::files::{
-    LoadedSecrets, hydrate_secrets_from_ticket_with_progress, remove_files, split_env_files,
-    write_files,
+    LoadedSecrets, hydrate_secrets_from_ticket_with_progress, split_env_files, write_files,
 };
 use crate::network::Stop;
 use crate::preexec::Shell;
@@ -28,12 +27,14 @@ use super::{Acquisition, FailureChoice, SecretBundle, handle_provider_failure, l
 ///
 /// Any failure goes through [`handle_provider_failure`]. `None`: a human
 /// chose to run the command without Lade. Otherwise the command is
-/// cancelled and Lade exits here.
+/// cancelled and Lade exits here. `keys`: the terminal read without
+/// signals, see [`preexec_keys`].
 pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     ctx: &InvocationContext,
     secrets: SecretHydrate<'_>,
     network_bindings: Vec<NetworkBinding>,
     preexec: Option<&Shell>,
+    mut keys: Option<Keys>,
     start_network: impl FnOnce(&[NetworkBinding], ProviderProgressSink, &Stop) -> Result<N>
     + Send
     + 'static,
@@ -41,6 +42,7 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     // A shell hook cannot keep the shell from running the command, so a
     // cancelled pre-exec command gets a PATH with nothing to run.
     let cancel_command = |code: i32| -> ! {
+        // § gvtm9gyed.a@taf2d
         if let Some(shell) = preexec {
             println!("{}", shell.block_command());
         }
@@ -51,10 +53,6 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     let secret_sink = provider_progress.sink();
     let network_sink = provider_progress.sink();
     let mut provider_progress = Some(provider_progress);
-    // zsh and bash cancel the command on SIGINT themselves.
-    let mut keys = matches!(preexec, Some(Shell::Fish))
-        .then(|| Keys::enter(ctx))
-        .flatten();
 
     let cancel = Stop::default();
     let network_cancel = cancel.clone();
@@ -67,7 +65,6 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     let acquisition = {
         let secret_task = prepare_secrets(
             secrets.secrets,
-            secrets.op_sa,
             secrets.progress,
             secrets.cache,
             secret_sink,
@@ -76,7 +73,10 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
             let result = (&mut network)
                 .await
                 .map_err(|e| anyhow::anyhow!("network task join error: {e}"))?;
-            result.map_err(|e| anyhow::anyhow!("tunnel error: {e}"))
+            result.map_err(|e| match crate::remote::exit_code(&e) {
+                Some(_) => e,
+                None => anyhow::anyhow!("tunnel error: {e}"),
+            })
         };
         tokio::select! {
             acquisition = race_provider_tasks(secret_task, network_task) => Some(acquisition),
@@ -85,6 +85,7 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
         }
     };
     let Some(acquisition) = acquisition else {
+        // § s6j22qtcr.a@w0vvv
         drop(keys);
         // Stop the workers, so the hub releases their tunnels before exit.
         cancel.stop();
@@ -98,29 +99,47 @@ pub(super) async fn acquire_secrets_and_network<N: Send + 'static>(
     };
     stop_provider_progress(&mut provider_progress);
     let error = match acquisition {
-        Acquisition::Ready(secret_result, network_result) => {
-            return Some((secret_result, network_result));
-        }
+        // Written once nothing can interrupt the acquisition any more, so a
+        // Ctrl-C while tunnels start leaves no file behind.
+        // § fz8r6d2ka.d@7knmy
+        Acquisition::Ready(secret_result, network_result) => match write_files(&secret_result.1) {
+            Ok(_) => return Some((secret_result, network_result)),
+            Err(error) => {
+                drop(network_result);
+                error
+            }
+        },
+        // § end fz8r6d2ka.d
         Acquisition::Failed(error) => error,
-        Acquisition::FailedWithFiles(error, files) => {
-            let _ = remove_files(&mut files.keys());
-            error
-        }
         Acquisition::FailedWithNetwork(error, network_result) => {
             drop(network_result);
             error
         }
     };
+    // § t7kcndtra.a@ars9y
     let choice = handle_provider_failure(ctx, &error, keys).await;
     unlink_ticket_before_exit(secrets.ticket_unlink);
     match choice {
         FailureChoice::RunAnyway => None,
-        FailureChoice::Cancel => cancel_command(crate::exit_codes::FAILURE),
+        FailureChoice::Cancel => cancel_command(
+            crate::remote::exit_code(&error).map_or(crate::exit_codes::FAILURE, |(code, _)| code),
+        ),
         FailureChoice::Interrupted => cancel_command(crate::exit_codes::INTERRUPTED),
     }
+    // § end t7kcndtra.a
 }
 
 const INTERRUPT_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// In fish, the terminal read without signals from before the pins until
+/// the command is ready. zsh and bash cancel the command on SIGINT
+/// themselves.
+pub(super) fn preexec_keys(ctx: &InvocationContext, preexec: Option<&Shell>) -> Option<Keys> {
+    // § s6j22qtcr.b@b63kf
+    matches!(preexec, Some(Shell::Fish))
+        .then(|| Keys::enter(ctx))
+        .flatten()
+}
 
 /// tokio keeps its handlers for the life of the process: once nothing
 /// reads them, Ctrl-C, `kill`, and hangup must stop Lade again.
@@ -149,6 +168,7 @@ pub(super) async fn interrupted() {
 }
 
 fn unlink_ticket_before_exit(id: Option<&str>) {
+    // § gy20cgb72.c@fgpq0
     if let Some(id) = id {
         crate::hub::unlink_t(id);
         let _ = ticket::unlink(id);
@@ -168,10 +188,7 @@ where
             match secret_result {
                 Ok(secret_result) => match network_task.await {
                     Ok(network_result) => Acquisition::Ready(secret_result, network_result),
-                    Err(e) => {
-                        let (_, files, ..) = secret_result;
-                        Acquisition::FailedWithFiles(e, files)
-                    }
+                    Err(e) => Acquisition::Failed(e),
                 },
                 Err(e) => {
                     let network_result = network_task.await;
@@ -194,9 +211,10 @@ where
     }
 }
 
+/// Hydrates without writing the `.file` outputs: the caller writes them once
+/// the tunnels are up too.
 async fn prepare_secrets(
     secrets: &[TicketSecret],
-    op_sa: Option<&str>,
     progress_plan: &SecretSources,
     cache: Option<CacheScope<'_>>,
     progress: ProviderProgressSink,
@@ -210,40 +228,26 @@ async fn prepare_secrets(
         None => crate::hub::CacheHit::empty(),
     };
     log_phase("hub lookup", started);
-    let remaining: Vec<TicketSecret> = secrets
-        .iter()
-        .filter(|secret| !hit.keys.contains(&secret.key))
-        .cloned()
-        .collect();
     let LoadedSecrets {
-        mut vars,
-        mut sources,
-        mut maskable,
+        vars,
+        sources,
+        maskable,
         warnings,
+        private,
     } = {
         let started = std::time::Instant::now();
+        // § v3rjmav3z.a@tkdw8
         let loaded = hydrate_secrets_from_ticket_with_progress(
-            &remaining,
-            op_sa,
+            secrets,
             progress_plan,
             progress,
-            &hit.keys,
+            &hit.values,
         )
         .await;
+        // § end v3rjmav3z.a
         log_phase("providers", started);
         loaded?
     };
-
-    for secret in secrets {
-        let Some(value) = hit.values.get(&secret.key) else {
-            continue;
-        };
-        sources.insert(secret.key.clone(), secret.source.clone());
-        maskable.insert(secret.key.clone());
-        vars.entry(secret.output.clone())
-            .or_default()
-            .insert(secret.key.clone(), value.clone());
-    }
 
     if let Some(cache) = cache.as_ref() {
         let started = std::time::Instant::now();
@@ -256,6 +260,5 @@ async fn prepare_secrets(
     }
 
     let (env, files) = split_env_files(vars);
-    write_files(&files)?;
-    Ok((env, files, sources, maskable, warnings, hit.keys))
+    Ok((env, files, sources, maskable, warnings, hit.keys, private))
 }

@@ -10,6 +10,7 @@ pub struct ChainBreak {
     pub command: Option<String>,
     pub reason: String,
     pub before: usize,
+    pub after: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,29 +27,23 @@ impl ChainStatus {
             return vec![format!("ok {path} rows={} epoch={}", self.rows, self.epoch)];
         }
         let path = path.to_string();
-        self.breaks
-            .iter()
-            .map(|b| format_break(&path, b, self.rows))
-            .collect()
+        self.breaks.iter().map(|b| format_break(&path, b)).collect()
     }
 }
 
-fn format_break(path: &str, b: &ChainBreak, total: usize) -> String {
+fn format_break(path: &str, b: &ChainBreak) -> String {
+    // § bqy4mdd5m.c@cqbwn
     let seq = b.seq.map(|s| format!(" seq={s}")).unwrap_or_default();
     let where_ = match (&b.ts, &b.command) {
         (Some(ts), Some(cmd)) if !cmd.is_empty() => format!(" {ts} {cmd}"),
         (Some(ts), _) => format!(" {ts}"),
         _ => String::new(),
     };
-    let after = match b.seq {
-        Some(s) if s > 0 => total.saturating_sub(s as usize),
-        _ => total.saturating_sub(b.before.saturating_add(1)),
-    };
     format!(
         "tampered {path}{seq}{where_}: {}. {} before it. {} after it.",
         b.reason,
         count_label(b.before, "row"),
-        count_label(after, "row")
+        count_label(b.after, "row")
     )
 }
 
@@ -65,6 +60,7 @@ fn count_label(n: usize, noun: &str) -> String {
 pub(crate) const UNSEALED_PROBE: &str = "SELECT EXISTS(SELECT 1 FROM events WHERE seq IS NULL)";
 
 pub fn backfill(conn: &mut Connection) -> rusqlite::Result<()> {
+    // § eqyjmph9x.e@0hj12
     let needs_seal: bool = conn.query_row(UNSEALED_PROBE, [], |row| row.get(0))?;
     if needs_seal {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -124,15 +120,19 @@ pub fn prune_and_reseal(
     cutoff: &str,
     repo: Option<&str>,
 ) -> rusqlite::Result<usize> {
+    // § eqyjmph9x.c@wde53
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let prev_epoch = read_head(&tx)?.map(|h| h.epoch).unwrap_or(1);
     tx.execute("DROP TRIGGER IF EXISTS events_no_delete", [])?;
+    // § eqyjmph9x.d@d4kaw
     let kept = match repo {
+        // § one ck86fwnt7.b@157he
+        // `IS`, not `=`: `NOT (... AND NULL)` is NULL, which drops a row of no repo.
         Some(repo) => load_events(
             &tx,
             &format!(
                 "SELECT {EVENT_COLS} FROM events
-                 WHERE NOT (ts < ?1 AND repo = ?2)
+                 WHERE NOT (ts < ?1 AND repo IS ?2)
                  ORDER BY ts ASC, id ASC"
             ),
             params![cutoff, repo],
@@ -156,6 +156,7 @@ pub fn prune_and_reseal(
     });
     head.epoch = prev_epoch + 1;
     write_head(&tx, &head)?;
+    // § end eqyjmph9x.d
     tx.execute(
         "CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN
            SELECT RAISE(ABORT, 'events are append-only');
@@ -174,6 +175,7 @@ pub fn verify(conn: &Connection) -> rusqlite::Result<ChainStatus> {
 }
 
 fn verify_snapshot(conn: &Connection) -> rusqlite::Result<ChainStatus> {
+    // § bqy4mdd5m.c@eyc19
     let epoch = read_head(conn)?.map(|h| h.epoch).unwrap_or(0);
     let mut stmt = conn.prepare(&format!(
         "SELECT {EVENT_COLS}, seq, prev_hash, row_hash, seal_ver
@@ -201,6 +203,7 @@ fn verify_snapshot(conn: &Connection) -> rusqlite::Result<ChainStatus> {
                 if stored_prev != prev {
                     reasons.push("prev_hash does not match the previous row");
                 }
+                // § eqyjmph9x.f@kdbeh
                 if seal(&stored_prev, &event, &seal_ver) != stored_hash {
                     reasons.push("row_hash does not match the sealed payload");
                 }
@@ -229,6 +232,7 @@ fn verify_snapshot(conn: &Connection) -> rusqlite::Result<ChainStatus> {
                 command: None,
                 reason: "chain_head points at a missing row".into(),
                 before: 0,
+                after: 0,
             });
         } else if count > 0 && head.hash != prev {
             breaks.push(ChainBreak {
@@ -237,8 +241,12 @@ fn verify_snapshot(conn: &Connection) -> rusqlite::Result<ChainStatus> {
                 command: None,
                 reason: "chain_head does not match the last row".into(),
                 before: intact,
+                after: 0,
             });
         }
+    }
+    for b in &mut breaks {
+        b.after = intact.saturating_sub(b.before);
     }
     Ok(ChainStatus {
         ok: breaks.is_empty(),
@@ -274,6 +282,7 @@ fn break_at(event: &Event, seq: Option<i64>, reason: &str, before: usize) -> Cha
         command: Some(event.command.clone()),
         reason: reason.to_string(),
         before,
+        after: 0,
     }
 }
 
@@ -288,6 +297,7 @@ pub fn unsigned_pack() -> ChainStatus {
             command: None,
             reason: "no chain".into(),
             before: 0,
+            after: 0,
         }],
     }
 }

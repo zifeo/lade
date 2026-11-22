@@ -7,15 +7,16 @@ use crate::family::Family;
 use crate::message_box::{MessageBox, Report};
 
 mod cli;
+mod edit;
 mod package;
 mod secret;
 mod tunnel;
 mod yaml;
 
-pub use yaml::replace_binding_uri;
+pub use yaml::{replace_binding_uri, replace_binding_value};
 
 pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
-    let tty = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
+    let tty = ctx.may_ask();
     let (family, query) = resolve_family(opts.family.as_deref(), opts.query.as_deref(), tty)?;
     let rule = require_or_ask(opts.rule.as_deref(), "Rule (regex): ", tty)?;
     let key = match family {
@@ -47,6 +48,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
         }
         None => bail!("pass --uri"),
     };
+    // § one q3jn8hjmk.d@01212
     if family == Family::Secret && crate::family::is_raw_secret(&uri) {
         warn_raw();
     }
@@ -73,7 +75,7 @@ pub fn run_add(opts: AddCommand, ctx: &InvocationContext) -> Result<()> {
 }
 
 pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
-    let tty = ctx.stdin_is_terminal && ctx.stderr_is_terminal;
+    let tty = ctx.may_ask();
     let (family, query) = match (opts.family.as_deref(), opts.query.as_deref()) {
         (Some(first), rest) if let Some(family) = Family::parse(first) => {
             (family, rest.map(str::to_string))
@@ -97,6 +99,7 @@ pub fn run_remove(opts: RemoveCommand, ctx: &InvocationContext) -> Result<()> {
     };
     let path = yaml::nearest_yaml()?.with_context(|| "no lade.yaml on the walk")?;
     let Some(uri) = yaml::drop_binding(&path, &rule, &key)? else {
+        // § qp8tmdhae.d@j3pj8
         bail!("no `{key}` on `{rule}` in {}", path.display());
     };
     let mut report = Report::new()
@@ -156,4 +159,41 @@ pub(super) fn warn_raw() {
         .warning()
         .line(crate::family::RAW_WARNING)
         .print_stderr();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audience::{UiMode, Via};
+    use crate::config::Audience;
+
+    #[test]
+    fn a_harness_with_a_terminal_is_never_asked() {
+        let ctx = InvocationContext {
+            via: Via::Unknown,
+            audience: Audience::Agent,
+            mode: UiMode::Quiet,
+            ticket_id: None,
+            stdin_is_terminal: true,
+            stdout_is_terminal: true,
+            stderr_is_terminal: true,
+        };
+        let add = AddCommand {
+            family: None,
+            query: None,
+            rule: None,
+            key: None,
+            uri: None,
+        };
+        let err = run_add(add, &ctx).unwrap_err().to_string();
+        assert!(err.contains("pass a family"), "{err}");
+        let remove = RemoveCommand {
+            family: None,
+            query: None,
+            rule: None,
+            key: None,
+        };
+        let err = run_remove(remove, &ctx).unwrap_err().to_string();
+        assert!(err.contains("pass a family"), "{err}");
+    }
 }

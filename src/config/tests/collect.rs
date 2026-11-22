@@ -6,9 +6,9 @@ fn test_collect_dot_matches_any_non_empty_command() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), ".:\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("git status").len(), 1);
-    assert_eq!(config.collect("ssh -T git@github.com").len(), 1);
-    assert!(config.collect("").is_empty());
+    assert_eq!(config.collect("git status").unwrap().len(), 1);
+    assert_eq!(config.collect("ssh -T git@github.com").unwrap().len(), 1);
+    assert!(config.collect("").unwrap().is_empty());
 }
 
 #[test]
@@ -20,16 +20,16 @@ fn test_collect_for_filters_when() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let agent = config.collect_for("git status", Audience::Agent);
+    let agent = config.collect_for("git status", Audience::Agent).unwrap();
     assert_eq!(agent.len(), 1);
     assert!(agent[0].1.secrets.contains_key("SOCK"));
     assert_eq!(agent[0].1.config.as_ref().unwrap().when, RuleWhen::Agent);
-    let human = config.collect_for("git status", Audience::Human);
+    let human = config.collect_for("git status", Audience::Human).unwrap();
     assert_eq!(human.len(), 1);
     assert_eq!(human[0].1.config.as_ref().unwrap().when, RuleWhen::Human);
-    let echo_agent = config.collect_for("echo hi", Audience::Agent);
+    let echo_agent = config.collect_for("echo hi", Audience::Agent).unwrap();
     assert_eq!(echo_agent.len(), 2);
-    let echo_human = config.collect_for("echo hi", Audience::Human);
+    let echo_human = config.collect_for("echo hi", Audience::Human).unwrap();
     assert_eq!(echo_human.len(), 1);
     assert!(echo_human[0].1.config.is_none());
 }
@@ -40,7 +40,7 @@ fn test_log_enabled_absent_is_off() {
     std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     assert!(!Config::log_enabled(
-        &config.collect_for("cmd", Audience::Human)
+        &config.collect_for("cmd", Audience::Human).unwrap()
     ));
 }
 
@@ -54,13 +54,15 @@ fn test_log_enabled_overlay_last_explicit_wins() {
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     assert!(Config::log_enabled(
-        &config.collect_for("echo hi", Audience::Human)
+        &config.collect_for("echo hi", Audience::Human).unwrap()
     ));
     assert!(!Config::log_enabled(
-        &config.collect_for("git status", Audience::Human)
+        &config.collect_for("git status", Audience::Human).unwrap()
     ));
     assert!(Config::log_enabled(
-        &config.collect_for("npm run deploy", Audience::Human)
+        &config
+            .collect_for("npm run deploy", Audience::Human)
+            .unwrap()
     ));
 }
 
@@ -77,13 +79,15 @@ fn test_log_enabled_parent_then_child() {
     .unwrap();
     let config = LadeFile::build(child).unwrap();
     assert!(Config::log_enabled(
-        &config.collect_for("echo hi", Audience::Human)
+        &config.collect_for("echo hi", Audience::Human).unwrap()
     ));
     assert!(!Config::log_enabled(
-        &config.collect_for("git status", Audience::Human)
+        &config.collect_for("git status", Audience::Human).unwrap()
     ));
     assert!(Config::log_enabled(
-        &config.collect_for("npm run deploy", Audience::Human)
+        &config
+            .collect_for("npm run deploy", Audience::Human)
+            .unwrap()
     ));
 }
 
@@ -97,7 +101,7 @@ fn test_log_enabled_dot_then_later_secret_keeps_log() {
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     assert!(Config::log_enabled(
-        &config.collect_for("echo hi", Audience::Human)
+        &config.collect_for("echo hi", Audience::Human).unwrap()
     ));
 }
 
@@ -106,8 +110,8 @@ fn test_collect_for_default_when_is_always() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect_for("cmd", Audience::Agent).len(), 1);
-    assert_eq!(config.collect_for("cmd", Audience::Human).len(), 1);
+    assert_eq!(config.collect_for("cmd", Audience::Agent).unwrap().len(), 1);
+    assert_eq!(config.collect_for("cmd", Audience::Human).unwrap().len(), 1);
 }
 
 #[test]
@@ -119,7 +123,7 @@ fn test_collect_exact_match() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("terraform plan").len(), 1);
+    assert_eq!(config.collect("terraform plan").unwrap().len(), 1);
 }
 
 #[test]
@@ -131,9 +135,9 @@ fn test_collect_regex_match() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("terraform plan").len(), 1);
-    assert_eq!(config.collect("terraform apply").len(), 1);
-    assert_eq!(config.collect("other command").len(), 0);
+    assert_eq!(config.collect("terraform plan").unwrap().len(), 1);
+    assert_eq!(config.collect("terraform apply").unwrap().len(), 1);
+    assert_eq!(config.collect("other command").unwrap().len(), 0);
 }
 
 #[test]
@@ -160,7 +164,7 @@ fn test_collect_no_match() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), "\"specific\":\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert!(config.collect("other").is_empty());
+    assert!(config.collect("other").unwrap().is_empty());
 }
 
 // Shell hooks run `build` + `collect` on EVERY command, and most commands do
@@ -181,16 +185,23 @@ fn hot_path_build_and_no_match_is_fast() {
 
     for _ in 0..50 {
         let config = LadeFile::build(path.clone()).unwrap();
-        assert!(config.collect("git status").is_empty());
+        assert!(config.collect("git status").unwrap().is_empty());
     }
 
-    let iters = 1000u32;
-    let start = Instant::now();
-    for _ in 0..iters {
-        let config = LadeFile::build(path.clone()).unwrap();
-        let _ = config.collect("git status --porcelain");
-    }
-    let per_iter = start.elapsed() / iters;
+    // The fastest of several batches: a regression slows every batch, a
+    // machine loaded by other tests only some of them.
+    let iters = 100u32;
+    let per_iter = (0..10)
+        .map(|_| {
+            let start = Instant::now();
+            for _ in 0..iters {
+                let config = LadeFile::build(path.clone()).unwrap();
+                let _ = config.collect("git status --porcelain").unwrap();
+            }
+            start.elapsed() / iters
+        })
+        .min()
+        .unwrap();
 
     assert!(
         per_iter < Duration::from_millis(5),
@@ -207,7 +218,7 @@ fn test_collect_multiple_rules_match() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("cmd anything").len(), 2);
+    assert_eq!(config.collect("cmd anything").unwrap().len(), 2);
 }
 
 #[test]
@@ -234,9 +245,30 @@ fn lookahead_excludes_help_flag() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("terraform apply").len(), 1);
-    assert_eq!(config.collect("terraform apply -auto-approve").len(), 1);
-    assert!(config.collect("terraform apply --help").is_empty());
+    assert_eq!(config.collect("terraform apply").unwrap().len(), 1);
+    assert_eq!(
+        config
+            .collect("terraform apply -auto-approve")
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(config.collect("terraform apply --help").unwrap().is_empty());
+}
+
+#[test]
+fn lookaround_over_backtrack_bound_fails() {
+    let dir = tempdir().unwrap();
+    let key = r"^(?=(a|aa)+\1$)b";
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        format!("'{key}':\n  TOKEN: val\n"),
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let command = format!("{}!", "a".repeat(40));
+    let err = config.collect(&command).unwrap_err();
+    assert!(format!("{err:#}").contains(key), "{err:#}");
 }
 
 #[test]
@@ -248,11 +280,11 @@ fn lookahead_keeps_easy_overlay_order() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let apply = config.collect("terraform apply");
+    let apply = config.collect("terraform apply").unwrap();
     assert_eq!(apply.len(), 2);
     assert!(apply[0].1.secrets.contains_key("BASE"));
     assert!(apply[1].1.secrets.contains_key("EXTRA"));
-    let help = config.collect("terraform apply --help");
+    let help = config.collect("terraform apply --help").unwrap();
     assert_eq!(help.len(), 1);
     assert!(help[0].1.secrets.contains_key("BASE"));
 }
@@ -297,7 +329,9 @@ fn test_log_only_dot_does_not_need_wrap() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), ".:\n  .:\n    log: true\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let patterned = config.collect_for_with_pattern("gcloud auth list", Audience::Agent);
+    let patterned = config
+        .collect_for_with_pattern("gcloud auth list", Audience::Agent)
+        .unwrap();
     assert_eq!(patterned.len(), 1);
     let work = Config::pre_event_work(&patterned, &None).unwrap();
     assert!(work.log);
@@ -320,7 +354,9 @@ fn test_secret_and_disclaimer_and_pin_need_wrap() {
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     for command in ["echo hi", "warn me", "jq --version"] {
-        let patterned = config.collect_for_with_pattern(command, Audience::Agent);
+        let patterned = config
+            .collect_for_with_pattern(command, Audience::Agent)
+            .unwrap();
         let work = Config::pre_event_work(&patterned, &None).unwrap();
         assert!(
             Config::needs_wrap(
@@ -343,7 +379,9 @@ fn test_later_cancel_does_not_need_wrap() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let patterned = config.collect_for_with_pattern("jq .", Audience::Human);
+    let patterned = config
+        .collect_for_with_pattern("jq .", Audience::Human)
+        .unwrap();
     let work = Config::pre_event_work(&patterned, &None).unwrap();
     assert!(!work.needs_inject());
     assert!(!Config::needs_wrap(
@@ -364,7 +402,9 @@ fn test_catch_all_pin_wraps_every_command() {
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
     for command in ["which kubectl", "echo hi", "kubectl get pods"] {
-        let patterned = config.collect_for_with_pattern(command, Audience::Human);
+        let patterned = config
+            .collect_for_with_pattern(command, Audience::Human)
+            .unwrap();
         let work = Config::pre_event_work(&patterned, &None).unwrap();
         assert!(
             Config::needs_wrap(
@@ -387,7 +427,9 @@ fn test_command_pin_does_not_wrap_which() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let which = config.collect_for_with_pattern("which kubectl", Audience::Human);
+    let which = config
+        .collect_for_with_pattern("which kubectl", Audience::Human)
+        .unwrap();
     let which_work = Config::pre_event_work(&which, &None).unwrap();
     assert!(!Config::needs_wrap(
         &which_work,
@@ -395,7 +437,9 @@ fn test_command_pin_does_not_wrap_which() {
         which.iter().map(|(_, _, rule)| rule),
         &None,
     ));
-    let kubectl = config.collect_for_with_pattern("kubectl get pods", Audience::Human);
+    let kubectl = config
+        .collect_for_with_pattern("kubectl get pods", Audience::Human)
+        .unwrap();
     let kubectl_work = Config::pre_event_work(&kubectl, &None).unwrap();
     assert!(Config::needs_wrap(
         &kubectl_work,
@@ -414,7 +458,9 @@ fn test_catch_all_shell_pin_does_not_wrap_echo() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let echo = config.collect_for_with_pattern("echo hi", Audience::Human);
+    let echo = config
+        .collect_for_with_pattern("echo hi", Audience::Human)
+        .unwrap();
     let echo_work = Config::pre_event_work(&echo, &None).unwrap();
     assert!(!Config::needs_wrap(
         &echo_work,
@@ -422,7 +468,9 @@ fn test_catch_all_shell_pin_does_not_wrap_echo() {
         echo.iter().map(|(_, _, rule)| rule),
         &None,
     ));
-    let zsh = config.collect_for_with_pattern("zsh -c echo", Audience::Human);
+    let zsh = config
+        .collect_for_with_pattern("zsh -c echo", Audience::Human)
+        .unwrap();
     let zsh_work = Config::pre_event_work(&zsh, &None).unwrap();
     assert!(Config::needs_wrap(
         &zsh_work,
@@ -441,7 +489,9 @@ fn two_dot_bodies_keep_the_shell_secret() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let patterned = config.collect_for_with_pattern("true", Audience::Agent);
+    let patterned = config
+        .collect_for_with_pattern("true", Audience::Agent)
+        .unwrap();
     assert_eq!(
         patterned.len(),
         2,
@@ -464,4 +514,18 @@ fn two_dot_bodies_keep_the_shell_secret() {
         ),
         "true must wrap when the second . body has a secret"
     );
+}
+
+#[test]
+fn body_ttl_over_24h_fails_load() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "\"^echo\":\n  \".\":\n    ttl: 25h\n  KEY: op://v/i/f\n",
+    )
+    .unwrap();
+    let Err(err) = LadeFile::build(dir.path().to_path_buf()) else {
+        panic!("a 25h ttl loaded");
+    };
+    assert!(format!("{err:#}").contains("lade.yml"), "{err:#}");
 }

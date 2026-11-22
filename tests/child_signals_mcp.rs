@@ -213,3 +213,31 @@ exec cat
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+#[test]
+fn a_stop_signal_to_an_mcp_bridge_removes_its_file_output() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^http://127\":\n  .:\n    file: out.json\n  KEY: value\n",
+    )
+    .unwrap();
+    let mut cmd = common::lade_std(home.path());
+    cmd.current_dir(dir.path())
+        .args(["mcp", "http://127.0.0.1:9/mcp"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut lade = LadeChild::spawn(cmd.spawn().unwrap());
+    let out = dir.path().join("out.json");
+    wait_exists(&out);
+    // The file is written before the bridge watches the signals.
+    std::thread::sleep(Duration::from_millis(300));
+    lade.signal(Signal::SIGHUP);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(lade.running(), "lade exited on SIGHUP");
+    lade.signal(Signal::SIGTERM);
+    let _ = lade.wait_exit();
+    assert!(!out.exists());
+}

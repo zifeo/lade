@@ -110,6 +110,7 @@ impl MessageBox {
         // (agents, pipes) the box does not fit and just adds noise, so fall back
         // to bare lines.
         if terse() {
+            // § kgqztjzym.d@zzg0e
             eprintln!("{}", self.terse_line());
             return;
         }

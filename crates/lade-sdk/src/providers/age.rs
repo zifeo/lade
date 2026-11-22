@@ -110,6 +110,7 @@ impl Provider for Age {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.b@1thrz
         super::HUMAN_PROVIDER_TIMEOUT
     }
 
@@ -122,6 +123,7 @@ impl Provider for Age {
     }
 
     fn transport(&self) -> Transport {
+        // § cbck003hy.a@hs809
         Transport::Sdk
     }
 

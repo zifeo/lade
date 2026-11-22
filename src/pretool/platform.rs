@@ -3,6 +3,7 @@ use std::env;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Platform {
+    // § mqnfssecp.c@7gf6d
     Cursor,
     ClaudeCode,
     Codex,
@@ -24,6 +25,7 @@ impl Platform {
 }
 
 pub(super) fn parse_harness(raw: &str) -> Option<Platform> {
+    // § mqnfssecp.c@xk7fx
     match raw.trim().to_ascii_lowercase().as_str() {
         "cursor" => Some(Platform::Cursor),
         "claude" | "claude-code" | "claudecode" => Some(Platform::ClaudeCode),
@@ -35,19 +37,16 @@ pub(super) fn parse_harness(raw: &str) -> Option<Platform> {
 
 /// Flag first. Unknown flag values are ignored. Detection never fails the hook.
 pub(super) fn resolve_platform(harness: Option<&str>, input: &Value) -> Option<Platform> {
+    // § f7eb9ymg0.b@rqdw4
+    // § one j0my6hfhx.a@8rvek
     if let Some(platform) = harness.and_then(parse_harness) {
         return Some(platform);
     }
-    detect_platform(input).or_else(
-        || match input.get("hook_event_name").and_then(Value::as_str) {
-            Some("preToolUse" | "beforeMCPExecution") => Some(Platform::Cursor),
-            Some("PreToolUse") => Some(Platform::ClaudeCode),
-            _ => None,
-        },
-    )
+    detect_platform(input)
 }
 
 pub(super) fn collect_agent(platform: Option<Platform>, input: &Value) -> Value {
+    // § j1mbwadzc.e@2r5kn
     let mut obj = serde_json::Map::new();
     if let Some(platform) = platform {
         obj.insert("harness".to_string(), serde_json::json!(platform.slug()));
@@ -90,47 +89,51 @@ fn session_from(input: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Detect the host agent from payload, then hook environment. `CURSOR_VERSION`
-/// is last among env signals: Cursor also sets it in other hosts' terminals,
-/// and a `PreToolUse` payload must keep the Claude `updatedInput` envelope.
-/// `--harness opencode` uses a native `{ command }` rewrite.
+/// Detect the host agent from the payload's event, then the hook environment.
+/// A harness started from another harness's terminal inherits its variables,
+/// so an env signal names the harness only for a payload whose event names
+/// none. `CURSOR_VERSION` is last: Cursor also sets it in other hosts'
+/// terminals.
 pub(super) fn detect_platform(input: &Value) -> Option<Platform> {
-    if is_codex(input) {
-        return Some(Platform::Codex);
-    }
-    if is_opencode(input) {
-        return Some(Platform::OpenCode);
-    }
-    if env::var("CLAUDE_PROJECT_DIR").is_ok() || is_pretool_use(input) {
-        return Some(Platform::ClaudeCode);
-    }
-    if env::var("CURSOR_VERSION").is_ok()
-        || input.get("hook_event_name").and_then(Value::as_str) == Some("preToolUse")
-    {
-        return Some(Platform::Cursor);
-    }
-    None
-}
-
-fn is_codex(input: &Value) -> bool {
-    CODEX_ENV.iter().any(|key| env::var(key).is_ok()) || is_codex_payload(input)
+    // § j0my6hfhx.b@fpne7
+    payload_platform(input).or_else(env_platform)
 }
 
 /// `turn_id` is Codex-specific. `model` is not: Cursor now sends it too.
-fn is_codex_payload(input: &Value) -> bool {
-    is_pretool_use(input) && input.get("turn_id").and_then(Value::as_str).is_some()
+fn payload_platform(input: &Value) -> Option<Platform> {
+    // § mqnfssecp.c@gx56v
+    if is_opencode_payload(input) {
+        return Some(Platform::OpenCode);
+    }
+    match input.get("hook_event_name").and_then(Value::as_str) {
+        Some("PreToolUse") if input.get("turn_id").and_then(Value::as_str).is_some() => {
+            Some(Platform::Codex)
+        }
+        Some("PreToolUse") => Some(Platform::ClaudeCode),
+        Some("preToolUse" | "beforeMCPExecution") => Some(Platform::Cursor),
+        _ => None,
+    }
+    // § end mqnfssecp.c
 }
 
-fn is_opencode(input: &Value) -> bool {
-    OPENCODE_ENV.iter().any(|key| env::var(key).is_ok()) || is_opencode_payload(input)
+fn env_platform() -> Option<Platform> {
+    // § mqnfssecp.c@bas3y
+    let set = |key: &str| env::var(key).is_ok();
+    if CODEX_ENV.iter().any(|key| set(key)) {
+        Some(Platform::Codex)
+    } else if OPENCODE_ENV.iter().any(|key| set(key)) {
+        Some(Platform::OpenCode)
+    } else if set("CLAUDE_PROJECT_DIR") {
+        Some(Platform::ClaudeCode)
+    } else if set("CURSOR_VERSION") {
+        Some(Platform::Cursor)
+    } else {
+        None
+    }
 }
 
 fn is_opencode_payload(input: &Value) -> bool {
     input.get("hook_source").and_then(Value::as_str) == Some("opencode-plugin")
-}
-
-fn is_pretool_use(input: &Value) -> bool {
-    input.get("hook_event_name").and_then(Value::as_str) == Some("PreToolUse")
 }
 
 pub(super) fn extract_command(input: &Value) -> Option<String> {
@@ -158,18 +161,12 @@ fn is_env_assignment(token: &str) -> bool {
     }
 }
 
-/// Split leading `VAR=value` assignments (e.g. `LADE_APPROVE=ab12c`) from the
-/// rest of the command. The hook re-emits them before the rewritten command
-/// so an approval prefix lands in the child environment.
-pub(crate) fn split_env_prefix(command: &str) -> (String, String) {
-    split_prefix(command, is_env_assignment)
-}
-
 /// The leading `NAME=value` words the hook may move in front of the
 /// rewrite. A value with quotes, expansion, or an operator may hold
 /// spaces (`d=$(getconf X)`), so splitting on them would cut a word in two
 /// and break the line: it stays inside the wrap instead.
 pub(super) fn split_plain_env_prefix(command: &str) -> (String, String) {
+    // § hk9h1sqyt.c@wjtph
     let (prefix, rest) = split_prefix(command, |token| {
         is_env_assignment(token) && !token.contains(NOT_PLAIN_VALUE)
     });

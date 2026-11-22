@@ -20,13 +20,24 @@ pub enum MemoryGuard {
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     DebugBuild,
     /// No secret cached. `detail` says why, and how to fix it.
-    #[cfg_attr(target_os = "linux", allow(dead_code))]
     Off { detail: String },
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static GUARD_OFF_FOR_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub fn memory_guard() -> MemoryGuard {
+    #[cfg(test)]
+    if GUARD_OFF_FOR_TEST.with(std::cell::Cell::get) {
+        return MemoryGuard::Off {
+            detail: "off for this test".to_string(),
+        };
+    }
     #[cfg(target_os = "macos")]
     {
+        // § kgejwr97c.b@6b9tk
         if own_status().is_some_and(|flags| flags & CS_RUNTIME != 0) {
             return MemoryGuard::HardenedRuntime;
         }
@@ -46,6 +57,7 @@ pub fn memory_guard() -> MemoryGuard {
     // The hub sets it itself at start: no signature, no privilege.
     #[cfg(target_os = "linux")]
     {
+        // § kgejwr97c.a@ncvat
         MemoryGuard::NotDumpable
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -54,18 +66,67 @@ pub fn memory_guard() -> MemoryGuard {
     }
 }
 
+/// What the hub could not do to keep its memory to itself. Holds no heap
+/// data, so [`lock_memory`] can run in a forked child.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Unguarded {
+    what: &'static str,
+    /// `None`: the call returned, but the kernel did not apply it.
+    errno: Option<i32>,
+}
+
+impl Unguarded {
+    fn last(what: &'static str) -> Self {
+        Self {
+            what,
+            errno: std::io::Error::last_os_error().raw_os_error(),
+        }
+    }
+}
+
+impl std::fmt::Display for Unguarded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.errno {
+            Some(errno) => write!(
+                f,
+                "the hub could not {}: {}",
+                self.what,
+                std::io::Error::from_raw_os_error(errno)
+            ),
+            None => write!(f, "the hub could not {}", self.what),
+        }
+    }
+}
+
 /// Run once by the hub: no core file, and on Linux no `ptrace` or
-/// `/proc/<pid>/mem` from another process of this user.
-pub(super) fn lock_memory() {
+/// `/proc/<pid>/mem` from another process of this user. An error: the hub
+/// must cache no secret.
+pub(super) fn lock_memory() -> Result<(), Unguarded> {
+    // § kgejwr97c.d@d45d8
     let none = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
-    unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) };
-    #[cfg(target_os = "linux")]
-    unsafe {
-        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+    if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) } != 0 {
+        return Err(Unguarded::last("turn off its core file"));
     }
+    // § end kgejwr97c.d
+    #[cfg(target_os = "linux")]
+    {
+        // § kgejwr97c.a@7tac6
+        const WHAT: &str = "make itself not dumpable";
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            return Err(Unguarded::last(WHAT));
+        }
+        if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            return Err(Unguarded {
+                what: WHAT,
+                errno: None,
+            });
+        }
+        // § end kgejwr97c.a
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -118,6 +179,7 @@ pub(super) fn own_cdhash() -> Option<[u8; 20]> {
 /// connect fails the call.
 #[cfg(target_os = "macos")]
 pub(super) fn peer_cdhash(stream: &impl std::os::fd::AsRawFd) -> Option<[u8; 20]> {
+    // § e1s6kxps0.b@2n2ny
     const SOL_LOCAL: libc::c_int = 0;
     const LOCAL_PEERTOKEN: libc::c_int = 0x006;
     let mut token: AuditToken = [0; 8];
@@ -160,5 +222,57 @@ mod tests {
     fn the_other_end_of_a_socket_has_the_same_cdhash() {
         let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
         assert_eq!(peer_cdhash(&a), own_cdhash());
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    /// In a forked child: the limits it sets would otherwise hold for every
+    /// test of this process. The child only makes syscalls, so a lock
+    /// another thread held at the fork cannot block it.
+    #[test]
+    fn a_locked_hub_has_no_core_file_and_is_not_dumpable() {
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork");
+        if pid == 0 {
+            let mut core = libc::rlimit {
+                rlim_cur: 1,
+                rlim_max: 1,
+            };
+            let locked = lock_memory().is_ok();
+            let no_core = unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut core) } == 0
+                && core.rlim_cur == 0
+                && core.rlim_max == 0;
+            #[cfg(target_os = "linux")]
+            let not_dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } == 0;
+            #[cfg(not(target_os = "linux"))]
+            let not_dumpable = true;
+            let code =
+                i32::from(!locked) | i32::from(!no_core) << 1 | i32::from(!not_dumpable) << 2;
+            unsafe { libc::_exit(code) };
+        }
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert!(libc::WIFEXITED(status), "child status {status}");
+        assert_eq!(
+            libc::WEXITSTATUS(status),
+            0,
+            "bit 0: lock_memory failed, 1: core limit not 0, 2: still dumpable"
+        );
+    }
+
+    #[test]
+    fn an_unguarded_hub_says_what_it_could_not_do() {
+        let why = Unguarded {
+            what: "make itself not dumpable",
+            errno: Some(libc::EPERM),
+        };
+        let text = why.to_string();
+        assert!(
+            text.starts_with("the hub could not make itself not dumpable: "),
+            "{text}"
+        );
     }
 }

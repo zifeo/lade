@@ -5,6 +5,7 @@ use super::spec;
 use super::store;
 
 pub fn upsert_pin(pins: &mut Vec<(String, spec::Spec)>, key: String, spec: spec::Spec) {
+    // § ba4zs2twj.b@9dbb1
     if let Some((existing_key, existing)) = pins
         .iter_mut()
         .find(|(k, s)| k == &key || s.backend_id() == spec.backend_id())
@@ -22,17 +23,7 @@ pub fn matching_store_version(
     installs: &Path,
     names: &[String],
 ) -> Option<String> {
-    argv0s(key, spec)
-        .into_iter()
-        .find_map(|argv0| store::resolve_matching_version(installs, names, argv0, &spec.version))
-}
-
-pub fn argv0s<'a>(key: &'a str, spec: &'a spec::Spec) -> Vec<&'a str> {
-    let mut out = vec![key];
-    if spec.short_name() != key {
-        out.push(spec.short_name());
-    }
-    out
+    store::resolve_matching_version(installs, names, key, &spec.version)
 }
 
 pub fn find_cli_dir(
@@ -40,11 +31,8 @@ pub fn find_cli_dir(
     names: &[String],
     version: &str,
     key: &str,
-    spec: &spec::Spec,
 ) -> Option<PathBuf> {
-    argv0s(key, spec)
-        .into_iter()
-        .find_map(|argv0| store::find_pinned_bin(installs, names, version, argv0))
+    store::find_pinned_bin(installs, names, version, key)
 }
 
 pub fn find_cli_file(
@@ -52,11 +40,8 @@ pub fn find_cli_file(
     names: &[String],
     version: &str,
     key: &str,
-    spec: &spec::Spec,
 ) -> Option<PathBuf> {
-    argv0s(key, spec).into_iter().find_map(|argv0| {
-        store::find_pinned_bin(installs, names, version, argv0).map(|dir| dir.join(argv0))
-    })
+    store::find_pinned_bin(installs, names, version, key).map(|dir| dir.join(key))
 }
 
 pub fn yaml_file_in(dir: &Path) -> Result<Option<PathBuf>, Error> {
@@ -88,6 +73,27 @@ mod tests {
         assert_eq!(pins.len(), 2);
         assert_eq!(pins[0].1.backend_id(), "aqua:1password/cli");
         assert_eq!(pins[1].1.backend_id(), "github:DopplerHQ/cli");
+    }
+
+    #[test]
+    fn the_key_is_the_only_binary_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("aqua-jqlang-jq/1.7.1/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let jq = bin.join("jq");
+        std::fs::write(&jq, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&jq, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let names = vec!["aqua-jqlang-jq".to_string()];
+        assert_eq!(
+            find_cli_dir(dir.path(), &names, "1.7.1", "jq"),
+            Some(bin.clone())
+        );
+        assert_eq!(find_cli_dir(dir.path(), &names, "1.7.1", "json"), None);
+        assert_eq!(find_cli_file(dir.path(), &names, "1.7.1", "json"), None);
     }
 
     #[test]

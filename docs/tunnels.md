@@ -17,7 +17,9 @@ fixed port also counts as held when `0.0.0.0`, `::`, `127.0.0.1`, or
 so there is no lock file to clean up. A provider restart keeps the
 port: nothing else can take it in between. `kubefwd` is the
 exception: it binds its own addresses, so Lade checks the port is
-free, then lets go before kubefwd starts. A restart can lose it.
+free, then lets go before kubefwd starts. A restart can lose it:
+when another process listens there, the tunnel fails and no command
+reuses it.
 
 | Event | Hub |
 |---|---|
@@ -25,13 +27,15 @@ free, then lets go before kubefwd starts. A restart can lose it.
 | Ask, same port, other target, holder in use or starting | Refuse, naming the holder's key and URI. The client asks again every 500 ms for up to 10 min |
 | Ask, same port, other target, holder idle (ttl only) | Stop the idle tunnel, then start the new one on its port |
 | Ask, port held by another process | Refuse. The client gives up at once |
-| Start fails | Report the error to every asker until their leases go |
+| Start fails | Report the error to every asker until their leases go, also after a new ask to the same target starts over |
 | Provider exits | Restart with backoff (250 ms, doubling, 5 s cap). Each restart gets a full 60 s to listen |
+| kubefwd restart finds another process on its port | Fail the tunnel. No command reuses it |
 | `lade unset` | Release the ticket's lease |
 | Leasing process gone (pid and start time) | Release its lease, checked every second |
-| Last lease gone, no ttl | Stop now, also mid-start |
+| Last lease gone, mid-start | Stop now, ttl or not |
+| Last lease gone, no ttl | Stop now |
 | Last lease gone, ttl | Stop once the ttl runs out idle |
-| `lade ttl forget [KEY]` | Stop now |
+| `lade ttl forget [KEY]` | Stop now. A failed start stays for its askers |
 | Hub exits, `SIGTERM`, or `SIGINT` | Stop every tunnel, cancel starts, then exit |
 | Hub killed (`SIGKILL`, crash) | Each `lade __tunnel-guard` sees its stdin close and kills its provider |
 

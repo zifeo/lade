@@ -13,6 +13,7 @@ pub(crate) struct CompiledPatterns {
 
 impl CompiledPatterns {
     pub(crate) fn compile(patterns: &[String]) -> Result<Self> {
+        // § jkvdvpp5s.c@184ab
         match RegexSet::new(patterns) {
             Ok(regex_set) => Ok(Self {
                 regex_set,
@@ -51,9 +52,10 @@ impl CompiledPatterns {
         })
     }
 
-    pub(crate) fn matching_indices(&self, command: &str) -> Vec<usize> {
+    pub(crate) fn matching_indices(&self, command: &str) -> Result<Vec<usize>> {
+        // § jkvdvpp5s.a@wva8f
         if self.fancy.is_empty() {
-            return self.regex_set.matches(command).into_iter().collect();
+            return Ok(self.regex_set.matches(command).into_iter().collect());
         }
         let rule_count = self
             .set_rule
@@ -68,14 +70,22 @@ impl CompiledPatterns {
             hit[self.set_rule[set_i]] = true;
         }
         for (rule_i, compiled) in &self.fancy {
-            if compiled.is_match(command).unwrap_or(false) {
+            // § jkvdvpp5s.b@d583h
+            let matched = compiled.is_match(command).with_context(|| {
+                format!(
+                    "command regex '{}' could not decide whether this command matches. Simplify its lookaround",
+                    compiled.as_str()
+                )
+            })?;
+            if matched {
                 hit[*rule_i] = true;
             }
         }
-        hit.into_iter()
+        Ok(hit
+            .into_iter()
             .enumerate()
             .filter_map(|(index, matched)| matched.then_some(index))
-            .collect()
+            .collect())
     }
 }
 

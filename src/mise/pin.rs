@@ -41,6 +41,7 @@ pub(super) async fn pin_command(
     );
     let resolve_version = || {
         if lock_ok {
+            // § byd2nhybz.e@em6bx
             found
                 .as_ref()
                 .map(|(_, slot)| slot.version.clone())
@@ -53,11 +54,12 @@ pub(super) async fn pin_command(
         }
     };
     let lookup_version = resolve_version();
-    if let Some(bin_dir) = lookup::find_cli_dir(&installs, &names, &lookup_version, key, &spec) {
+    if let Some(bin_dir) = lookup::find_cli_dir(&installs, &names, &lookup_version, key) {
         rewrite_floating_yaml(cwd, key, &spec, &lookup_version)?;
         return activate(bin_dir, &spec, &installs, cwd, &lookup_version, false).await;
     }
     if !allow_install {
+        // § rtcp7pj7e.b@dr1e6
         return Err(Error::box_lines([
             format!("locked {key} is missing."),
             String::new(),
@@ -66,6 +68,7 @@ pub(super) async fn pin_command(
         ]));
     }
     ensure::require_for_inject().await?;
+    // § rtcp7pj7e.a@vgbqe
     let installed_version = if let (true, Some((path, slot))) = (lock_ok, found.as_ref()) {
         let locked_spec = spec::at_version(&spec, &slot.version);
         if lock::is_generated(path) {
@@ -88,13 +91,14 @@ pub(super) async fn pin_command(
         Some(version) => version,
         None => resolve_version(),
     };
-    match lookup::find_cli_dir(&installs, &names, &found_version, key, &spec) {
+    match lookup::find_cli_dir(&installs, &names, &found_version, key) {
         Some(bin_dir) => {
             rewrite_floating_yaml(cwd, key, &spec, &found_version)?;
             activate(bin_dir, &spec, &installs, cwd, &found_version, true).await
         }
         None => Err(Error::refuse(key, &spec.cli_spec())),
     }
+    // § end rtcp7pj7e.a
 }
 
 fn rewrite_floating_yaml(
@@ -103,18 +107,22 @@ fn rewrite_floating_yaml(
     spec: &spec::Spec,
     resolved: &str,
 ) -> Result<(), Error> {
+    // § h01jcjwrv.c@y3j35
     if !spec::version_is_floating(&spec.version) || resolved == spec.version {
         return Ok(());
     }
-    let Some(dir) = lookup::yaml_dirs(cwd)?.into_iter().next() else {
-        return Ok(());
-    };
-    let Some(path) = lookup::yaml_file_in(&dir)? else {
-        return Ok(());
-    };
     let uri = spec::replace_version(&spec.uri, resolved);
-    crate::command::add::replace_binding_uri(&path, key, &uri)
-        .map_err(|e| Error::install(e.to_string()))?;
+    // The pin may come from any yaml of the walk, not only the nearest.
+    for dir in lookup::yaml_dirs(cwd)? {
+        let Some(path) = lookup::yaml_file_in(&dir)? else {
+            continue;
+        };
+        if crate::command::add::replace_binding_value(&path, key, &spec.uri, &uri)
+            .map_err(|e| Error::install(e.to_string()))?
+        {
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -133,6 +141,7 @@ async fn activate(
     resolved: &str,
     capture_env: bool,
 ) -> Result<Outcome, Error> {
+    // § aq3qybz6p.a@xjkwr
     let env_spec = spec_for_env(spec, resolved);
     let extra = match env::load(&env_spec) {
         Some(map) => map,
@@ -159,14 +168,14 @@ pub fn locked_bin(cwd: Option<&Path>, key: &str, spec: &spec::Spec) -> Option<Pa
         .or_else(|| {
             if spec.is_range() {
                 lookup::matching_store_version(key, spec, &installs, &names)
-            } else if lookup::find_cli_dir(&installs, &names, &spec.version, key, spec).is_some() {
+            } else if lookup::find_cli_dir(&installs, &names, &spec.version, key).is_some() {
                 Some(spec.version.clone())
             } else {
                 None
             }
         })
         .unwrap_or_else(|| spec.version.clone());
-    lookup::find_cli_file(&installs, &names, &version, key, spec)
+    lookup::find_cli_file(&installs, &names, &version, key)
 }
 
 pub fn locked_cli_bin(cli: &str) -> Option<PathBuf> {

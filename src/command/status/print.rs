@@ -16,12 +16,42 @@ pub(super) fn print_human(report: &StatusReport) {
     print_pretool(&out, report);
     print_hub(&out, &report.hub, &report.global_config);
     print_mise(&out, report);
+    print_remote(&out, &report.remote);
     print_project(&out, report);
+}
+
+fn print_remote(out: &Printer, remote: &super::RemoteStatus) {
+    if remote.upstream == "none" && remote.links.is_empty() {
+        return;
+    }
+    out.blank();
+    out.heading("Remote");
+    let mut rows = Vec::new();
+    if remote.upstream != "none" {
+        rows.push((
+            "upstream",
+            format!(
+                "{} to {}",
+                remote.upstream,
+                remote.laptop.as_deref().unwrap_or("an unknown laptop")
+            ),
+        ));
+    }
+    for link in &remote.links {
+        let error = link
+            .error
+            .as_deref()
+            .map(|e| format!(" ({e})"))
+            .unwrap_or_default();
+        rows.push(("link", format!("{} {}{error}", link.host, link.phase)));
+    }
+    out.pairs(&rows);
 }
 
 fn print_lade(out: &Printer, report: &StatusReport) {
     let v = &report.version;
     out.heading(&format!("Lade {}", v.current));
+    // § rbzjhj8tk.d@hc37k
     let latest = match (&v.latest, v.update_available) {
         (Some(latest), true) => format!("{latest} (update available. run `lade upgrade`)"),
         (Some(latest), false) => format!("{latest} (up to date)"),
@@ -38,6 +68,7 @@ fn print_lade(out: &Printer, report: &StatusReport) {
             format!("failed ({}): {err}", format_tried_at(at, Local::now())),
         ));
     }
+    // § end rbzjhj8tk.d
     rows.push((
         "age plugin",
         match &report.age_plugin.path {
@@ -115,7 +146,12 @@ fn print_pretool(out: &Printer, report: &StatusReport) {
             rows.push(vec![
                 name.to_string(),
                 scope.to_string(),
-                pretool_flag(location.installed, location.current).to_string(),
+                pretool_flag(
+                    location.installed,
+                    location.current,
+                    location.error.is_some(),
+                )
+                .to_string(),
                 path_for_display(&location.path),
             ]);
         }
@@ -123,7 +159,12 @@ fn print_pretool(out: &Printer, report: &StatusReport) {
             rows.push(vec![
                 name.to_string(),
                 "committed".to_string(),
-                committed_flag(committed.present, committed.blocking).to_string(),
+                committed_flag(
+                    committed.present,
+                    committed.blocking,
+                    committed.error.is_some(),
+                )
+                .to_string(),
                 path_for_display(&committed.path),
             ]);
         }
@@ -138,12 +179,15 @@ fn print_hub(out: &Printer, hub: &HubStatus, config: &GlobalConfigInfo) {
     out.blank();
     out.heading("Hub");
     let info = &hub.info;
+    // § rbzjhj8tk.a@rw89c
     let state = match (info.state, info.pid) {
         (HubState::Down, _) => "down".to_string(),
         (HubState::Stale, _) => "stale".to_string(),
         (HubState::Up, Some(pid)) => format!("pid {pid}"),
         (HubState::Up, None) => "up".to_string(),
     };
+    // § end rbzjhj8tk.a
+    // § cfan04ksd.e@b5r6m
     let mut max_cache = match (&config.max_cache_error, config.max_cache_ms) {
         (Some(err), _) => format!("invalid, cache off: {err}"),
         (None, None) => "none (`max_cache` in config caps every ttl)".to_string(),
@@ -164,6 +208,7 @@ fn print_hub(out: &Printer, hub: &HubStatus, config: &GlobalConfigInfo) {
             }
         ));
     }
+    // § end cfan04ksd.e
     let mut rows = vec![
         ("state", state),
         ("max cache", max_cache),
@@ -300,6 +345,7 @@ fn print_project(out: &Printer, report: &StatusReport) {
 
 fn memory_line(guard: &crate::hub::MemoryGuard) -> String {
     use crate::hub::MemoryGuard;
+    // § rbzjhj8tk.b@vyav1
     match guard {
         MemoryGuard::HardenedRuntime => "cache on: hardened runtime, no debugger attaches".into(),
         MemoryGuard::NotDumpable => "cache on: hub not dumpable, no debugger attaches".into(),
@@ -308,18 +354,22 @@ fn memory_line(guard: &crate::hub::MemoryGuard) -> String {
     }
 }
 
-pub(super) fn committed_flag(present: bool, blocking: bool) -> &'static str {
-    match (present, blocking) {
-        (true, true) => "blocking",
-        (true, false) => "not blocking",
-        (false, _) => "none",
+pub(super) fn committed_flag(present: bool, blocking: bool, unreadable: bool) -> &'static str {
+    // § khcwz2ec3.d@0vaqx
+    match (unreadable, present, blocking) {
+        (true, _, _) => "unreadable",
+        (false, true, true) => "blocking",
+        (false, true, false) => "not blocking",
+        (false, false, _) => "none",
     }
 }
 
-pub(super) fn pretool_flag(installed: bool, current: bool) -> &'static str {
-    match (installed, current) {
-        (true, true) => "current",
-        (true, false) => "not current",
-        (false, _) => "missing",
+pub(super) fn pretool_flag(installed: bool, current: bool, unreadable: bool) -> &'static str {
+    // § khcwz2ec3.d@h2vt0
+    match (unreadable, installed, current) {
+        (true, _, _) => "unreadable",
+        (false, true, true) => "current",
+        (false, true, false) => "not current",
+        (false, false, _) => "missing",
     }
 }

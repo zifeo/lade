@@ -21,8 +21,8 @@
 mod harness;
 
 use harness::{
-    CPR_MARKER, Harness, OSC_MARKER, contains, drive, run_in, run_until_exit, spawn_in, spawn_with,
-    write_redactor_yml,
+    CPR_MARKER, Harness, OSC_MARKER, contains, drive, run_answering, run_in, run_until_exit,
+    spawn_in, spawn_lade, spawn_with, spawn_with_env, write_redactor_yml,
 };
 use std::os::fd::AsFd;
 use tempfile::tempdir;
@@ -187,4 +187,168 @@ fn a_provider_can_ask_on_the_terminal() {
         "lade exit status={status:?} captured:\n{text}"
     );
     assert!(contains(&captured, b"got 5"), "captured:\n{text}");
+}
+
+// `op inject` reads its references on stdin. The terminal is lent to it all
+// the same, so 1Password can ask for the account password.
+#[test]
+fn a_stdin_fed_provider_can_ask_on_the_terminal() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    let installs = project.join("installs");
+    let bin = installs.join("op/2.31.1");
+    std::fs::create_dir_all(&bin).unwrap();
+    let op = bin.join("op");
+    std::fs::write(
+        &op,
+        "#!/bin/sh\ncat >/dev/null\nprintf 'password? ' >/dev/tty\nread -r x </dev/tty\nprintf %s \"$x\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        project.join("lade.lock"),
+        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/cli\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("lade.yml"),
+        "\"^printf\":\n  ANSWER: op://my.1password.com/vault/item/field\n",
+    )
+    .unwrap();
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_with_env(
+        &lade_bin,
+        project,
+        "printf 'got %s\\n' ${#ANSWER}",
+        true,
+        &[("MISE_INSTALLS_DIR", &installs)],
+    );
+    let (captured, status) = run_in(harness, Some((b"password? ", b"typed\n")));
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        status.success(),
+        "lade exit status={status:?} captured:\n{text}"
+    );
+    assert!(contains(&captured, b"got 5"), "captured:\n{text}");
+}
+
+// `lade add` lists a provider's secrets with its CLI, which can ask too:
+// `op item list` asks for the account password.
+#[test]
+fn a_lade_add_lookup_can_ask_on_the_terminal() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    let installs = project.join("installs");
+    let bin = installs.join("op/2.31.1");
+    std::fs::create_dir_all(&bin).unwrap();
+    let op = bin.join("op");
+    std::fs::write(
+        &op,
+        "#!/bin/sh\nprintf 'password? ' >/dev/tty\nread -r x </dev/tty\nprintf '[{\"title\":\"%s\",\"vault\":{\"name\":\"V\"}}]' \"$x\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        project.join("lade.lock"),
+        "[[tools.op]]\nversion = \"2.31.1\"\nbackend = \"aqua:1password/cli\"\n",
+    )
+    .unwrap();
+    std::fs::write(project.join("lade.yml"), "").unwrap();
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_lade(
+        &lade_bin,
+        project,
+        &["add", "secret", "--rule", "^x", "--key", "K"],
+        true,
+        &[("MISE_INSTALLS_DIR", &installs)],
+    );
+    let (captured, _) = run_answering(
+        harness,
+        &[
+            (b"Scheme", b"op\n"),
+            (b"password? ", b"typed\n"),
+            (b"Which (number)", b"\x03"),
+        ],
+    );
+    let text = String::from_utf8_lossy(&captured);
+    assert!(contains(&captured, b"V/typed"), "captured:\n{text}");
+}
+
+// Two shell secrets run at once and both ask: the terminal goes to one, then
+// to the other.
+#[test]
+fn providers_that_ask_together_take_the_terminal_in_turn() {
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    std::fs::write(
+        project.join("lade.yml"),
+        concat!(
+            "\"^printf\":\n",
+            "  ONE: 'sh://printf \"one? \" >/dev/tty; read -r x </dev/tty; printf %s \"$x\"'\n",
+            "  TWO: 'sh://printf \"two? \" >/dev/tty; read -r x </dev/tty; printf %s \"$x\"'\n",
+        ),
+    )
+    .unwrap();
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_in(
+        &lade_bin,
+        project,
+        "printf 'got %s %s\\n' ${#ONE} ${#TWO}",
+        true,
+    );
+    let (captured, status) =
+        run_answering(harness, &[(b"one? ", b"typed\n"), (b"two? ", b"typed\n")]);
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        status.success(),
+        "lade exit status={status:?} captured:\n{text}"
+    );
+    assert!(contains(&captured, b"got 5 5"), "captured:\n{text}");
+}
+
+// Linux reports the end of a pty as EIO: the bytes before it are still
+// masked and written.
+#[test]
+fn secret_as_the_last_bytes_is_masked_and_written() {
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    write_redactor_yml(project, "SUPERSECRET");
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let (captured, status) = run_until_exit(&lade_bin, project, "printf 'end SUPERSECRET'", None);
+    let text = String::from_utf8_lossy(&captured);
+    assert!(status.success(), "lade exit status={status:?}");
+    assert!(!contains(&captured, b"SUPERSECRET"), "captured:\n{text}");
+    assert!(
+        contains(&captured, b"end ${LADE_HARNESS_SECRET:-REDACTED}"),
+        "captured:\n{text}"
+    );
+}
+
+// Lade puts the terminal the child reads in raw mode while it masks. Without
+// ISIG kept on it, Ctrl-C reaches the child as a byte on stdin, and a command
+// that reads nothing never stops.
+#[test]
+fn ctrl_c_interrupts_a_masked_command() {
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    // A one-byte secret holds no output back, so the marker shows at once.
+    write_redactor_yml(project, "x");
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_in(
+        &lade_bin,
+        project,
+        "printf '__raw_now__\\n'; sleep 20",
+        true,
+    );
+    let started = std::time::Instant::now();
+    let (captured, status) = run_answering(harness, &[(b"__raw_now__", b"\x03")]);
+    let text = String::from_utf8_lossy(&captured);
+    assert!(contains(&captured, b"__raw_now__"), "captured:\n{text}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(6),
+        "Ctrl-C did not stop the command, status={status:?} captured:\n{text}"
+    );
+    assert!(!status.success(), "status={status:?}");
 }

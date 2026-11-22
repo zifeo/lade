@@ -19,6 +19,7 @@ impl Choice {
 }
 
 pub(super) fn decide(snap: &Snapshot, key: &str, spec: Spec, yaml: bool) -> Choice {
+    // § ba4zs2twj.d@dczav
     if yaml {
         return Choice::Pin(spec);
     }

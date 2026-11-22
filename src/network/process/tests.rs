@@ -203,3 +203,41 @@ fn stop_cancels_a_start_and_its_provider() {
         .unwrap();
     assert_eq!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH));
 }
+
+/// The supervisor ends a start with the last run's error: here, one run.
+#[test]
+#[cfg(unix)]
+fn an_early_exit_reports_the_provider_output() {
+    let mut child = super::child::spawn_forward(
+        sh_command("echo 'not logged in' >&2; exit 1"),
+        &Inner::Printed,
+    )
+    .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let err =
+        super::child::wait_forward_ready(&mut child, &Inner::Printed, deadline, &Stop::default())
+            .unwrap_err()
+            .to_string();
+    assert!(err.contains("not logged in"), "{err}");
+    assert!(!err.contains("timeout"), "{err}");
+}
+
+/// kubefwd exits at once when another process holds its port. That is a
+/// lost port, not a run to retry while the tunnel still reads as ready.
+#[test]
+#[cfg(unix)]
+fn a_kubefwd_that_exits_beside_a_stranger_reports_the_stranger() {
+    let stranger = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = stranger.local_addr().unwrap().port();
+    let inner = Inner::Direct(Direct::holding((), "127.0.0.1".to_string(), port));
+    let mut child = super::child::spawn_forward(sh_command("exit 1"), &inner).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while child.child.try_wait().unwrap().is_none() {
+        assert!(std::time::Instant::now() < deadline, "never exited");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let err = super::child::wait_forward_ready(&mut child, &inner, deadline, &Stop::default())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains(super::direct::STRANGER_LISTEN), "{err}");
+}

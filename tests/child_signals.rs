@@ -70,8 +70,28 @@ fn inject_piped_path_forwards_term() {
 }
 
 #[test]
+fn ctrl_c_keeps_the_access_row() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::write_yml(dir.path(), "\"trap\":\n  API_TOKEN: raw://x\n");
+    let script = trap_script(dir.path());
+    let mut lade = spawn_inject(home.path(), dir.path(), &script, dir.path(), true);
+    wait_ready(dir.path(), &mut lade);
+    lade.signal(Signal::SIGINT);
+    lade.wait_exit();
+    let rows = common::log_rows(home.path(), dir.path());
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["kind"], "access");
+}
+
+#[test]
 fn inject_stop_signals_end_wrapper_and_child() {
-    for signal in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGQUIT] {
+    for (signal, code) in [
+        (Signal::SIGINT, 130),
+        (Signal::SIGTERM, 143),
+        (Signal::SIGQUIT, 131),
+    ] {
         let dir = tempdir().unwrap();
         let home = tempdir().unwrap();
         let script = trap_script(dir.path());
@@ -80,7 +100,7 @@ fn inject_stop_signals_end_wrapper_and_child() {
         let child = read_pid(&dir.path().join("pid"));
         lade.signal(signal);
         let status = lade.wait_exit();
-        assert!(!status.success(), "{signal:?} status={status}");
+        assert_eq!(status.code(), Some(code), "{signal:?} status={status}");
         let started = Instant::now();
         while pid_alive(child) {
             assert!(

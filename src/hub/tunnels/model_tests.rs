@@ -3,7 +3,7 @@
 //! below must hold, and from every reached state the hub must drain to
 //! empty once leases die and ttls run out.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::time::Duration;
 
 use super::super::wire::{Lease, TunnelAsk, TunnelLaunch, TunnelRep};
@@ -69,6 +69,10 @@ enum Event {
         id: u64,
         ok: bool,
     },
+    /// A ready kubefwd restart found another process on its port.
+    Lost {
+        id: u64,
+    },
     Poll {
         id: u64,
     },
@@ -102,6 +106,11 @@ struct World {
     next_ephemeral: u16,
     /// The last `max_cache` applied, tracked apart from the machine's copy.
     cap_ms: Option<u32>,
+    /// Every tunnel that ever failed, with the leases of its askers still
+    /// held, tracked apart from the machine.
+    failed: BTreeMap<u64, BTreeSet<usize>>,
+    /// Every tunnel whose provider lost its port.
+    lost: BTreeSet<u64>,
 }
 
 impl World {
@@ -114,6 +123,24 @@ impl World {
             dead: BTreeSet::new(),
             next_ephemeral: 50_000,
             cap_ms: None,
+            failed: BTreeMap::new(),
+            lost: BTreeSet::new(),
+        }
+    }
+
+    /// Records the askers of every failed tunnel, and lets go of leases
+    /// the machine dropped: `dropped` names them.
+    fn track_failed(&mut self, dropped: impl Fn(usize) -> bool) {
+        for askers in self.failed.values_mut() {
+            askers.retain(|n| !dropped(*n));
+        }
+        for (id, entry) in self.machine.entries() {
+            if matches!(entry.phase, Phase::Failed(_)) {
+                self.failed
+                    .entry(*id)
+                    .or_default()
+                    .extend(entry.leases.iter().map(lease_index));
+            }
         }
     }
 
@@ -130,6 +157,17 @@ impl World {
 
     /// Mirrors `Tunnels`. Returns the reply for an `Open` or `Poll`.
     fn apply(&mut self, event: &Event) -> Option<TunnelRep> {
+        let reply = self.apply_to_machine(event);
+        let dead = self.dead.clone();
+        match event {
+            Event::Release { lease } => self.track_failed(|n| n == *lease),
+            Event::Tick | Event::Cap { .. } => self.track_failed(|n| dead.contains(&n)),
+            _ => self.track_failed(|_| false),
+        }
+        reply
+    }
+
+    fn apply_to_machine(&mut self, event: &Event) -> Option<TunnelRep> {
         match event {
             Event::Open {
                 ask,
@@ -141,6 +179,7 @@ impl World {
                     ask.launch = Some(TunnelLaunch {
                         context: None,
                         env: Vec::new(),
+                        link_walk: None,
                     });
                 }
                 Some(match self.machine.open(&ask) {
@@ -174,6 +213,13 @@ impl World {
                     self.machine
                         .started(*id, Err("provider exited".to_string()));
                 }
+                None
+            }
+            Event::Lost { id } => {
+                // Mirrors `Tunnels::settle_starts`.
+                self.machine.lost(*id, "port taken".to_string());
+                self.lost.insert(*id);
+                self.stop(vec![*id]);
                 None
             }
             Event::Poll { id } => Some(self.machine.poll(*id)),
@@ -240,7 +286,13 @@ impl World {
                 events.push(Event::Started { id: *id, ok });
             }
         }
+        for id in &self.running {
+            events.push(Event::Lost { id: *id });
+        }
         for id in self.machine.entries().keys() {
+            events.push(Event::Poll { id: *id });
+        }
+        for id in self.machine.failed().keys() {
             events.push(Event::Poll { id: *id });
         }
         for n in 0..LEASES {
@@ -344,6 +396,9 @@ fn check(
         let ask = &asks()[*n];
         match reply.expect("open replies") {
             TunnelRep::Starting { id, .. } | TunnelRep::Ready { id, .. } => {
+                if after.lost.contains(id) {
+                    return Err(format!("open handed out tunnel {id}, which lost its port"));
+                }
                 // Never hand out a tunnel to another target.
                 let entry = entries.get(id).ok_or("reply names a missing tunnel")?;
                 if entry.fingerprint != ask.fingerprint {
@@ -394,13 +449,13 @@ fn check(
         }
     }
 
-    // Every asker of a failed start sees its error, not a vanished tunnel.
+    // Every asker of a failed start sees its error, not a vanished tunnel,
+    // while it holds its lease, a retry of the same target in between.
     if let Event::Poll { id } = event
         && before
-            .machine
-            .entries()
+            .failed
             .get(id)
-            .is_some_and(|entry| matches!(entry.phase, Phase::Failed(_)))
+            .is_some_and(|askers| !askers.is_empty())
         && !matches!(reply, Some(TunnelRep::Failed { .. }))
     {
         return Err(format!("poll of failed tunnel {id} replied {reply:?}"));
@@ -435,7 +490,7 @@ fn check(
                 Event::Tick | Event::Release { .. } => {
                     live == 0
                         && match (&entry.phase, entry.ttl_ms, entry.idle_since) {
-                            (Phase::Failed(_), _, _) => true,
+                            (Phase::Failed(_) | Phase::Starting, _, _) => true,
                             (_, None, _) => true,
                             (_, Some(ttl), Some(since)) => {
                                 after.now().saturating_sub(since)
@@ -468,8 +523,11 @@ fn check(
             if !entry.leases.is_empty() {
                 continue;
             }
+            // A start no command waits for stops, whatever its ttl.
             let lingers = match (&entry.phase, entry.ttl_ms, entry.idle_since) {
-                (Phase::Failed(_), _, _) | (_, None, _) | (_, Some(_), None) => true,
+                (Phase::Failed(_) | Phase::Starting, _, _) | (_, None, _) | (_, Some(_), None) => {
+                    true
+                }
                 (_, Some(ttl), Some(since)) => {
                     after.now().saturating_sub(since) >= Duration::from_millis(u64::from(ttl))
                 }
@@ -628,6 +686,23 @@ fn a_ttl_keeps_the_tunnel_for_the_next_command_only_until_it_runs_out() {
 }
 
 #[test]
+fn a_start_its_command_gave_up_on_stops_despite_a_ttl() {
+    let mut world = World::new();
+    world.apply(&Event::Open {
+        ask: 2,
+        launch: true,
+        port_free: true,
+    });
+    assert_eq!(world.starting.len(), 1);
+    world.apply(&Event::Release { lease: 1 });
+    assert!(world.starting.is_empty());
+    assert!(world.machine.is_empty());
+    let late = world.apply(&Event::Started { id: 0, ok: true });
+    assert!(late.is_none());
+    assert!(world.running.is_empty());
+}
+
+#[test]
 fn a_cap_change_stops_idle_tunnels_and_caps_held_ones() {
     let mut world = World::new();
     world.apply(&Event::Open {
@@ -681,4 +756,60 @@ fn a_dead_shell_releases_its_lease() {
     world.apply(&Event::Die { lease: 0 });
     world.apply(&Event::Tick);
     assert!(world.machine.is_empty());
+}
+
+#[test]
+fn a_failed_start_reaches_every_asker_after_a_retry() {
+    let mut world = World::new();
+    // Two shells ask for prd on one port; the start fails.
+    world.apply(&Event::Open {
+        ask: 0,
+        launch: true,
+        port_free: true,
+    });
+    world.apply(&Event::Open {
+        ask: 2,
+        launch: false,
+        port_free: true,
+    });
+    world.apply(&Event::Started { id: 0, ok: false });
+    // The second retries at once, before the first polled.
+    let retry = world.apply(&Event::Open {
+        ask: 2,
+        launch: true,
+        port_free: true,
+    });
+    assert!(
+        matches!(retry, Some(TunnelRep::Starting { id: 1, .. })),
+        "{retry:?}"
+    );
+    let first = world.apply(&Event::Poll { id: 0 });
+    assert!(
+        matches!(first, Some(TunnelRep::Failed { ref error }) if error == "provider exited"),
+        "{first:?}"
+    );
+    world.apply(&Event::Release { lease: 0 });
+    world.apply(&Event::Release { lease: 1 });
+    assert_eq!(world.apply(&Event::Poll { id: 0 }), Some(TunnelRep::Absent));
+}
+
+#[test]
+fn a_tunnel_that_lost_its_port_is_not_reused() {
+    let mut world = World::new();
+    world.apply(&Event::Open {
+        ask: 0,
+        launch: true,
+        port_free: true,
+    });
+    world.apply(&Event::Started { id: 0, ok: true });
+    world.apply(&Event::Lost { id: 0 });
+    assert!(world.running.is_empty());
+    let again = world.apply(&Event::Open {
+        ask: 2,
+        launch: false,
+        port_free: true,
+    });
+    assert_eq!(again, Some(TunnelRep::Absent));
+    let first = world.apply(&Event::Poll { id: 0 });
+    assert!(matches!(first, Some(TunnelRep::Failed { .. })), "{first:?}");
 }

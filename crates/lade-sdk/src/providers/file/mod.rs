@@ -43,11 +43,14 @@ impl Provider for File {
                 self.urls.insert(url, value);
                 Ok(())
             }
-            _ => bail!("Not an file scheme or missing ?query=.field part"),
+            _ => bail!(
+                "file:// needs ?query=.field to name the value, or a leading ! to keep the text raw: {value}"
+            ),
         }
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@08vq7
         super::PROVIDER_TIMEOUT
     }
 
@@ -60,6 +63,7 @@ impl Provider for File {
     }
 
     fn transport(&self) -> Transport {
+        // § cbck003hy.a@bxpzt
         Transport::Sdk
     }
 

@@ -1,3 +1,16 @@
+<silcrow decisions="docs/decisions/**/*.md" published="main">
+This repo follows [Silcrow](https://github.com/zifeo/silcrow).
+Decisions: `docs/decisions/**/*.md`. Usage: `silcrow help`.
+Engineering principles:
+- Locality: keep behavior, data, and decisions close to where they are used, and fix a shared defect once at its source.
+- Explicitness: make inputs, outputs, dependencies, and failure modes visible.
+- Economy: use the smallest mechanism that completely solves the problem, reusing existing code before adding any, and finish every caller, test, and fixture it touches.
+- Stability: preserve observable behavior, including error handling and validation, across refactors unless a law changes it.
+- Decisions: state each law as a business decision, in plain and abstract words a person can reason about and steer behavior with, never as a restatement of the code, and leave out any value or detail with no reason behind it.
+- Verifiability: prefer deterministic behavior that can be checked directly, leave a test for new non-trivial logic, and name what was skipped or left unchecked.
+- Order: make it work, then make it right, then make it fast only when a measured need or a law demands it.
+</silcrow>
+
 # AGENTS.md
 
 Conventions for AI agents contributing to **lade** (a Rust CLI). For *using*
@@ -53,8 +66,10 @@ has no `age-plugin-pq`.
   never `eprintln!` from command code. Box errors, warnings, disclaimers,
   pre-exec failures, and a new Lade release. `lade setup` / `lade update`
   success is a `Report` (bold headings, no border). See
-  `.cursor/rules/message-box.mdc`. Interactive parts (prompts, countdowns,
-  sleeps) stay gated on `UiMode`.
+  `.cursor/rules/message-box.mdc`. Prompts on stdin stay gated on `UiMode`.
+  The run-anyway question and pauses need a human at a terminal
+  (`Keys::enter`, `stderr_is_terminal`), never `UiMode`. Nothing suppresses
+  a `MessageBox`.
 - Never rely on default values; be explicit. Prefer the simplest solution that
   compiles. Comment only non-obvious intent, not what the code does.
 - Keep documented exit codes (`src/exit_codes.rs`) stable across minor

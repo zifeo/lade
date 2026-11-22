@@ -132,6 +132,7 @@ fn a8_alternate_committed_toml_names() {
         "mise/config.toml",
         ".mise/config.toml",
         ".config/mise.toml",
+        ".config/mise/config.toml",
     ] {
         let home = tempdir().unwrap();
         let proj = home.path().join("proj");
@@ -141,6 +142,26 @@ fn a8_alternate_committed_toml_names() {
             assert!(snap.is_mise(), "{name}");
         });
     }
+}
+
+#[test]
+fn a_mise_file_above_the_git_root_is_not_the_plane() {
+    let home = tempdir().unwrap();
+    let work = home.path().join("work");
+    let proj = work.join("proj");
+    git(&proj);
+    write(&work.join("mise.toml"), "[tools]\nnode = \"24\"\n");
+    write(&work.join("mise.lock"), "lockfile_version = 1\n");
+    write(&proj.join("lade.yaml"), ".:\n  X: raw://x\n");
+    with_home(home.path(), || {
+        let snap = scan(&proj);
+        assert_eq!(
+            snap.plane,
+            Plane::Lade {
+                lock: proj.join("lade.lock")
+            }
+        );
+    });
 }
 
 #[test]
@@ -283,6 +304,84 @@ fn a16_leftover_child_lade_lock() {
         let snap = scan(&app);
         assert!(snap.is_mise());
         assert!(snap.leftover_lade_locks.contains(&app.join("lade.lock")));
+    });
+}
+
+fn real_git(dir: &std::path::Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
+#[test]
+fn untracked_mise_files_are_not_the_plane() {
+    let home = tempdir().unwrap();
+    let proj = home.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    real_git(&proj, &["init", "-q"]);
+    write(&proj.join("mise.toml"), "[tools]\nnode = \"24\"\n");
+    write(&proj.join("mise.lock"), "lockfile_version = 1\n");
+    with_home(home.path(), || {
+        let snap = scan(&proj);
+        assert_eq!(
+            snap.plane,
+            Plane::Lade {
+                lock: proj.join("lade.lock")
+            }
+        );
+    });
+}
+
+#[test]
+fn a_tracked_mise_toml_brings_the_lock_beside_it() {
+    let home = tempdir().unwrap();
+    let proj = home.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    real_git(&proj, &["init", "-q"]);
+    write(&proj.join("mise.toml"), "[tools]\nnode = \"24\"\n");
+    write(&proj.join("mise.lock"), "lockfile_version = 1\n");
+    real_git(&proj, &["add", "mise.toml"]);
+    with_home(home.path(), || {
+        let snap = scan(&proj);
+        match snap.plane {
+            Plane::Mise {
+                dir, lock, toml, ..
+            } => {
+                assert_eq!(dir, proj);
+                assert_eq!(lock, proj.join("mise.lock"));
+                assert_eq!(toml.as_deref(), Some(proj.join("mise.toml").as_path()));
+            }
+            other => panic!("{other:?}"),
+        }
+    });
+}
+
+#[test]
+fn a_tracked_lock_takes_the_untracked_toml_beside_it() {
+    let home = tempdir().unwrap();
+    let proj = home.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    real_git(&proj, &["init", "-q"]);
+    write(&proj.join("mise.lock"), "lockfile_version = 1\n");
+    write(&proj.join("mise.toml"), "[tools]\nnode = \"24\"\n");
+    real_git(&proj, &["add", "mise.lock"]);
+    with_home(home.path(), || {
+        let snap = scan(&proj);
+        assert!(!snap.split_warning);
+        match snap.plane {
+            Plane::Mise { toml, .. } => {
+                assert_eq!(toml.as_deref(), Some(proj.join("mise.toml").as_path()));
+            }
+            other => panic!("{other:?}"),
+        }
     });
 }
 

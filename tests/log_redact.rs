@@ -193,6 +193,19 @@ fn access_hydrate_plus_leftover_bearer() {
 }
 
 #[test]
+fn private_value_is_scrubbed_by_name() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(
+        dir.path(),
+        "\"^echo \":\n  .TOKEN: plainword\n  AUTH: \"Bearer ${TOKEN}\"\n",
+    );
+    inject(home.path(), dir.path(), &["echo", "plainword"]);
+    let cmd = stored_command(home.path(), dir.path());
+    assert_eq!(cmd, "echo ${TOKEN}");
+}
+
+#[test]
 fn leftover_hydrate_stores_empty() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

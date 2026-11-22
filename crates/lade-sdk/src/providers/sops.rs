@@ -203,6 +203,7 @@ impl Provider for Sops {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.b@zmxfb
         super::HUMAN_PROVIDER_TIMEOUT
     }
 

@@ -11,7 +11,6 @@ use crate::ticket::{self, PreEvent, TicketSecret};
 pub(super) struct ProviderWork {
     pub(super) disclaimers: Vec<String>,
     pub(super) secrets: Vec<TicketSecret>,
-    pub(super) op_sa: Option<String>,
     pub(super) network_bindings: Vec<NetworkBinding>,
     pub(super) matches: Value,
     pub(super) log: bool,
@@ -26,6 +25,12 @@ impl ProviderWork {
         !self.secrets.is_empty()
             || !self.network_bindings.is_empty()
             || !self.disclaimers.is_empty()
+    }
+
+    /// A secret or a tunnel to hand the command.
+    pub(super) fn prepares_bindings(&self) -> bool {
+        // § bvttr6qk1.a@p37ya
+        !self.secrets.is_empty() || !self.network_bindings.is_empty()
     }
 
     /// Cancelled keys still need the progress path even when nothing is
@@ -44,7 +49,6 @@ pub(super) struct CacheScope<'a> {
 
 pub(super) struct SecretHydrate<'a> {
     pub(super) secrets: &'a [TicketSecret],
-    pub(super) op_sa: Option<&'a str>,
     pub(super) progress: &'a SecretSources,
     pub(super) ticket_unlink: Option<&'a str>,
     pub(super) cache: Option<CacheScope<'a>>,
@@ -74,7 +78,9 @@ pub(super) fn rules_at<'l>(
     current_dir: &Path,
     command: &'l str,
 ) -> Result<(PathBuf, &'l str, Option<crate::config::Config>)> {
+    // § g6sqmp8tb.d@8gzr6
     let (dir, matched) = crate::pretool::run_dir(current_dir, command);
+    // § one y4zs3xgg4.c@ctj17
     let moved = if dir == current_dir {
         None
     } else {
@@ -83,8 +89,13 @@ pub(super) fn rules_at<'l>(
     Ok((dir, matched, moved))
 }
 
-pub(super) fn ticket_ready(id: Option<&str>) -> bool {
-    id.is_some_and(ticket::exists)
+/// A ticket is one command's plan: a pending pre-exec ticket still in
+/// `LADE_T` must not hand its disclaimer or secrets to the next line.
+pub(super) fn ticket_ready(id: Option<&str>, command: &str) -> bool {
+    // § nv6nfbbs2.a@8yxv5
+    id.filter(|id| ticket::exists(id))
+        .and_then(|id| ticket::read(id).ok())
+        .is_some_and(|pre| pre.command == command)
 }
 
 pub(super) fn pre_event_from_work(
@@ -109,7 +120,6 @@ pub(super) fn pre_event_from_work(
         })
         .collect();
     pre.matches = work.matches.clone();
-    pre.op_sa = work.op_sa.clone();
     pre.agent = work.agent.clone();
     pre
 }
@@ -119,7 +129,6 @@ fn try_ticket_work(pre: &PreEvent) -> Result<ProviderWork> {
         cwd: Some(pre.cwd.clone()),
         disclaimers: pre.disclaimers.clone(),
         secrets: pre.secrets.clone(),
-        op_sa: pre.op_sa.clone(),
         network_bindings: pre
             .network
             .iter()
@@ -154,7 +163,6 @@ fn walk_work(work: PreEventWork) -> ProviderWork {
     ProviderWork {
         disclaimers: work.disclaimers,
         secrets: work.secrets,
-        op_sa: work.op_sa,
         network_bindings: work.network,
         matches: work.matches,
         log: work.log,
@@ -172,6 +180,7 @@ pub(super) async fn resolve_provider_work(
     use_ticket: bool,
     saved_user: &Option<String>,
 ) -> Result<Option<ProviderWork>> {
+    // § g6sqmp8tb.a@3bb1g
     if use_ticket
         && let Some(id) = ticket_id
         && let Ok(pre) = ticket::read(id)
@@ -179,7 +188,7 @@ pub(super) async fn resolve_provider_work(
         return Ok(Some(try_ticket_work(&pre)?));
     }
 
-    let patterned = config.collect_for_with_pattern(command, audience);
+    let patterned = config.collect_for_with_pattern(command, audience)?;
     if patterned.is_empty() {
         return Ok(None);
     }

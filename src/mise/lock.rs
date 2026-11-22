@@ -61,6 +61,7 @@ pub fn slot_and_path(start: &Path, names: &[&str]) -> Option<(PathBuf, LockSlot)
         return Some((path.to_path_buf(), slot));
     }
     if snap.is_mise() {
+        // § a45aqmr7m.d@w8f1h
         return None;
     }
     walk_up(start, |dir| {

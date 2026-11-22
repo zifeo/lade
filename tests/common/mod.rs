@@ -32,10 +32,20 @@ pub fn inject(home: &Path, dir: &Path, args: &[&str]) {
         .unwrap();
 }
 
+/// Outside a git root, `lade log` reads nothing without `--all`.
+fn scope_args(dir: &Path) -> &'static [&'static str] {
+    if dir.ancestors().any(|d| d.join(".git").exists()) {
+        &[]
+    } else {
+        &["--all"]
+    }
+}
+
 pub fn log_rows(home: &Path, dir: &Path) -> serde_json::Value {
     let out = lade(home)
         .current_dir(dir)
         .args(["log", "--json", "--since", "1d"])
+        .args(scope_args(dir))
         .assert()
         .success()
         .get_output()
@@ -69,6 +79,12 @@ pub fn row_line(row: &serde_json::Value) -> String {
 pub fn filter_log(home: &Path, dir: &Path, extra: &[&str]) -> Vec<serde_json::Value> {
     let mut args = vec!["log", "--json", "--since", "1d"];
     args.extend(extra);
+    if !extra
+        .iter()
+        .any(|arg| matches!(*arg, "--all" | "--global" | "--path"))
+    {
+        args.extend(scope_args(dir));
+    }
     let out = lade(home)
         .current_dir(dir)
         .args(args)
@@ -96,6 +112,12 @@ pub fn lade_user(home: &Path) -> Command {
 pub fn share_pack(home: &Path, dir: &Path, extra: &[&str]) -> PathBuf {
     let mut args = vec!["log", "share"];
     args.extend(extra);
+    if !extra
+        .iter()
+        .any(|arg| matches!(*arg, "--all" | "--global" | "--path"))
+    {
+        args.extend(scope_args(dir));
+    }
     let out = lade_user(home)
         .current_dir(dir)
         .args(&args)
@@ -122,7 +144,7 @@ pub fn share_pack(home: &Path, dir: &Path, extra: &[&str]) -> PathBuf {
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("lade-alice-") && n.ends_with(".tar.gz"))
+                .is_some_and(|n| n.starts_with("lade-") && n.ends_with(".tar.gz"))
         })
         .expect("pack in cwd");
     assert!(
@@ -190,7 +212,7 @@ pub fn shell_line(home: &Path, shell: &[&str], line: &str) -> Command {
     Command::from_std(with_lade_env(cmd, home))
 }
 
-fn with_lade_env(mut cmd: StdCommand, home: &Path) -> StdCommand {
+pub fn with_lade_env(mut cmd: StdCommand, home: &Path) -> StdCommand {
     let config_path = home.join("lade-config.json");
     if !config_path.exists() {
         std::fs::write(&config_path, r#"{"user":null}"#).unwrap();

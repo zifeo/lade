@@ -14,8 +14,8 @@ use lade_sdk::compat::spec_for;
 use crate::command::ttl;
 
 use super::{
-    AgePluginInfo, GlobalConfigInfo, HooksInfo, HubKey, HubStatus, HubTunnel, PreexecHooks,
-    ProjectConfig, ProviderInfo, StatusReport, VaultClis, VersionInfo,
+    AgePluginInfo, GlobalConfigInfo, HooksInfo, HubKey, HubStatus, HubTunnel, LinkStatus,
+    PreexecHooks, ProjectConfig, ProviderInfo, RemoteStatus, StatusReport, VaultClis, VersionInfo,
 };
 
 pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
@@ -30,17 +30,33 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         last_check: status.last_check,
     };
 
-    let global = GlobalConfig::load().await?;
-    let max_cache = crate::global_config::max_cache_ms(global.max_cache.as_ref());
+    // A `config.json` the hub cannot read turns its cache off, so status
+    // reports it on the max cache row instead of failing before it prints.
+    // § cfan04ksd.e@f5mxx
+    let (global, max_cache) = match GlobalConfig::load().await {
+        Ok(global) => {
+            let max_cache = crate::global_config::max_cache_ms(global.max_cache.as_ref());
+            (Some(global), max_cache)
+        }
+        Err(e) => (
+            None,
+            Err(format!(
+                "{} cannot be read: {e:#}",
+                GlobalConfig::path().display()
+            )),
+        ),
+    };
+    // § end cfan04ksd.e
     let global_config = GlobalConfigInfo {
         path: GlobalConfig::path(),
-        user: global.user.clone(),
-        max_cache: global.max_cache.clone(),
+        user: global.as_ref().and_then(|global| global.user.clone()),
+        max_cache: global.as_ref().and_then(|global| global.max_cache.clone()),
         max_cache_ms: max_cache.clone().ok().flatten(),
         max_cache_error: max_cache.err(),
     };
 
     // The pre-exec hook belongs to the shell that runs `lade status`.
+    // § fmn2jmqxb.b@effe9
     let preexec = Shell::detect().ok().map(|shell| {
         let (profile, installed) = preexec_installed(&shell);
         PreexecHooks {
@@ -51,14 +67,16 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
             inject_startup_skipped: inject_startup_skipped(&shell),
         }
     });
+    // § end fmn2jmqxb.b
     let hooks = HooksInfo {
         preexec,
         pretool: pretool::install::inspect(&cwd)?,
     };
 
-    let saved_user = global
-        .user
-        .or_else(crate::global_config::GlobalConfig::os_user);
+    // A `config.json` that fails is already reported above and fails `ok`, so
+    // status lists the schemes of no user rather than stop.
+    // § one dcrxp986s.b@zyv6y
+    let saved_user = GlobalConfig::resolved_user().unwrap_or(None);
 
     let project_config = match LadeFile::build(cwd.clone()) {
         Ok(config) => {
@@ -128,10 +146,12 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
     };
     // A failed GitHub check stays in the hub ledger until the next one, a
     // day later. It says nothing about this machine's setup.
+    // § vk7cw8j73.a@xaarp
     let ok = project_config.error.is_none()
         && (!mise.needed || mise.in_range)
         && tools_ok
         && global_config.max_cache_error.is_none();
+    // § end vk7cw8j73.a
 
     let repo = crate::catalog::git_root(&cwd).map(|p| p.to_string_lossy().into_owned());
     Ok(StatusReport {
@@ -143,9 +163,49 @@ pub(super) async fn gather(opts: &StatusCommand) -> Result<StatusReport> {
         log: event::info_for_repo(repo.as_deref()),
         hub: hub_status(&cwd),
         mise,
+        remote: remote_status(),
         ok,
         hook_notices: pretool::install::health_report()?,
     })
+}
+
+fn remote_status() -> RemoteStatus {
+    // § a36hqp4ep.d@t7bep
+    use crate::remote::{MarkerState, read_marker, socket_path};
+    let (upstream, laptop, connect) = match read_marker() {
+        MarkerState::None => ("none", None, None),
+        MarkerState::Unreadable(_) => ("broken", None, None),
+        MarkerState::Attached(marker) => {
+            let up = std::os::unix::net::UnixStream::connect(socket_path()).is_ok();
+            (
+                if up { "attached" } else { "broken" },
+                Some(marker.laptop),
+                Some(crate::remote::connect_line(&marker.transport)),
+            )
+        }
+    };
+    let links = crate::hub::link_list()
+        .into_iter()
+        .map(|row| LinkStatus {
+            host: row.host,
+            transport: row.key.split('\u{0}').map(str::to_string).collect(),
+            phase: match row.phase {
+                crate::hub::LinkPhase::Starting => "starting",
+                crate::hub::LinkPhase::Ready => "ready",
+                crate::hub::LinkPhase::Retrying => "retrying",
+                crate::hub::LinkPhase::Failed => "failed",
+                crate::hub::LinkPhase::Stopped => "stopped",
+            },
+            error: row.error,
+            walks: row.walks,
+        })
+        .collect();
+    RemoteStatus {
+        upstream,
+        laptop,
+        connect,
+        links,
+    }
 }
 
 /// Never starts a hub: every call only talks to one already up.
@@ -185,6 +245,14 @@ fn hub_status(cwd: &std::path::Path) -> HubStatus {
             state: ttl::tunnel_state(tunnel),
         })
         .collect();
+    // § rbzjhj8tk.b@7zwrr
+    let memory = match &info.unguarded {
+        Some(detail) => crate::hub::MemoryGuard::Off {
+            detail: detail.clone(),
+        },
+        None => crate::hub::memory_guard(),
+    };
+    // § end rbzjhj8tk.b
     HubStatus {
         info,
         window: crate::hub::window(&scope),
@@ -192,7 +260,7 @@ fn hub_status(cwd: &std::path::Path) -> HubStatus {
         key_count: listing.rows.len(),
         tunnels,
         max_cache_ms: listing.max_cache_ms,
-        memory: crate::hub::memory_guard(),
+        memory,
     }
 }
 

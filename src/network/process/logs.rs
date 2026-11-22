@@ -27,6 +27,7 @@ fn dedupe_key(line: &str) -> String {
 /// prints `Forwarding from HOST:PORT -> REMOTE`, `tsh proxy app` prints
 /// `Proxying connections to APP on HOST:PORT`.
 pub(super) fn printed_addr(line: &str) -> Option<SocketAddr> {
+    // § jfg5ews57.a@h4vdm
     let line = line.trim();
     let addr = match line.strip_prefix("Forwarding from ") {
         Some(rest) => rest.split_once(' ')?.0,

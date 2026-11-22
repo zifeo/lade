@@ -29,7 +29,7 @@ fn wrap_hydrates_from_ticket_without_rematch() {
     let dir = tempdir().unwrap();
     let tmp = tempdir().unwrap();
     write_yml(dir.path(), "\"^echo\":\n  SECRET: from_ticket\n");
-    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "echo hi");
+    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "echo $SECRET");
     let id = ticket_id_from_wrap(&wrap_command(&stdout));
     assert!(ticket_path(home.path(), &id).exists());
     write_yml(dir.path(), "\"^echo\":\n  SECRET: from_walk\n");
@@ -58,17 +58,17 @@ fn a_running_command_no_longer_holds_its_ticket() {
     let dir = tempdir().unwrap();
     let tmp = tempdir().unwrap();
     write_yml(dir.path(), "\"^test\":\n  SECRET: from_ticket\n");
-    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "test -e x");
+    // The wrap uses a ticket only for the line it holds, and the ticket's
+    // name is known only once the hook wrote it: the line globs for it.
+    let tickets = ticket_path(home.path(), "x").parent().unwrap().to_owned();
+    let line = format!("test ! -e {}/*.json && echo gone", tickets.display());
+    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), &line);
     let id = ticket_id_from_wrap(&wrap_command(&stdout));
-    let ticket = ticket_path(home.path(), &id);
+    assert!(ticket_path(home.path(), &id).exists());
     common::lade(home.path())
         .current_dir(dir.path())
         .env("TMPDIR", tmp.path())
-        .args([
-            format!("--pretool={id}"),
-            "inject".into(),
-            format!("test ! -e '{}' && echo gone", ticket.display()),
-        ])
+        .args([format!("--pretool={id}"), "inject".into(), line])
         .assert()
         .success()
         .stdout(predicates::str::contains("gone"));
@@ -230,4 +230,114 @@ fn hydrate_failure_unlinks_ticket_and_leaves_no_output_file() {
     assert!(!ticket_path(home.path(), &id).exists());
     assert!(!output.exists());
     assert!(ticket_ids(home.path()).is_empty());
+}
+
+#[test]
+fn a_ticket_for_another_line_is_not_used() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tmp = tempdir().unwrap();
+    write_yml(dir.path(), "\"^echo\":\n  SECRET: from_ticket\n");
+    let stdout = hook_stdout(home.path(), dir.path(), tmp.path(), "echo hi");
+    let id = ticket_id_from_wrap(&wrap_command(&stdout));
+    write_yml(dir.path(), "\"^nomatch\":\n  SECRET: from_walk\n");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("TMPDIR", tmp.path())
+        .args([
+            format!("--pretool={id}"),
+            "inject".into(),
+            "--no-mask".into(),
+            "echo other $SECRET".into(),
+        ])
+        .assert()
+        .success()
+        .stdout("other\n");
+}
+
+#[test]
+fn a_ticket_from_another_directory_skips_the_cache() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tmp = tempdir().unwrap();
+    let sub = dir.path().join("sub");
+    std::fs::create_dir(&sub).unwrap();
+    let source = dir.path().join("source.json");
+    std::fs::write(&source, r#"{"token":"from-file"}"#).unwrap();
+    write_yml(
+        &sub,
+        &format!(
+            "\"^echo\":\n  KEY: \"file://{}?query=.token\"\n",
+            source.display()
+        ),
+    );
+    let line = "echo $KEY";
+    let stdout = hook_stdout(home.path(), &sub, tmp.path(), line);
+    let id = ticket_id_from_wrap(&wrap_command(&stdout));
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("TMPDIR", tmp.path())
+        .args([
+            format!("--pretool={id}"),
+            "inject".into(),
+            "--no-mask".into(),
+            line.into(),
+        ])
+        .assert()
+        .success()
+        .stdout("from-file\n");
+    for cwd in [dir.path(), sub.as_path()] {
+        common::lade(home.path())
+            .current_dir(cwd)
+            .args(["ttl"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("KEY").not());
+    }
+    let _ = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["ttl", "forget"])
+        .output();
+}
+
+/// Pre-exec `set`, `lade --` and a pre-tool rewrite give the command the
+/// same names and values from one `lade.yaml`.
+#[test]
+fn the_three_doors_give_the_same_access() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let tmp = tempdir().unwrap();
+    let source = dir.path().join("source.json");
+    std::fs::write(&source, r#"{"token":"from-file"}"#).unwrap();
+    write_yml(
+        dir.path(),
+        &format!(
+            "\"^echo\":\n  RAW: raw-value\n  FILE: \"file://{}?query=.token\"\n",
+            source.display()
+        ),
+    );
+    let out = dir.path().join("out");
+    // `hook_stdout` puts the line in its JSON payload unescaped: no quotes.
+    let line = format!("echo $RAW $FILE > {}", out.display());
+    let lade = assert_cmd::cargo::cargo_bin("lade");
+    let seen = |run: &mut assert_cmd::Command| {
+        let _ = std::fs::remove_file(&out);
+        run.current_dir(dir.path())
+            .env("TMPDIR", tmp.path())
+            .assert()
+            .success();
+        std::fs::read_to_string(&out).unwrap()
+    };
+    let preexec = seen(&mut common::shell_line(
+        home.path(),
+        &["bash"],
+        &format!("eval \"$('{}' set -- '{line}')\"; {line}", lade.display()),
+    ));
+    let direct = seen(common::lade(home.path()).args(["--", &line]));
+    let wrapped = wrap_command(&hook_stdout(home.path(), dir.path(), tmp.path(), &line));
+    assert!(wrapped.contains("--pretool="), "{wrapped}");
+    let pretool = seen(&mut common::shell_line(home.path(), &["bash"], &wrapped));
+    assert_eq!(preexec, "raw-value from-file\n");
+    assert_eq!(direct, preexec);
+    assert_eq!(pretool, preexec);
 }

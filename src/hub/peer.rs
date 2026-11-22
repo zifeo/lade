@@ -20,6 +20,7 @@ impl ImageSnap {
 }
 
 pub fn snapshot_self() -> Option<ImageSnap> {
+    // § e1s6kxps0.c@4mc0j
     let file = open_self_image()?;
     let meta = file.metadata().ok()?;
     Some(ImageSnap {
@@ -28,16 +29,30 @@ pub fn snapshot_self() -> Option<ImageSnap> {
     })
 }
 
+/// Why an image reaches no hub.
+pub(crate) const NO_IMAGE: &str = "Lade cannot read its own executable, so it reaches no hub";
+
 /// 16 hex chars. Same image, same token. `cargo run` vs an install
-/// get different sockets even when `CARGO_PKG_VERSION` matches.
-pub(crate) fn instance_token() -> String {
-    static TOKEN: OnceLock<String> = OnceLock::new();
-    TOKEN
-        .get_or_init(|| image_token().unwrap_or_else(|| "0".repeat(16)))
-        .clone()
+/// get different sockets even when `CARGO_PKG_VERSION` matches. `None`: the
+/// image cannot read its own file, and a shared fallback name would cross
+/// binaries.
+pub(crate) fn instance_token() -> Option<String> {
+    // § hxw00jp6v.a@r83t6
+    #[cfg(test)]
+    if NO_IMAGE_FOR_TEST.with(std::cell::Cell::get) {
+        return None;
+    }
+    static TOKEN: OnceLock<Option<String>> = OnceLock::new();
+    TOKEN.get_or_init(image_token).clone()
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static NO_IMAGE_FOR_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn image_token() -> Option<String> {
+    // § hxw00jp6v.a@67jxj
     let mut file = open_self_image()?;
     let meta = file.metadata().ok()?;
     let mut hasher = Sha256::new();
@@ -76,14 +91,18 @@ impl Identity {
 }
 
 pub fn peer_allowed(stream: &impl AsRawFd, want: &Identity) -> bool {
+    // § keyfb5k7w@x4ckf
+    // § e1s6kxps0.a@pqbnz
     let Some(uid) = peer_uid(stream) else {
         return false;
     };
     if uid != current_uid() {
         return false;
     }
+    // § end e1s6kxps0.a
     #[cfg(target_os = "macos")]
     if let Some(cdhash) = want.cdhash {
+        // § e1s6kxps0.b@1kxja
         return super::guard::peer_cdhash(stream) == Some(cdhash);
     }
     let Some(pid) = peer_pid(stream) else {
@@ -92,7 +111,7 @@ pub fn peer_allowed(stream: &impl AsRawFd, want: &Identity) -> bool {
     peer_exe_inode(pid) == Some(want.inode)
 }
 
-fn current_uid() -> u32 {
+pub(crate) fn current_uid() -> u32 {
     unsafe { libc::getuid() }
 }
 
@@ -104,6 +123,7 @@ pub(super) fn inode_of(path: &std::path::Path) -> Option<(u64, u64)> {
 /// False once a reinstall put another file at this binary's path (Linux
 /// reports the old one as deleted). New clients then hash another token.
 pub(super) fn image_is_current(want: (u64, u64)) -> bool {
+    // § cbz2he75h.b@gk3m7
     std::env::current_exe().ok().and_then(|exe| inode_of(&exe)) == Some(want)
 }
 
@@ -119,7 +139,7 @@ fn open_self_image() -> Option<std::fs::File> {
 }
 
 #[cfg(target_os = "linux")]
-fn peer_uid(stream: &impl AsRawFd) -> Option<u32> {
+pub(crate) fn peer_uid(stream: &impl AsRawFd) -> Option<u32> {
     peer_ucred(stream).map(|c| c.uid)
 }
 
@@ -158,7 +178,7 @@ struct Ucred {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn peer_uid(stream: &impl AsRawFd) -> Option<u32> {
+pub(crate) fn peer_uid(stream: &impl AsRawFd) -> Option<u32> {
     let fd = stream.as_raw_fd();
     let mut uid = 0 as libc::uid_t;
     let mut gid = 0 as libc::gid_t;
@@ -192,11 +212,13 @@ fn peer_pid(_stream: &impl AsRawFd) -> Option<u32> {
 
 #[cfg(target_os = "linux")]
 fn peer_exe_inode(pid: u32) -> Option<(u64, u64)> {
+    // § e1s6kxps0.c@ckgpy
     inode_of(std::path::Path::new(&format!("/proc/{pid}/exe")))
 }
 
 #[cfg(target_os = "macos")]
 fn peer_exe_inode(pid: u32) -> Option<(u64, u64)> {
+    // § e1s6kxps0.c@az7wt
     let path = proc_pidpath(pid)?;
     inode_of(&path)
 }
@@ -234,10 +256,36 @@ mod tests {
         assert_ne!(snap.inode(), (0, 0));
     }
 
+    /// A socketpair's peer is the process that made it, so the other
+    /// binary connects to a listener itself.
+    #[test]
+    fn only_a_client_of_this_binary_is_allowed() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s");
+        let listener = UnixListener::bind(&path).unwrap();
+        let me = Identity::of_self(snapshot_self().expect("self image").inode());
+        let _client = UnixStream::connect(&path).unwrap();
+        let (ours, _) = listener.accept().unwrap();
+        assert!(peer_allowed(&ours, &me));
+        let mut other = std::process::Command::new("nc")
+            .arg("-U")
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let (theirs, _) = listener.accept().unwrap();
+        let allowed = peer_allowed(&theirs, &me);
+        let _ = other.kill();
+        let _ = other.wait();
+        assert!(!allowed);
+    }
+
     #[test]
     fn instance_token_is_stable_hex() {
-        let a = instance_token();
-        let b = instance_token();
+        let a = instance_token().expect("own image");
+        let b = instance_token().expect("own image");
         assert_eq!(a, b);
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));

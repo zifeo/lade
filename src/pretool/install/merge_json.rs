@@ -17,7 +17,7 @@ pub(super) fn snapshot_is_present(agent: Agent, root: &Value, snap: &Value) -> b
                     let Some(command) = entry.get("command").and_then(Value::as_str) else {
                         return false;
                     };
-                    cursor_has_matcher(root, matcher, command)
+                    cursor_has_matcher(root, matcher, command, entry.get(FAIL_CLOSED))
                 })
             })
             .unwrap_or(false),
@@ -77,7 +77,7 @@ fn merge_cursor(obj: &mut serde_json::Map<String, Value>, snap: &Value) -> Resul
                 .get("command")
                 .and_then(Value::as_str)
                 .context("snapshot preToolUse entry needs command")?;
-            upsert_cursor_matcher(arr, command, matcher);
+            upsert_cursor_matcher(arr, command, matcher, entry.get(FAIL_CLOSED));
         }
     }
     Ok(())
@@ -109,7 +109,17 @@ fn merge_claude(obj: &mut serde_json::Map<String, Value>, snap: &Value) -> Resul
     Ok(())
 }
 
-fn cursor_has_matcher(root: &Value, matcher: &str, command: &str) -> bool {
+/// Cursor's per-hook failure policy. The snapshot's value is the one Lade
+/// writes; without one, a value the user set stays.
+const FAIL_CLOSED: &str = "failClosed";
+
+fn cursor_has_matcher(
+    root: &Value,
+    matcher: &str,
+    command: &str,
+    fail_closed: Option<&Value>,
+) -> bool {
+    // § ck03z9rny.a@840h2
     root.pointer("/hooks/preToolUse")
         .and_then(Value::as_array)
         .map(|entries| {
@@ -117,6 +127,7 @@ fn cursor_has_matcher(root: &Value, matcher: &str, command: &str) -> bool {
                 command_is_lade_hook(entry)
                     && entry.get("matcher").and_then(Value::as_str) == Some(matcher)
                     && entry.get("command").and_then(Value::as_str) == Some(command)
+                    && fail_closed.is_none_or(|wanted| entry.get(FAIL_CLOSED) == Some(wanted))
             })
         })
         .unwrap_or(false)
@@ -143,14 +154,26 @@ fn claude_has_matcher(root: &Value, matcher: &str, command: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn upsert_cursor_matcher(arr: &mut Vec<Value>, command: &str, matcher: &str) {
-    if let Some(entry) = arr.iter_mut().find(|entry| {
+fn upsert_cursor_matcher(
+    arr: &mut Vec<Value>,
+    command: &str,
+    matcher: &str,
+    fail_closed: Option<&Value>,
+) {
+    let entry = match arr.iter_mut().position(|entry| {
         command_is_lade_hook(entry) && entry.get("matcher").and_then(Value::as_str) == Some(matcher)
     }) {
-        entry["command"] = json!(command);
-        return;
+        Some(index) => &mut arr[index],
+        None => {
+            arr.push(json!({ "command": command, "matcher": matcher }));
+            arr.last_mut().expect("just pushed")
+        }
+    };
+    entry["command"] = json!(command);
+    // § one ck03z9rny.a@c2y2h
+    if let Some(fail_closed) = fail_closed {
+        entry[FAIL_CLOSED] = fail_closed.clone();
     }
-    arr.push(json!({ "command": command, "matcher": matcher }));
 }
 
 fn upsert_claude_matcher(arr: &mut Vec<Value>, command: &str, matcher: &str) {

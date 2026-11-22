@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use flate2::read::GzDecoder;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OpenFlags, params};
 use tar::Archive;
 use tempfile::TempDir;
 
@@ -32,6 +32,7 @@ struct ExpandedSources {
 }
 
 fn expand_sources(sources: &[String], cwd: &Path) -> Result<ExpandedSources> {
+    // § c370d77w5.a@6bqmz
     let mut paths = Vec::new();
     let mut temp_dirs = Vec::new();
     for source in sources {
@@ -76,11 +77,18 @@ pub fn verify_sources(sources: &[String]) -> Result<Vec<(PathBuf, ChainStatus)>>
     let expanded = expand_sources(sources, &cwd)?;
     let mut out = Vec::new();
     for path in &expanded.paths {
-        let conn = Connection::open(path)?;
+        // § c370d77w5.b@6a5j7
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        // § end c370d77w5.b
+        // § bqy4mdd5m.d@j9wag
         if !attached_has_column(&conn, "main", "row_hash") {
             out.push((path.clone(), unsigned_pack()));
             continue;
         }
+        // § end bqy4mdd5m.d
         out.push((path.clone(), verify_chain(&conn)?));
     }
     Ok(out)
@@ -135,6 +143,37 @@ fn extract_pack_db(pack: &Path, dest_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Each source as `p<index>`, opened read-only by SQLite itself.
+pub(super) fn attach_read_only(paths: &[PathBuf]) -> Result<Connection> {
+    let conn = Connection::open_in_memory_with_flags(
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    for (idx, path) in paths.iter().enumerate() {
+        conn.execute(
+            &format!("ATTACH DATABASE ?1 AS p{idx}"),
+            params![read_only_uri(path)],
+        )?;
+    }
+    conn.pragma_update(None, "query_only", true)?;
+    Ok(conn)
+}
+
+fn read_only_uri(path: &Path) -> String {
+    let mut uri = String::from("file:");
+    for &byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri.push_str("?mode=ro");
+    uri
+}
+
 pub(super) fn query_attached(
     paths: &[PathBuf],
     since: Option<&DateTime<Utc>>,
@@ -144,18 +183,12 @@ pub(super) fn query_attached(
     kind: Option<&str>,
     repo: Option<&str>,
 ) -> Result<Vec<Event>> {
+    // § c370d77w5.a@vddg5
     if paths.is_empty() {
         return Ok(Vec::new());
     }
-    let conn = Connection::open_in_memory()?;
-    for (idx, path) in paths.iter().enumerate() {
-        let alias = format!("p{idx}");
-        conn.execute(
-            &format!("ATTACH DATABASE ?1 AS {alias}"),
-            params![path.to_string_lossy().as_ref()],
-        )?;
-    }
-    conn.pragma_update(None, "query_only", true)?;
+    // § one c370d77w5.b@fjq62
+    let conn = attach_read_only(paths)?;
     let union = paths
         .iter()
         .enumerate()
@@ -186,6 +219,7 @@ pub(super) fn query_attached(
     if kind.is_some() {
         sql.push_str(" AND kind = ?");
     }
+    // § one c370d77w5.c@0a4cv
     if repo.is_some() {
         sql.push_str(" AND (repo = ? OR repo = ?)");
     }
@@ -211,12 +245,14 @@ pub(super) fn query_attached(
         stmt.raw_bind_parameter(idx, k)?;
         idx += 1;
     }
+    // § c370d77w5.c@8598m
     if let Some(r) = repo {
         stmt.raw_bind_parameter(idx, r)?;
         idx += 1;
         stmt.raw_bind_parameter(idx, basename_or_self(r))?;
         idx += 1;
     }
+    // § end c370d77w5.c
     if let Some(n) = limit {
         stmt.raw_bind_parameter(idx, n as i64)?;
     }

@@ -13,6 +13,7 @@ const IGNORE_FILES: &[&str] = &[
     ".mise/config.toml",
     ".config/mise.toml",
     ".config/mise/config.toml",
+    ".tool-versions",
 ];
 const IGNORE_DIRS: &[&str] = &["mise", ".mise", ".config/mise"];
 
@@ -131,6 +132,7 @@ fn passwd_home() -> Option<PathBuf> {
 }
 
 pub fn isolate_config_paths(cwd: &Path) -> Vec<PathBuf> {
+    // § fvghrwpwb.a@vkedk
     let mut out = ignored_config_paths(cwd);
     let mut homes = Vec::new();
     if let Some(home) = crate::home_dir() {
@@ -173,6 +175,7 @@ pub fn compose_toml(theirs: &[ProjectTool], pins: &[(String, Spec)]) -> String {
     for tool in theirs {
         // mise 2026.9.15 warns, exits 0, and writes the range into the lock.
         if spec::version_is_range(&tool.version) {
+            // § h01jcjwrv.a@6vnew
             continue;
         }
         tools.insert(tool.key.clone(), tool.version.clone());

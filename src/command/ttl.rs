@@ -140,6 +140,7 @@ pub(crate) fn tunnel_state(tunnel: &TunnelRow) -> String {
 }
 
 fn forget_all() -> Result<()> {
+    // § wszszmyqk.a@ynx55
     Report::new()
         .line(match hub::stop() {
             hub::HubStop::Stopped => "forgot all keys and tunnels".to_string(),
@@ -168,6 +169,7 @@ pub(crate) fn rows_for_scope<'a>(
     scope: Option<&str>,
     global: bool,
 ) -> Vec<&'a CacheRow> {
+    // § f1t0s88fs.b@ptz61
     rows.iter()
         .filter(|row| global || scope.is_some_and(|cwd| hub::path_related(&row.cwd, cwd)))
         .collect()
@@ -272,17 +274,19 @@ mod tests {
     }
 
     #[test]
-    fn default_list_keeps_this_cwd_and_children() {
+    fn default_list_keeps_this_cwd_its_ancestors_and_children() {
         let rows = [
-            row("HERE", "/proj"),
-            row("CHILD", "/proj/src"),
+            row("HERE", "/src/proj"),
+            row("CHILD", "/src/proj/app"),
+            row("PARENT", "/src"),
+            row("SIBLING", "/src/proj2"),
             row("OTHER", "/other"),
         ];
-        let got: Vec<_> = rows_for_scope(&rows, Some("/proj"), false)
+        let got: Vec<_> = rows_for_scope(&rows, Some("/src/proj"), false)
             .iter()
             .map(|row| row.name.as_str())
             .collect();
-        assert_eq!(got, ["HERE", "CHILD"]);
+        assert_eq!(got, ["HERE", "CHILD", "PARENT"]);
     }
 
     #[test]

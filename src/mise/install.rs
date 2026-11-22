@@ -119,21 +119,19 @@ async fn run_mise_cmd(
     ignored: &[PathBuf],
     live: bool,
 ) -> Result<Output, Error> {
+    // § fvghrwpwb.b@tp4pt
+    // § one cp6eyqnnj.a@vdp0s
     let shims = crate::cache::mise_shims();
     std::fs::create_dir_all(&shims).map_err(|e| Error::install(e.to_string()))?;
-    let mut cmd = tokio::process::Command::new(super::ensure::mise_program());
+    let mut cmd = tokio::process::Command::new(super::ensure::mise_program()?);
+    isolate(cmd.as_std_mut(), ignored);
     cmd.arg("--cd")
         .arg(cd)
         .args(&args)
         .env("MISE_INSTALLS_DIR", installs)
         .env("MISE_SHIMS_DIR", &shims)
         .env("MISE_TRUSTED_CONFIG_PATHS", cd)
-        .env("MISE_YES", "1")
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "false")
-        .env_remove("MISE_ENV")
-        .env_remove("MISE_GLOBAL_CONFIG_FILE")
-        .env_remove("MISE_CONFIG_DIR")
-        .env_remove("MISE_IGNORED_CONFIG_PATHS")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -149,10 +147,6 @@ async fn run_mise_cmd(
         if let Some(dir) = config.parent() {
             cmd.env("MISE_CONFIG_DIR", dir);
         }
-    }
-    if !ignored.is_empty() {
-        let joined = std::env::join_paths(ignored).unwrap_or_default();
-        cmd.env("MISE_IGNORED_CONFIG_PATHS", joined);
     }
     let mut child = cmd
         .spawn()
@@ -175,6 +169,26 @@ async fn run_mise_cmd(
         stdout,
         stderr,
     })
+}
+
+/// The environment every mise run Lade starts shares: the user's own mise
+/// configs and their environment overrides are out, and mise never prompts.
+pub(super) fn isolate(cmd: &mut std::process::Command, ignored: &[PathBuf]) {
+    // § fvghrwpwb.a@x417y
+    cmd.env("MISE_YES", "1")
+        .env_remove("MISE_ENV")
+        .env_remove("MISE_GLOBAL_CONFIG_FILE")
+        .env_remove("MISE_CONFIG_DIR")
+        .env_remove("MISE_IGNORED_CONFIG_PATHS")
+        .env_remove("MISE_SYSTEM_CONFIG_FILE")
+        .env_remove("MISE_OVERRIDE_CONFIG_FILENAMES")
+        .env_remove("MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES")
+        .env_remove("MISE_DEFAULT_CONFIG_FILENAME")
+        .env_remove("MISE_DEFAULT_TOOL_VERSIONS_FILENAME");
+    if !ignored.is_empty() {
+        let joined = std::env::join_paths(ignored).unwrap_or_default();
+        cmd.env("MISE_IGNORED_CONFIG_PATHS", joined);
+    }
 }
 
 async fn collect_stream(reader: impl tokio::io::AsyncRead + Unpin, live: bool) -> Vec<u8> {
@@ -217,6 +231,7 @@ pub(super) fn failure_detail(output: &Output, args: &[String]) -> String {
 }
 
 fn require_concrete(spec: &Spec) -> Result<(), Error> {
+    // § h01jcjwrv.a@56q1g
     if super::spec::version_is_concrete(&spec.version) {
         Ok(())
     } else {

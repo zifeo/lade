@@ -39,17 +39,23 @@ fn local_at(now: DateTime<Local>, days_ago: u64, hour: u32, minute: u32) -> Date
 
 #[test]
 fn committed_flag_tells_blocking_hooks() {
-    assert_eq!(committed_flag(true, true), "blocking");
-    assert_eq!(committed_flag(true, false), "not blocking");
-    assert_eq!(committed_flag(false, false), "none");
+    assert_eq!(committed_flag(true, true, false), "blocking");
+    assert_eq!(committed_flag(true, false, false), "not blocking");
+    assert_eq!(committed_flag(false, false, false), "none");
 }
 
 #[test]
 fn pretool_flag_marks_drift() {
-    assert_eq!(pretool_flag(true, true), "current");
-    assert_eq!(pretool_flag(true, false), "not current");
-    assert_eq!(pretool_flag(false, false), "missing");
-    assert_eq!(pretool_flag(false, true), "missing");
+    assert_eq!(pretool_flag(true, true, false), "current");
+    assert_eq!(pretool_flag(true, false, false), "not current");
+    assert_eq!(pretool_flag(false, false, false), "missing");
+    assert_eq!(pretool_flag(false, true, false), "missing");
+}
+
+#[test]
+fn an_unreadable_hook_file_is_never_shown_as_missing() {
+    assert_eq!(pretool_flag(false, false, true), "unreadable");
+    assert_eq!(committed_flag(false, false, true), "unreadable");
 }
 
 #[test]

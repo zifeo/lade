@@ -15,6 +15,7 @@ const NOT_LITERAL: &[char] = &[
 /// a Codex shell call may add `tool_input.workdir` relative to `cwd`.
 /// `fallback` covers payloads with neither (the OpenCode plugin).
 pub(super) fn payload_dir(input: &Value, fallback: &Path) -> PathBuf {
+    // § v82zzh1yh.a@07a7a
     let tool = input.get("tool_input");
     let mut dir = fallback.to_path_buf();
     if let Some(cwd) = text(input.get("cwd")) {
@@ -36,6 +37,7 @@ fn text(value: Option<&Value>) -> Option<&str> {
 /// literal argument. Wrapped, it would move lade's child and not the
 /// harness shell.
 pub(super) fn is_shell_move(command: &str) -> bool {
+    // § hk9h1sqyt.d@k8kt7
     let mut words = command.split_whitespace();
     let Some(verb) = words.next() else {
         return false;
@@ -51,6 +53,7 @@ pub(super) fn is_shell_move(command: &str) -> bool {
 /// segment it cannot resolve, so the directory is the last one resolved.
 /// Returns the directory and the command left after the applied segments.
 pub(crate) fn run_dir<'a>(start: &Path, command: &'a str) -> (PathBuf, &'a str) {
+    // § v82zzh1yh.b@fs4nd
     let mut dir = start.to_path_buf();
     let mut rest = command.trim_start();
     while let Some((head, tail)) = rest.split_once("&&") {

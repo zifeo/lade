@@ -50,6 +50,7 @@ fn ask(dir: &Path, port: u16, lease: Lease) -> TunnelAsk {
         launch: Some(TunnelLaunch {
             context: Some("acme".to_string()),
             env: vec![(b"PATH".to_vec(), path.into_bytes())],
+            link_walk: None,
         }),
     }
 }
@@ -89,6 +90,58 @@ fn exits_within(pid: Pid, timeout: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     false
+}
+
+/// Children of this test binary that still run its image: forked, `exec`
+/// not reached yet. No test spawns the test binary itself.
+fn unexeced_forks() -> usize {
+    let exe = std::env::current_exe().unwrap();
+    children()
+        .into_iter()
+        .filter(|child| child_exe(*child).as_deref() == Some(exe.as_path()))
+        .count()
+}
+
+#[cfg(target_os = "macos")]
+fn children() -> Vec<i32> {
+    let mut pids = vec![0i32; 4096];
+    let size = i32::try_from(pids.len() * size_of::<i32>()).unwrap();
+    let me = i32::try_from(std::process::id()).unwrap();
+    let count = unsafe { libc::proc_listchildpids(me, pids.as_mut_ptr().cast(), size) };
+    pids.truncate(usize::try_from(count).expect("proc_listchildpids"));
+    pids
+}
+
+#[cfg(target_os = "macos")]
+fn child_exe(pid: i32) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let size = u32::try_from(buf.len()).unwrap();
+    let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), size) };
+    let len = usize::try_from(len).ok().filter(|len| *len > 0)?;
+    Some(std::ffi::OsStr::from_bytes(&buf[..len]).into())
+}
+
+#[cfg(target_os = "linux")]
+fn children() -> Vec<i32> {
+    let me = std::process::id().to_string();
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<i32>().ok())
+        .filter(|pid| {
+            // `pid (comm) state ppid ...`: comm may hold spaces or `)`.
+            std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+                stat.rsplit_once(')')
+                    .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+                    == Some(me.as_str())
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn child_exe(pid: i32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
 #[test]
@@ -176,7 +229,21 @@ fn a_released_tunnel_frees_its_port_before_release_returns() {
 
     tunnels.release("p1", Duration::ZERO);
 
-    assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    // A child another test forked keeps a copy of the closed listener until
+    // it runs `exec`. Checked before the bind: a fork that already ran
+    // `exec` can no longer hold the port.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let forks = unexeced_forks();
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            break;
+        }
+        assert!(
+            forks > 0 && Instant::now() < deadline,
+            "port {port} still held"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 #[test]
@@ -193,6 +260,141 @@ fn a_cancelled_start_makes_the_next_ask_wait_instead_of_failing() {
 
     assert!(
         !matches!(rep, TunnelRep::Conflict { holder: None, .. }),
+        "{rep:?}"
+    );
+}
+
+#[test]
+fn a_restart_keeps_the_env_of_the_first_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
+    let upstream_port = upstream.local_addr().unwrap().port();
+    let marks = dir.path().join("marks");
+    write_kubectl(
+        dir.path(),
+        &format!(
+            "echo \"$MARK\" >> {marks}\necho $$ > {dir}/pid\necho 'Forwarding from 127.0.0.1:{upstream_port} -> 5432'\nexec sleep 60",
+            marks = marks.display(),
+            dir = dir.path().display()
+        ),
+    );
+    let with_mark = |mut ask: TunnelAsk, mark: &str| {
+        let launch = ask.launch.as_mut().unwrap();
+        launch
+            .env
+            .push((b"MARK".to_vec(), mark.as_bytes().to_vec()));
+        ask
+    };
+    let mut tunnels = Tunnels::default();
+    let (port, id) = open_free(
+        |ask| tunnels.open(with_mark(ask, "a")),
+        dir.path(),
+        lease("p1"),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(tunnels.poll(id), TunnelRep::Ready { .. }) {
+        assert!(Instant::now() < deadline, "never ready");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let reused = tunnels.open(with_mark(ask(dir.path(), port, lease("p2")), "b"));
+    assert!(
+        matches!(reused, TunnelRep::Ready { reused: true, .. }),
+        "{reused:?}"
+    );
+
+    let first = provider_pid(dir.path());
+    std::fs::remove_file(dir.path().join("pid")).unwrap();
+    kill(first, nix::sys::signal::Signal::SIGKILL).unwrap();
+    let restarted = provider_pid(dir.path());
+    assert_ne!(first, restarted);
+    let text = std::fs::read_to_string(&marks).unwrap();
+    drop(tunnels);
+    assert_eq!(text, "a\na\n");
+}
+
+/// A kubefwd that listens on its `-m` port until `exit` appears in `dir`,
+/// then exits. Every restart runs `restart` instead, so it never takes the
+/// port back.
+fn write_kubefwd(dir: &Path, restart: &str) {
+    let script = dir.join("kubefwd");
+    let body = format!(
+        r#"#!/bin/sh
+if [ -e {dir}/ran ]; then {restart}; fi
+: > {dir}/ran
+port=0
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-m" ]; then
+    port="${{2##*:}}"
+    shift 2
+    continue
+  fi
+  shift
+done
+exec /usr/bin/python3 -c 'import os,socket,sys,time
+s=socket.socket()
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen()
+while not os.path.exists(sys.argv[2]):
+    time.sleep(0.02)
+' "$port" {dir}/exit
+"#,
+        dir = dir.display()
+    );
+    std::fs::write(&script, body).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn kubefwd_ask(dir: &Path, port: u16, lease: Lease) -> TunnelAsk {
+    TunnelAsk {
+        uri: "kubefwd://kube.example.com:443/acme/default/service/db/5432".to_string(),
+        ..ask(dir, port, lease)
+    }
+}
+
+#[test]
+fn a_kubefwd_tunnel_that_loses_its_port_is_not_reused() {
+    a_lost_port_fails_the_tunnel("exec sleep 60");
+}
+
+#[test]
+fn a_kubefwd_restart_that_cannot_bind_fails_the_tunnel() {
+    a_lost_port_fails_the_tunnel("exit 1");
+}
+
+fn a_lost_port_fails_the_tunnel(restart: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    write_kubefwd(dir.path(), restart);
+    let mut tunnels = Tunnels::default();
+    let (port, id) = open_free(
+        |ask| tunnels.open(kubefwd_ask(dir.path(), ask.port.unwrap(), ask.lease)),
+        dir.path(),
+        lease("p1"),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(tunnels.poll(id), TunnelRep::Ready { .. }) {
+        assert!(Instant::now() < deadline, "never ready");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    std::fs::write(dir.path().join("exit"), b"").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let stranger = loop {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
+            break listener;
+        }
+        assert!(Instant::now() < deadline, "the provider never let go");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(tunnels.poll(id), TunnelRep::Failed { .. }) {
+        assert!(Instant::now() < deadline, "the hub never saw the loss");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let rep = tunnels.open(kubefwd_ask(dir.path(), port, lease("p2")));
+    drop(stranger);
+    assert!(
+        matches!(rep, TunnelRep::Conflict { holder: None, .. }),
         "{rep:?}"
     );
 }

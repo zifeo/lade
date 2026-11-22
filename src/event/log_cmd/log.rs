@@ -11,6 +11,7 @@ use crate::window;
 
 pub fn run_log(opts: LogCommand, agent: bool) -> Result<()> {
     if !opts.source.is_empty() {
+        // § c370d77w5.b@2etph
         if matches!(opts.action, Some(LogAction::Share { .. })) {
             message_box::MessageBox::new()
                 .error()
@@ -105,6 +106,7 @@ fn log_command(row: &Event) -> String {
 }
 
 fn run_verify(opts: &LogCommand) -> Result<()> {
+    // § bqy4mdd5m.b@jm561
     let reports = super::chain_reports(&opts.source)?;
     let mut ok = true;
     let mut lines = Vec::new();
@@ -131,6 +133,7 @@ fn run_verify(opts: &LogCommand) -> Result<()> {
 }
 
 fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<()> {
+    // § abp3kwm4w.e@ng00q
     if agent {
         message_box::MessageBox::new()
             .error()
@@ -138,12 +141,15 @@ fn run_share(opts: &LogCommand, agent: bool, output: Option<PathBuf>) -> Result<
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);
     }
+    // § end abp3kwm4w.e
     let (since, until, limit) =
         query_window(opts.since.as_deref(), opts.until.as_deref(), opts.limit)?;
     let audience = filter_opt(&opts.audience);
     let kind = filter_opt(&opts.kind);
     let cwd = std::env::current_dir()?;
     let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
+    // § bqy4mdd5m.a@bwvyw
+    super::ensure_chain(&[])?;
     match pack::share(
         since.as_ref(),
         until.as_ref(),
@@ -186,6 +192,8 @@ fn run_prune(opts: &LogCommand, keep: Option<&str>, hub: bool) -> Result<()> {
         };
         let cwd = std::env::current_dir()?;
         let repo = repo_filter(opts.all || opts.global, opts.path.as_deref(), &cwd);
+        // § bqy4mdd5m.a@eet3f
+        super::ensure_chain(&[])?;
         let n = match event::prune_before(&ts, repo.as_deref()) {
             Ok(n) => n,
             Err(e) => {
@@ -199,6 +207,7 @@ fn run_prune(opts: &LogCommand, keep: Option<&str>, hub: bool) -> Result<()> {
         report = report.line(format!("deleted {n} rows older than {keep}"));
     }
     if hub {
+        // § wszszmyqk.a@b5f5z
         report = report.line(match crate::hub::stop() {
             crate::hub::HubStop::Stopped => "hub: stopped".to_string(),
             crate::hub::HubStop::Down => "hub: down".to_string(),

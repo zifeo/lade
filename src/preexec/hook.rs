@@ -34,14 +34,27 @@ pub fn profile_config_file(shell: &Shell) -> PathBuf {
 
 pub fn preexec_installed(shell: &Shell) -> (PathBuf, bool) {
     let path = profile_config_file(shell);
-    let installed = std::fs::read_to_string(&path)
-        .map(|content| content.contains(MARKER))
-        .unwrap_or(false);
+    let installed = profile_hooked(&path).unwrap_or(false);
     (path, installed)
+}
+
+/// Whether the profile holds Lade's line. A missing profile holds none; one
+/// Lade cannot read gives no answer, so setup writes no second hook.
+fn profile_hooked(path: &std::path::Path) -> Result<bool> {
+    // § h528pmcm2.a@45wcw
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(content.contains(MARKER)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => bail!(
+            "Lade cannot read {}: {e}. It left the file as it is.",
+            super::profile::path_for_display(path)
+        ),
+    }
 }
 
 impl Shell {
     pub fn on(&self) -> Result<String> {
+        // § mqnfssecp.a@x1nf9
         let body = match self {
             Shell::Bash => format!(
                 "{}\n{}",
@@ -79,6 +92,7 @@ impl Shell {
 const DETECTABLE: [Shell; 3] = [Shell::Bash, Shell::Zsh, Shell::Fish];
 
 pub fn present_shells() -> Vec<Shell> {
+    // § mqnfssecp.a@mfpcs
     DETECTABLE
         .into_iter()
         .filter(|shell| profile_config_file(shell).is_file())
@@ -107,13 +121,23 @@ pub struct PreexecReport {
 }
 
 pub enum SetupShell {
-    Bootstrapped { path: String, reload: String },
-    Current { path: String },
+    Bootstrapped {
+        path: String,
+        reload: String,
+    },
+    Current {
+        path: String,
+    },
     Missing,
     SkippedCi,
+    Unknown(String),
+    /// A profile Lade cannot read, so it cannot tell whether the machine
+    /// has its hook.
+    Unreadable(String),
 }
 
 pub fn ci_job() -> bool {
+    // § h528pmcm2.a@x2thq
     std::env::var("CI")
         .map(|value| {
             let value = value.trim();
@@ -126,18 +150,11 @@ pub fn ci_job() -> bool {
 pub(crate) enum BootstrapDecision {
     Current,
     Missing,
-    SkipCi,
     Write,
 }
 
-pub(crate) fn bootstrap_decision(
-    this_wrapped: bool,
-    any_wrapped: bool,
-    ci: bool,
-) -> BootstrapDecision {
-    if ci {
-        return BootstrapDecision::SkipCi;
-    }
+pub(crate) fn bootstrap_decision(this_wrapped: bool, any_wrapped: bool) -> BootstrapDecision {
+    // § h528pmcm2.a@pewzp
     if this_wrapped {
         return BootstrapDecision::Current;
     }
@@ -180,20 +197,51 @@ pub(crate) fn reload_after_upgrade_lines(
     }
 }
 
-pub fn any_profile_wrapped() -> bool {
-    DETECTABLE.iter().any(|shell| preexec_installed(shell).1)
+/// A profile with Lade's line answers for the machine, whatever another
+/// profile reads; with none, one Lade cannot read leaves no answer.
+fn any_profile_wrapped() -> Result<bool> {
+    // § h528pmcm2.a@85wd0
+    let mut unread = None;
+    for shell in DETECTABLE {
+        match profile_hooked(&profile_config_file(&shell)) {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(error) => unread = unread.or(Some(error)),
+        }
+    }
+    unread.map_or(Ok(false), Err)
 }
 
 /// First machine profile with no wrap: write this shell. Later setups
 /// never write. A missing wrap is `lade hook enable --shell`.
 pub fn maybe_bootstrap_setup_shell() -> Result<SetupShell> {
-    let current = Shell::detect()?;
-    let (path_buf, installed) = preexec_installed(&current);
+    // A CI step's parent may be no shell Lade knows.
+    // § h528pmcm2.a@6d32v
+    if ci_job() {
+        return Ok(SetupShell::SkippedCi);
+    }
+    // The repo's steps need no shell, so setup names this one and goes on.
+    let current = match Shell::detect() {
+        Ok(shell) if DETECTABLE.contains(&shell) => shell,
+        Ok(shell) => {
+            return Ok(SetupShell::Unknown(format!(
+                "Lade has no profile hook for {}",
+                shell.bin()
+            )));
+        }
+        Err(error) => return Ok(SetupShell::Unknown(format!("{error:#}"))),
+    };
+    let path_buf = profile_config_file(&current);
     let path = super::profile::path_for_display(&path_buf);
-    match bootstrap_decision(installed, any_profile_wrapped(), ci_job()) {
+    let decision = profile_hooked(&path_buf)
+        .and_then(|this| Ok(bootstrap_decision(this, this || any_profile_wrapped()?)));
+    let decision = match decision {
+        Ok(decision) => decision,
+        Err(error) => return Ok(SetupShell::Unreadable(format!("{error:#}"))),
+    };
+    match decision {
         BootstrapDecision::Current => Ok(SetupShell::Current { path }),
         BootstrapDecision::Missing => Ok(SetupShell::Missing),
-        BootstrapDecision::SkipCi => Ok(SetupShell::SkippedCi),
         BootstrapDecision::Write => {
             let path = current.install()?;
             Ok(SetupShell::Bootstrapped {
@@ -248,31 +296,21 @@ mod tests {
     }
 
     #[test]
-    fn ci_skips_shell_wrap() {
-        assert_eq!(
-            bootstrap_decision(false, false, true),
-            BootstrapDecision::SkipCi
-        );
-        assert_eq!(
-            bootstrap_decision(true, true, true),
-            BootstrapDecision::SkipCi
-        );
+    fn ci_skips_shell_wrap_before_reading_the_parent_shell() {
+        // The test runner's parent is no shell Lade knows.
+        temp_env::with_var("CI", Some("true"), || {
+            assert!(matches!(
+                maybe_bootstrap_setup_shell().unwrap(),
+                SetupShell::SkippedCi
+            ));
+        });
     }
 
     #[test]
     fn first_profile_writes_later_warns() {
-        assert_eq!(
-            bootstrap_decision(false, false, false),
-            BootstrapDecision::Write
-        );
-        assert_eq!(
-            bootstrap_decision(true, false, false),
-            BootstrapDecision::Current
-        );
-        assert_eq!(
-            bootstrap_decision(false, true, false),
-            BootstrapDecision::Missing
-        );
+        assert_eq!(bootstrap_decision(false, false), BootstrapDecision::Write);
+        assert_eq!(bootstrap_decision(true, false), BootstrapDecision::Current);
+        assert_eq!(bootstrap_decision(false, true), BootstrapDecision::Missing);
     }
 
     #[test]
@@ -317,5 +355,19 @@ mod tests {
                 "Open a new terminal.",
             ]
         );
+    }
+
+    #[test]
+    fn reload_after_upgrade_prints_each_shells_wrap_line() {
+        for (shell, line) in [
+            (Shell::Bash, "source <(echo \"$(/opt/lade on)\")"),
+            (Shell::Zsh, "eval \"$(/opt/lade on)\""),
+            (Shell::Fish, "source (/opt/lade on | psub)"),
+            (Shell::Sh, "eval \"$(/opt/lade on)\""),
+        ] {
+            let lines = reload_after_upgrade_lines(Some(shell), "/opt/lade", true);
+            assert_eq!(lines[1], format!("Reload it: {line}"), "{shell:?}");
+            assert_eq!(wrap_reload_command(shell, "/opt/lade"), line, "{shell:?}");
+        }
     }
 }

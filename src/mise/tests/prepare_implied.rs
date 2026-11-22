@@ -82,6 +82,47 @@ fn yaml_pin_still_applies_when_sources_need_the_cli() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_yaml_pin_on_another_rule_replaces_the_implied_one() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let bin = installs.join("op/2.10.0");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_exec(&bin.join("op"), "echo OP");
+    write_cached_env(home.path(), "mise://aqua/1password/cli@2.10.0", "{}");
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^op:\n  op: mise://aqua/1password/cli@2.10.0\n^deploy:\n  TOKEN: op://v/i/f\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        "[[tools.op]]\nversion = \"2.10.0\"\nbackend = \"aqua:1password/cli\"\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path())),
+            ("MISE_INSTALLS_DIR", Some(installs.as_path())),
+        ],
+        || {
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let out = block_on(prepare(
+                &config,
+                "deploy",
+                dir.path(),
+                &None,
+                Audience::Human,
+            ))
+            .unwrap();
+            let path = out.env.get("PATH").unwrap();
+            assert!(path.starts_with(&format!("{}:", bin.display())), "{path}");
+        },
+    );
+}
+
 #[test]
 fn implied_missing_when_command_is_the_cli_refuses() {
     let dir = tempdir().unwrap();

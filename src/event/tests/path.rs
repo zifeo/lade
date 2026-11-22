@@ -71,3 +71,44 @@ fn git_stamp_treats_gitfile_as_worktree_root() {
         Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     );
 }
+
+const BRANCH_TIP: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+#[test]
+fn git_stamp_reads_a_linked_worktree_branch_from_the_common_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main/.git");
+    let gitdir = main.join("worktrees/wt");
+    let worktree = dir.path().join("wt");
+    std::fs::create_dir_all(main.join("refs/heads")).unwrap();
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::create_dir(&worktree).unwrap();
+    std::fs::write(main.join("refs/heads/feature"), format!("{BRANCH_TIP}\n")).unwrap();
+    std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature\n").unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    std::fs::write(
+        worktree.join(".git"),
+        format!("gitdir: {}\n", gitdir.display()),
+    )
+    .unwrap();
+    assert_eq!(git_stamp(&worktree).1.as_deref(), Some(BRANCH_TIP));
+}
+
+#[test]
+fn git_stamp_reads_a_packed_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let git = dir.path().join(".git");
+    std::fs::create_dir(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(
+        git.join("packed-refs"),
+        format!(
+            "# pack-refs with: peeled fully-peeled sorted\n\
+             cccccccccccccccccccccccccccccccccccccccc refs/heads/other\n\
+             {BRANCH_TIP} refs/heads/main\n\
+             ^dddddddddddddddddddddddddddddddddddddddd\n"
+        ),
+    )
+    .unwrap();
+    assert_eq!(git_stamp(dir.path()).1.as_deref(), Some(BRANCH_TIP));
+}

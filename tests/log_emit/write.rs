@@ -29,7 +29,9 @@ fn disclaimer_denied_writes_kind() {
     assert_eq!(matches[0]["bindings"][0]["uri"], "val");
     let denied = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--since", "1d", "--kind", "denied"])
+        .args([
+            "log", "--all", "--json", "--since", "1d", "--kind", "denied",
+        ])
         .assert()
         .success()
         .get_output()
@@ -228,6 +230,61 @@ fn hook_log_only_uses_matched_log_not_walk() {
 }
 
 #[test]
+fn hook_cd_uses_the_matched_rules_log_not_the_walk() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml_raw(
+        dir.path(),
+        "\"^cd\":\n  .:\n    log: true\n\"^git status\":\n  .:\n    log: false\n",
+    );
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("CURSOR_VERSION", "1.0")
+        .args(["hook"])
+        .write_stdin(
+            r#"{"tool_name":"Shell","tool_input":{"command":"cd sub"},"hook_event_name":"preToolUse"}"#,
+        )
+        .assert()
+        .success();
+    let rows = log_rows(home.path(), dir.path());
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(row_line(&rows[0]), "cd sub");
+    assert_eq!(rows[0]["kind"], "seen");
+}
+
+#[test]
+fn a_match_that_prepares_nothing_is_seen_on_every_door() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml_raw(
+        dir.path(),
+        ".:\n  .:\n    log: true\n  zsh: mise://aqua/zsh/zsh@5.9\n  guard: apm://owner/repo\n",
+    );
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["inject", "echo hi"])
+        .assert()
+        .success();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("CURSOR_VERSION", "1.0")
+        .args(["hook"])
+        .write_stdin(
+            r#"{"tool_name":"Shell","tool_input":{"command":"echo there"},"hook_event_name":"preToolUse"}"#,
+        )
+        .assert()
+        .success();
+    let rows = log_rows(home.path(), dir.path());
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    for row in rows {
+        assert_eq!(row["kind"], "seen", "{row}");
+        assert!(!row["matches"].as_array().unwrap().is_empty(), "{row}");
+    }
+}
+
+#[test]
 fn hook_no_match_walk_log_writes_seen() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();
@@ -299,4 +356,51 @@ fn a_seen_row_is_written_for_a_direct_child() {
     assert_eq!(rows.as_array().unwrap().len(), 1, "{rows}");
     assert_eq!(rows[0]["kind"], "seen");
     assert_eq!(row_line(&rows[0]), "env");
+}
+
+#[test]
+fn hook_wrap_without_ticket_writes_no_hook_row() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let blocker = home.path().join("tickets-blocker");
+    fs::write(&blocker, "not a directory").unwrap();
+    write_yml(dir.path(), "\"^echo \":\n  API_TOKEN: raw://x\n");
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("CURSOR_VERSION", "1.0")
+        .env("LADE_TICKET_DIR", blocker.join("tickets"))
+        .args(["hook"])
+        .write_stdin(
+            r#"{"tool_name":"Shell","tool_input":{"command":"echo hi"},"hook_event_name":"preToolUse"}"#,
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(
+        stdout.contains("--pretool"),
+        "the hook still wraps: {stdout}"
+    );
+    let rows = log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().unwrap().len(), 0, "{rows}");
+}
+
+#[test]
+fn set_write_failure_still_sets() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "\"^echo \":\n  API_TOKEN: raw://x\n");
+    fs::create_dir_all(home.path().join("events.db")).unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["set", "echo hi"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&out);
+    assert!(stdout.contains("API_TOKEN"), "{stdout}");
 }

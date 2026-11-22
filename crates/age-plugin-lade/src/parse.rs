@@ -15,6 +15,7 @@ fn first_data_line(hydrated: &str) -> &str {
 // Any line counts: IdentityFile would run the plugin of a later line too, and
 // an AGE-PLUGIN-LADE line would make this plugin call itself.
 fn reject_plugin_identity(hydrated: &str) -> Result<(), String> {
+    // § mcf6rtczf.c@fk1tf
     if hydrated
         .lines()
         .any(|l| l.trim().to_ascii_uppercase().starts_with("AGE-PLUGIN-"))

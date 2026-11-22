@@ -19,7 +19,7 @@ mod write;
 pub use chain::{ChainStatus, insert_sealed, unsigned_pack, verify as verify_chain};
 pub use db::{info_for_repo, open, prune_before, query, verify_live};
 pub use git::git_stamp;
-pub use write::{Diary, emit, emit_if, emit_verb};
+pub use write::{Diary, emit, emit_if, emit_unstamped, emit_verb};
 
 pub(crate) use db::event_from_row;
 
@@ -65,6 +65,8 @@ pub enum Kind {
     Seen,
     Access,
     Denied,
+    /// A laptop serving an attached remote: connect, requests, link loss.
+    Remote,
 }
 
 impl Kind {
@@ -73,6 +75,8 @@ impl Kind {
             Kind::Seen => "seen",
             Kind::Access => "access",
             Kind::Denied => "denied",
+            // § one bvttr6qk1.f@rwckd
+            Kind::Remote => "remote",
         }
     }
 }
@@ -119,15 +123,17 @@ pub fn db_path() -> PathBuf {
     project.data_local_dir().join("events.db")
 }
 
+/// `user` is the caller's one resolution of the Lade user; resolving it again
+/// here could disagree with it.
 pub fn actor(user: &Option<String>) -> Option<String> {
     user.clone()
-        .or_else(crate::global_config::GlobalConfig::resolved_user)
 }
 
 pub fn match_tree_from(
     rules: &[(std::path::PathBuf, String, LadeRule)],
     saved_user: &Option<String>,
 ) -> Value {
+    // § j1mbwadzc.c@223q9
     let mut winners = indexmap::IndexMap::<String, (PathBuf, String, String)>::new();
     for (file, pattern, rule) in rules {
         for (key, uri) in Config::public_bindings(rule, saved_user) {
@@ -137,11 +143,13 @@ pub fn match_tree_from(
     let mut grouped: indexmap::IndexMap<(PathBuf, String), Vec<Value>> = indexmap::IndexMap::new();
     for (key, (file, pattern, uri)) in winners {
         let family = crate::family::Family::of_uri(&uri);
+        // § one ezvgtge5j.a@r4m05
         let mut binding = json!({
             "key": key,
             "uri": uri,
             "family": family.token()
         });
+        // § j1mbwadzc.d@w90mj
         let implied = crate::mise::implied_package(&uri);
         let package = implied.or_else(|| {
             if family == crate::family::Family::Package && crate::mise::looks_like_spec(&uri) {
@@ -153,10 +161,11 @@ pub fn match_tree_from(
         if let Some(package) = package {
             binding["package"] = json!(package);
             let lock = crate::mise::lock_path_in(&file);
-            if let Some(slot) = crate::mise::lock_slot(&lock, package) {
+            if let Some(slot) = crate::mise::agreed_lock_slot(&lock, package, &uri) {
                 binding["version"] = json!(slot);
             }
         }
+        // § end j1mbwadzc.d
         grouped.entry((file, pattern)).or_default().push(binding);
     }
     let out: Vec<Value> = grouped
@@ -174,6 +183,7 @@ pub fn match_tree_from(
 
 /// Set `cached: true` on public bindings that came from the hub.
 pub fn mark_cached(matches: &mut Value, keys: &std::collections::HashSet<String>) {
+    // § cj4kjwcp7.b@88wtk
     if keys.is_empty() {
         return;
     }
@@ -215,11 +225,10 @@ pub fn display_line(command: &str, argv: Option<&Value>) -> Option<String> {
     }
 }
 
-pub fn logged_kind(matches: &Value) -> Kind {
-    match matches.as_array() {
-        Some(items) if !items.is_empty() => Kind::Access,
-        _ => Kind::Seen,
-    }
+/// `prepared`: Lade applied a pin or hydrated a secret or tunnel for the command.
+pub fn logged_kind(prepared: bool) -> Kind {
+    // § bvttr6qk1.a@wn62s
+    if prepared { Kind::Access } else { Kind::Seen }
 }
 
 pub struct Emit {

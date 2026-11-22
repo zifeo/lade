@@ -111,6 +111,7 @@ impl Provider for OnePassword {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.b@2yef6
         super::HUMAN_PROVIDER_TIMEOUT
     }
 
@@ -124,10 +125,10 @@ impl Provider for OnePassword {
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
         let output = search_cli_ok(
+            self,
             "op",
             &["item", "list", "--format=json"],
             extra_env,
-            self.timeout(),
             "op signin required",
         )?;
         let items: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)

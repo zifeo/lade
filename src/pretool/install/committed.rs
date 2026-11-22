@@ -45,6 +45,7 @@ pub(super) fn committed(dest: &Path) -> Result<Option<Committed>> {
 impl Committed {
     /// Every committed Lade hook blocks the tool when it cannot run.
     pub(super) fn blocking(&self) -> bool {
+        // § dpgrarwms.e@akn7g
         self.hooks
             .iter()
             .all(|(_, hook)| hook.get("onFailure").and_then(Value::as_str) == Some("block"))
@@ -61,6 +62,7 @@ impl Committed {
     /// `existing` with its Lade hooks replaced by the committed ones. Other
     /// hooks and keys stay.
     pub(super) fn copy_into(&self, existing: &str) -> Result<String> {
+        // § dpgrarwms.b@98bdj
         let mut root = parse_root(existing, Agent::Claude)?;
         let arr = root
             .as_object_mut()
@@ -73,6 +75,7 @@ impl Committed {
             .or_insert_with(|| json!([]))
             .as_array_mut()
             .context("\"PreToolUse\" must be an array")?;
+        // § one e3ntx7tnt.a@2pscw
         strip_matcher_hooks(arr);
         for (matcher, hook) in &self.hooks {
             let entry = arr

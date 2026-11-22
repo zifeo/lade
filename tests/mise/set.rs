@@ -184,11 +184,13 @@ fn unset_restores_path_after_jq_pin_set() {
     )
     .into_owned();
     let restore = export_value(&set_stdout, "LADE_RESTORE").expect("LADE_RESTORE");
+    let id = export_value(&set_stdout, "LADE_T").expect("LADE_T");
     let unset_stdout = String::from_utf8_lossy(
         &common::lade(home.path())
             .current_dir(dir.path())
             .env("MISE_INSTALLS_DIR", &installs)
             .env("LADE_RESTORE", restore)
+            .env("LADE_T", id)
             .args(["unset", "jq", "."])
             .assert()
             .success()

@@ -55,11 +55,16 @@ pub(super) enum PortListen {
 }
 
 pub(super) fn port_listen(port: u16, child: u32) -> PortListen {
-    let pids = listen_pids(port);
+    // § v29epeav2.b@mcsx2
+    classify(&listen_pids(port), child)
+}
+
+/// A stranger beside the provider, on another address of the port, may get
+/// the command's connections: that is not ours either.
+fn classify(pids: &[u32], child: u32) -> PortListen {
     if pids.is_empty() {
-        return PortListen::Vacant;
-    }
-    if pids.iter().any(|pid| same_group(*pid, child)) {
+        PortListen::Vacant
+    } else if pids.iter().all(|pid| same_group(*pid, child)) {
         PortListen::Ours
     } else {
         PortListen::Stranger
@@ -199,5 +204,13 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         assert_eq!(port_listen(port, 1), PortListen::Stranger);
+    }
+
+    #[test]
+    fn a_stranger_beside_the_provider_is_a_stranger() {
+        let me = std::process::id();
+        assert_eq!(classify(&[me, 1], me), PortListen::Stranger);
+        assert_eq!(classify(&[me], me), PortListen::Ours);
+        assert_eq!(classify(&[], me), PortListen::Vacant);
     }
 }

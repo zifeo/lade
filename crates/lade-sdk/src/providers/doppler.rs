@@ -37,6 +37,7 @@ impl Provider for Doppler {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@3jf9c
         super::PROVIDER_TIMEOUT
     }
 
@@ -250,5 +251,20 @@ mod tests {
             .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
             .await;
         assert!(result.unwrap_err().to_string().contains("Doppler error"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_missing_key_is_an_error() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "doppler", r#"echo '{"OTHER":{"computed":"x"}}'"#);
+        let mut p = Doppler::new();
+        p.add("doppler://api.doppler.com/myproject/dev/MY_SECRET".to_string())
+            .unwrap();
+        let err = p
+            .resolve(Path::new("."), &path_env(&fake_bin), &Warnings::default())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("MY_SECRET"), "{err}");
     }
 }

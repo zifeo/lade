@@ -15,6 +15,12 @@ pub struct ProviderProgressSink {
 }
 
 impl ProviderProgressSink {
+    /// Shows nothing: for a tunnel opened with no terminal to show it on.
+    pub fn silent() -> Self {
+        let (tx, _) = mpsc::channel();
+        Self { tx }
+    }
+
     pub fn send(&self, event: ProviderProgressEvent) {
         let _ = self.tx.send(event);
     }
@@ -45,6 +51,7 @@ pub fn start_provider_progress(rich_tty: bool) -> ProviderProgressRenderer {
                         order.push(event.id.clone());
                     }
                     // An agent needs no news that a secret loaded.
+                    // § kgqztjzym.d@2wq5p
                     if !rich_tty && !crate::message_box::terse() {
                         let message = match &event.kind {
                             ProviderProgressKind::Connecting => {
@@ -101,6 +108,7 @@ static DRAWN: Mutex<usize> = Mutex::new(0);
 /// Never while a provider holds the terminal: no frame over its prompt.
 fn draw(order: &[String], states: &HashMap<String, (String, LiveKind)>, frame: &str) {
     if lade_sdk::terminal_lent() {
+        // § j9zpdd26a.c@1p3ck
         return;
     }
     if let Ok(mut drawn) = DRAWN.lock() {

@@ -1,4 +1,4 @@
-use crate::config::{Audience, LadeFile, RuleWhen, parse_lade_yaml, render_lade_yaml};
+use crate::config::{Audience, LadeFile, RuleWhen};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -16,6 +16,26 @@ fn test_rule_config_file_only() {
     let config = rule.config.as_ref().unwrap();
     assert_eq!(config.file, Some(PathBuf::from("out.yaml")));
     assert!(config.onepassword_service_account.is_none());
+}
+
+#[test]
+fn an_unknown_dot_key_fails_the_load_and_names_the_known_keys() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("lade.yml");
+    for body in [
+        "\"cmd\":\n  \".\":\n    disclamer: \"look first\"\n  KEY: val\n",
+        "\"cmd\":\n  - \".\":\n      lgo: true\n    KEY: val\n",
+    ] {
+        std::fs::write(&file_path, body).unwrap();
+        let err = format!("{:#}", LadeFile::from_path(&file_path).unwrap_err());
+        let unknown = if body.contains("disclamer") {
+            "disclamer"
+        } else {
+            "lgo"
+        };
+        assert!(err.contains(unknown), "{err}");
+        assert!(err.contains("disclaimer") && err.contains("ttl"), "{err}");
+    }
 }
 
 #[test]
@@ -59,7 +79,7 @@ fn test_build_single_lade_yml() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), "\"cmd\":\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("cmd").len(), 1);
+    assert_eq!(config.collect("cmd").unwrap().len(), 1);
 }
 
 #[test]
@@ -67,7 +87,7 @@ fn test_build_yaml_extension_fallback() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yaml"), "\"cmd\":\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("cmd").len(), 1);
+    assert_eq!(config.collect("cmd").unwrap().len(), 1);
 }
 
 #[test]
@@ -101,7 +121,7 @@ fn test_build_stops_at_user_home() {
     std::fs::write(proj.join("lade.yml"), "\"cmd\":\n  PROJ: p\n").unwrap();
     temp_env::with_var("HOME", Some(home.as_os_str()), || {
         let config = LadeFile::build(proj.clone()).unwrap();
-        let matches = config.collect("cmd");
+        let matches = config.collect("cmd").unwrap();
         let keys: Vec<String> = matches
             .iter()
             .flat_map(|(_, rule)| rule.secrets.keys().cloned())
@@ -110,6 +130,69 @@ fn test_build_stops_at_user_home() {
         assert!(keys.contains(&"PROJ".into()), "{keys:?}");
         assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
     });
+}
+
+#[test]
+fn walk_from_outside_home_skips_home_ancestors() {
+    let root = tempdir().unwrap();
+    let home = root.path().join("home");
+    let other = root.path().join("other");
+    let proj = other.join("proj");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(root.path().join("lade.yml"), "\"cmd\":\n  ABOVE: x\n").unwrap();
+    std::fs::write(other.join("lade.yml"), "\"cmd\":\n  OTHER: o\n").unwrap();
+    temp_env::with_var("HOME", Some(home.as_os_str()), || {
+        let keys = walk_keys(&proj);
+        assert!(keys.contains(&"OTHER".into()), "{keys:?}");
+        assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
+    });
+}
+
+#[test]
+fn walk_stops_at_home_given_with_trailing_slash() {
+    let root = tempdir().unwrap();
+    let home = root.path().join("home");
+    let proj = home.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(root.path().join("lade.yml"), "\"cmd\":\n  ABOVE: x\n").unwrap();
+    std::fs::write(home.join("lade.yml"), "\"cmd\":\n  HOME_KEY: h\n").unwrap();
+    let mut home_slash = home.into_os_string();
+    home_slash.push("/");
+    temp_env::with_var("HOME", Some(&home_slash), || {
+        let keys = walk_keys(&proj);
+        assert!(keys.contains(&"HOME_KEY".into()), "{keys:?}");
+        assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn walk_stops_at_home_reached_through_a_symlink() {
+    let root = tempdir().unwrap();
+    let real = root.path().join("real");
+    let home = real.join("home");
+    let proj = home.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    let link = root.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    std::fs::write(real.join("lade.yml"), "\"cmd\":\n  ABOVE: x\n").unwrap();
+    std::fs::write(home.join("lade.yml"), "\"cmd\":\n  HOME_KEY: h\n").unwrap();
+    temp_env::with_var("HOME", Some(link.join("home").as_os_str()), || {
+        let keys = walk_keys(&proj);
+        assert!(keys.contains(&"HOME_KEY".into()), "{keys:?}");
+        assert!(!keys.contains(&"ABOVE".into()), "{keys:?}");
+    });
+}
+
+fn walk_keys(start: &std::path::Path) -> Vec<String> {
+    let config = LadeFile::build(start.to_path_buf()).unwrap();
+    config
+        .collect("cmd")
+        .unwrap()
+        .iter()
+        .flat_map(|(_, rule)| rule.secrets.keys().cloned())
+        .collect()
 }
 
 #[test]
@@ -124,7 +207,7 @@ fn test_build_nested_dirs_parent_first() {
     .unwrap();
     std::fs::write(child.join("lade.yml"), "\"cmd\":\n  CHILD_KEY: cval\n").unwrap();
     let config = LadeFile::build(child).unwrap();
-    let matches = config.collect("cmd");
+    let matches = config.collect("cmd").unwrap();
     assert_eq!(matches.len(), 2);
     assert!(matches[0].1.secrets.contains_key("PARENT_KEY"));
     assert!(matches[1].1.secrets.contains_key("CHILD_KEY"));
@@ -134,7 +217,7 @@ fn test_build_nested_dirs_parent_first() {
 fn test_build_no_config_empty() {
     let dir = tempdir().unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert!(config.collect("anything").is_empty());
+    assert!(config.collect("anything").unwrap().is_empty());
 }
 
 #[test]
@@ -157,10 +240,10 @@ fn test_pattern_list_expands_to_two_rules() {
     )
     .unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let human = config.collect_for("git status", Audience::Human);
+    let human = config.collect_for("git status", Audience::Human).unwrap();
     assert_eq!(human.len(), 1);
     assert_eq!(human[0].1.config.as_ref().unwrap().when, RuleWhen::Human);
-    let agent = config.collect_for("git status", Audience::Agent);
+    let agent = config.collect_for("git status", Audience::Agent).unwrap();
     assert_eq!(agent.len(), 1);
     assert_eq!(agent[0].1.config.as_ref().unwrap().when, RuleWhen::Agent);
 }
@@ -242,19 +325,6 @@ fn empty_version_fails() {
 }
 
 #[test]
-fn render_roundtrip_keeps_version() {
-    let mapping: serde_yaml::Value = serde_yaml::from_str("\"cmd\":\n  KEY: val\n").unwrap();
-    let raw = render_lade_yaml(Some(">=0.18.0"), &mapping).unwrap();
-    assert!(raw.starts_with(": >=0.18.0\n"), "{raw}");
-    let (req, body) = parse_lade_yaml(&raw).unwrap();
-    assert_eq!(req.as_deref(), Some(">=0.18.0"));
-    assert!(
-        body.as_mapping()
-            .is_some_and(|m| m.keys().any(|k| k.as_str() == Some("cmd")))
-    );
-}
-
-#[test]
 fn empty_key_mapping_is_not_a_command() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lade.yaml");
@@ -306,5 +376,5 @@ fn dot_matches_every_command() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("lade.yml"), ".:\n  KEY: val\n").unwrap();
     let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    assert_eq!(config.collect("anything at all").len(), 1);
+    assert_eq!(config.collect("anything at all").unwrap().len(), 1);
 }

@@ -149,10 +149,12 @@ fn test_unset_restores_previous_env() {
     let rest = &set_stdout[start + marker.len()..];
     let end = rest.find('\'').expect("restore payload end");
     let restore = &rest[..end];
+    let id = common::extract_lade_t(&set_stdout).expect("LADE_T export");
     let unset_stdout = String::from_utf8_lossy(
         &common::lade(home.path())
             .current_dir(dir.path())
             .env("LADE_RESTORE", restore)
+            .env("LADE_T", id)
             .args(["unset", "mycmd"])
             .assert()
             .success()
@@ -195,6 +197,190 @@ fn test_unset_corrupt_restore_fails() {
         .stderr(predicates::str::contains(
             "The previous environment snapshot is corrupted. Re-run the command.",
         ));
+}
+
+#[test]
+fn test_unset_corrupt_restore_unsets_the_tunnels_the_ticket_names() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET: mysecret\n",
+    )
+    .unwrap();
+    let tickets = home.path().join("lade-cache").join("tickets");
+    fs::create_dir_all(&tickets).unwrap();
+    let ticket = serde_json::json!({
+        "command": "mycmd",
+        "cwd": dir.path(),
+        "via": "preexec",
+        "audience": "human",
+        "actor": null,
+        "log": false,
+        "disclaimers": [],
+        "secrets": [{"key": "SECRET", "source": "mysecret", "private": false, "cwd": dir.path()}],
+        "network": [
+            {"key": "DB_PORT", "uri": "ssh://jump.example.com/db.internal/5432"},
+            {"key": "6543", "uri": "ssh://jump.example.com/db.internal/5432"}
+        ],
+        "matches": []
+    });
+    fs::write(tickets.join("Tk1x.json"), ticket.to_string()).unwrap();
+    let stdout = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_RESTORE", "v1:bad")
+        .env("LADE_T", "Tk1x")
+        .args(["unset", "mycmd"])
+        .assert()
+        .failure()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&stdout);
+    assert!(stdout.contains("unset -v SECRET"), "{stdout}");
+    assert!(stdout.contains("unset -v DB_PORT"), "{stdout}");
+    assert!(!stdout.contains("6543"), "{stdout}");
+}
+
+#[test]
+fn test_unset_removes_the_file_output() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  .:\n    file: out.json\n  KEY: value\n",
+    )
+    .unwrap();
+    let set_stdout = String::from_utf8_lossy(
+        &common::lade(home.path())
+            .current_dir(dir.path())
+            .args(["set", "mycmd"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .into_owned();
+    let out = dir.path().join("out.json");
+    assert!(out.exists(), "set writes the file: {set_stdout}");
+    let marker = "export LADE_RESTORE='";
+    let start = set_stdout.find(marker).expect("LADE_RESTORE export");
+    let rest = &set_stdout[start + marker.len()..];
+    let restore = &rest[..rest.find('\'').expect("restore payload end")];
+    let id = common::extract_lade_t(&set_stdout).expect("LADE_T export");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_RESTORE", restore)
+        .env("LADE_T", id)
+        .args(["unset", "mycmd"])
+        .assert()
+        .success();
+    assert!(!out.exists());
+}
+
+#[test]
+fn unset_restores_the_shell_when_lade_yaml_broke_during_the_command() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  .:\n    file: out.json\n  FKEY: x\n\"^mycmd\":\n  EXISTING: after\n",
+    )
+    .unwrap();
+    let set_stdout = String::from_utf8_lossy(
+        &common::lade(home.path())
+            .current_dir(dir.path())
+            .env("EXISTING", "before")
+            .args(["set", "mycmd"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .into_owned();
+    let out = dir.path().join("out.json");
+    assert!(out.exists(), "{set_stdout}");
+    fs::write(dir.path().join("lade.yml"), "\"mycmd\": [unclosed\n").unwrap();
+    let marker = "export LADE_RESTORE='";
+    let start = set_stdout.find(marker).expect("LADE_RESTORE export");
+    let rest = &set_stdout[start + marker.len()..];
+    let restore = &rest[..rest.find('\'').expect("restore payload end")];
+    let id = common::extract_lade_t(&set_stdout).expect("LADE_T export");
+    let stdout = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_RESTORE", restore)
+        .env("LADE_T", id)
+        .args(["unset", "mycmd"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8_lossy(&stdout);
+    assert!(stdout.contains("export EXISTING='before'"), "{stdout}");
+    assert!(!out.exists());
+}
+
+#[test]
+fn unset_restores_the_shell_before_it_fails_on_a_file_it_cannot_remove() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  .:\n    file: out.json\n  KEY: value\n",
+    )
+    .unwrap();
+    let set_stdout = String::from_utf8_lossy(
+        &common::lade(home.path())
+            .current_dir(dir.path())
+            .args(["set", "mycmd"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .into_owned();
+    let out = dir.path().join("out.json");
+    fs::remove_file(&out).unwrap();
+    fs::create_dir_all(out.join("held")).unwrap();
+    let marker = "export LADE_RESTORE='";
+    let start = set_stdout.find(marker).expect("LADE_RESTORE export");
+    let rest = &set_stdout[start + marker.len()..];
+    let restore = &rest[..rest.find('\'').expect("restore payload end")];
+    let id = common::extract_lade_t(&set_stdout).expect("LADE_T export");
+    let assert = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("LADE_RESTORE", restore)
+        .env("LADE_T", id)
+        .args(["unset", "mycmd"])
+        .assert()
+        .failure()
+        .code(1);
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("unset -v LADE_RESTORE"), "{stdout}");
+    assert!(stderr.contains("out.json"), "{stderr}");
+}
+
+#[test]
+fn set_with_no_shell_to_cancel_in_fails_before_the_yaml() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(dir.path().join("lade.yml"), "\"cmd\": [unclosed\n").unwrap();
+    assert_cmd::Command::from_std(common::lade_std(home.path()))
+        .current_dir(dir.path())
+        .args(["set", "cmd"])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout("")
+        .stderr(predicates::str::contains("Unsupported shell"))
+        .stderr(predicates::str::contains("lade.yaml").not());
 }
 
 #[test]

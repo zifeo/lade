@@ -2,8 +2,10 @@
 
 In-memory hub for hydrated secrets. `terraform plan` then
 `terraform apply` can reuse one rule body without a second vault
-round trip. Only the same Lade binary reads the hub, and no other
-process of the user can read its memory.
+round trip. The hub serves the processes of its user and protects
+their values against other users ([Who may talk to the hub](#who-may-talk-to-the-hub)).
+Within your account, only the same Lade binary reads the hub, and no
+other process of yours can read its memory.
 Tickets stay in
 [protocol.md](protocol.md). The diary stays in
 [observability.md](observability.md). Env overrides are in
@@ -57,7 +59,10 @@ invalid value counts as `"0"`. Durations go up to 24h, like `ttl:`.
 
 One matching command can hit several patterns. One `Get` / `Put`
 per cacheable body, not one for the whole command. `rule` on the
-wire is that body's pattern string.
+wire is that body's pattern string. A `Put` restarts the row's
+clock, so a body the hub served any value of is not put again: a
+name `lade ttl forget KEY` dropped from it is fetched on each
+command until the row expires.
 
 A withheld or `pending` disclaimer never `Put`s. Consent first.
 A later hit still runs `resolve_disclaimers`.
@@ -77,6 +82,11 @@ slot. The slot owner refreshes hook files, then shows at most one
 box: a new release, and hooks that need the user. The ledger (last
 attempt, latest tag, last error) is RAM only, like the rest. A new
 hub checks again.
+
+A pre-tool wrap that prepares secrets, tunnels, or a disclaimer
+sends `Notice` for the same hourly slot. It holds no ticket, so it
+sends no `PutT`. Its box reaches the agent as one `lade: Tell the
+human:` line on stderr.
 
 A `set` that starts a harness (`opencode`, `claude`, `codex`,
 `cursor-agent`, `agent`) refreshes and reports that harness's hooks
@@ -153,7 +163,8 @@ the diary.
 
 Values cross the socket and sit in the hub's RAM in plaintext, only
 to and from a client the hub knows as its own binary (below). A row's
-values are zeroed when it goes. A cache hit costs one socket round
+values are zeroed when it goes, and a name `lade ttl forget KEY`
+takes out of a row is zeroed too. A cache hit costs one socket round
 trip: under 1 ms. A crash, logout, or upgrade is always cold.
 
 ## Memory guard
@@ -165,7 +176,7 @@ step needs `sudo` or an Apple account.
 
 | Where | Cache | Guard |
 |---|---|---|
-| Linux | on | the hub sets itself not dumpable (`PR_SET_DUMPABLE` 0) at start: no `ptrace`, no `/proc/<pid>/mem` |
+| Linux | on | the hub sets itself not dumpable (`PR_SET_DUMPABLE` 0) at start: no `ptrace`, no `/proc/<pid>/mem`. A hub that cannot caches none |
 | macOS, signed with hardened runtime (release binaries, `scripts/install-local.sh`) | on | no debugger attaches |
 | macOS debug build (tests, `cargo run`) | on | none: cargo does not sign |
 | macOS, any other build (a plain `cargo install`) | off | |
@@ -179,7 +190,10 @@ on once signed:
 codesign --force --sign - --options runtime "$(command -v lade)"
 ```
 
-The hub also sets no core file. Root reads any process, on either OS.
+The hub also sets no core file. A hub that cannot turn off its core
+file, or on Linux make itself not dumpable, caches no secret, and
+`lade status` says why: `cache off: the hub could not make itself not
+dumpable: <errno>`. Root reads any process, on either OS.
 
 ## Who may talk to the hub
 
@@ -192,17 +206,27 @@ client:
 | macOS, unsigned binary (an Intel `cargo build`) | Same uid, and the client's executable is the hub's file (device and inode) |
 | Linux | Same uid (`SO_PEERCRED`), and `/proc/<pid>/exe` is the hub's file |
 
+The hub serves the processes of its user and protects their values
+against other users: the uid check and the socket's `0600` mode hold
+that line. Within your account, the checks above keep values to
+Lade's own binary for any program of yours that asks the hub, an
+agent's tools included. A process of yours acts with your rights:
+one that listens on the hub's socket before a hub runs, loads its
+code into `lade` (`LD_PRELOAD`), or execs `lade` over a socket it
+keeps is inside the account the hub serves.
+
 ## Process
 
-Hidden verb: `lade __hub`. Same binary, `setsid`, no stdin. It
-stays on `accept`. Crash, logout, kill, inode mismatch, or
+Hidden verb: `lade __hub`. Same binary: a client starts its own
+executable, and only a binary named `lade` starts one. `setsid`, no
+stdin. It stays on `accept`. Crash, logout, kill, inode mismatch, or
 crate version mismatch drop it. Crash is always cold. Nothing
 is serialized.
 
 After 1h with no request, it prunes expired rows. It exits when
 no secret, ticket, tunnel, or `lade ttl set` window is left. A window
-keeps it up until `lade ttl unset`. Every minute it also checks
-that clients can still reach it, and exits, rows or not, when its
+keeps it up until `lade ttl unset`. Every minute, whatever requests
+arrive, it also checks that clients can still reach it, and exits, rows or not, when its
 socket path is gone or holds another hub's socket, or when a
 reinstall put another file at its binary path (new clients hash
 another token). On exit it unlinks the socket and its lock only if
@@ -215,21 +239,30 @@ A client that may use the hub:
    mode `0600`). `token` is 16 hex chars of SHA-256 over this
    process's mapped image (`dev`, `ino`, size, mtime, first
    4 KiB). Same crate version, different file: different
-   socket. `cargo run` and an install can both be up.
+   socket. `cargo run` and an install can both be up. An image
+   that cannot read its own file has no token and reaches no hub:
+   every lookup misses, and a tunnel fails saying so.
 2. No full reply in 20 ms: miss, hydrate, at most one later
-   `Put`. Ignore a late `Hit`.
+   `Put`. Ignore a late `Hit`. The hub stays up.
 3. Socket absent: `flock`
    `$CACHE/hub-{token}.lock`, spawn `lade __hub`, exclusive
    `bind`. The bind loser connects once to the winner. Spawn
-   fail: hydrate as usual.
+   fail: hydrate as usual. The `flock` waits only within the
+   same deadline: a lock another client holds past it is a miss.
 
-On `bind`, the hub snapshots its mapped image inode and holds
-an fd on that file. On `accept` it drops a peer that fails the
-check in [Who may talk to the hub](#who-may-talk-to-the-hub). Every
-frame also carries `CARGO_PKG_VERSION`. Mismatch, or a
-successful write with no decodable `Rep`: the client unlinks
-its own socket and spawns once on a fresh 20 ms clock. It does
-not touch another image's hub.
+The hub binds its socket under umask `077`, then makes it `0600`. A
+hub that cannot does not serve. On `bind`, the hub snapshots its
+mapped image inode and holds an fd on that file. On `accept` it
+drops a peer that fails the check in [Who may talk to the
+hub](#who-may-talk-to-the-hub). Every frame also carries
+`CARGO_PKG_VERSION`.
+
+A mismatch (`Err` 4) is a stale hub. A request with no decodable
+`Rep` after its write is a miss first: the client pings the hub for
+up to 1 s, and calls it stale only when the ping fails too. A busy
+hub is not a stale one, and replacing it would stop its tunnels. For
+a stale hub the client unlinks its own socket and spawns once on a
+fresh 20 ms clock. It does not touch another image's hub.
 
 `lade upgrade` is a new token (new file) plus the version
 frame. The old hub sees its binary replaced and exits within a
@@ -251,17 +284,26 @@ serves one connection at a time and drops one that has not
 finished after 500 ms. Crate:
 `rkyv`. Magic `LDH1`, then `u32le` body length, then a
 `WireReq` / `WireRep` (`ver` plus `Req` / `Rep`). `N == 0`,
-`N > 1048576`, or bad magic: drop, no `Rep`. After a write,
-that silent drop is a stale hub (unlink + spawn once).
+`N > 1048576`, or bad magic: drop, no `Rep`. A client that wrote
+and got no `Rep` pings the hub for up to 1 s, and replaces it only
+when the ping fails too (unlink + spawn once).
 
 | `Req` | `Rep` |
 |---|---|
 | `Get` | `Hit` or `Miss` |
 | `Put` | `Ok` |
-| `GetT` | `Ticket` or `Miss` |
-| `PutT` / `UnlinkT` | `Ok` |
-| `Ping` | `Stat` (`pid`, `secrets`, `tickets`) |
+| `GetT` | `Ticket` or `Miss` (no client sends it: the file is the ticket) |
+| `PutT` | `Ok`, or `Notice` when it carries `notice` |
+| `UnlinkT` | `Ok` |
+| `Notice` | `Notice` (`check`: this caller owns the hourly slot, and the release ledger) |
+| `Ping` | `Stat` (`pid`, `secrets`, `tickets`, and why the cache is off when the hub could not guard its memory) |
 | `Quit` | `Ok`, then the hub exits and unlinks the socket |
+| `List` | `Listing` (key names, tunnels, ticket count, `max_cache`) |
+| `Forget` | `Ok` |
+| `SetWindow` / `GetWindow` | `Ok` / `Window` |
+| `Version` | `Version` (the release ledger). Starts nothing |
+| `TunnelOpen` / `TunnelPoll` | `Tunnel` (`Absent`, `Starting`, `Ready`, `Failed`, or `Conflict`) |
+| `TunnelRelease` | `Ok` |
 
 `user` is `saved_user` or `""`. `path` is that body's yaml
 file. `ttl_ms` is that body's duration, or 300000 when the
@@ -281,12 +323,16 @@ with `state` `hardened_runtime`, `not_dumpable`, `debug_build`, or
 `off` and its `detail`). The hub never sets `ok`. An invalid
 `max_cache` does.
 
-`lade ttl` lists this cwd's key names, the cwd the row is
+`lade ttl` lists the key names of this cwd, its ancestors and
+children, the cwd the row is
 valid for, yaml path, and ttl left. A window past `max_cache`
 reads `8h, capped to 1h by max_cache`. `--global` lists every row
 on this hub. Never values. `lade ttl set 2h` marks this cwd on
 the hub. A parent or child cwd shares that window (nearest
-path wins). `lade ttl unset` clears this cwd.
+path wins, counted in path components: a parent before a child
+at equal distance, then the first path in byte order). Setting
+a window restarts the rows it is the nearest window of.
+`lade ttl unset` clears this cwd.
 `lade ttl forget` and `lade ttl forget KEY` drop
 rows. List and forget do not spawn. Set and unset spawn.
 `lade log prune --hub` is an alias of `lade ttl forget`.
@@ -320,11 +366,13 @@ Extra, like `agent`. See [cli.md](cli.md).
 | No memory guard (a macOS build without hardened runtime) | No secret cached, tickets and tunnels still served |
 | Inode or crate version mismatch | Unlink this image's socket, spawn once |
 | Other image (`cargo run` vs install) | Other socket. Both hubs may stay up |
-| Socket > 20 ms | Miss, hydrate, one `Put` |
+| Socket > 20 ms | Miss, hydrate, one `Put`. The client pings for up to 1 s and replaces the hub only when that fails too |
+| Hub cannot make itself not dumpable, or turn off its core file | No secret cached, tickets and tunnels still served |
+| Image cannot read its own file | No hub: lookups miss, tunnels fail |
 | Table at cap, all TTLs live | Evict oldest insert |
 | Machine sleeps past a TTL | Row is due at wake |
 | Client connects and sends nothing | Dropped after 500 ms, next client served |
 | Idle 1h, no row, no window | Exit, unlink own socket and lock |
 | Idle 1h, rows or a window left | Stay on `accept` |
-| Socket path gone or replaced (checked every minute) | Exit, leave the path alone |
-| Binary replaced by a reinstall (checked every minute) | Exit, unlink own socket and lock |
+| Socket path gone or replaced (checked every minute, busy or not) | Exit, leave the path alone |
+| Binary replaced by a reinstall (checked every minute, busy or not) | Exit, unlink own socket and lock |

@@ -28,6 +28,7 @@ pub fn run_guard(args: &[OsString]) -> ! {
         );
         std::process::exit(2);
     };
+    // § n6qm5smv5.d@d3drz
     let mut child = match Command::new(program)
         .args(rest)
         .stdin(Stdio::null())
@@ -39,7 +40,9 @@ pub fn run_guard(args: &[OsString]) -> ! {
             std::process::exit(127);
         }
     };
+    // § end n6qm5smv5.d
     std::thread::spawn(|| {
+        // § vdbmtzqtb.a@e2pve
         let mut sink = [0u8; 64];
         while matches!(std::io::stdin().read(&mut sink), Ok(n) if n > 0) {}
         let _ = killpg(getpgrp(), Signal::SIGKILL);

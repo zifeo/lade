@@ -98,6 +98,7 @@ fn payload(event: &Event) -> Vec<u8> {
 }
 
 fn seal(prev_hash: &str, event: &Event, seal_ver: &str) -> String {
+    // § eqyjmph9x.a@dfez1
     let mut mac =
         HmacSha256::new_from_slice(CHAIN_SALT).expect("HMAC-SHA256 accepts any key length");
     mac.update(CHAIN_ALG);
@@ -139,6 +140,7 @@ fn write_head(tx: &Transaction<'_>, head: &Head) -> rusqlite::Result<()> {
 }
 
 fn next_seal(tx: &Transaction<'_>, event: &Event) -> rusqlite::Result<(i64, String, String, i64)> {
+    // § eqyjmph9x.b@2wrc3
     let head = read_head(tx)?;
     let prev_hash = head
         .as_ref()
@@ -307,5 +309,32 @@ mod tests {
         let h2 = seal(&h1, &b, "0.0.0");
         assert_ne!(h1, h2);
         assert_ne!(seal(GENESIS, &b, "0.0.0"), h2);
+    }
+
+    #[test]
+    fn a_seal_binds_its_version() {
+        let a = ev("1", "echo");
+        assert_ne!(seal(GENESIS, &a, "0.1.0"), seal(GENESIS, &a, "0.2.0"));
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&crate::event::events_ddl()).unwrap();
+        let tx = conn.transaction().unwrap();
+        insert_sealed(&tx, &a).unwrap();
+        tx.commit().unwrap();
+        let prev: String = conn
+            .query_row("SELECT prev_hash FROM events WHERE id = '1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let older = seal(&prev, &a, "0.1.0");
+        conn.execute(
+            "UPDATE events SET seal_ver = '0.1.0', row_hash = ?1 WHERE id = '1'",
+            params![older],
+        )
+        .unwrap();
+        conn.execute("UPDATE chain_head SET head_hash = ?1", params![older])
+            .unwrap();
+        let status = verify(&conn).unwrap();
+        assert!(status.ok, "{status:?}");
     }
 }

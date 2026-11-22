@@ -1,9 +1,11 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
 use super::agent::Agent;
+use super::want::Want;
 
 pub(super) fn leftover_json_hook(agent: Agent, home: &Path) -> Result<Option<(PathBuf, String)>> {
     let Some(path) = agent.legacy_json_path(home) else {
@@ -15,19 +17,33 @@ pub(super) fn leftover_json_hook(agent: Agent, home: &Path) -> Result<Option<(Pa
     }
 }
 
-pub(super) fn hook_state(path: &Path, agent: Agent, expected: Option<&str>) -> (bool, bool) {
+pub(super) fn hook_state(path: &Path, agent: Agent, expected: Option<&Want>) -> (bool, bool) {
     let Ok(content) = fs::read_to_string(path) else {
         return (false, false);
     };
     let installed = agent.has_hook(&content).unwrap_or(false);
-    let current = installed
-        && expected
-            .is_some_and(|command| agent.hook_uses_command(&content, command).unwrap_or(false));
+    let current =
+        installed && expected.is_some_and(|want| want.is_current(agent, &content).unwrap_or(false));
     (installed, current)
+}
+
+/// Why Lade cannot read a hook from `path`. `None` when the file is absent
+/// or readable.
+pub(super) fn unreadable(path: &Path, agent: Agent) -> Option<String> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == ErrorKind::NotFound => return None,
+        Err(err) => return Some(format!("cannot read {}: {err}", path.display())),
+    };
+    agent
+        .has_hook(&content)
+        .err()
+        .map(|err| format!("{}: {err:#}", path.display()))
 }
 
 /// One project dest: the git root. Home is never a dest.
 pub(super) fn project_dest(home: &Path, cwd: &Path) -> Option<PathBuf> {
+    // § rkpfgpx72.a@zycq8
     let root = crate::catalog::git_root(cwd)?;
     if same_path(&root, home) {
         None
@@ -51,6 +67,7 @@ pub(super) fn canonical_project_path(agent: Agent, dest: &Path) -> PathBuf {
         Agent::Cursor => dest.join(".cursor").join("hooks.json"),
         // Claude reads it at the git root even from a subdirectory, and at
         // the main checkout's root from a linked worktree.
+        // § one dpgrarwms.a@ejn6w
         Agent::Claude => main_checkout(dest)
             .join(".claude")
             .join("settings.local.json"),
@@ -65,6 +82,7 @@ pub(super) fn canonical_project_path(agent: Agent, dest: &Path) -> PathBuf {
 /// The main checkout of the linked worktree at `dest`, else `dest`. Only a
 /// linked worktree's gitdir has a `commondir`: a submodule's does not.
 pub(super) fn main_checkout(dest: &Path) -> PathBuf {
+    // § dpgrarwms.c@raz06
     linked_main_checkout(dest).unwrap_or_else(|| dest.to_path_buf())
 }
 

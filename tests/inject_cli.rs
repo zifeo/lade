@@ -43,6 +43,24 @@ fn test_inject_exit_code_propagation() {
         .code(7);
 }
 
+/// A command a signal ends makes Lade exit as a shell reports it, unmasked
+/// (plain) and masked (piped).
+#[test]
+fn a_signal_that_ends_the_command_sets_the_exit_code() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    for yaml in ["{}\n", "\"^kill\":\n  SECRET: masked-value\n"] {
+        fs::write(dir.path().join("lade.yml"), yaml).unwrap();
+        for (signal, code) in [("TERM", 143), ("KILL", 137)] {
+            common::lade(home.path())
+                .current_dir(dir.path())
+                .args(["inject", &format!("kill -{signal} $$")])
+                .assert()
+                .code(code);
+        }
+    }
+}
+
 #[test]
 fn test_alias_exit_code_propagation() {
     let dir = tempdir().unwrap();

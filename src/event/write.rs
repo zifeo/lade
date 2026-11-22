@@ -37,6 +37,7 @@ impl Diary {
 
     /// `row` is built only when the diary is on.
     pub fn write(self, row: impl FnOnce() -> Emit) {
+        // § mzce8bpjn.c@34mjg
         let Some(opening) = self.0 else {
             return;
         };
@@ -60,7 +61,17 @@ impl Diary {
 }
 
 pub fn emit(e: Emit) {
+    // § mzce8bpjn.c@mwq4b
     if let Err(err) = emit_inner(e) {
+        log::debug!("lade event write failed: {err}");
+    }
+}
+
+/// For a row whose cwd names another machine: a git stamp of the same path
+/// here would describe some other repo.
+pub fn emit_unstamped(e: Emit) {
+    let written = open().and_then(|mut conn| insert(&mut conn, &event_with(e, (None, None))));
+    if let Err(err) = written {
         log::debug!("lade event write failed: {err}");
     }
 }
@@ -75,6 +86,7 @@ pub fn emit_verb(log: bool, hook: Option<&str>, tool_use_id: Option<&str>, e: Em
     if !log {
         return;
     }
+    // § mzce8bpjn.c@dndpk
     if let Err(err) = emit_verb_inner(hook, tool_use_id, e) {
         log::debug!("lade event write failed: {err}");
     }
@@ -86,6 +98,7 @@ fn emit_verb_inner(hook: Option<&str>, tool_use_id: Option<&str>, e: Emit) -> ru
         return Ok(());
     };
     let mut conn = super::open()?;
+    // § one eqyjmph9x.b@wpy05
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // Both hooks of one MCP call land seconds apart. Bounded by `ts`, the
     // lookup reads a few recent rows through `events_ts`, not the whole
@@ -218,11 +231,13 @@ fn event_from_emit(e: Emit) -> Event {
 
 fn event_with(e: Emit, (repo, git_commit): (Option<String>, Option<String>)) -> Event {
     let redacted = scrub::redact_command(&e.command, e.hydrated.as_ref());
+    // § j1mbwadzc.a@v9w1x
     let (command, argv) = if e.argv.is_none() {
         scrub::peel_command(&redacted.command)
     } else {
         (redacted.command, e.argv)
     };
+    // § end j1mbwadzc.a
     let (command, truncated) = scrub::cap_text(command);
     Event {
         id: Uuid::now_v7().to_string(),
@@ -230,6 +245,7 @@ fn event_with(e: Emit, (repo, git_commit): (Option<String>, Option<String>)) -> 
         kind: e.kind.as_str().to_string(),
         via: Some(
             match e.via {
+                // § j1mbwadzc.b@kraf9
                 Via::Preexec => "preexec",
                 Via::Pretool => "pretool",
                 Via::Mcp => Via::MCP,
@@ -257,6 +273,7 @@ fn emit_inner(e: Emit) -> rusqlite::Result<()> {
 }
 
 fn insert(conn: &mut rusqlite::Connection, event: &Event) -> rusqlite::Result<()> {
+    // § eqyjmph9x.b@7kk7y
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     chain::insert_sealed(&tx, event)?;
     tx.commit()

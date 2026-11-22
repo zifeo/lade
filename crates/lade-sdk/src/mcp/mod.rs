@@ -7,9 +7,10 @@ use reqwest::{
     Client, StatusCode,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
 };
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use url::Url;
+use url::{Host, Url};
 
 /// Configuration for a one-process stdio-to-HTTP MCP bridge.
 ///
@@ -38,6 +39,7 @@ fn header_map(headers: &HashMap<String, String>) -> Result<HeaderMap> {
                 | "mcp-protocol-version"
                 | "last-event-id"
         ) {
+            // § aeffh6p49.c@nm5n7
             // The configuration author is trusted to choose arbitrary service
             // headers. These names are different: reqwest or MCP owns their
             // value for framing, routing, or per-request session state, so
@@ -82,6 +84,37 @@ where
     Ok(())
 }
 
+/// A request whose exchange failed in transport, before or while its answer
+/// arrived, gets an error in its place; a notification has no one to tell.
+async fn answer_transport_failure<W>(
+    output: &mut W,
+    request_id: Option<serde_json::Value>,
+    error: &reqwest::Error,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    // § hkqw5dexk.c@xsx43
+    match request_id {
+        Some(id) => write_transport_error(output, id).await,
+        None => {
+            info!("mcp http notification failed: {error}");
+            Ok(())
+        }
+    }
+}
+
+/// Whether `event` is the server's answer to the request `id`.
+fn answers(event: &str, id: Option<&serde_json::Value>) -> bool {
+    let Some(id) = id else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(event).is_ok_and(|message| {
+        message.get("id") == Some(id)
+            && (message.get("result").is_some() || message.get("error").is_some())
+    })
+}
+
 async fn write_message<W>(
     output: &mut W,
     message: &str,
@@ -90,14 +123,22 @@ async fn write_message<W>(
 where
     W: AsyncWrite + Unpin,
 {
-    let message = serde_json::from_str::<serde_json::Value>(message)?;
+    // § aeffh6p49.a@qq4tt
+    let parsed = serde_json::from_str::<serde_json::Value>(message)?;
     if protocol_version.is_none() {
-        *protocol_version = message
+        *protocol_version = parsed
             .pointer("/result/protocolVersion")
             .and_then(serde_json::Value::as_str)
             .and_then(|version| HeaderValue::from_str(version).ok());
     }
-    output.write_all(&serde_json::to_vec(&message)?).await?;
+    // Write the server's own bytes, not a re-serialisation that would rewrite
+    // numbers. Valid JSON holds no raw line break inside a string, so dropping
+    // them only joins the message onto the one line stdio framing needs.
+    let line: Vec<u8> = message
+        .bytes()
+        .filter(|byte| !matches!(byte, b'\n' | b'\r'))
+        .collect();
+    output.write_all(&line).await?;
     output.write_all(b"\n").await?;
     output.flush().await?;
     Ok(())
@@ -159,6 +200,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    // § aeffh6p49.b@hxtgr
     if !is_allowed_http_url(&config.url) {
         bail!("MCP HTTP URLs must use https unless they target a loopback address");
     }
@@ -169,10 +211,13 @@ where
         bail!("MCP HTTP URL must not contain credentials or a fragment");
     }
     let headers = header_map(&config.headers)?;
+    // § hkqw5dexk.c@0vdbx
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
         .build()?;
+    // § end hkqw5dexk.c
+    // § end aeffh6p49.b
     let mut reader = BufReader::new(input);
     let mut line = String::new();
     let mut session_id: Option<HeaderValue> = None;
@@ -207,11 +252,8 @@ where
             let response = match request.send().await {
                 Ok(response) => response,
                 Err(error) => {
-                    if let Some(id) = request_id {
-                        write_transport_error(&mut output, id).await?;
-                    } else {
-                        info!("mcp http notification failed: {error}");
-                    }
+                    // § hkqw5dexk.c@4vwkx
+                    answer_transport_failure(&mut output, request_id, &error).await?;
                     continue;
                 }
             };
@@ -236,15 +278,30 @@ where
                 .unwrap_or_default()
                 .to_string();
             if content_type.starts_with("application/json") {
-                let body = response.text().await?;
-                write_message(&mut output, &body, &mut protocol_version).await?;
+                match response.text().await {
+                    Ok(body) => write_message(&mut output, &body, &mut protocol_version).await?,
+                    Err(error) => {
+                        answer_transport_failure(&mut output, request_id, &error).await?;
+                    }
+                }
             } else if content_type.starts_with("text/event-stream") {
                 let mut events = Vec::new();
+                let mut answered = false;
                 let mut stream = response.bytes_stream();
                 while let Some(chunk) = stream.next().await {
-                    events.extend_from_slice(&chunk?);
+                    let chunk = match chunk {
+                        Ok(chunk) => chunk,
+                        Err(error) => {
+                            if !answered {
+                                answer_transport_failure(&mut output, request_id, &error).await?;
+                            }
+                            break;
+                        }
+                    };
+                    events.extend_from_slice(&chunk);
                     while let Some(event) = next_sse_event(&mut events)? {
                         if !event.is_empty() {
+                            answered |= answers(&event, request_id.as_ref());
                             write_message(&mut output, &event, &mut protocol_version).await?;
                         }
                     }
@@ -264,8 +321,15 @@ fn is_allowed_http_url(url: &Url) -> bool {
     url.scheme() == "https" || is_loopback_http_url(url)
 }
 
+/// `host_str` brackets an IPv6 host, so it is matched as a parsed host.
 fn is_loopback_http_url(url: &Url) -> bool {
-    url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+    url.scheme() == "http"
+        && match url.host() {
+            Some(Host::Domain(domain)) => domain == "localhost",
+            Some(Host::Ipv4(ip)) => ip == Ipv4Addr::LOCALHOST,
+            Some(Host::Ipv6(ip)) => ip == Ipv6Addr::LOCALHOST,
+            None => false,
+        }
 }
 
 #[cfg(test)]

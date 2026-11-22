@@ -30,6 +30,7 @@ impl Provider for Passbolt {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@76e94
         super::PROVIDER_TIMEOUT
     }
 
@@ -177,6 +178,25 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Passbolt error"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_resolve_missing_key_is_an_error() {
+        let fake_bin = tempdir().unwrap();
+        fake_cli(&fake_bin, "passbolt", r#"echo '{"username":"user"}'"#);
+        let mut p = Passbolt::new();
+        p.add("passbolt://passbolt.example.com/resource-uuid/password".to_string())
+            .unwrap();
+        let extra = HashMap::from([(
+            "PATH".to_string(),
+            fake_bin.path().to_string_lossy().into_owned(),
+        )]);
+        let err = p
+            .resolve(Path::new("."), &extra, &Warnings::default())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("resource-uuid"), "{err}");
     }
 
     #[tokio::test]

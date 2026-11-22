@@ -7,6 +7,7 @@ use crate::audience;
 
 /// Overlay env fallbacks onto hook-collected metadata. Hook keys win.
 pub fn merge(base: Value) -> Option<Value> {
+    // § j1mbwadzc.e@ypam5
     let mut obj = match base {
         Value::Object(map) => map,
         _ => Map::new(),

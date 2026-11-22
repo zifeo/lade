@@ -17,6 +17,7 @@ pub fn root() -> PathBuf {
 }
 
 pub fn checked_root() -> anyhow::Result<PathBuf> {
+    // § qnn5xnx4z@dhe18
     if let Ok(path) = std::env::var("LADE_CACHE_DIR")
         && !path.is_empty()
     {
@@ -74,6 +75,7 @@ pub fn prepare_mise_project(
     toml: &str,
     lock_src: Option<&Path>,
 ) -> io::Result<PathBuf> {
+    // § cp6eyqnnj.a@1g062
     let dir = mise_isolate(cwd);
     fs::create_dir_all(&dir)?;
     write_if_changed(&dir.join("mise.toml"), toml.as_bytes())?;
@@ -140,6 +142,7 @@ pub fn is_persistent_mise_config(path: &Path) -> bool {
 }
 
 pub fn clear_and_report() -> anyhow::Result<()> {
+    // § ep7nzy2xg.b@8vh57
     let cache = root();
     let had_cache = cache.exists();
     if had_cache {

@@ -77,6 +77,25 @@ pub enum Req {
     TunnelRelease {
         lease: String,
     },
+    /// Adds the resolved walk `walk` names, to the link on `key`, or runs
+    /// `lade __remote` with this spec and env when no link runs there.
+    LinkStart {
+        key: String,
+        host: String,
+        spec: String,
+        env: Vec<(Vec<u8>, Vec<u8>)>,
+        /// The walk hash, hex, and what the laptop resolved of it. `None`
+        /// starts the link only, so it rides the master `lade connect`
+        /// opened while the laptop still resolves.
+        walk: Option<(String, String)>,
+    },
+    LinkPoll {
+        key: String,
+    },
+    LinkStop {
+        key: String,
+    },
+    LinkList,
 }
 
 /// Who keeps a tunnel open: `id` is a ticket or `p<pid>`. `started` tells a
@@ -108,6 +127,9 @@ pub struct TunnelAsk {
 pub struct TunnelLaunch {
     pub context: Option<String>,
     pub env: Vec<(Vec<u8>, Vec<u8>)>,
+    /// On an attached remote, the walk hash, hex, of the command that asked:
+    /// the provider is then `lade __linked-tunnel`.
+    pub link_walk: Option<String>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -154,6 +176,28 @@ pub enum TunnelPhase {
     Failed,
 }
 
+/// A link `lade connect` asked for. `key` is its transport argv.
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct LinkRow {
+    pub key: String,
+    pub host: String,
+    pub phase: LinkPhase,
+    /// The last line `__remote` printed on stderr when it last stopped.
+    pub error: Option<String>,
+    /// The walks `__remote` took up, as their hex hash.
+    pub walks: Vec<String>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkPhase {
+    Starting,
+    Ready,
+    /// Dropped after it was ready once: the hub starts it again.
+    Retrying,
+    Failed,
+    Stopped,
+}
+
 /// What this hub knows about the latest release. RAM only.
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct VersionLedger {
@@ -178,6 +222,9 @@ pub enum Rep {
         pid: u32,
         secrets: u32,
         tickets: u32,
+        /// Why this hub caches no secret: it could not keep its memory to
+        /// itself.
+        unguarded: Option<String>,
     },
     Listing {
         pid: u32,
@@ -198,6 +245,7 @@ pub enum Rep {
     },
     Version(VersionLedger),
     Tunnel(TunnelRep),
+    Links(Vec<LinkRow>),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -240,6 +288,7 @@ pub(crate) fn encode_req_ver(value: &Req, ver: &str) -> Option<Vec<u8>> {
 }
 
 fn wrap_archive(archive: impl AsRef<[u8]>) -> Option<Vec<u8>> {
+    // § dd89rj943.a@9gqss
     let archive = archive.as_ref();
     let n = u32::try_from(archive.len()).ok()?;
     if n == 0 || n > MAX_BODY {
@@ -253,21 +302,23 @@ fn wrap_archive(archive: impl AsRef<[u8]>) -> Option<Vec<u8>> {
 }
 
 pub enum InReq {
-    Body(Req),
+    Body(Box<Req>),
     WrongVer,
 }
 
 pub fn decode_in_req(frame: &[u8]) -> Option<InReq> {
+    // § dd89rj943.b@xnzvc
     let body = archive_body(frame)?;
     let env = rkyv::from_bytes::<WireReq, rkyv::rancor::Error>(body).ok()?;
     if env.ver != BIN_VER {
         Some(InReq::WrongVer)
     } else {
-        Some(InReq::Body(env.body))
+        Some(InReq::Body(Box::new(env.body)))
     }
 }
 
 pub fn decode_rep(frame: &[u8]) -> Option<Rep> {
+    // § dd89rj943.b@rh80d
     let body = archive_body(frame)?;
     let env = rkyv::from_bytes::<WireRep, rkyv::rancor::Error>(body).ok()?;
     if env.ver != BIN_VER {
@@ -278,6 +329,7 @@ pub fn decode_rep(frame: &[u8]) -> Option<Rep> {
 }
 
 pub fn header_len(header: &[u8; 8]) -> Option<u32> {
+    // § dd89rj943.a@gaett
     if header[0..4] != MAGIC[..] {
         return None;
     }

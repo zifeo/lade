@@ -52,6 +52,14 @@ pub fn terminal_columns() -> Option<usize> {
 }
 
 pub fn colors_enabled() -> bool {
+    colors_allowed(super::terse(), stderr().is_terminal())
+}
+
+pub(super) fn colors_allowed(harness: bool, stderr_is_terminal: bool) -> bool {
+    // § kgqztjzym.d@hw59x
+    if harness {
+        return false;
+    }
     if std::env::var_os("NO_COLOR").is_some() {
         return false;
     }
@@ -61,5 +69,5 @@ pub fn colors_enabled() -> bool {
     {
         return false;
     }
-    stderr().is_terminal()
+    stderr_is_terminal
 }
