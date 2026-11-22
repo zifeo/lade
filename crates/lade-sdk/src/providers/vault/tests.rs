@@ -78,6 +78,36 @@ fn test_add_routing() {
 }
 
 #[test]
+fn plain_http_reaches_loopback_hosts_only() {
+    for host in ["localhost:8200", "127.0.0.1:8200", "[::1]:8200"] {
+        let url = Url::parse(&format!("vault://{host}/secret/app/password")).unwrap();
+        assert!(plain_http_allowed(&url), "{host}");
+    }
+    for host in ["vault.example.com", "10.0.0.5:8200", "127.0.0.2"] {
+        let url = Url::parse(&format!("vault://{host}/secret/app/password")).unwrap();
+        assert!(!plain_http_allowed(&url), "{host}");
+    }
+}
+
+#[tokio::test]
+async fn lade_vault_http_refuses_a_host_that_is_not_loopback() {
+    let mut p = Vault::new();
+    p.add("vault://vault.example.com:8200/secret/app/password".to_string())
+        .unwrap();
+    let extra = HashMap::from([
+        ("VAULT_TOKEN".to_string(), "token".to_string()),
+        ("LADE_VAULT_HTTP".to_string(), "1".to_string()),
+        ("PATH".to_string(), "/nonexistent".to_string()),
+    ]);
+    let err = p
+        .resolve(Path::new("."), &extra, &Warnings::default())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("vault.example.com:8200"), "{err}");
+    assert!(err.to_string().contains("LADE_VAULT_HTTP"), "{err}");
+}
+
+#[test]
 fn kv_v2_url_encodes_nested_key() {
     assert_eq!(
         kv_v2_url("http://127.0.0.1:8200", "secret", "org/team"),

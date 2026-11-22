@@ -4,37 +4,34 @@ use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::config::Config;
 use crate::context::InvocationContext;
-use crate::files::{remove_files, split_env_files};
+use crate::files::remove_files;
 use crate::message_box;
 use crate::preexec::Shell;
 use crate::ticket;
 
-async fn unset_output_files(
-    config: &Config,
-    ctx: &InvocationContext,
-    command: &str,
-) -> Result<HashMap<PathBuf, ()>> {
-    if let Some(id) = ctx.ticket_id.as_deref()
-        && let Ok(pre) = ticket::read(id)
-    {
-        let mut files = HashMap::new();
-        for secret in pre.secrets {
-            if let Some(path) = secret.output {
-                files.insert(path, ());
-            }
-        }
-        return Ok(files);
-    }
-    let rules = config.collect_for(command, ctx.audience);
-    if rules.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let saved_user = crate::config::saved_user().await?;
-    let keys = Config::keys_from_rules(&rules, &saved_user);
-    let (_, files) = split_env_files(keys);
-    Ok(files.into_keys().map(|path| (path, ())).collect())
+/// The ticket of this shell's line: the one its `lade set` wrote, or a
+/// pending one, its withheld line. A ticket of another command came down
+/// from an outer shell, whose command still runs and still needs it.
+fn own_ticket<'a>(ctx: &'a InvocationContext, command: &str) -> Option<&'a str> {
+    // § gy20cgb72.e@m2bax
+    ctx.ticket_id
+        .as_deref()
+        .filter(|id| ticket::is_id(id))
+        .filter(|id| ticket::read(id).map_or(true, |pre| pre.pending || pre.command == command))
+}
+
+/// The `.file` outputs the ticket records, which Lade wrote for this line.
+fn ticket_output_files(id: Option<&str>) -> HashMap<PathBuf, ()> {
+    // § fz8r6d2ka.e@9sqxc
+    let Some(pre) = id.and_then(|id| ticket::read(id).ok()) else {
+        return HashMap::new();
+    };
+    pre.secrets
+        .into_iter()
+        .filter_map(|secret| secret.output)
+        .map(|path| (path, ()))
+        .collect()
 }
 
 /// Each provider led its own session, so its pid is its group.
@@ -54,30 +51,45 @@ fn protocol_keys() -> Vec<String> {
     ]
 }
 
-fn ticket_secret_keys(ctx: &InvocationContext) -> Vec<String> {
-    let Some(id) = ctx.ticket_id.as_deref() else {
+/// The variables the ticket names: its secrets and its tunnels. A numeric
+/// tunnel key is a local port, not a variable.
+fn ticket_keys(id: Option<&str>) -> Vec<String> {
+    let Some(id) = id else {
         return Vec::new();
     };
     ticket::read(id)
-        .map(|pre| pre.secrets.into_iter().map(|secret| secret.key).collect())
+        .map(|pre| {
+            let tunnels = pre
+                .network
+                .into_iter()
+                .map(|binding| binding.key)
+                .filter(|key| !key.bytes().all(|byte| byte.is_ascii_digit()));
+            pre.secrets
+                .into_iter()
+                .map(|secret| secret.key)
+                .chain(tunnels)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
-pub async fn handle_unset(
-    ctx: &InvocationContext,
-    shell: &Shell,
-    config: &Config,
-    commands: Vec<String>,
-) -> Result<()> {
+pub fn handle_unset(ctx: &InvocationContext, shell: &Shell, commands: Vec<String>) -> Result<()> {
     let command = commands.join(" ");
-    let files = unset_output_files(config, ctx, &command).await?;
+    let id = own_ticket(ctx, &command);
+    let files = ticket_output_files(id);
+    // § jfxr4rmae.b@n2qga
+    // A nested shell inherits the outer line's snapshot: when its own
+    // `lade set` failed before it printed, that snapshot is still there.
     let restore = match std::env::var(crate::preexec::LADE_RESTORE) {
         Err(_) => None,
         Ok(raw) => match crate::preexec::RestorePayload::decode(&raw) {
-            Ok(payload) => Some(Ok(payload)),
+            Ok(payload) if id == Some(payload.ticket.as_str()) => Some(Ok(payload)),
+            Ok(_) => None,
             Err(_) => Some(Err(())),
         },
     };
+    // § end jfxr4rmae.b
+    // § qmybbcmkx.b@3q82j
     let smashed = matches!(restore, Some(Err(())));
     if smashed {
         message_box::MessageBox::new()
@@ -86,18 +98,32 @@ pub async fn handle_unset(
             .print_stderr();
     }
     let smash_keys = smashed.then(|| {
-        let mut keys = ticket_secret_keys(ctx);
+        let mut keys = ticket_keys(id);
         keys.extend(protocol_keys());
         keys
     });
-    if let Some(id) = ctx.ticket_id.as_deref().filter(|id| ticket::is_id(id)) {
+    // § end qmybbcmkx.b
+    if let Some(id) = id {
+        // § gy20cgb72.b@t9tdw
         stop_legacy_providers(id);
         crate::hub::tunnel_release(id);
+        // § one f18xcggkd.b@8tdsb
+        // silcrow:follow
         crate::hub::unlink_t(id);
         let _ = ticket::unlink(id);
     }
-    remove_files(&mut files.keys())?;
-    if let Ok(path) = std::env::var(crate::mise::LADE_MISE_CONFIG) {
+    // § one fz8r6d2ka.d@5732z
+    // The restore line still goes out: the shell must lose the values even
+    // when a file stays.
+    let removed = remove_files(&mut files.keys());
+    // § jfxr4rmae.b@pbej7
+    // An inherited config belongs to the outer line, whose pins still run.
+    let own_mise_config = match &restore {
+        Some(Ok(payload)) => payload.env.contains_key(crate::mise::LADE_MISE_CONFIG),
+        Some(Err(())) => id.is_some(),
+        None => false,
+    };
+    if own_mise_config && let Ok(path) = std::env::var(crate::mise::LADE_MISE_CONFIG) {
         crate::mise::unlink_config(std::path::Path::new(&path));
     }
     let env_line = match (restore, smash_keys) {
@@ -105,6 +131,7 @@ pub async fn handle_unset(
         (_, Some(keys)) => shell.unset(keys),
         _ => String::new(),
     };
+    // § end jfxr4rmae.b
     let meta = if smashed {
         String::new()
     } else {
@@ -116,6 +143,8 @@ pub async fn handle_unset(
         .collect::<Vec<_>>()
         .join(";");
     println!("{line}");
+    removed?;
+    // § one qmybbcmkx.b@kg8vb
     if smashed {
         std::process::exit(crate::exit_codes::FAILURE);
     }

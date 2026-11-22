@@ -5,6 +5,7 @@ use crate::network::types::{LocalTarget, ProviderSpec};
 use crate::provider_progress::ProviderProgressSink;
 
 pub(super) fn env_entry_for(target: &LocalTarget, local_port: u16) -> Option<(String, String)> {
+    // § q6k9k1zr8.b@gxx8c
     match target {
         LocalTarget::EnvVar(name) => Some((name.clone(), local_port.to_string())),
         LocalTarget::FixedPort(_) => None,

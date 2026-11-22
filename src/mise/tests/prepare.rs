@@ -161,7 +161,7 @@ fn catch_all_kubectl_pin_applies_to_which() {
 
 #[cfg(unix)]
 #[test]
-fn catch_all_skips_missing_sibling_pin() {
+fn catch_all_skips_a_shell_pin_for_another_command() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
     let installs = dir.path().join("installs");
@@ -192,6 +192,44 @@ fn catch_all_skips_missing_sibling_pin() {
             .unwrap();
             let path = out.env.get("PATH").unwrap();
             assert!(path.starts_with(&format!("{}:", bin.display())), "{path}");
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn catch_all_fails_on_a_missing_sibling_pin() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let bin = installs.join("kubectl/1.37.0");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_exec(&bin.join("kubectl"), "echo PINNED");
+    write_cached_env(home.path(), "mise://aqua/kubernetes/kubectl@1.37.0", "{}");
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  jq: mise://aqua/jqlang/jq@1.7.1\n  kubectl: mise://aqua/kubernetes/kubectl@1.37.0\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path())),
+            ("MISE_INSTALLS_DIR", Some(installs.as_path())),
+            ("PATH", Some(std::path::Path::new("/usr/bin"))),
+        ],
+        || {
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let err = block_on(prepare(
+                &config,
+                "which kubectl",
+                dir.path(),
+                &None,
+                Audience::Human,
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains("locked jq is missing"), "{err}");
+            assert!(err.contains("lade setup"), "{err}");
         },
     );
 }
@@ -388,4 +426,44 @@ fn command_package_is_refused() {
         let err = block_on(prepare(&config, "ls", dir.path(), &None, Audience::Human)).unwrap_err();
         assert!(err.to_string().contains("setup package"), "{err}");
     });
+}
+
+#[cfg(unix)]
+#[test]
+fn a_latest_pin_is_rewritten_in_the_yaml_it_came_from() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let child = dir.path().join("app");
+    std::fs::create_dir_all(&child).unwrap();
+    git_init(dir.path());
+    let bin = installs.join("jq/1.7.1");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_exec(&bin.join("jq"), "echo PINNED");
+    write_cached_env(home.path(), "mise://aqua/jqlang/jq@latest", "{}");
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        "^jq:\n  jq: mise://aqua/jqlang/jq@latest\n",
+    )
+    .unwrap();
+    std::fs::write(child.join("lade.yml"), "^other:\n  X: y\n").unwrap();
+    std::fs::write(
+        dir.path().join("lade.lock"),
+        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path())),
+            ("MISE_INSTALLS_DIR", Some(installs.as_path())),
+        ],
+        || {
+            let config = LadeFile::build(child.clone()).unwrap();
+            block_on(prepare(&config, "jq .", &child, &None, Audience::Human)).unwrap();
+            let parent = std::fs::read_to_string(dir.path().join("lade.yml")).unwrap();
+            assert!(parent.contains("mise://aqua/jqlang/jq@1.7.1"), "{parent}");
+            let own = std::fs::read_to_string(child.join("lade.yml")).unwrap();
+            assert!(!own.contains("jq"), "{own}");
+        },
+    );
 }

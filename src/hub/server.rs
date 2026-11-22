@@ -27,54 +27,81 @@ enum AfterConn {
 /// Returns when idle, orphaned, quit, or once `stop` resolves. Tunnels
 /// stop their providers as the tables drop.
 pub async fn serve(stop: impl Future<Output = ()>) -> anyhow::Result<()> {
-    serve_until_idle(IDLE_EXIT, stop).await
+    serve_until_idle(IDLE_EXIT, REACH_CHECK, stop).await
 }
 
 pub(super) async fn serve_until_idle(
     idle: Duration,
+    reach: Duration,
     stop: impl Future<Output = ()>,
 ) -> anyhow::Result<()> {
     let snap = peer::snapshot_self().ok_or_else(|| anyhow::anyhow!("hub image inode"))?;
     let want = peer::Identity::of_self(snap.inode());
-    super::guard::lock_memory();
-    let path = socket_path();
-    let lock = lock_path();
+    // § hxw00jp6v.a@7ss1m
+    let path = socket_path().ok_or_else(|| anyhow::anyhow!(peer::NO_IMAGE))?;
+    let lock = lock_path().ok_or_else(|| anyhow::anyhow!(peer::NO_IMAGE))?;
+    // § end hxw00jp6v.a
+    // § one kgejwr97c.a@6azsp
+    let unguarded = super::guard::lock_memory().err().map(|why| why.to_string());
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let listener = match UnixListener::bind(&path) {
+    // § hxw00jp6v.c@c45fz
+    let listener = match bind_owner_only(&path) {
         Ok(listener) => listener,
         Err(_) => return Ok(()),
     };
-    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    // § end hxw00jp6v.c
+    // § hxw00jp6v.d@nkgej
+    if let Err(e) = make_owner_only(&path) {
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+        return Err(e);
+    }
+    // § end hxw00jp6v.d
     let bound = peer::inode_of(&path).ok_or_else(|| anyhow::anyhow!("hub socket inode"))?;
-    let mut tables = Tables::new(crate::global_config::GlobalConfig::path());
+    // § one cbz2he75h.d@fy2dj
+    let mut tables = Tables::new(crate::global_config::GlobalConfig::path(), unguarded);
     let mut last_request = now();
+    // § one cbz2he75h.b@m7q9j
+    // Requests do not move this clock: a stream of them from old clients
+    // must not keep an orphan up.
+    let mut next_check = tokio::time::Instant::now() + nap(&tables, idle, reach);
     tokio::pin!(stop);
     loop {
         tokio::select! {
             biased;
             () = &mut stop => break,
-            accepted = listener.accept() => {
-                let (stream, _) = accepted?;
-                last_request = now();
-                let conn = handle_conn(&mut tables, stream, &want);
-                let after = tokio::time::timeout(CONN_TIMEOUT, conn)
-                    .await
-                    .unwrap_or(AfterConn::Continue);
-                if let Some(ledger) = tables.release.take_version_fetch() {
-                    spawn_version_fetch(ledger);
-                }
-                if matches!(after, AfterConn::Quit) {
-                    break;
-                }
-            }
-            () = tokio::time::sleep(nap(&tables, idle)) => {
+            () = tokio::time::sleep_until(next_check) => {
+                // § cbz2he75h.b@v5jgq
                 let reachable =
                     peer::inode_of(&path) == Some(bound) && peer::image_is_current(want.inode);
                 if should_exit(&mut tables, reachable, since(last_request) >= idle) {
                     break;
                 }
+                next_check = tokio::time::Instant::now() + nap(&tables, idle, reach);
+                // § end cbz2he75h.b
+            }
+            accepted = listener.accept() => {
+                let (stream, _) = accepted?;
+                last_request = now();
+                let conn = handle_conn(&mut tables, stream, &want);
+                // § dd89rj943.c@crp06
+                let after = tokio::time::timeout(CONN_TIMEOUT, conn)
+                    .await
+                    .unwrap_or(AfterConn::Continue);
+                // § end dd89rj943.c
+                if let Some(ledger) = tables.release.take_version_fetch() {
+                    // § d1d316x4b.b@ax29b
+                    spawn_version_fetch(ledger);
+                    // § end d1d316x4b.b
+                }
+                if matches!(after, AfterConn::Quit) {
+                    break;
+                }
+                // A tunnel opened by this request needs its leases checked
+                // sooner than an empty hub does.
+                next_check = next_check.min(tokio::time::Instant::now() + nap(&tables, idle, reach));
             }
         }
     }
@@ -84,17 +111,45 @@ pub(super) async fn serve_until_idle(
     // The next spawn recreates the lock. Two spawners on two lock files
     // only race the exclusive bind.
     if peer::inode_of(&path) == Some(bound) {
+        // § cbz2he75h.c@whszs
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&lock);
     }
     Ok(())
 }
 
+/// The socket never exists with the umask's mode, which may let another
+/// user connect before a `chmod`. The umask is restored at once: in tests
+/// the hub shares its process.
+fn bind_owner_only(path: &std::path::Path) -> std::io::Result<UnixListener> {
+    // § hxw00jp6v.d@tcrn1
+    let old = unsafe { libc::umask(0o077) };
+    let bound = UnixListener::bind(path);
+    unsafe { libc::umask(old) };
+    bound
+}
+
+fn make_owner_only(path: &std::path::Path) -> anyhow::Result<()> {
+    // § hxw00jp6v.d@gvfc7
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| anyhow::anyhow!("hub socket {}: {e}", path.display()))?;
+    let mode = std::fs::metadata(path)?.permissions().mode() & 0o777;
+    if mode != 0o600 {
+        anyhow::bail!(
+            "hub socket {} has mode {mode:o}, not 600: the hub does not serve",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Tunnels need their leases checked and their ttl counted down.
-fn nap(tables: &Tables, idle: Duration) -> Duration {
+fn nap(tables: &Tables, idle: Duration, reach: Duration) -> Duration {
+    // § cbz2he75h.b@cm7cj
     if tables.tunnels.is_empty() {
-        idle.min(REACH_CHECK)
+        idle.min(reach)
     } else {
+        // § gv81k6nf4.c@t9eyz
         idle.min(TUNNEL_TICK)
     }
 }
@@ -105,6 +160,7 @@ fn nap(tables: &Tables, idle: Duration) -> Duration {
 /// Prunes on every nap: a busy hub still drops dead leases and expires
 /// tunnels without waiting for a request.
 fn should_exit(tables: &mut Tables, reachable: bool, idle: bool) -> bool {
+    // § cbz2he75h.a@k92gm
     let empty = tables.is_empty();
     !reachable || (idle && empty)
 }
@@ -115,13 +171,14 @@ async fn handle_conn(
     want: &peer::Identity,
 ) -> AfterConn {
     if !peer::peer_allowed(&stream, want) {
+        // § e1s6kxps0.d@g6taj
         send_denied(&mut stream).await;
         return AfterConn::Continue;
     }
     match read_req(&mut stream).await {
         Some(wire::InReq::Body(req)) => {
-            let quit = matches!(req, Req::Quit);
-            let Some(frame) = wire::encode_rep(&tables.handle(req)) else {
+            let quit = matches!(*req, Req::Quit);
+            let Some(frame) = wire::encode_rep(&tables.handle(*req)) else {
                 return AfterConn::Continue;
             };
             let _ = stream.write_all(&frame).await;
@@ -132,6 +189,7 @@ async fn handle_conn(
             }
         }
         Some(wire::InReq::WrongVer) => {
+            // § dd89rj943.b@sjx3g
             send_denied(&mut stream).await;
             AfterConn::Continue
         }
@@ -157,12 +215,15 @@ async fn read_req(stream: &mut UnixStream) -> Option<wire::InReq> {
     wire::decode_in_req(&frame)
 }
 
-pub fn socket_path() -> PathBuf {
-    crate::cache::root().join(format!("hub-{}.sock", peer::instance_token()))
+/// `None`: this image cannot read its own file, so it has no hub.
+pub fn socket_path() -> Option<PathBuf> {
+    // § hxw00jp6v.a@90yce
+    Some(crate::cache::root().join(format!("hub-{}.sock", peer::instance_token()?)))
 }
 
-pub fn lock_path() -> PathBuf {
-    crate::cache::root().join(format!("hub-{}.lock", peer::instance_token()))
+pub fn lock_path() -> Option<PathBuf> {
+    // § hxw00jp6v.c@fw3fd
+    Some(crate::cache::root().join(format!("hub-{}.lock", peer::instance_token()?)))
 }
 
 #[cfg(test)]

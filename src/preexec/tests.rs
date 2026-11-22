@@ -74,6 +74,7 @@ fn test_restore_replaces_and_erases() {
 #[test]
 fn test_restore_payload_roundtrip() {
     let payload = RestorePayload {
+        ticket: "abcd".to_string(),
         env: HashMap::from([
             (
                 "SSH_AUTH_SOCK".to_string(),

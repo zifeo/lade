@@ -53,6 +53,28 @@ fn eval_access_command_writes_diary_name() {
 }
 
 #[test]
+fn eval_of_a_tunnel_or_package_uri_fails_without_ttl() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    for uri in [
+        "ssh://jump.example.com:22/db.internal/5432",
+        "kubectl://k8s.example.com:6443",
+        "mise://aqua/jqlang/jq@1.7.1",
+        "apm://owner/repo",
+    ] {
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .args(["eval", uri])
+            .assert()
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::str::contains("tunnel or a package"));
+    }
+    let rows = common::log_rows(home.path(), dir.path());
+    assert_eq!(rows.as_array().map(Vec::len), Some(0), "{rows}");
+}
+
+#[test]
 fn eval_unknown_uri_is_literal() {
     let home = tempfile::tempdir().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -116,7 +138,9 @@ fn eval_ttl_keeps_the_value_in_the_hub() {
     stop_hub(home.path(), dir.path());
     assert_eq!(second, "first-value");
     assert_eq!(without_flag, "second-value");
-    let listed: serde_json::Value = serde_json::from_slice(&listed).unwrap();
+    let listed_text = String::from_utf8(listed).unwrap();
+    assert!(!listed_text.contains("first-value"), "{listed_text}");
+    let listed: serde_json::Value = serde_json::from_str(&listed_text).unwrap();
     assert_eq!(listed["keys"][0]["name"], uri.as_str(), "{listed}");
     let rows = common::log_rows(home.path(), dir.path());
     let cached: Vec<bool> = rows
@@ -188,4 +212,34 @@ fn eval_ttl_rejects_a_bad_duration_and_raw_uris() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("never cached"));
+    for uri in [
+        "ssh://jump.example.com:22/db.internal/5432",
+        "kubectl://k8s.example.com:6443",
+        "mise://aqua/jqlang/jq@1.7.1",
+        "apm://owner/repo",
+    ] {
+        common::lade(home.path())
+            .current_dir(dir.path())
+            .args(["eval", "--ttl", "5m", uri])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("never cached"));
+    }
+}
+
+#[test]
+fn eval_ttl_caches_a_shell_uri() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let value = dir.path().join("value");
+    std::fs::write(&value, "first-value").unwrap();
+    let uri = format!("sh://cat {}", value.display());
+    let first = eval_value(home.path(), dir.path(), &["--ttl", "5m", &uri]);
+    std::fs::write(&value, "second-value").unwrap();
+    let second = eval_value(home.path(), dir.path(), &["--ttl", "5m", &uri]);
+    let without_flag = eval_value(home.path(), dir.path(), &[&uri]);
+    stop_hub(home.path(), dir.path());
+    assert_eq!(first, "first-value");
+    assert_eq!(second, "first-value");
+    assert_eq!(without_flag, "second-value");
 }

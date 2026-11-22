@@ -39,7 +39,7 @@ fn project_hook_command_is_always_portable() {
 #[test]
 fn instantiate_does_not_double_an_absolute_bin() {
     let command = "/abs/target/debug/lade hook --harness claude";
-    let out = Agent::Claude.instantiate(command);
+    let out = Agent::Claude.instantiate(Scope::User, command);
     assert!(out.contains(command), "{out}");
     assert!(!out.contains("/abs/target/debug//abs/"), "{out}");
 }
@@ -69,11 +69,15 @@ fn refresh_updates_stale_hook_and_skips_missing() {
     let stale = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook"}]}]}}"#;
     std::fs::write(&global, stale).unwrap();
     let command = "/usr/local/bin/lade hook --harness codex";
-    let want = Want::Command(command.to_string());
+    let want = Want::Command(command.to_string(), Scope::User);
     refresh_path(Agent::Codex, &global, &want);
     refresh_path(Agent::Claude, &other, &want);
     let updated = std::fs::read_to_string(&global).unwrap();
-    assert!(Agent::Codex.hook_uses_command(&updated, command).unwrap());
+    assert!(
+        Agent::Codex
+            .hook_uses_command(Scope::User, &updated, command)
+            .unwrap()
+    );
     assert!(!other.exists());
 }
 
@@ -182,6 +186,14 @@ fn write_scoped_from_nested_home_subdir_updates_git_root() {
 }
 
 #[test]
+fn a_build_under_any_cargo_target_dir_is_not_pinned() {
+    let build = tempfile::tempdir().unwrap();
+    std::fs::write(build.path().join(".rustc_info.json"), "{}").unwrap();
+    let bin = build.path().join("dist").join("lade");
+    assert_eq!(install_bin_from(bin.to_str().unwrap()), "lade");
+}
+
+#[test]
 fn write_scoped_enable_refuses_when_the_other_plane_exists() {
     let home = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
@@ -192,6 +204,68 @@ fn write_scoped_enable_refuses_when_the_other_plane_exists() {
         err.to_string().contains("home and repo hooks both present"),
         "{err}"
     );
+    assert!(!repo.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn enable_global_refuses_over_a_committed_claude_hook_without_its_copy() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    std::fs::create_dir(repo.path().join(".claude")).unwrap();
+    std::fs::write(
+        repo.path().join(".claude").join("settings.json"),
+        r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#,
+    )
+    .unwrap();
+    let err = write_scoped(Scope::User, "claude", home.path(), repo.path(), true).unwrap_err();
+    assert!(
+        err.to_string().contains("home and repo hooks both present"),
+        "{err}"
+    );
+    assert!(!home.path().join(".claude").join("settings.json").exists());
+}
+
+#[test]
+fn a_config_that_is_not_utf8_fails_the_write_and_stays() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let path = repo.path().join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let bytes = b"{\"hooks\":{\"x\":\"\xff\"}}".to_vec();
+    std::fs::write(&path, &bytes).unwrap();
+    let err = write_scoped(Scope::Project, "cursor", home.path(), repo.path(), true).unwrap_err();
+    assert!(err.to_string().contains("cannot read"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn a_config_that_is_not_utf8_fails_the_removal_and_stays() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let path = repo.path().join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let bytes = b"{\"hooks\":{\"x\":\"\xff\"}}".to_vec();
+    std::fs::write(&path, &bytes).unwrap();
+    let err = write_scoped(Scope::Project, "cursor", home.path(), repo.path(), false).unwrap_err();
+    assert!(err.to_string().contains("cannot read"), "{err}");
+    let err = teardown_at(home.path(), repo.path()).unwrap_err();
+    assert!(err.to_string().contains("cannot read"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn an_unreadable_home_config_fails_the_repo_enable() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".git")).unwrap();
+    let home_config = home.path().join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(home_config.parent().unwrap()).unwrap();
+    std::fs::write(&home_config, b"{\"x\":\"\xff\"}").unwrap();
+    let err = write_scoped(Scope::Project, "cursor", home.path(), repo.path(), true).unwrap_err();
+    assert!(err.to_string().contains("cannot read"), "{err}");
     assert!(!repo.path().join(".cursor").join("hooks.json").exists());
 }
 
@@ -240,7 +314,7 @@ fn refresh_at_from_nested_cwd_updates_git_root() {
     let updated = std::fs::read_to_string(&dest).unwrap();
     assert!(
         Agent::Cursor
-            .hook_uses_command(&updated, "lade hook --harness cursor")
+            .hook_uses_command(Scope::Project, &updated, "lade hook --harness cursor")
             .unwrap()
     );
     assert!(!nested.join(".cursor").join("hooks.json").exists());
@@ -286,7 +360,7 @@ fn write_scoped_project_and_uninstall_round_trip() {
     assert!(body.contains("lade hook --harness cursor"));
     assert!(
         Agent::Cursor
-            .hook_uses_command(&body, "lade hook --harness cursor")
+            .hook_uses_command(Scope::Project, &body, "lade hook --harness cursor")
             .unwrap()
     );
     write_scoped(Scope::Project, "cursor", home.path(), cwd.path(), false).unwrap();

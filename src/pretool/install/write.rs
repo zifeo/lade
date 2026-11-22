@@ -58,14 +58,17 @@ pub(crate) fn write_scoped(
     let agent =
         Agent::from_slug(harness).with_context(|| format!("unknown harness '{harness}'"))?;
     let dest = match (scope, project_dest(home, cwd)) {
+        // § rkpfgpx72.a@qxthc
         (Scope::Project, None) => bail!("not a git repo, pre-tool skipped"),
         (_, Some(dest)) => dest,
         (Scope::User, None) => cwd.to_path_buf(),
     };
+    // § rkpfgpx72.c@sa8ba
     let path = hook_path(agent, scope, home, &dest);
     if !install {
         return remove_hook(agent, &path, home, scope, &dest);
     }
+    // § end rkpfgpx72.c
     let want = want(agent, scope, &dest)?;
     if project_dest(home, cwd).is_some() {
         refuse_if_other_plane(agent, scope, home, &dest)?;
@@ -78,7 +81,7 @@ pub(crate) fn write_scoped(
         Want::Copy(committed) => {
             format!(", a copy of the committed {}", tilde(&committed.path, home))
         }
-        Want::Command(_) => String::new(),
+        Want::Command(..) => String::new(),
     };
     Ok(format!(
         "{}: hook {} in {}{copied}",
@@ -88,20 +91,43 @@ pub(crate) fn write_scoped(
     ))
 }
 
-pub(super) fn write_hook(agent: Agent, path: &Path, want: &Want) -> Result<WriteOutcome> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
-    let current = WriteOutcome {
-        verb: ItemVerb::Current,
-        path: path.to_path_buf(),
-    };
-    let updated = match (agent, want) {
-        (Agent::OpenCode, Want::Command(command)) => plugin(OpenCodeApi::installed()?, command),
-        _ if want.is_current(agent, &existing)? => return Ok(current),
-        _ => want.merged(agent, &existing)?,
-    };
-    if updated.trim_end() == existing.trim_end() {
-        return Ok(current);
+/// A missing config reads as empty; any other read error fails, so an
+/// unreadable file is never taken for one without a hook.
+pub(super) fn read_config(path: &Path) -> Result<String> {
+    // § e3ntx7tnt.b@ft7d7
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(content),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => Err(err).with_context(|| format!("cannot read {}", path.display())),
     }
+}
+
+/// What [`write_hook`] writes over `existing`, `None` when it is current.
+/// `api`: the OpenCode API of a new plugin, so a test can pick one.
+pub(super) fn updated_hook(
+    agent: Agent,
+    existing: &str,
+    want: &Want,
+    api: impl Fn() -> Result<OpenCodeApi>,
+) -> Result<Option<String>> {
+    let updated = match (agent, want) {
+        // § one heg7hfveq.a@wewwj
+        (Agent::OpenCode, Want::Command(command, _)) => plugin(api()?, command),
+        _ if want.is_current(agent, existing)? => return Ok(None),
+        _ => want.merged(agent, existing)?,
+    };
+    Ok((updated.trim_end() != existing.trim_end()).then_some(updated))
+}
+
+pub(super) fn write_hook(agent: Agent, path: &Path, want: &Want) -> Result<WriteOutcome> {
+    // § one e3ntx7tnt.b@zeyde
+    let existing = read_config(path)?;
+    let Some(updated) = updated_hook(agent, &existing, want, OpenCodeApi::installed)? else {
+        return Ok(WriteOutcome {
+            verb: ItemVerb::Current,
+            path: path.to_path_buf(),
+        });
+    };
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -124,6 +150,7 @@ fn leftover_for(
     scope: Scope,
     dest: &Path,
 ) -> Result<Option<(PathBuf, String)>> {
+    // § dpgrarwms.a@m9p4y
     match scope {
         Scope::User => leftover_json_hook(agent, home),
         Scope::Project => worktree_copy(agent, dest),
@@ -134,6 +161,7 @@ fn leftover_for(
 /// `dest`, where 0.20 wrote it. A session started in a subdirectory never
 /// reads it, so it can only drift from the copy in the main checkout.
 fn worktree_copy(agent: Agent, dest: &Path) -> Result<Option<(PathBuf, String)>> {
+    // § dpgrarwms.c@wr1mz
     let path = dest.join(".claude").join("settings.local.json");
     if agent != Agent::Claude || path == canonical_project_path(agent, dest) {
         return Ok(None);
@@ -152,12 +180,16 @@ pub(super) fn strip_worktree_copy(agent: Agent, dest: &Path) -> Result<()> {
 }
 
 fn refuse_if_other_plane(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<()> {
+    // § rkpfgpx72.b@j1f69
     let other = match scope {
         Scope::User => Scope::Project,
         Scope::Project => Scope::User,
     };
-    let existing = fs::read_to_string(hook_path(agent, other, home, dest)).unwrap_or_default();
-    if !agent.has_hook(&existing).unwrap_or(false) {
+    let existing = read_config(&hook_path(agent, other, home, dest))?;
+    // The committed Claude hook runs at the repo root even before its copy is written.
+    let committed_claude =
+        scope == Scope::User && agent == Agent::Claude && committed(dest)?.is_some();
+    if !committed_claude && !agent.has_hook(&existing).unwrap_or(false) {
         return Ok(());
     }
     refuse_double_plane(&[agent.name()])
@@ -187,7 +219,8 @@ fn remove_hook(
     scope: Scope,
     dest: &Path,
 ) -> Result<String> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
+    // § one e3ntx7tnt.b@sjrfe
+    let existing = read_config(path)?;
     let legacy = leftover_for(agent, home, scope, dest)?;
     let kept = match (scope, agent) {
         (Scope::Project, Agent::Claude) => match committed(dest)? {
@@ -247,6 +280,7 @@ pub fn teardown() -> Result<PretoolReport> {
 }
 
 pub(super) fn teardown_at(home: &Path, cwd: &Path) -> Result<PretoolReport> {
+    // § ep7nzy2xg.a@gwh6y
     let Some(dest) = project_dest(home, cwd) else {
         return Ok(PretoolReport {
             where_line: "not a git repo, pre-tool skipped".to_string(),
@@ -260,7 +294,8 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
     let mut rows = Vec::new();
     for agent in AGENTS {
         let path = hook_path(agent, scope, home, dest);
-        let existing = fs::read_to_string(&path).unwrap_or_default();
+        // § one e3ntx7tnt.b@ng3w7
+        let existing = read_config(&path)?;
         let legacy = leftover_for(agent, home, scope, dest)?;
         if agent.has_hook(&existing)? || legacy.is_some() {
             strip_hook_files(agent, &path, &existing, legacy)?;
@@ -294,12 +329,14 @@ pub(super) fn uninstall_plane(scope: Scope, home: &Path, dest: &Path) -> Result<
 /// or the user did not ask for, and never touches an OpenCode plugin edited
 /// by hand. Errors are ignored: `health` reports what is left.
 pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
+    // § khcwz2ec3.a@rwns7
     for &agent in agents {
         let home_path = agent.config_path(home);
         let home_installed = hook_state(&home_path, agent, None).0;
         if let Ok(want) = want(agent, Scope::User, home) {
             refresh_path(agent, &home_path, &want);
         }
+        // § one rkpfgpx72.b@zwc5v
         if home_installed {
             continue;
         }
@@ -312,18 +349,21 @@ pub(crate) fn refresh_at(home: &Path, cwd: &Path, agents: &[Agent]) {
         let path = canonical_project_path(agent, &dest);
         match want {
             Want::Copy(_) => {
+                // § dpgrarwms.d@5pd99
                 let _ = write_hook(agent, &path, &want);
                 let _ = strip_worktree_copy(agent, &dest);
             }
-            Want::Command(_) => refresh_path(agent, &path, &want),
+            Want::Command(..) => refresh_path(agent, &path, &want),
         }
     }
 }
 
 pub(super) fn refresh_path(agent: Agent, path: &Path, want: &Want) {
+    // § khcwz2ec3.a@t8w06
     let Ok(existing) = fs::read_to_string(path) else {
         return;
     };
+    // § khcwz2ec3.b@epcnf
     match agent.has_hook(&existing) {
         Ok(true) => {}
         _ => return,
@@ -331,6 +371,7 @@ pub(super) fn refresh_path(agent: Agent, path: &Path, want: &Want) {
     if matches!(agent, Agent::OpenCode) && !is_pristine(&existing) {
         return;
     }
+    // § end khcwz2ec3.b
     match want.is_current(agent, &existing) {
         Ok(true) => return,
         Ok(false) => {}

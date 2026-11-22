@@ -43,17 +43,15 @@ fn file_uri(dir: &std::path::Path, secret: &str) -> String {
 
 fn workspace_lade() -> std::path::PathBuf {
     let exe = std::env::current_exe().expect("current_exe");
-    if let Some(dir) = exe.parent() {
-        if let Some(parent) = dir.parent() {
-            let candidate = parent.join("lade");
-            if candidate.is_file() {
-                return candidate;
-            }
-        }
-        let sibling = dir.join("lade");
-        if sibling.is_file() {
-            return sibling;
-        }
+    // Cargo's build-dir layout puts unit tests under `build/<pkg>/<hash>/out`,
+    // several levels below the profile dir that holds `lade`.
+    if let Some(found) = exe
+        .ancestors()
+        .skip(1)
+        .map(|dir| dir.join("lade"))
+        .find(|candidate| candidate.is_file())
+    {
+        return found;
     }
     panic!(
         "lade binary not found next to {}. Run cargo test --workspace --locked.",
@@ -71,8 +69,8 @@ fn lade_env<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
     let lade = workspace_lade();
     temp_env::with_vars(
         [
-            ("LADE_EVENTS_PATH", Some(events.to_str().unwrap())),
-            ("LADE_BIN", Some(lade.to_str().unwrap())),
+            ("LADE_EVENTS_PATH", Some(events.into_os_string())),
+            ("LADE_BIN", Some(lade.into_os_string())),
         ],
         f,
     )
@@ -113,17 +111,22 @@ fn pq_and_classic_secrets_cannot_share_a_file() {
         let pq_uri = file_uri(pq_dir.path(), &secret);
         let classic_uri = file_uri(classic_dir.path(), &x25519_secret());
         lade_env(pq_dir.path(), || {
-            let mut rec = recipient_for(&[&pq_uri, &classic_uri]);
-            assert!(rec.labels().is_empty());
-            match rec.wrap_file_keys(vec![FileKey::new(Box::new([2u8; 16]))], Noop::new()) {
-                Ok(Err(errs)) => match &errs[..] {
-                    [recipient::Error::Internal { message }] => {
-                        assert!(message.contains("cannot share a file"), "{message}")
-                    }
-                    _ => panic!("expected one internal error"),
-                },
-                Ok(Ok(_)) => panic!("mixed post-quantum and classic keys should fail"),
-                Err(e) => panic!("wrap io: {e}"),
+            // A client may wrap without asking the labels first.
+            for ask_labels in [true, false] {
+                let mut rec = recipient_for(&[&pq_uri, &classic_uri]);
+                if ask_labels {
+                    assert!(rec.labels().is_empty());
+                }
+                match rec.wrap_file_keys(vec![FileKey::new(Box::new([2u8; 16]))], Noop::new()) {
+                    Ok(Err(errs)) => match &errs[..] {
+                        [recipient::Error::Internal { message }] => {
+                            assert!(message.contains("cannot share a file"), "{message}")
+                        }
+                        _ => panic!("expected one internal error"),
+                    },
+                    Ok(Ok(_)) => panic!("mixed keys should fail, labels asked: {ask_labels}"),
+                    Err(e) => panic!("wrap io: {e}"),
+                }
             }
         });
     });
@@ -179,7 +182,7 @@ fn missing_lade_is_a_hydrate_error() {
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
-                assert!(msg.contains("LADE_BIN") || msg.contains("lade"), "{msg}");
+                assert!(msg.contains("LADE_BIN"), "{msg}");
             }
             Ok(Ok(_)) => panic!("expected hydrate error"),
             Err(e) => panic!("wrap io: {e}"),

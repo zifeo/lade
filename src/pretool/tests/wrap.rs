@@ -127,6 +127,25 @@ fn test_pin_only_is_rewritten() {
 }
 
 #[test]
+fn a_setup_package_on_a_command_rule_goes_to_the_wrap() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("lade.yml"),
+                "\"^git\":\n  x: apm://github/owner/pkg\n",
+            )
+            .unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let input = r#"{"tool_input": {"command": "git status"}}"#;
+            let result = handle(&config, input, Audience::Agent, None).unwrap();
+            assert!(result.contains("updated_input"), "{result}");
+            assert!(result.contains("--pretool -- 'git status'"), "{result}");
+        });
+    });
+}
+
+#[test]
 fn test_claude_no_match_allows_silently() {
     temp_env::with_vars(
         [
@@ -318,6 +337,22 @@ fn unread_pretool_without_command_allows_and_stays_open() {
 }
 
 #[test]
+fn a_rewrite_names_bare_lade_whichever_binary_ran_the_hook() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            temp_env::with_var("PATH", Some("/no/such/lade-path"), || {
+                let (config, _dir) = test_config("^echo");
+                let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+                let result = handle(&config, input, Audience::Agent, None).unwrap();
+                let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+                let command = parsed["updated_input"]["command"].as_str().unwrap();
+                assert!(command.starts_with("lade --pretool="), "{command}");
+            });
+        });
+    });
+}
+
+#[test]
 fn invoked_lade_bin_from_path_stays_bare() {
     let exe = PathBuf::from("/opt/lade");
     assert_eq!(
@@ -372,5 +407,58 @@ fn lade_on_path_sees_a_file() {
     });
     temp_env::with_var("PATH", Some("/no/such/lade-path"), || {
         assert!(!lade_on_path());
+    });
+}
+
+#[test]
+fn rewrite_keeps_other_tool_input_fields() {
+    with_ticket_tmpdir(|| {
+        let (config, dir) = test_config("^echo");
+        let workdir = dir.path().to_string_lossy().into_owned();
+        let cursor = json!({
+            "hook_event_name": "preToolUse",
+            "tool_input": {"command": "echo hello", "working_directory": workdir},
+        });
+        let claude = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo hello", "description": "say hi", "timeout": 5000},
+        });
+        let codex = json!({
+            "hook_event_name": "PreToolUse",
+            "turn_id": "t1",
+            "tool_input": {"command": "echo hello", "workdir": workdir},
+        });
+        for (harness, input, envelope) in [
+            ("cursor", cursor, "/updated_input"),
+            ("claude", claude, "/hookSpecificOutput/updatedInput"),
+            ("codex", codex, "/hookSpecificOutput/updatedInput"),
+        ] {
+            let result =
+                handle(&config, &input.to_string(), Audience::Agent, Some(harness)).unwrap();
+            let reply: serde_json::Value = serde_json::from_str(&result).unwrap();
+            let updated = reply
+                .pointer(envelope)
+                .unwrap_or_else(|| panic!("{result}"));
+            let mut expected = input["tool_input"].clone();
+            let command = updated["command"].as_str().unwrap();
+            assert!(command.contains("--pretool"), "{harness}: {command}");
+            expected["command"] = json!(command);
+            assert_eq!(updated, &expected, "{harness}");
+        }
+    });
+}
+
+#[test]
+fn a_rule_lade_cannot_plan_still_wraps_the_line() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("lade.yml"), "\"^echo\":\n  DB-PASS: x\n").unwrap();
+            let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+            let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+            let result = handle(&config, input, Audience::Agent, None).unwrap();
+            assert!(result.contains("--pretool -- 'echo hello'"), "{result}");
+        });
     });
 }

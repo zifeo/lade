@@ -33,6 +33,7 @@ pub(super) struct ChildForward {
 }
 
 pub(super) fn spawn_forward(mut command: Command, inner: &Inner) -> Result<ChildForward> {
+    // § vdbmtzqtb.a@vbzc5
     configure_child_process(&mut command);
     let mut child = command
         .stdin(Stdio::piped())
@@ -40,6 +41,7 @@ pub(super) fn spawn_forward(mut command: Command, inner: &Inner) -> Result<Child
         .stderr(Stdio::piped())
         .spawn()?;
     let lifeline = child.stdin.take();
+    // § end vdbmtzqtb.a
     let logs: Logs = Arc::new(Mutex::new(Vec::new()));
     let printed = Arc::new(Mutex::new(None));
     let stdout_join = child.stdout.take().map(|pipe| {
@@ -105,6 +107,7 @@ pub(super) fn wait_forward_ready(
     }
     loop {
         if let Some(status) = child.child.try_wait()? {
+            // § v29epeav2.c@t978e
             // Read its log to the end first: the readers may lag behind.
             stop_child(&mut child.child);
             child.join_readers();
@@ -116,6 +119,7 @@ pub(super) fn wait_forward_ready(
         if let Some(endpoint) = child.endpoint(inner)
             && endpoint.connect(Duration::from_millis(200)).is_ok()
         {
+            // § v29epeav2.a@y3ydd
             return Ok(endpoint);
         }
         if Instant::now() >= deadline {
@@ -140,6 +144,12 @@ fn wait_direct_ready(
         if let Some(status) = child.child.try_wait()? {
             stop_child(&mut child.child);
             child.join_readers();
+            // kubefwd exits at once when it cannot bind: a retry would
+            // only fail the same way while the tunnel still reads as ready.
+            if port_listen(direct.port, child.child.id()) == PortListen::Stranger {
+                // § v29epeav2.b@h8wrg
+                bail!("{STRANGER_LISTEN} on {}:{}", direct.host, direct.port);
+            }
             bail!(
                 "process exited before becoming ready (status: {status}): {}",
                 child.logs_text()
@@ -148,6 +158,7 @@ fn wait_direct_ready(
         match port_listen(direct.port, child.child.id()) {
             PortListen::Ours => return Ok(direct.endpoint()),
             PortListen::Stranger => {
+                // § v29epeav2.b@pxvah
                 bail!("{STRANGER_LISTEN} on {}:{}", direct.host, direct.port);
             }
             PortListen::Vacant => {}
@@ -167,6 +178,7 @@ fn wait_direct_ready(
 /// The whole group: a member left alive (an exec credential plugin, a
 /// ProxyCommand) would hold the log pipes open and hang the readers.
 pub(super) fn stop_child(child: &mut Child) {
+    // § vdbmtzqtb.b@1gzbx
     if let Ok(pid) = i32::try_from(child.id()) {
         let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
     }

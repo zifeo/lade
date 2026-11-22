@@ -100,8 +100,7 @@ fn search_mise(query: &str) -> Result<String> {
 }
 
 fn mise_search(query: &str) -> Result<Vec<(String, String)>> {
-    let output = std::process::Command::new(crate::mise::mise_program())
-        .args(["search", query])
+    let output = crate::mise::isolated_mise(&["search", query])?
         .output()
         .context("could not run `mise search`. Run `lade setup` or pass --uri")?;
     if !output.status.success() {

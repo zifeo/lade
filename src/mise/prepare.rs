@@ -21,12 +21,15 @@ pub async fn prepare(
     audience: Audience,
 ) -> Result<Outcome, Error> {
     let argv0 = spec::argv0(command);
-    if let Some(uri) = config.command_package_uri(command, saved_user, audience) {
+    if let Some(uri) = config
+        .command_package_uri(command, saved_user, audience)
+        .map_err(match_error)?
+    {
+        // § vwj3wvrzs.a@1ctj4
         return Err(Error::box_lines([
             format!("{uri} is a setup package, not command access."),
             String::new(),
-            "Put apm:// and skills:// on `.` (or another setup rule), not on the command."
-                .to_string(),
+            "Put apm:// and skills:// on the `.` rule, not on the command.".to_string(),
         ]));
     }
     let pins = pins_from(config, command, saved_user, audience)?;
@@ -35,27 +38,58 @@ pub async fn prepare(
     }
     let mut out = Outcome::default();
     for (key, spec) in &pins {
+        // § rtcp7pj7e.b@e5xfx
         if spec::is_user_shell(key) && key != argv0 {
+            // § aq3qybz6p.b@zr3ph
             continue;
         }
         let allow_install = key == argv0;
-        match super::pin::pin_command(cwd, key, spec.clone(), allow_install, true).await {
-            Ok(extra) => merge_outcome(&mut out, extra),
-            Err(_) if key != argv0 => {}
-            Err(err) => return Err(err),
-        }
+        let extra = super::pin::pin_command(cwd, key, spec.clone(), allow_install, true).await?;
+        merge_outcome(&mut out, extra);
     }
     if !pins.iter().any(|(key, _)| key == argv0)
-        && let Some(value) = config.bare_version_for(command, argv0, saved_user, audience)
+        && let Some(value) = config
+            .bare_version_for(command, argv0, saved_user, audience)
+            .map_err(match_error)?
     {
+        // § aq3qybz6p.d@m4ewg
         return Err(Error::bare_version(argv0, &value));
     }
-    let sources = config.sources_for_command(command, saved_user, audience);
+    let sources = config
+        .sources_for_command(command, saved_user, audience)
+        .map_err(match_error)?;
     for (key, spec) in implied::pins_for(&sources, &pins) {
+        let (key, spec) = yaml_pin_of(config, saved_user, &key, &spec)?.unwrap_or((key, spec));
+        // § rtcp7pj7e.b@2n78g
         let extra = super::pin::pin_command(cwd, &key, spec, false, false).await?;
         merge_outcome(&mut out, extra);
     }
     Ok(out)
+}
+
+/// The yaml pin of an implied CLI on any rule of the walk, as setup reads it.
+fn yaml_pin_of(
+    config: &Config,
+    saved_user: &Option<String>,
+    key: &str,
+    implied: &spec::Spec,
+) -> Result<Option<(String, spec::Spec)>, Error> {
+    // § ba4zs2twj.b@9h931
+    // Setup locks the yaml pin of a CLI even when it sits on a rule this command did not
+    // match, so the implied range would ask for a version the lock does not hold.
+    for (pin_key, value) in config.pins(saved_user) {
+        if pin_key == key {
+            return spec::parse(&value)
+                .map(|parsed| Some((pin_key, parsed)))
+                .map_err(Error::invalid_spec);
+        }
+        if let Ok(parsed) = spec::parse(&value)
+            && parsed.backend_id() == implied.backend_id()
+        {
+            return Ok(Some((pin_key, parsed)));
+        }
+    }
+    Ok(None)
 }
 
 fn merge_outcome(into: &mut Outcome, extra: Outcome) {
@@ -90,7 +124,15 @@ fn pins_from(
     saved_user: &Option<String>,
     audience: Audience,
 ) -> Result<Vec<(String, spec::Spec)>, Error> {
-    parse_pins(config.pins_for_command(command, saved_user, audience))
+    parse_pins(
+        config
+            .pins_for_command(command, saved_user, audience)
+            .map_err(match_error)?,
+    )
+}
+
+fn match_error(err: anyhow::Error) -> Error {
+    Error::box_lines([format!("{err:#}")])
 }
 
 fn parse_pins(pins: Vec<(String, String)>) -> Result<Vec<(String, spec::Spec)>, Error> {
@@ -138,7 +180,7 @@ pub fn locked_tools(cwd: &Path, config: &Config, saved: &Option<String>) -> Vec<
             .map(|s| s.version.clone())
             .unwrap_or_else(|| spec.version.clone());
         let tool_names = store::tool_names(&spec, &key, slot.as_ref().map(|s| s.name.as_str()));
-        let present = lookup::find_cli_dir(&installs, &tool_names, &version, &key, &spec).is_some();
+        let present = lookup::find_cli_dir(&installs, &tool_names, &version, &key).is_some();
         out.push(LockedTool {
             name: key,
             version: Some(version),

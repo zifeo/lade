@@ -131,7 +131,7 @@ pub struct AddCommand {
     /// Search or package name after the family.
     #[clap(value_parser)]
     pub query: Option<String>,
-    /// Regex rule to write. Required without a TTY.
+    /// Regex rule to write. Required without a TTY, and for a harness.
     #[clap(long)]
     pub rule: Option<String>,
     /// Env or port name on that rule.
@@ -176,6 +176,7 @@ pub struct EvalCommand {
     pub commands: Vec<String>,
 }
 
+// § one bjcpdnsd2.b@n879z
 /// Default replacement format: `{}` is replaced by the variable name.
 /// Produces bash self-rehydrating tokens like `${MY_VAR:-REDACTED}`.
 pub const DEFAULT_MASK_FORMAT: &str = "${{}:-REDACTED}";
@@ -272,7 +273,7 @@ pub struct LogCommand {
     /// `all`, `human`, or `agent`.
     #[clap(long, default_value = "all", global = true)]
     pub audience: String,
-    /// `all`, `seen`, `access`, or `denied`.
+    /// `all`, `seen`, `access`, `denied`, or `remote`.
     #[clap(long, default_value = "all", global = true)]
     pub kind: String,
     /// `command` aggregates by stored command text, most frequent first.
@@ -310,7 +311,7 @@ pub enum LogAction {
     },
     /// Write a gzipped SQLite snapshot of the diary window.
     Share {
-        /// Output path. Default is `lade-$USER-$FROM-$TO.tar.gz` in cwd.
+        /// Output path. Default is `lade-$FROM-$TO.tar.gz` in cwd.
         #[clap(short, long)]
         output: Option<PathBuf>,
     },
@@ -332,8 +333,8 @@ Examples:
 Names only. Never values. This binary's hub only.
 `lade ttl` lists this cwd and related paths, then the hub's tunnels.
 `--global` lists every row.
-`lade ttl set` marks this cwd on the hub. Ancestors share it. Secrets and
-tunnels of matching rules keep that long. `unset` clears this cwd.
+`lade ttl set` marks this cwd on the hub. Ancestors and children share it.
+Secrets and tunnels of matching rules keep that long. `unset` clears this cwd.
 Secrets stay in RAM 5m, shell ones only with ttl. Tunnels stop with their
 command unless the rule or a window sets ttl. `forget` drops them now.
 `lade log prune --hub` is an alias of `lade ttl forget`.
@@ -364,7 +365,7 @@ pub enum TtlAction {
         /// everything and stops the hub.
         names: Vec<String>,
     },
-    /// Mark this cwd's hub window. Ancestors share it. `off` or up to 24h.
+    /// Mark this cwd's hub window. Ancestors and children share it. `off` or up to 24h.
     Set {
         /// `off` or a window up to 24h (`5m`, `2h`).
         #[arg(required_unless_present = "help")]
@@ -403,4 +404,65 @@ pub struct UsageCommand {
     /// Pack file, directory of packs, or `local` for the live diary.
     #[clap(long, action = clap::ArgAction::Append)]
     pub source: Vec<String>,
+}
+
+/// Link a remote machine to this laptop's providers.
+#[derive(Parser, Debug)]
+#[command(after_help = CONNECT_AFTER_HELP)]
+pub struct ConnectCommand {
+    /// The directory on the remote whose lade.yaml walk to resolve here,
+    /// relative to the remote home or `~/…` (quote it). Run once per
+    /// directory: every run over the same transport shares one link.
+    #[arg(required_unless_present = "help")]
+    pub path: Option<String>,
+    /// `ssh …` or `tsh ssh …`, written out.
+    #[arg(last = true, required_unless_present = "help")]
+    pub transport: Vec<String>,
+}
+
+pub const CONNECT_AFTER_HELP: &str = "\
+Examples:
+  lade connect src/app -- ssh -J bastion me@build-01
+  lade connect src/other -- ssh -J bastion me@build-01
+  lade connect src/app -- tsh ssh me@build-02
+  lade detach -- ssh -J bastion me@build-01
+
+Shows the remote lade.yaml walk at that path, resolves it here with this laptop's providers and caches it.
+The laptop hub keeps one link per transport. On the remote: exit 4, link down; exit 5, a ref the laptop did not resolve; exit 6, a walk no lade connect resolved.
+";
+
+/// End attached mode: on the laptop with the transport, on the remote bare.
+#[derive(Parser, Debug)]
+pub struct DetachCommand {
+    /// The transport `lade connect` ran, on the laptop. Empty on the remote.
+    #[arg(last = true)]
+    pub transport: Vec<String>,
+}
+
+/// Serve this machine's commands through a laptop. Run by `lade connect`.
+#[derive(Parser, Debug)]
+pub struct AttachCommand {
+    #[arg(long)]
+    pub laptop: String,
+    #[arg(long)]
+    pub transport: String,
+    /// Run by the laptop hub after a drop: gives way to a live link and to
+    /// a `lade detach` run here meanwhile.
+    #[arg(long)]
+    pub resume: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct LinkedTunnelCommand {
+    #[arg(long)]
+    pub uri: String,
+    #[arg(long)]
+    pub walk: String,
+    #[arg(long)]
+    pub listen: std::path::PathBuf,
+}
+
+#[derive(Parser, Debug)]
+pub struct RemoteFilesCommand {
+    pub path: String,
 }

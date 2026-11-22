@@ -36,6 +36,30 @@ fn test_tunnel_guard_passes_the_provider_exit_code() {
 }
 
 #[test]
+fn test_a_provider_runs_without_a_terminal() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let out = dir.path().join("out");
+    let script = format!(
+        "/usr/bin/python3 -c 'import os,sys; print(os.isatty(0), repr(sys.stdin.read()), os.getsid(0))' > {}",
+        out.display()
+    );
+    let mut guard = common::lade_std(home.path())
+        .args(["__tunnel-guard", "--", "/bin/sh", "-c", &script])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The lifeline stays open: a closed one would stop the provider.
+    let _lade = guard.stdin.take();
+    assert_eq!(guard.wait().unwrap().code(), Some(0));
+    let text = std::fs::read_to_string(&out).unwrap();
+    let fields: Vec<&str> = text.split_whitespace().collect();
+    assert_eq!(fields[..2], ["False", "''"], "{text}");
+    let ours = nix::unistd::getsid(None).unwrap().as_raw().to_string();
+    assert_ne!(fields[2], ours, "the provider shares this session");
+}
+
+#[test]
 fn test_tunnel_guard_stops_the_provider_once_its_lade_is_gone() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

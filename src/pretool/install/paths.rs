@@ -21,6 +21,7 @@ pub(super) fn install_bin() -> String {
 }
 
 pub(super) fn install_bin_from(bin: &str) -> String {
+    // § rkpfgpx72.d@zyp9p
     let path = Path::new(bin);
     match path.file_name().and_then(|name| name.to_str()) {
         Some("lade" | "lade.exe") if !is_cargo_build_bin(path) => bin.to_string(),
@@ -29,6 +30,15 @@ pub(super) fn install_bin_from(bin: &str) -> String {
 }
 
 fn is_cargo_build_bin(path: &Path) -> bool {
+    // Cargo writes `.rustc_info.json` at the root of every target dir, whatever
+    // its name (`CARGO_TARGET_DIR`) or profile (`target/dist`).
+    if path
+        .ancestors()
+        .skip(1)
+        .any(|dir| dir.join(".rustc_info.json").is_file())
+    {
+        return true;
+    }
     let mut saw_target = false;
     for component in path.components() {
         let name = component.as_os_str();
@@ -45,11 +55,13 @@ fn is_cargo_build_bin(path: &Path) -> bool {
 
 /// User-scope hook line. May pin an installed binary. Never a cargo target.
 pub(super) fn hook_command(agent: Agent) -> String {
+    // § j0my6hfhx.a@v4dv9
     format!("{} hook --harness {}", install_bin(), agent.slug())
 }
 
 /// Project files are the shared snapshot. Always the portable `lade` name.
 pub(super) fn project_hook_command(agent: Agent) -> String {
+    // § one j0my6hfhx.a@440nj, rkpfgpx72.d@gte0w
     format!("lade hook --harness {}", agent.slug())
 }
 

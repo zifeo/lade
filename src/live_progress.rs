@@ -81,13 +81,20 @@ pub fn named_version(name: &str, version: &str) -> String {
 }
 
 fn start_guard(rich_tty: bool, clear_on_stop: bool) -> Guard {
-    let renderer = start_with(rich_tty, clear_on_stop);
+    let (rich, lines) = progress_mode(rich_tty, crate::message_box::terse());
+    let renderer = start_with(rich, lines, clear_on_stop);
     if let Ok(mut active) = ACTIVE.lock() {
         *active = Some(renderer.sink());
     }
     Guard {
         renderer: Some(renderer),
     }
+}
+
+/// Whether progress redraws in place, and whether it prints a line per step.
+fn progress_mode(stderr_is_terminal: bool, harness: bool) -> (bool, bool) {
+    // § kgqztjzym.d@kh561
+    (stderr_is_terminal && !harness, !harness)
 }
 
 pub fn is_active() -> bool {
@@ -132,7 +139,7 @@ fn emit(id: String, display: String, kind: LiveKind) {
     sink.send(LiveEvent { id, display, kind });
 }
 
-fn start_with(rich_tty: bool, clear_on_stop: bool) -> LiveProgressRenderer {
+fn start_with(rich_tty: bool, lines: bool, clear_on_stop: bool) -> LiveProgressRenderer {
     let (tx, rx) = mpsc::channel::<LiveEvent>();
     let join = std::thread::spawn(move || {
         let mut frame_idx = 0usize;
@@ -148,11 +155,12 @@ fn start_with(rich_tty: bool, clear_on_stop: bool) -> LiveProgressRenderer {
                     if first {
                         order.push(event.id.clone());
                     }
-                    if !rich_tty && event.kind == LiveKind::Running && first {
+                    if lines && !rich_tty && event.kind == LiveKind::Running && first {
                         Report::new().line(event.display.clone()).print();
                         announced.insert(event.id.clone(), true);
                     }
-                    if !rich_tty
+                    if lines
+                        && !rich_tty
                         && event.kind != LiveKind::Running
                         && !announced.contains_key(&event.id)
                     {
@@ -314,6 +322,12 @@ mod tests {
             align_timing_right("✔︎", "mise lock --upgrade", Some(80)),
             "✔︎ mise lock --upgrade"
         );
+    }
+
+    #[test]
+    fn a_harness_at_a_terminal_gets_no_progress() {
+        assert_eq!(progress_mode(true, true), (false, false));
+        assert_eq!(progress_mode(true, false), (true, true));
     }
 
     #[test]

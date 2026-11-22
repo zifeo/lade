@@ -1,5 +1,5 @@
 preexec_lade() {
-    if [ "${1:0:5}" = "lade " ] || [ "$1" = "lade" ] || [ "$1" = "source off.zsh" ]; then
+    if [ "${1:0:5}" = "lade " ] || [ "$1" = "lade" ] || [ "$1" = "source off.zsh" ] || [ "$1" = 'eval "$(lade off)"' ]; then
         return
     fi
     LADE="$1"

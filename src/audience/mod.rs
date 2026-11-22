@@ -66,17 +66,8 @@ pub fn detect(
         }
         other => other,
     };
-    let audience = match via {
-        Via::Pretool | Via::Mcp => Audience::Agent,
-        Via::Preexec | Via::Organic => Audience::Human,
-        Via::Unknown => {
-            if agent_signal().is_some() {
-                Audience::Agent
-            } else {
-                Audience::Human
-            }
-        }
-    };
+    let audience = audience_of(via);
+    // § kgqztjzym.c@v6g66
     let can_prompt = matches!(command, Command::Inject(_) | Command::Approve { .. })
         && stdin_is_terminal
         && stderr_is_terminal
@@ -86,10 +77,49 @@ pub fn detect(
     } else {
         UiMode::Quiet
     };
+    // § end kgqztjzym.c
     Ok(Detection { via, audience, ui })
 }
 
+fn audience_of(via: Via) -> Audience {
+    match via {
+        // § kgqztjzym.a@5chnd
+        Via::Pretool | Via::Mcp => Audience::Agent,
+        Via::Preexec | Via::Organic => Audience::Human,
+        Via::Unknown => {
+            // § kgqztjzym.b@48wvw
+            if agent_signal().is_some() {
+                Audience::Agent
+            } else {
+                Audience::Human
+            }
+        }
+    }
+}
+
+/// The audience of a command line clap refused: the same signals as
+/// [`detect`], read from the subcommand clap still recognised.
+pub fn of_unparsed(argv: &[std::ffi::OsString]) -> Audience {
+    // § kgqztjzym.a@ngwpf
+    let matches = <crate::args::Args as clap::CommandFactory>::command()
+        .ignore_errors(true)
+        .try_get_matches_from(argv)
+        .ok();
+    let via = match &matches {
+        Some(matches) if matches.get_flag("pretool") => Via::Pretool,
+        Some(matches) => match matches.subcommand() {
+            Some(("set" | "unset", _)) => Via::Preexec,
+            Some(("hook", hook)) if hook.subcommand_name().is_none() => Via::Pretool,
+            Some(("mcp", _)) => Via::Mcp,
+            _ => Via::Unknown,
+        },
+        None => Via::Unknown,
+    };
+    audience_of(via)
+}
+
 fn via(command: &Command, pretool: bool) -> Via {
+    // § kgqztjzym.a@fjy0y
     if pretool {
         return Via::Pretool;
     }
@@ -108,6 +138,7 @@ fn via(command: &Command, pretool: bool) -> Via {
 /// Cursor / Codex / OpenCode / Copilot signals.
 /// `CURSOR_VERSION` is ignored: Cursor sets it in human terminals too.
 pub(crate) fn agent_signal() -> Option<String> {
+    // § kgqztjzym.b@f2xwg
     if let Some(name) = nonempty("AI_AGENT") {
         return Some(name);
     }

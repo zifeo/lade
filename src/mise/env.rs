@@ -30,6 +30,7 @@ pub fn sidecar_path(spec: &Spec) -> PathBuf {
 pub fn load(spec: &Spec) -> Option<HashMap<String, String>> {
     let bytes = std::fs::read(sidecar_path(spec)).ok()?;
     let parsed: Sidecar = serde_json::from_slice(&bytes).ok()?;
+    // § fvghrwpwb.c@gjs5c
     if parsed.v != SIDECAR_V || !tool_matches(spec, &parsed.tool) {
         return None;
     }
@@ -74,6 +75,7 @@ pub async fn refresh(
 }
 
 fn take_this_tool(bytes: &[u8], spec: &Spec) -> Result<HashMap<String, String>, Error> {
+    // § fvghrwpwb.c@wd2gf
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|e| Error::env(e.to_string()))?;
     let object = value

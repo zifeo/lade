@@ -6,6 +6,40 @@ use tempfile::tempdir;
 
 #[cfg(unix)]
 #[test]
+fn inject_pin_conflict_leaves_no_file_output() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    fs::create_dir_all(installs.join("rust/1.96.0")).unwrap();
+    write_exec(&installs.join("rust/1.96.0/cargo"), "echo RAN");
+    write_cached_env(
+        home.path(),
+        "core:rust",
+        "core-rust",
+        "1.96.0",
+        r#"{"RUSTUP_TOOLCHAIN":"1.96.0"}"#,
+    );
+    fs::write(
+        dir.path().join("lade.yml"),
+        "^cargo:\n  .:\n    file: out.json\n  KEY: value\n\"^cargo \":\n  cargo: mise://core/rust@1.96.0\n  RUSTUP_TOOLCHAIN: stable\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("MISE_INSTALLS_DIR", &installs)
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .args(["inject", "--", "cargo", "test"])
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains("RAN").not())
+        .stderr(predicates::str::contains(
+            "conflicting env 'RUSTUP_TOOLCHAIN'",
+        ));
+    assert!(!dir.path().join("out.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn inject_refuses_homebrew_when_install_leaves_bin_missing() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();

@@ -3,7 +3,7 @@ set -e
 export LADE_VAULT_HTTP=1
 
 if ! curl -s http://127.0.0.1:8200/v1/sys/health > /dev/null; then
-  docker compose up -d vault
+  docker compose -f "$(dirname "${BASH_SOURCE[0]}")/../compose.yml" up -d vault
 fi
 
 echo "Checking Vault accessibility..."

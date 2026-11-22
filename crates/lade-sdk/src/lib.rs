@@ -10,6 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 pub mod mcp;
 mod providers;
 mod resolve;
+pub mod upstream;
 
 pub use providers::Provider;
 pub use providers::Providers;
@@ -59,6 +60,7 @@ pub async fn hydrate_with_maskable(
     let mut values = HashMap::with_capacity(env.len());
     for (key, value_or_uri) in env {
         let Some(value) = hydration.get(&value_or_uri) else {
+            // § d5fjsqxna.b@61kgw
             bail!(
                 "Cannot find {} in {}",
                 value_or_uri,
@@ -86,6 +88,7 @@ pub async fn hydrate_one(
         .resolve(cwd, extra_env, &Warnings::default())
         .await?;
     let Some(value) = hydration.get(&value) else {
+        // § d5fjsqxna.b@7j604
         bail!("Cannot find {value} in the resolved providers");
     };
     Ok(value.clone())
@@ -163,6 +166,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, "escaped");
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_one_bang_keeps_file_uri_raw() {
+        let result = hydrate_one(
+            "!file:///tmp/x".to_string(),
+            &PathBuf::from("."),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, "file:///tmp/x");
     }
 
     #[tokio::test]

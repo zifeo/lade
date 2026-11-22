@@ -12,33 +12,38 @@ pub(crate) async fn run_setup(
     mode: crate::mise::PinMode,
 ) -> Result<()> {
     let shell = crate::preexec::maybe_bootstrap_setup_shell()?;
-    let may_prompt = ctx.stdin_is_terminal
-        && ctx.stderr_is_terminal
-        && ctx.audience == crate::config::Audience::Human;
+    let may_prompt = ctx.may_ask();
     let cwd = std::env::current_dir()?;
     let snap = crate::mise::scan(&cwd);
     if snap.project_git_root.is_none() {
+        // § h528pmcm2.b@m4j6a
+        let home_plane = snap.is_mise() && crate::config::at_user_home(&cwd);
+        let skipped = if home_plane {
+            "Pre-tool hooks are skipped. Packages extend the mise files in your home folder."
+        } else {
+            "Packages, locks, and pre-tool hooks are skipped."
+        };
         let mut report = Report::new().heading("This folder is not a git repo.");
         if crate::preexec::ci_job() {
-            report =
-                report.dim("CI. No shell wrap. Packages, locks, and pre-tool hooks are skipped.");
+            report = report.dim(format!("CI. No shell wrap. {skipped}"));
         } else {
             report = report
-                .dim("Shell wrap only. Packages, locks, and pre-tool hooks are skipped.")
+                .dim(format!("Shell wrap only. {skipped}"))
                 .dim("cd into a repo and run `lade setup`.");
         }
         report.print();
-        if snap.is_mise() {
+        if home_plane {
             require_lade_yaml()?;
             crate::mise::setup_pins(mode).await?;
         }
+        // § end h528pmcm2.b
         let tool = pretool::install::setup(may_prompt, slugs)?;
         pretool::install::print_setup(&shell, &tool);
         upgrade::nudge_if_available();
         return Ok(());
     }
     require_lade_yaml()?;
-    let saved = crate::global_config::GlobalConfig::resolved_user();
+    let saved = crate::global_config::GlobalConfig::resolved_user()?;
     let config = crate::config::LadeFile::build(cwd.clone())?;
     let show_packages = crate::mise::repo_needs_mise(&config, &saved);
     if show_packages {
@@ -81,6 +86,7 @@ pub(crate) async fn run_setup(
 }
 
 pub(crate) fn require_lade_yaml() -> Result<()> {
+    // § y4zs3xgg4.c@1rmhg
     let cwd = std::env::current_dir()?;
     if let Err(e) = crate::config::LadeFile::build(cwd) {
         crate::config::report_load_error(&e);

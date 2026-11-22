@@ -27,7 +27,7 @@ fn live_row_count(home: &std::path::Path) -> i64 {
 
 fn looks_like_window_pack(name: &str) -> bool {
     let Some(body) = name
-        .strip_prefix("lade-alice-")
+        .strip_prefix("lade-")
         .and_then(|s| s.strip_suffix(".tar.gz"))
     else {
         return false;
@@ -57,7 +57,7 @@ fn share_writes_pack_in_cwd() {
     let before = live_row_count(home.path());
     let assert = lade_user(home.path())
         .current_dir(dir.path())
-        .args(["log", "share", "--since", "1d"])
+        .args(["log", "--all", "share", "--since", "1d"])
         .assert()
         .success();
     let out = assert.get_output();
@@ -70,15 +70,16 @@ fn share_writes_pack_in_cwd() {
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("lade-alice-") && n.ends_with(".tar.gz"))
+                .is_some_and(|n| n.starts_with("lade-") && n.ends_with(".tar.gz"))
         })
         .expect("pack in cwd");
     assert!(stderr.contains(pack.to_str().unwrap()), "{stderr}");
     let name = pack.file_name().unwrap().to_str().unwrap();
     assert!(
         looks_like_window_pack(name),
-        "filename should be lade-$USER-$FROM-$TO.tar.gz, got {name}"
+        "filename should be lade-$FROM-$TO.tar.gz, got {name}"
     );
+    assert!(!name.contains("alice"), "{name}");
     let members = tar_members(&pack);
     assert_eq!(members, vec!["manifest.json", "events.db"]);
     assert_eq!(live_row_count(home.path()), before);
@@ -95,6 +96,7 @@ fn share_does_not_overwrite() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "share",
             "-o",
             pack.to_str().unwrap(),
@@ -115,7 +117,7 @@ fn share_refuses_agent_audience() {
     lade_user(home.path())
         .current_dir(dir.path())
         .env("CURSOR_AGENT", "1")
-        .args(["log", "share", "--since", "1d"])
+        .args(["log", "--all", "share", "--since", "1d"])
         .assert()
         .code(1)
         .stderr(predicates::str::contains("agent sessions"));
@@ -151,6 +153,59 @@ fn share_redacts_actor_and_repo_basename() {
         &["--source", pack.to_str().unwrap()],
     );
     assert_eq!(scoped.len(), 1);
+}
+
+#[test]
+fn a_pack_holds_no_absolute_path_of_the_sender() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    init_git(dir.path());
+    let secret = home.path().join("secret.json");
+    std::fs::write(&secret, format!("{{\"token\": \"{SECRET}\"}}")).unwrap();
+    write_yml(
+        dir.path(),
+        &format!(
+            "\"^echo \":\n  API_TOKEN: file://{}?query=.token\n",
+            secret.display()
+        ),
+    );
+    let notes = dir.path().join("notes.txt");
+    let elsewhere = home.path().join("elsewhere.txt");
+    inject(
+        home.path(),
+        dir.path(),
+        &[
+            "echo",
+            notes.to_str().unwrap(),
+            &format!("--out={}", elsewhere.display()),
+        ],
+    );
+    let live = filter_log(home.path(), dir.path(), &[]);
+    assert_eq!(live.len(), 1, "{live:?}");
+    let pack = share_pack(home.path(), dir.path(), &[]);
+    let rows = filter_log(
+        home.path(),
+        dir.path(),
+        &["--source", pack.to_str().unwrap(), "--all"],
+    );
+    assert_eq!(rows.len(), 1);
+    let packed = serde_json::to_string(&rows[0]).unwrap();
+    for root in [home.path(), dir.path()] {
+        for form in [root.to_path_buf(), root.canonicalize().unwrap()] {
+            assert!(
+                !packed.contains(form.to_str().unwrap()),
+                "{} in {packed}",
+                form.display()
+            );
+        }
+    }
+    assert_eq!(rows[0]["matches"][0]["file"], ".", "{packed}");
+    assert_eq!(
+        rows[0]["matches"][0]["bindings"][0]["uri"], "file://~/secret.json?query=.token",
+        "{packed}"
+    );
+    let name = pack.file_name().unwrap().to_str().unwrap();
+    assert!(!name.contains("alice"), "{name}");
 }
 
 #[test]
@@ -203,6 +258,7 @@ fn share_output_writes_only_there() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "share",
             "--since",
             "1d",
@@ -218,7 +274,7 @@ fn share_output_writes_only_there() {
         .filter(|e| {
             e.file_name()
                 .to_str()
-                .is_some_and(|n| n.starts_with("lade-alice-") && n.ends_with(".tar.gz"))
+                .is_some_and(|n| n.starts_with("lade-") && n.ends_with(".tar.gz"))
         })
         .count();
     assert_eq!(defaults, 0);
@@ -235,6 +291,7 @@ fn share_and_prune_reject_source() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "share",
             "--source",
             pack.to_str().unwrap(),
@@ -250,6 +307,7 @@ fn share_and_prune_reject_source() {
         .current_dir(dir.path())
         .args([
             "log",
+            "--all",
             "prune",
             "--keep",
             "1d",
@@ -261,4 +319,57 @@ fn share_and_prune_reject_source() {
         .stderr(predicates::str::contains(
             "--source cannot be used with prune",
         ));
+}
+
+#[test]
+fn share_warns_on_a_tampered_diary() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "first"]);
+    inject(home.path(), dir.path(), &["echo", "second"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm' WHERE seq = 1", [])
+        .unwrap();
+    drop(conn);
+    let out = lade_user(home.path())
+        .current_dir(dir.path())
+        .args([
+            "log",
+            "--all",
+            "share",
+            "--since",
+            "1d",
+            "-o",
+            "pack.tar.gz",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("tampered"), "{stderr}");
+    assert!(dir.path().join("pack.tar.gz").is_file());
+}
+
+#[test]
+fn share_pack_verifies_on_its_own() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "one"]);
+    inject(home.path(), dir.path(), &["echo", "two"]);
+    let pack = share_pack(home.path(), dir.path(), &[]);
+    std::fs::remove_file(home.path().join("events.db")).unwrap();
+    let out = lade_user(home.path())
+        .current_dir(dir.path())
+        .args(["log", "verify", "--source", pack.to_str().unwrap()])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("rows=2"), "{stderr}");
 }

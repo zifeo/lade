@@ -20,6 +20,7 @@ impl<'de> Deserialize<'de> for LadeSecret {
     {
         let value = serde_yaml::Value::deserialize(deserializer)?;
         if value.is_null() {
+            // § sn2x1h4v9.b@a4wxh
             return Ok(LadeSecret::Unset);
         }
         #[derive(Deserialize)]
@@ -39,6 +40,7 @@ impl<'de> Deserialize<'de> for LadeSecret {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleWhen {
+    // § v03g22hz0@pk0ja
     #[default]
     Always,
     Human,
@@ -58,6 +60,7 @@ impl RuleTtl {
             return Ok(Self::Off);
         }
         let window = parse_window(raw)?;
+        // § one fkaa6vap4.c@gjr1p
         if window.num_milliseconds() > i64::from(MAX_TTL_MS) {
             return Err("ttl is at most 24h".to_string());
         }
@@ -125,7 +128,9 @@ impl LadeRule {
     }
 }
 
+// § t4c9tbype@ybpyy
 #[derive(Deserialize, Debug, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RuleConfig {
     pub file: Option<PathBuf>,
     #[serde(rename = "1password_service_account")]
@@ -138,6 +143,7 @@ pub struct RuleConfig {
     pub log: Option<bool>,
     pub ttl: Option<RuleTtl>,
 }
+// § end t4c9tbype
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct LadeRule {
@@ -171,14 +177,31 @@ where
 }
 
 pub(super) fn resolve_lade_secret(secret: &LadeSecret, user: &Option<String>) -> Option<String> {
+    // § dcrxp986s@08q1y
     match secret {
         LadeSecret::Secret(value) => Some(value.clone()),
-        LadeSecret::User(map) => user
-            .as_ref()
-            .and_then(|u| map.get(u))
-            .or_else(|| map.get("."))
-            .and_then(|v| v.clone()),
+        LadeSecret::User(map) => user_entry(map, user).and_then(|v| v.clone()),
         LadeSecret::Unset => None,
+    }
+}
+
+/// The entry a per-user map gives `user`: theirs, else `.`. `Some(None)` is a
+/// `~` entry, which cancels like a `~` on the key.
+fn user_entry<'m>(
+    map: &'m HashMap<String, Option<String>>,
+    user: &Option<String>,
+) -> Option<&'m Option<String>> {
+    user.as_ref()
+        .and_then(|u| map.get(u))
+        .or_else(|| map.get("."))
+}
+
+pub(super) fn cancels(secret: &LadeSecret, user: &Option<String>) -> bool {
+    match secret {
+        LadeSecret::Unset => true,
+        // § dcrxp986s.d@pf12t
+        LadeSecret::User(map) => matches!(user_entry(map, user), Some(None)),
+        LadeSecret::Secret(_) => false,
     }
 }
 

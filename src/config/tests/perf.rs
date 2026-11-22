@@ -15,7 +15,7 @@ fn collect_two_hundred_rules_stays_under_a_second() {
     let parse_ms = parse_started.elapsed();
     let match_started = Instant::now();
     for i in 0..200 {
-        let hits = config.collect(&format!("cmd{i:03} run"));
+        let hits = config.collect(&format!("cmd{i:03} run")).unwrap();
         assert!(
             hits.len() >= 2,
             "dot plus cmd{i:03} should match, got {}",

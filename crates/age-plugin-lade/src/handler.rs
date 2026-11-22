@@ -19,6 +19,7 @@ fn strip_println_newline(s: &str) -> &str {
 }
 
 pub(super) fn hydrate(uri: &str) -> Result<String, String> {
+    // § mcf6rtczf.a@mpvfp
     let bin = find_lade()?;
     let output = std::process::Command::new(&bin)
         .arg("eval")

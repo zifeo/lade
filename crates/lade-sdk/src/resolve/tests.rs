@@ -130,7 +130,10 @@ fn dag_rejects_missing_dependency() {
         Template::parse("Bearer ${TOKEN}"),
     )]))
     .unwrap_err();
-    assert!(err.to_string().contains("missing dependency 'TOKEN'"));
+    assert_eq!(
+        err.to_string(),
+        "binding 'HEADER' references missing dependency 'TOKEN'"
+    );
 }
 
 #[test]
@@ -141,4 +144,15 @@ fn dag_rejects_cycles() {
     ]))
     .unwrap_err();
     assert!(err.to_string().contains("cyclic binding dependencies"));
+}
+
+#[test]
+fn a_template_yields_what_some_values_render_it_as() {
+    let template = Template::parse("op://${VAULT}/db.$ITEM/password");
+    assert!(template.yields("op://prod/db.main/password"));
+    assert!(template.yields("op://a/b/db./password"));
+    assert!(!template.yields("op://prod/db.main/username"));
+    assert!(!template.yields("vault://prod/db.main/password"));
+    assert!(Template::parse("op://v/i/f").yields("op://v/i/f"));
+    assert!(!Template::parse("op://v/i/f").yields("op://v/i/g"));
 }

@@ -28,6 +28,7 @@ pub async fn handle_approve(
             std::process::exit(crate::exit_codes::FAILURE);
         }
     };
+    // § d17dh2dey.a@axe3s
     let Some(id) = ctx.ticket_id.as_deref().filter(|id| ticket::exists(id)) else {
         message_box::MessageBox::new()
             .error()
@@ -52,7 +53,11 @@ pub async fn handle_approve(
             std::process::exit(crate::exit_codes::FAILURE);
         }
     };
-    if pre.cwd != current_dir {
+    // § end d17dh2dey.a
+    // `lade set` stored the directory the line's leading `cd` segments
+    // resolve to, not the shell's.
+    // § one d17dh2dey.b@9tntm
+    if crate::pretool::run_dir(&current_dir, &pre.command).0 != pre.cwd {
         message_box::MessageBox::new()
             .error()
             .line("The pending disclaimer was for a different directory:")
@@ -61,6 +66,7 @@ pub async fn handle_approve(
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);
     }
+    // § one d17dh2dey.c@ak3p0
     if !prompt::verify_code(&pre.command, &code) {
         message_box::MessageBox::new()
             .error()
@@ -68,14 +74,13 @@ pub async fn handle_approve(
             .print_stderr();
         std::process::exit(crate::exit_codes::FAILURE);
     }
+    // § d17dh2dey.d@pv3qr
     let opts = InjectCommand {
         no_mask: false,
         mask_format: DEFAULT_MASK_FORMAT.to_string(),
         commands: vec![],
     };
     // The code is verified, so let resolve_disclaimers through for this command.
-    unsafe {
-        std::env::set_var(crate::preexec::LADE_APPROVE, code);
-    }
+    crate::preexec::approve_in_process(&code);
     run_inject(pre.command, opts, ctx, config, shell, &current_dir).await
 }

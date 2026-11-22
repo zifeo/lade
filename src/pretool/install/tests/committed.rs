@@ -359,6 +359,48 @@ fn inspect_reports_the_committed_hook() {
 }
 
 #[test]
+fn inspect_reports_an_unreadable_committed_file() {
+    let (home, repo, shared) = repo("{");
+    let status = inspect_at(home.path(), repo.path()).unwrap();
+    let committed = status.claude.committed.as_ref().unwrap();
+    assert!(!committed.present && !committed.blocking);
+    let error = committed.error.as_deref().unwrap();
+    assert!(error.contains(&shared.display().to_string()), "{error}");
+    let json = serde_json::to_value(&status).unwrap();
+    assert_eq!(json["claude"]["committed"]["error"], json!(error));
+
+    write_scoped(Scope::Project, "claude", home.path(), repo.path(), true).unwrap_err();
+    fs::write(&shared, BLOCKING).unwrap();
+    let status = inspect_at(home.path(), repo.path()).unwrap();
+    assert!(status.claude.committed.as_ref().unwrap().error.is_none());
+    let json = serde_json::to_value(&status).unwrap();
+    assert!(json["claude"]["committed"].get("error").is_none());
+}
+
+#[test]
+fn inspect_reports_an_unreadable_hook_file() {
+    let (home, repo, _) = repo(BLOCKING);
+    let cursor = repo.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(cursor.parent().unwrap()).unwrap();
+    fs::write(&cursor, "{").unwrap();
+    let global = Agent::Codex.config_path(home.path());
+    fs::create_dir_all(global.parent().unwrap()).unwrap();
+    fs::write(&global, "{").unwrap();
+
+    let status = inspect_at(home.path(), repo.path()).unwrap();
+    assert!(!status.cursor.project.installed);
+    let error = status.cursor.project.error.as_deref().unwrap();
+    assert!(error.contains(&cursor.display().to_string()), "{error}");
+    let error = status.codex.global.error.as_deref().unwrap();
+    assert!(error.contains(&global.display().to_string()), "{error}");
+    assert!(status.cursor.global.error.is_none());
+    assert!(status.codex.project.error.is_none());
+    let json = serde_json::to_value(&status).unwrap();
+    assert!(json["cursor"]["project"]["error"].is_string());
+    assert!(json["cursor"]["global"].get("error").is_none());
+}
+
+#[test]
 fn a_committed_hook_without_on_failure_is_not_blocking() {
     let committed = r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"lade hook --harness claude"}]}]}}"#;
     let (home, repo, _) = repo(committed);

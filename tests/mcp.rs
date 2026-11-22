@@ -151,6 +151,58 @@ fn test_mcp_restarts_stdio_child_before_initialize_without_rehydrating() {
 }
 
 #[test]
+fn mcp_withheld_disclaimer_writes_denied() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"^env$\":\n  .:\n    log: true\n    disclaimer: \"Danger!\"\n  PUBLIC: val\n",
+    )
+    .unwrap();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["mcp", "--", "env"])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).contains("PUBLIC=val"),
+        "a withheld disclaimer must not start the server with its access"
+    );
+    let rows = common::log_rows(home.path(), dir.path());
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["kind"], "denied");
+}
+
+#[test]
+fn a_failed_secret_stops_the_server_before_it_starts() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let missing = dir.path().join("missing.json");
+    fs::write(
+        dir.path().join("lade.yml"),
+        format!(
+            "\"^sh\":\n  KEY: \"file://{}?query=.token\"\n",
+            missing.display()
+        ),
+    )
+    .unwrap();
+    let started = dir.path().join("started");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args([
+            "mcp",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch '{}'", started.display()),
+        ])
+        .assert()
+        .code(1);
+    assert!(!started.exists());
+}
+
+#[test]
 fn test_mcp_requires_one_transport_target() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
@@ -160,4 +212,72 @@ fn test_mcp_requires_one_transport_target() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("provide an MCP HTTPS URL"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_server_a_signal_ends_exits_lade_mcp_with_128_plus_the_signal() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let server = dir.path().join("term-self");
+    fs::write(&server, "#!/bin/sh\nread line\nkill -TERM $$\n").unwrap();
+    fs::set_permissions(&server, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut child = lade_process(home.path())
+        .current_dir(dir.path())
+        .args(["mcp", "--", server.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    stdin
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    drop(stdin);
+    assert_eq!(
+        output.status.code(),
+        Some(143),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_client_that_leaves_while_the_server_restarts_gets_the_servers_code() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let server = dir.path().join("exit-seven");
+    fs::write(&server, "#!/bin/sh\nexit 7\n").unwrap();
+    fs::set_permissions(&server, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut child = lade_process(home.path())
+        .current_dir(dir.path())
+        .args(["mcp", "--", server.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.take().expect("piped stdin");
+    // The server exits at once and Lade waits out a restart backoff.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

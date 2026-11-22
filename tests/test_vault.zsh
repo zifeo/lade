@@ -1,8 +1,9 @@
-# env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 zsh tests/test_vault.zsh
+# Run by `cargo test --test docker vault`, from a directory whose lade.yml holds
+# the `^echo e` rule of tests/docker/vault.rs.
 
 set -e
 
-source tests/test_vault_setup.bash
+source "$(dirname "$0")/test_vault_setup.bash"
 LADE_BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/lade"
 
 echo e $E1 $E2 $E3 $E4

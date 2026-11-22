@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// `mise backends ls`, and `pipx`, which mise still reads as `pypi`.
 pub const BACKENDS: &[&str] = &[
-    "aqua", "github", "gitlab", "forgejo", "http", "s3", "core", "npm", "pipx", "cargo", "go",
-    "gem", "dotnet", "spm", "conda", "pkgx", "asdf", "vfox",
+    "aqua", "asdf", "cargo", "conda", "core", "dotnet", "forgejo", "gem", "github", "gitlab", "go",
+    "http", "npm", "packslip", "pipx", "pypi", "s3", "spinel", "spm", "ubi", "vfox",
 ];
 
 const SCHEME: &str = "mise://";
@@ -88,6 +89,7 @@ impl Spec {
 }
 
 pub fn looks_like_spec(value: &str) -> bool {
+    // § aq3qybz6p.d@y143r
     is_mise_uri(value) || is_legacy_cli_spec(value)
 }
 
@@ -143,6 +145,7 @@ pub fn looks_like_bare_version(value: &str) -> bool {
 }
 
 pub fn parse(value: &str) -> Result<Spec, String> {
+    // § aq3qybz6p.d@wamqq
     if is_legacy_cli_spec(value) {
         return Err(format!(
             "`{value}` is the mise CLI form. In lade.yaml use {}.",
@@ -160,6 +163,14 @@ pub fn parse(value: &str) -> Result<Spec, String> {
         ));
     };
     let prefix = &rest[..slash];
+    if let Some((backend, owner)) = prefix.split_once(':')
+        && BACKENDS.contains(&backend)
+    {
+        let tail = &rest[slash..];
+        return Err(format!(
+            "`{value}` puts the mise CLI form in the URI. In lade.yaml use {SCHEME}{backend}/{owner}{tail}."
+        ));
+    }
     if !BACKENDS.contains(&prefix) {
         return Err(format!(
             "unknown mise backend '{prefix}'. Use a name from `mise backends ls`."
@@ -194,11 +205,10 @@ pub fn parse(value: &str) -> Result<Spec, String> {
 }
 
 fn is_mise_uri(value: &str) -> bool {
-    let Some(rest) = value.strip_prefix(SCHEME) else {
-        return false;
-    };
-    let backend = rest.split(['/', '[']).next().unwrap_or("");
-    BACKENDS.contains(&backend)
+    // § aq3qybz6p.d@q7cc2
+    // Every `mise://` value is a pin, even a malformed one: read as a secret, an unknown
+    // backend would be exported as a raw value and never reach `parse`'s error.
+    value.starts_with(SCHEME)
 }
 
 fn is_legacy_cli_spec(value: &str) -> bool {

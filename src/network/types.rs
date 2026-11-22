@@ -59,6 +59,7 @@ impl DetachedNetworkSession {
     /// `lade unset` releases it. Dropping `self` then releases this
     /// process's lease.
     pub fn hand_to_shell(self, ticket: &str) -> Result<()> {
+        // § gv81k6nf4.b@a6kh5
         if self.asks.is_empty() {
             return Ok(());
         }
@@ -84,6 +85,8 @@ pub(crate) struct HubLease(pub(crate) String);
 
 impl Drop for HubLease {
     fn drop(&mut self) {
+        // § gv81k6nf4.a@1p902
+        // silcrow:follow
         crate::hub::tunnel_release(&self.0);
     }
 }

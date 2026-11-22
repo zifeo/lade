@@ -175,6 +175,7 @@ fn refresh_isolates_pin_and_drops_foreign_tool_env() {
     write_exec(
         &stub.join("mise"),
         r#"
+if [ "$1" = "--version" ]; then printf '%s\n' "mise 2024.8.12"; exit 0; fi
 while IFS= read -r line; do
   printf '%s\n' "$line"
 done < "$MISE_GLOBAL_CONFIG_FILE" > "$MISE_INSTALLS_DIR/isolated.toml"
@@ -233,7 +234,10 @@ fn aqua_missing_sidecar_asks_mise_env_once() {
     write_exec(&bin.join("jq"), "echo PINNED");
     write_exec(
         &stub.join("mise"),
-        r#"printf '%s\n' '{"PATH":"/usr/bin","MISE_YES":"1"}'"#,
+        r#"
+if [ "$1" = "--version" ]; then printf '%s\n' "mise 2024.8.12"; exit 0; fi
+printf '%s\n' '{"PATH":"/usr/bin","MISE_YES":"1"}'
+"#,
     );
     std::fs::write(
         dir.path().join("lade.yml"),

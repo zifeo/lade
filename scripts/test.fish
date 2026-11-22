@@ -9,6 +9,8 @@ function lade_cli
   end
 end
 
+function preexec_other --on-event fish_preexec; end
+
 echo "test=$TEST"
 eval "$(lade_cli on)"
 echo "test=$TEST"
@@ -16,6 +18,12 @@ echo "test=$TEST"
 preexec_lade 'echo "test=$TEST"'
 echo "test=$TEST"
 precmd_lade
+
+preexec_lade 'lade status'
+if set -q LADE
+    echo "preexec_lade should skip a lade line"
+    exit 1
+end
 
 echo "test=$TEST"
 eval "$(lade_cli off)"
@@ -35,4 +43,9 @@ if test $status -eq 0
     exit 1
 else
     echo "precmd_lade correctly removed"
+end
+
+if not functions -q preexec_other
+    echo "lade off should keep another hook"
+    exit 1
 end

@@ -13,6 +13,7 @@ mod tsh;
 pub use cli::is_network_scheme;
 pub use command::{
     Listen, ListenKind, build_command, ensure_provider_preflight, kube_context, listen_kind,
+    tsh_kube_login,
 };
 pub use kubectl::compose_uri as compose_kubectl_uri;
 

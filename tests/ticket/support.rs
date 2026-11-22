@@ -72,13 +72,5 @@ fn tickets_dir(home: &Path) -> PathBuf {
 }
 
 pub(super) fn log_rows(home: &Path, dir: &Path) -> Value {
-    let out = common::lade(home)
-        .current_dir(dir)
-        .args(["log", "--json", "--since", "1d"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    serde_json::from_slice(&out).unwrap()
+    common::log_rows(home, dir)
 }

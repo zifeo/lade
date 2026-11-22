@@ -48,12 +48,15 @@ mod vault;
 
 pub(crate) use support::*;
 
+// § one j5kahfy4q.a@p3afg
 /// A provider is logged in or not: it answers within this or fails.
 pub const PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+// § one j5kahfy4q.b@hjnf6
 /// For a provider that can wait on a human: Touch ID, a hardware key touch.
 pub const HUMAN_PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub(crate) fn provider_timeout_error(name: &str, limit: std::time::Duration) -> anyhow::Error {
+    // § j5kahfy4q.c@fhxnp
     anyhow::anyhow!(
         "{name} did not answer within {}s. Check that it is unlocked and logged in.",
         limit.as_secs()
@@ -80,6 +83,7 @@ pub trait Provider: Sync {
     fn install_url(&self) -> &'static str;
 
     fn transport(&self) -> Transport {
+        // § cbck003hy.a@bd3nk
         Transport::Cli
     }
 
@@ -103,6 +107,7 @@ pub trait Provider: Sync {
 
     /// Whether resolved values from this provider should be masked in subprocess output.
     fn masks_in_output(&self) -> bool {
+        // § qq076qjq2.a@gdhdr
         true
     }
 
@@ -117,6 +122,8 @@ pub trait Provider: Sync {
 pub struct Providers {
     by_scheme: FxHashMap<&'static str, Box<dyn Provider + Send>>,
     fallback: Box<dyn Provider + Send>,
+    /// Set on an attached remote: one request carries every ref of its schemes.
+    upstream: Option<Box<dyn Provider + Send>>,
 }
 
 impl Default for Providers {
@@ -167,6 +174,8 @@ impl Providers {
         Self {
             by_scheme,
             fallback: Box::new(raw::Raw::new()),
+            upstream: crate::upstream::attached()
+                .map(|attached| Box::new(crate::upstream::Upstream::new(attached)) as _),
         }
     }
 
@@ -193,12 +202,17 @@ impl Providers {
 
     pub fn add(&mut self, value: String) -> Result<()> {
         let scheme = value.split_once("://").map(|(s, _)| s).unwrap_or("");
+        if let Some(upstream) = self.upstream.as_mut()
+            && crate::upstream::takes(scheme)
+        {
+            return upstream.add(value);
+        }
         match self.by_scheme.get_mut(scheme) {
-            Some(p) => match p.add(value.clone()) {
-                Ok(()) => Ok(()),
-                Err(_) if scheme == "file" => self.fallback.add(value),
-                Err(e) => Err(e),
-            },
+            Some(p) => {
+                // § q3jn8hjmk.a@ct0vd
+                p.add(value)
+            }
+            // § one q3jn8hjmk.b@rdx1f
             None => self.fallback.add(value),
         }
     }
@@ -214,10 +228,13 @@ impl Providers {
             .values()
             .map(|p| p.as_ref() as &dyn Provider)
             .chain(std::iter::once(self.fallback.as_ref() as &dyn Provider))
+            .chain(self.upstream.as_deref().map(|p| p as &dyn Provider))
             .filter(|p| p.has_work())
             .collect();
 
+        // § d5fjsqxna.a@vzapz
         let results = try_join_all(active.iter().map(|p| async move {
+            // § j5kahfy4q.c@tbcnm
             let started = std::time::Instant::now();
             let hydration =
                 tokio::time::timeout(p.timeout(), p.resolve(cwd, extra_env, warnings)).await;
@@ -232,11 +249,13 @@ impl Providers {
             Ok::<_, anyhow::Error>((p.masks_in_output(), hydration))
         }))
         .await?;
+        // § end d5fjsqxna.a
 
         let mut full_hydration = Hydration::default();
         let mut maskable_sources = FxHashSet::default();
 
         for (masks, hydration) in results {
+            // § qq076qjq2.a@z90xm
             if masks {
                 maskable_sources.extend(hydration.keys().cloned());
             }

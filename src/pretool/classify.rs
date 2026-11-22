@@ -17,6 +17,7 @@ const VERBS: &[&str] = &[
 /// and sh exec the last command of a `-c` line in place of themselves
 /// (Codex runs `zsh -lc '<rewrite>'`). A command after Lade keeps the
 /// harness shell; `&& true` keeps Lade's exit status, fish included.
+// § one bwgf7z8q5.a@9b5ef
 const REWRITE_TAIL: &str = " && true";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,7 @@ impl Class {
 }
 
 pub(super) fn classify(command: &str) -> Class {
+    // § hk9h1sqyt.b@2j39q
     let mut current = command.trim().to_string();
     for _ in 0..8 {
         match classify_once(&current) {
@@ -64,10 +66,14 @@ fn classify_once(command: &str) -> Class {
     rest = after.trim_start();
     let mut ticket_id: Option<String> = None;
     let mut pretool = false;
+    // `lade inject --no-mask --mask-format X -- cmd` must still peel to `cmd`,
+    // and Lade's own options, `--pretool` included, go on after `inject`.
+    let mut injected = false;
     loop {
         let Some((tok, after)) = split_token(rest) else {
             return Class::Empty;
         };
+        // § ac9463jhq.a@vxkp9
         if tok == "--pretool" {
             pretool = true;
             rest = after.trim_start();
@@ -87,13 +93,16 @@ fn classify_once(command: &str) -> Class {
             rest = after.trim_start();
             continue;
         }
+        // § end ac9463jhq.a
         if matches!(tok.as_str(), "-h" | "--help" | "--version") {
             return Class::Verb;
         }
         if matches!(
             tok.as_str(),
-            "--via=pretool" | "--no-mask" | "-v" | "-vv" | "-q" | "--verbose"
-        ) {
+            "--no-mask" | "-v" | "-vv" | "-q" | "--verbose"
+        ) || tok.starts_with("--mask-format=")
+            || tok.starts_with("--via=")
+        {
             rest = after.trim_start();
             continue;
         }
@@ -108,16 +117,12 @@ fn classify_once(command: &str) -> Class {
             rest = after.trim_start();
             break;
         }
-        if tok == "inject" {
-            rest = skip_inject_flags(after);
-            if let Some((first, _)) = split_token(rest)
-                && matches!(first.as_str(), "-h" | "--help" | "--version")
-            {
-                return Class::Verb;
-            }
-            break;
+        if tok == "inject" && !injected {
+            injected = true;
+            rest = after.trim_start();
+            continue;
         }
-        if is_verb(&tok) {
+        if !injected && is_verb(&tok) {
             return Class::Verb;
         }
         break;
@@ -138,36 +143,6 @@ fn classify_once(command: &str) -> Class {
     Class::Vehicle { inner }
 }
 
-/// `lade inject --no-mask --mask-format X -- cmd` must still peel to `cmd`.
-fn skip_inject_flags(after_inject: &str) -> &str {
-    let mut rest = after_inject.trim_start();
-    loop {
-        let Some((tok, after)) = split_token(rest) else {
-            return rest;
-        };
-        if tok == "--" {
-            return after.trim_start();
-        }
-        if matches!(
-            tok.as_str(),
-            "--no-mask" | "-v" | "-vv" | "-q" | "--verbose"
-        ) || tok.starts_with("--mask-format=")
-            || tok.starts_with("--via=")
-        {
-            rest = after.trim_start();
-            continue;
-        }
-        if tok == "--mask-format" || tok == "--via" {
-            rest = after.trim_start();
-            if let Some((_, after_val)) = split_token(rest) {
-                rest = after_val.trim_start();
-            }
-            continue;
-        }
-        return rest;
-    }
-}
-
 fn ticket_finished(id: &str, inner: &str) -> bool {
     ticket::read(id).is_ok_and(|pre| pre.command == inner)
 }
@@ -177,6 +152,7 @@ fn is_verb(tok: &str) -> bool {
 }
 
 pub(super) fn sanitize_env_prefix(prefix: &str) -> String {
+    // § hk9h1sqyt.c@09yd8
     prefix
         .split_whitespace()
         .filter(|assign| {
@@ -197,6 +173,7 @@ pub(super) fn join_prefix(prefix: &str, command: &str) -> String {
 }
 
 pub(super) fn wrap_ticket(bin: &str, id: &str, inner: &str) -> String {
+    // § g6sqmp8tb.b@wqx14
     format!(
         "{} --pretool={} '{}'{REWRITE_TAIL}",
         bin,
@@ -206,6 +183,7 @@ pub(super) fn wrap_ticket(bin: &str, id: &str, inner: &str) -> String {
 }
 
 pub(super) fn wrap_idless(bin: &str, inner: &str) -> String {
+    // § g6sqmp8tb.b@0vdst
     format!(
         "{} --pretool -- '{}'{REWRITE_TAIL}",
         bin,

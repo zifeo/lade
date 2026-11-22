@@ -1,10 +1,12 @@
-# env -i PATH="$PATH" VAULT_TOKEN="token" LADE_VAULT_HTTP=1 fish tests/test_vault.fish
+# Run by `cargo test --test docker vault`, from a directory whose lade.yml holds
+# the `^echo e` rule of tests/docker/vault.rs.
 
 set -e
 
 set -x LADE_VAULT_HTTP 1
-bash tests/test_vault_setup.bash
-set lade_bin (cd (dirname (status filename))/.. && pwd)/target/debug/lade
+bash (dirname (status filename))/test_vault_setup.bash
+# A `cd` in a fish command substitution moves the shell itself.
+set lade_bin (path resolve (dirname (status filename))/..)/target/debug/lade
 
 echo e $E1 $E2 $E3 $E4
 # The test runs under a temp HOME without cargo's state: the debug hooks call

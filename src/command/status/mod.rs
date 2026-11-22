@@ -15,6 +15,7 @@ mod tests;
 
 #[derive(Serialize)]
 struct VersionInfo {
+    // § rbzjhj8tk.e@a199p
     current: String,
     latest: Option<String>,
     update_available: bool,
@@ -51,6 +52,7 @@ struct PreexecHooks {
 
 #[derive(Serialize)]
 struct HooksInfo {
+    // § fmn2jmqxb.b@hw4k5
     /// `None` when no shell started Lade.
     preexec: Option<PreexecHooks>,
     pretool: crate::pretool::install::PretoolStatus,
@@ -142,8 +144,28 @@ struct HubStatus {
     memory: crate::hub::MemoryGuard,
 }
 
+/// `upstream`: on a remote, whether it is attached to a laptop and its link
+/// is up. `links`: on a laptop, the remotes its hub links.
+#[derive(Serialize)]
+struct RemoteStatus {
+    upstream: &'static str,
+    laptop: Option<String>,
+    connect: Option<String>,
+    links: Vec<LinkStatus>,
+}
+
+#[derive(Serialize)]
+struct LinkStatus {
+    host: String,
+    transport: Vec<String>,
+    phase: &'static str,
+    error: Option<String>,
+    walks: Vec<String>,
+}
+
 #[derive(Serialize)]
 struct StatusReport {
+    // § fmn2jmqxb.a@8ders
     version: VersionInfo,
     age_plugin: AgePluginInfo,
     global_config: GlobalConfigInfo,
@@ -152,6 +174,7 @@ struct StatusReport {
     log: event::LogInfo,
     hub: HubStatus,
     mise: MiseInfo,
+    remote: RemoteStatus,
     ok: bool,
     /// Text only. The JSON keeps the per-location `installed` / `current`.
     #[serde(skip)]
@@ -165,6 +188,7 @@ pub async fn run(opts: StatusCommand) -> Result<()> {
     } else {
         print::print_human(&report);
     }
+    // § vk7cw8j73.b@z3n89
     if report.ok {
         return Ok(());
     }

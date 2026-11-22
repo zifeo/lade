@@ -5,10 +5,14 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::locate::project_dest;
+use super::opencode::OpenCodeApi;
 use super::paths::{ItemVerb, home_dir, short_path};
 use super::ui::{PretoolReport, PretoolRow, ask_harnesses, where_line};
 use super::want::{Want, want};
-use super::write::{Scope, hook_path, refuse_double_plane, strip_worktree_copy, write_hook};
+use super::write::{
+    Scope, hook_path, read_config, refuse_double_plane, strip_worktree_copy, updated_hook,
+    write_hook,
+};
 
 pub(crate) struct PlannedSetup {
     home: std::path::PathBuf,
@@ -123,7 +127,8 @@ fn apply_project(agents: &[Agent], home: &Path, dest: &Path) -> Result<PretoolRe
     let mut rows = Vec::new();
     let mut write = Vec::new();
     for agent in agents {
-        if has_hook(*agent, Scope::User, home, dest) {
+        if has_hook(*agent, Scope::User, home, dest)? {
+            // § rkpfgpx72.b@jspqm
             rows.push(PretoolRow {
                 agent: agent.name(),
                 verb: ItemVerb::Flagged,
@@ -150,15 +155,14 @@ fn apply_project(agents: &[Agent], home: &Path, dest: &Path) -> Result<PretoolRe
 }
 
 fn refuse_stacked_planes(agents: &[Agent], home: &Path, dest: &Path) -> Result<()> {
-    let stacked: Vec<&str> = agents
-        .iter()
-        .copied()
-        .filter(|agent| {
-            has_hook(*agent, Scope::User, home, dest)
-                && has_hook(*agent, Scope::Project, home, dest)
-        })
-        .map(Agent::name)
-        .collect();
+    // § rkpfgpx72.b@v7qma
+    let mut stacked = Vec::new();
+    for &agent in agents {
+        if has_hook(agent, Scope::User, home, dest)? && has_hook(agent, Scope::Project, home, dest)?
+        {
+            stacked.push(agent.name());
+        }
+    }
     refuse_double_plane(&stacked)
 }
 
@@ -176,7 +180,7 @@ pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<Pretoo
             path: short_path(&out.path, home, dest),
             note: match want {
                 Want::Copy(_) => "copy of the committed .claude/settings.json",
-                Want::Command(_) => "",
+                Want::Command(..) => "",
             },
         });
     }
@@ -187,21 +191,32 @@ pub(super) fn apply_plan(plan: &Plan, home: &Path, dest: &Path) -> Result<Pretoo
 }
 
 fn pending_project(agents: &[Agent], home: &Path, dest: &Path) -> Vec<Agent> {
+    pending_project_for(agents, home, dest, OpenCodeApi::installed)
+}
+
+/// The harnesses whose repo hook a write would change, as `write_hook`
+/// would write it. `api`: the OpenCode API of a new plugin.
+pub(super) fn pending_project_for(
+    agents: &[Agent],
+    home: &Path,
+    dest: &Path,
+    api: impl Fn() -> Result<OpenCodeApi>,
+) -> Vec<Agent> {
+    // § heg7hfveq.a@ykw9k
     agents
         .iter()
         .copied()
-        .filter(|agent| hook_needs_write(*agent, Scope::Project, home, dest))
+        .filter(|agent| {
+            let existing = fs::read_to_string(hook_path(*agent, Scope::Project, home, dest))
+                .unwrap_or_default();
+            want(*agent, Scope::Project, dest)
+                .and_then(|want| updated_hook(*agent, &existing, &want, &api))
+                .map_or(true, |updated| updated.is_some())
+        })
         .collect()
 }
 
-fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
-    let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
-    agent.has_hook(&existing).unwrap_or(false)
-}
-
-fn hook_needs_write(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> bool {
-    let existing = fs::read_to_string(hook_path(agent, scope, home, dest)).unwrap_or_default();
-    !want(agent, scope, dest)
-        .and_then(|want| want.is_current(agent, &existing))
-        .unwrap_or(false)
+fn has_hook(agent: Agent, scope: Scope, home: &Path, dest: &Path) -> Result<bool> {
+    let existing = read_config(&hook_path(agent, scope, home, dest))?;
+    Ok(agent.has_hook(&existing).unwrap_or(false))
 }

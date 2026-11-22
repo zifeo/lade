@@ -41,6 +41,13 @@ pub(crate) async fn run_standalone(
             println!("{}", shell.off()?);
             Ok(None)
         }
+        // The ticket holds all it undoes, and the snapshot comes from the
+        // shell: a `lade.yaml` broken while the command ran still restores.
+        Command::Unset(EvalCommand { commands }) => {
+            let shell = Shell::detect()?;
+            handle_unset(ctx, &shell, commands)?;
+            Ok(None)
+        }
         Command::Setup(opts) => {
             let mode = if opts.unlock {
                 crate::mise::PinMode::Unlock
@@ -70,21 +77,26 @@ pub(crate) async fn run_standalone(
                 return Ok(None);
             }
             setup::require_lade_yaml()?;
+            // § ep7nzy2xg.a@y46ft
             let tool = pretool::install::teardown()?;
             crate::mise::run_lifecycle_commands("teardown").await?;
             crate::packages::run("teardown").await?;
+            // § end ep7nzy2xg.a
             pretool::install::print_teardown(&tool);
             Ok(None)
         }
         Command::Add(opts) => {
+            // § qp8tmdhae@7ts5s
             add::run_add(opts, ctx)?;
             setup::run_setup(ctx, &[], crate::mise::PinMode::Locked).await?;
             Ok(None)
         }
         Command::Remove(opts) => {
+            // § qp8tmdhae@d31dv
             add::run_remove(opts, ctx)?;
             Ok(None)
         }
+        // § one bvr6wk206.c@z01d9
         Command::Upgrade(opts) => upgrade::perform(opts).await.map(|()| None),
         Command::Eval {
             uri,
@@ -97,11 +109,13 @@ pub(crate) async fn run_standalone(
             if access_command.as_ref().is_some_and(|name| name.is_empty()) {
                 anyhow::bail!("--access-command cannot be empty");
             }
+            // § y8w7xhrr1.a@m78ac
             let ttl = ttl
                 .map(|raw| {
                     crate::config::RuleTtl::parse(&raw).map_err(|e| anyhow::anyhow!("--ttl: {e}"))
                 })
                 .transpose()?;
+            // § end y8w7xhrr1.a
             let command = access_command.unwrap_or_else(|| "eval".to_string());
             let current_dir = std::env::current_dir()?;
             let value = eval::resolve_uri(
@@ -113,6 +127,7 @@ pub(crate) async fn run_standalone(
                 ttl.as_ref(),
             )
             .await?;
+            // § one xrjs58t2q.a@q20t6
             println!("{value}");
             Ok(None)
         }
@@ -164,6 +179,24 @@ pub(crate) async fn run_standalone(
             Ok(None)
         }
         Command::Status(opts) => status::run(opts).await.map(|()| None),
+        Command::Connect(opts) => {
+            let path = opts
+                .path
+                .ok_or_else(|| anyhow::anyhow!("lade connect needs a path on the remote"))?;
+            crate::remote::connect::run(ctx, path, opts.transport).await?;
+            Ok(None)
+        }
+        Command::Detach(opts) => crate::remote::connect::detach(opts.transport).map(|()| None),
+        Command::Attach(opts) => {
+            let laptop = crate::remote::link::decode_arg(&opts.laptop)?;
+            let transport = crate::remote::link::decode_arg(&opts.transport)?;
+            std::process::exit(crate::remote::attach::run(laptop, transport, opts.resume).await?);
+        }
+        Command::Remote => std::process::exit(crate::remote::link::run().await?),
+        Command::LinkedTunnel(opts) => std::process::exit(
+            crate::remote::tunnel::run(&opts.uri, &opts.walk, &opts.listen).await?,
+        ),
+        Command::RemoteFiles(opts) => crate::remote::files::run(&opts.path).await.map(|()| None),
         Command::Ttl(opts) => ttl::run(opts).map(|()| None),
         Command::Log(opts) => {
             log_cmd::run_log(opts, ctx.audience == crate::config::Audience::Agent).map(|()| None)
@@ -177,6 +210,7 @@ pub(crate) async fn run_standalone(
                 use tokio::signal::unix::{SignalKind, signal};
                 // Killed outright, the hub would leave its tunnels'
                 // providers running.
+                // § vdbmtzqtb.d@5kxhb
                 let mut term = signal(SignalKind::terminate())?;
                 let mut interrupt = signal(SignalKind::interrupt())?;
                 crate::hub::serve(async move {
@@ -198,6 +232,7 @@ pub(crate) async fn run_config_verbs(
     ctx: &InvocationContext,
     config: &Config,
     current_dir: std::path::PathBuf,
+    preexec_shell: Option<Shell>,
 ) -> Result<Option<i32>> {
     match command {
         Command::Hook {
@@ -212,8 +247,7 @@ pub(crate) async fn run_config_verbs(
                     .print_stderr();
                 std::process::exit(exit_codes::FAILURE);
             }
-            let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input)?;
+            let input = hook_input()?;
             let output = pretool::handle(config, &input, ctx.audience, harness.as_deref())?;
             print!("{}", output);
             Ok(None)
@@ -242,24 +276,64 @@ pub(crate) async fn run_config_verbs(
             ))
         }
         Command::Set(EvalCommand { commands }) => {
-            let shell = Shell::detect()?;
-            // stdout is the shell protocol. stderr notices are for a human
-            // at a terminal only.
-            let notice = ctx.audience == crate::config::Audience::Human && ctx.stderr_is_terminal;
+            let Some(shell) = preexec_shell else {
+                unreachable!("the pre-exec shell is detected before the yaml")
+            };
+            let notice = notice::shell_notice(ctx);
             let command = commands.join(" ");
-            let slot = handle_set(ctx, config, &shell, commands, current_dir, notice).await?;
+            let slot = handle_set(ctx, Ok(config), &shell, commands, current_dir, notice).await?;
             if notice {
                 notice::on_shell_use(&command, slot);
             }
             Ok(None)
         }
-        Command::Unset(EvalCommand { commands }) => {
-            let shell = Shell::detect()?;
-            handle_unset(ctx, &shell, config, commands).await?;
-            Ok(None)
-        }
         _ => unreachable!(),
     }
+}
+
+/// The walk did not load: a command Lade would run is refused on every door.
+pub(crate) async fn run_unloaded(
+    command: Command,
+    ctx: &InvocationContext,
+    error: &anyhow::Error,
+    current_dir: std::path::PathBuf,
+    preexec_shell: Option<Shell>,
+) -> Result<()> {
+    // § y4zs3xgg4.d@rq62z
+    match command {
+        Command::Set(EvalCommand { commands }) => {
+            let Some(shell) = preexec_shell else {
+                unreachable!("the pre-exec shell is detected before the yaml")
+            };
+            handle_set(ctx, Err(error), &shell, commands, current_dir, false).await?;
+            Ok(())
+        }
+        Command::Hook {
+            harness,
+            action: None,
+        } if !ctx.stdin_is_terminal => {
+            let input = hook_input()?;
+            print!(
+                "{}",
+                pretool::handle_unloaded(error, &input, harness.as_deref())
+            );
+            Ok(())
+        }
+        _ => {
+            crate::config::report_load_error(error);
+            std::process::exit(exit_codes::FAILURE);
+        }
+    }
+}
+
+fn hook_input() -> Result<String> {
+    let mut bytes = Vec::new();
+    std::io::stdin().read_to_end(&mut bytes)?;
+    // § one f7eb9ymg0.a@wrwgg
+    // A payload that is not UTF-8 cannot be JSON: hand it on as unread, so
+    // the hook allows the tool call with its warning instead of failing.
+    let input = String::from_utf8(bytes).unwrap_or_default();
+    Ok(input)
 }
 
 /// The shell the command was written for: the one that started Lade. A
@@ -273,8 +347,10 @@ fn run_shell(ctx: &InvocationContext) -> Result<Shell> {
         Err(e) => e,
     };
     if ctx.via != Via::Pretool {
+        // § dpky46ff1.a@j5rde
         return Ok(Shell::Sh);
     }
+    // § dpky46ff1.d@bvj3w
     MessageBox::new()
         .error()
         .line("A pre-tool command runs in the shell that started Lade.")
@@ -299,8 +375,10 @@ fn hook_scope(global: bool) -> pretool::install::Scope {
 /// the dedicated [`exit_codes::DISCLAIMER_WITHHELD`] code, leaving every other
 /// result untouched so genuine errors still bubble up to `main`.
 fn map_disclaimer_exit(result: Result<Option<i32>>) -> Result<Option<i32>> {
+    // § betd87z6r.b@s991m
     match result {
         Err(e) if e.downcast_ref::<prompt::DisclaimerWithheld>().is_some() => {
+            // § tk1e8j9nf.a@nc8kx
             Ok(Some(exit_codes::DISCLAIMER_WITHHELD))
         }
         other => other,

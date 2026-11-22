@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 
 use super::agent::{AGENTS, Agent};
 use super::committed::{Committed, committed, committed_path};
-use super::locate::{canonical_project_path, find_project, hook_state, project_dest};
+use super::locate::{canonical_project_path, find_project, hook_state, project_dest, unreadable};
 use super::opencode::OpenCodeApi;
 use super::paths::{home_dir, hook_command, tilde};
 use super::want::{Want, want};
@@ -23,6 +23,7 @@ pub fn refresh_and_report() -> Result<Vec<String>> {
 
 /// Only the harness `command` starts. Nothing for any other command.
 pub fn refresh_and_report_launch(command: &str) -> Result<Vec<String>> {
+    // § khcwz2ec3.c@zskgb
     match Agent::launched_by(command) {
         Some(agent) => refresh_and_report_for(&[agent]),
         None => Ok(Vec::new()),
@@ -65,18 +66,24 @@ pub(crate) fn report_at(
         };
         let global = (
             agent.config_path(home),
-            Want::Command(hook_command(agent)),
+            Want::Command(hook_command(agent), Scope::User),
             true,
         );
-        let project = match (find_project(agent, home, cwd), &dest) {
-            (Ok((path, true)), Some(dest)) => match want(agent, Scope::Project, dest) {
-                Ok(want) => Some((path, want, false)),
-                Err(_) => None,
-            },
-            _ => None,
+        // § khcwz2ec3.b@fd4wt
+        let (project, project_has) = match (find_project(agent, home, cwd), &dest) {
+            (Ok((path, installed)), Some(dest))
+                if installed || unreadable(&path, agent).is_some() =>
+            {
+                match want(agent, Scope::Project, dest) {
+                    Ok(want) => (Some((path, want, false)), installed),
+                    Err(_) => (None, false),
+                }
+            }
+            _ => (None, false),
         };
+        // § end khcwz2ec3.b
         let home_has = hook_state(&agent.config_path(home), agent, None).0;
-        if home_has && (project.is_some() || committed.is_some()) {
+        if home_has && (project_has || committed.is_some()) {
             lines.push(format!(
                 "{}: hooks in this repo and under the home directory. Both will run. Remove the home hooks first: `lade hook disable --global --harness {}`",
                 agent.name(),
@@ -84,16 +91,28 @@ pub(crate) fn report_at(
             ));
         }
         if let (Some(_), None, false, Some(dest)) = (&committed, &project, home_has, &dest) {
+            // § dpgrarwms.e@502nm
             lines.push(format!(
                 "Claude Code (this repo, {}): no copy of the committed hook, so a session started in a subdirectory runs commands without Lade. Lade writes it when a shell starts Claude Code, `lade hook enable --harness claude` now.",
                 tilde(&canonical_project_path(agent, dest), home)
             ));
         }
         for (path, want, global) in std::iter::once(global).chain(project) {
-            let Ok(content) = fs::read_to_string(&path) else {
-                continue;
-            };
             let place = if global { "this machine" } else { "this repo" };
+            // § khcwz2ec3.b@4nxw6
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    lines.push(format!(
+                        "{} ({place}, {}): cannot be read ({err}). Fix it by hand: Lade does not overwrite it.",
+                        agent.name(),
+                        tilde(&path, home)
+                    ));
+                    continue;
+                }
+            };
+            // § end khcwz2ec3.b
             let fix = match location_line(agent, &content, &want, opencode) {
                 None => continue,
                 Some(Problem::Unreadable) => {
@@ -115,6 +134,7 @@ pub(crate) fn report_at(
 
 /// The repo's committed Claude hook. An unreadable file is a line, not a hook.
 fn committed_or_line(dest: &Path, home: &Path, lines: &mut Vec<String>) -> Option<Committed> {
+    // § khcwz2ec3.b@m4k71
     match committed(dest) {
         Ok(found) => found,
         Err(_) => {
@@ -138,6 +158,7 @@ fn location_line(
     want: &Want,
     opencode: &dyn Fn() -> Option<OpenCodeApi>,
 ) -> Option<Problem> {
+    // § khcwz2ec3.b@64j69
     match agent.has_hook(content) {
         Err(_) => return Some(Problem::Unreadable),
         Ok(false) => return None,
@@ -147,6 +168,7 @@ fn location_line(
         && let Some(installed) = opencode()
         && file != installed
     {
+        // § heg7hfveq.b@c6and
         return Some(Problem::Rewritable(format!(
             "the plugin uses the OpenCode {} API, `opencode` is {}.",
             file.label(),
@@ -155,10 +177,11 @@ fn location_line(
     }
     match (want.is_current(agent, content), want) {
         (Ok(true), _) => None,
+        // § one dpgrarwms.e@m0t6e
         (_, Want::Copy(_)) => Some(Problem::Rewritable(
             "the Lade hook differs from the committed one in .claude/settings.json, so a session started at the repo root runs this copy.".to_string(),
         )),
-        (_, Want::Command(_)) => Some(Problem::Rewritable(
+        (_, Want::Command(..)) => Some(Problem::Rewritable(
             "the Lade hook differs from what this Lade writes.".to_string(),
         )),
     }

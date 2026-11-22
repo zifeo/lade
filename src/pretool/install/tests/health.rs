@@ -84,6 +84,32 @@ fn refresh_keeps_the_api_and_unpins_a_repo_plugin() {
 }
 
 #[test]
+fn refresh_rewrites_a_plugin_an_older_lade_wrote() {
+    let released = [
+        (OpenCodeApi::V1, include_str!("released_opencode_v1.js")),
+        (OpenCodeApi::V2, include_str!("released_opencode_v2.js")),
+    ];
+    for (api, old) in released {
+        assert_ne!(old, api.snapshot(), "{api:?} fixture is the current text");
+        for bin in ["lade", "/opt/lade/bin/lade"] {
+            let home = tempfile::tempdir().unwrap();
+            let pinned = old.replace(
+                r#"process.env.LADE_BIN ?? "lade""#,
+                &format!(r#"process.env.LADE_BIN ?? "{bin}""#),
+            );
+            let (repo, path) = repo_with_plugin(home.path(), &pinned);
+            refresh_at(home.path(), &repo, &AGENTS);
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                api.snapshot(),
+                "{api:?} {bin}"
+            );
+            assert!(report_at(home.path(), &repo, &AGENTS, &|| Some(api)).is_empty());
+        }
+    }
+}
+
+#[test]
 fn refresh_leaves_a_hand_edited_plugin_and_reports_it() {
     let home = tempfile::tempdir().unwrap();
     let edited = format!("{}\n// local tweak\n", OpenCodeApi::V2.snapshot());
@@ -121,6 +147,37 @@ fn invalid_json_is_reported_without_a_rewrite() {
         lines[0].ends_with("not valid JSON. Fix it by hand: Lade does not overwrite it."),
         "{lines:?}"
     );
+}
+
+#[test]
+fn an_invalid_repo_hook_file_is_reported() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join(".git")).unwrap();
+    let path = repo.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "{not json").unwrap();
+    let lines = report_at(home.path(), repo.path(), &[Agent::Cursor], &|| None);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("Cursor (this repo"), "{lines:?}");
+    assert!(lines[0].contains("not valid JSON"), "{lines:?}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+}
+
+#[test]
+fn a_hook_file_that_is_not_utf8_is_reported() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir(repo.path().join(".git")).unwrap();
+    let path = repo.path().join(".cursor").join("hooks.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let bytes = b"{\"hooks\":{\"x\":\"\xff\"}}".to_vec();
+    fs::write(&path, &bytes).unwrap();
+    let lines = report_at(home.path(), repo.path(), &[Agent::Cursor], &|| None);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("Cursor (this repo"), "{lines:?}");
+    assert!(lines[0].contains("Fix it by hand"), "{lines:?}");
+    assert_eq!(fs::read(&path).unwrap(), bytes);
 }
 
 #[test]

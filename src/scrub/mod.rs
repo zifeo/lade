@@ -7,8 +7,6 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::pretool::split_command_env_prefix;
-
 use heuristics::{apply_context_needles, apply_prefix_and_length, replace_known_values};
 
 const CAP: usize = 1024;
@@ -20,8 +18,9 @@ pub struct Redacted {
 /// Redact a command for the diary. `hydrated` is every public value on
 /// `access`. `denied` and `seen` pass `None`.
 pub fn redact_command(raw: &str, hydrated: Option<&HashMap<String, String>>) -> Redacted {
-    let (_, mut command) = split_command_env_prefix(raw);
+    let mut command = strip_env_prefix(raw).to_string();
     if let Some(values) = hydrated {
+        // § ec0ncyt0n.a@0w0e9
         command = replace_known_values(&command, values);
         if values
             .values()
@@ -35,6 +34,50 @@ pub fn redact_command(raw: &str, hydrated: Option<&HashMap<String, String>>) -> 
     command = apply_context_needles(&command);
     command = apply_prefix_and_length(&command);
     Redacted { command }
+}
+
+/// The line after its leading `NAME=value` words. A value may be quoted
+/// and hold blanks: a word ends at the first blank outside quotes.
+fn strip_env_prefix(raw: &str) -> &str {
+    // § ec0ncyt0n.b@77f2j
+    let mut rest = raw.trim_start();
+    loop {
+        let end = shell_word_end(rest);
+        if !is_assignment(&rest[..end]) {
+            return rest;
+        }
+        rest = rest[end..].trim_start();
+    }
+}
+
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
+/// Byte offset of the end of the first shell word of `line`. An unclosed
+/// quote runs to the end.
+fn shell_word_end(line: &str) -> usize {
+    let mut quote = None;
+    let mut escaped = false;
+    for (at, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, ch) {
+            (Some('\''), '\'') => quote = None,
+            (Some('\''), _) => {}
+            (_, '\\') => escaped = true,
+            (Some('"'), '"') => quote = None,
+            (None, '\'' | '"') => quote = Some(ch),
+            (None, c) if c.is_whitespace() => return at,
+            _ => {}
+        }
+    }
+    line.len()
 }
 
 pub fn peel_command(line: &str) -> (String, Option<Value>) {
@@ -91,6 +134,7 @@ pub fn redact_argv(
         return None;
     }
     if let Some(values) = hydrated {
+        // § ec0ncyt0n.a@z34cq
         replace_known_in_json(&mut value, values);
         if json_contains_hydrate(&value, values) {
             return None;

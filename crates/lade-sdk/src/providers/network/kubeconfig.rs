@@ -24,7 +24,13 @@ pub(crate) fn resolve_kube_context(
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let config: KubeConfig = serde_json::from_slice(&output.stdout)?;
+    context_in_view(&output.stdout, cluster_endpoint, selector)
+}
+
+/// The context of `kubectl config view -o json` that ties to
+/// `cluster_endpoint`: `selector` when it does, the only one otherwise.
+fn context_in_view(view: &[u8], cluster_endpoint: &str, selector: Option<&str>) -> Result<String> {
+    let config: KubeConfig = serde_json::from_slice(view)?;
     let clusters = config
         .clusters
         .unwrap_or_default()
@@ -117,4 +123,54 @@ struct NamedContext {
 #[derive(Deserialize)]
 struct ContextInner {
     cluster: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VIEW: &[u8] = br#"{
+        "clusters": [
+            {"name": "prd", "cluster": {"server": "https://prd.example.com"}},
+            {"name": "stg", "cluster": {"server": "https://stg.example.com:6443"}}
+        ],
+        "contexts": [
+            {"name": "prd-admin", "context": {"cluster": "prd"}},
+            {"name": "stg-admin", "context": {"cluster": "stg"}}
+        ]
+    }"#;
+
+    #[test]
+    fn a_context_tied_to_another_endpoint_fails() {
+        let err = context_in_view(VIEW, "prd.example.com:443", Some("stg-admin")).unwrap_err();
+        assert!(
+            err.to_string().contains("does not match endpoint"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn a_context_tied_to_the_endpoint_is_returned() {
+        assert_eq!(
+            context_in_view(VIEW, "prd.example.com:443", Some("prd-admin")).unwrap(),
+            "prd-admin"
+        );
+        assert_eq!(
+            context_in_view(VIEW, "stg.example.com:6443", None).unwrap(),
+            "stg-admin"
+        );
+        assert!(context_in_view(VIEW, "dev.example.com:443", None).is_err());
+    }
+
+    #[test]
+    fn an_https_endpoint_without_a_port_is_443() {
+        assert_eq!(
+            normalize_cluster_endpoint("https://h").as_deref(),
+            Some("h:443")
+        );
+        assert_eq!(
+            normalize_cluster_endpoint("https://h:6443/path").as_deref(),
+            Some("h:6443")
+        );
+    }
 }

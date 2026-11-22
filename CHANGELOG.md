@@ -8,6 +8,166 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ## [Unreleased]
 
+### Added
+
+- **Remote resolution**: `lade connect <path> -- ssh …` (or `tsh ssh …`) fetches the `lade.yaml` walk of that path on a remote machine, shows it, and resolves it on this laptop with the laptop's own providers, as a local Lade would: an unlock, a Touch ID or a `tsh login` happen on the laptop. On the remote, every secret provider ref then resolves through the laptop, and every tunnel but `kubefwd` keeps its port there and runs on the laptop. Run it once per path: every `lade connect` over the same transport shares the one link the laptop hub keeps up and restarts after a drop. The laptop answers only with what the walks it resolved yield, a ref the remote rendered from a template of the walk included, a `file://` of the remote or another body filling it, and resolves a value again once its ttl is over. Disclaimers and `when` apply on the remote, as locally. Each value is encrypted to a key the requesting command generated. While attached, a command exits 4 when the link is down or the laptop's provider fails, 5 for a ref or tunnel the laptop's resolution does not yield, and 6 for a walk no `lade connect` resolved, an edited `lade.yaml` included, each with the `lade connect` line to run. `file://`, `sops://`, shell sources, packages and `kubefwd` stay on the remote. The laptop records every link event as a `remote` diary row. `lade detach` ends it on either side. See `docs/remote.md`.
+
+### Changed
+
+- **A command a signal ends**: Lade exits 128 plus the signal's number, as a shell reports it (143 for SIGTERM, 130 for SIGINT), instead of 1. This holds on `lade --` and for a `lade mcp` stdio server alike.
+- **`file://` without `?query=`**: the value fails with the File provider's error instead of becoming its own text. Write `!file://...` to keep the text raw.
+- **A broken `config.json`**: every path that resolves the Lade user fails on a `config.json` it cannot read or parse, instead of falling back to the OS user there. The pre-tool hook hands a matched line that binds something to the wrap, which fails it, so a harness that does not block on a hook error never runs the line bare.
+- **An empty `$USER`**: it names no Lade user, so `$USERNAME` applies, instead of the empty name.
+- **`alice: ~` in a per-user map**: it cancels the parent's value for that user, as `~` on the key does, instead of leaving it in place.
+- **SDK `tsh kube login`** (breaking for SDK users): `lade_sdk::network::ensure_provider_preflight` no longer runs `tsh kube login`. Call `tsh_kube_login`, which stops the login when its callback says so.
+- **Diary queries outside a git root** (breaking): `lade log`, `lade usage`, `lade log share` and `lade log prune --keep` run outside a git root exit 1 and name `--all`, instead of reading, packing or pruning every repo.
+- **A missing pin beside the command's own**: when a matched rule pins a CLI that is not installed, other than a login shell pinned for another command, the command fails and names `lade setup`, instead of running with whatever `PATH` holds for it.
+- **An untracked `mise.toml` or `mise.lock`**: in a git repo, a mise file git lists as untracked is not the lock plane, and setup uses `lade.lock` at the git root, as the README's "committed" says. The other mise file beside a tracked one still belongs to its plane.
+- **The installer without a SHA256 tool**: when the release publishes a checksum and neither `sha256sum` nor `shasum` is installed, the installer fails and says which tool to install, instead of installing unverified.
+- **Which `lade ttl set` window applies**: the nearest one, counted in path components, as `docs/cache.md` says, instead of the one on the longest path. At equal distance a parent's beats a child's, and two children's settle by path, so the answer no longer depends on the hub's order. Setting a window restarts only the rows it is the nearest window of, so a nearer window keeps its ttl.
+- **A harness at a terminal**: `lade add` and `lade remove` ask it nothing and name the missing flag, as `lade setup` does, and `lade setup` and `lade update` show it no colour, spinner or progress lines.
+- **A binding named `PATH` beside a pin**: when a secret binding and a mise pin set `PATH` to different values, the command fails and names `PATH`, as for any other variable, instead of the pin's `PATH` replacing the binding's.
+- **`--pretool` inside the command**: Lade reads `--pretool` only among its own options, so `lade -- tool --pretool=abcd` passes the argument to `tool` instead of taking `abcd` as a ticket id.
+- **A pin key that names no binary** (breaking): Lade puts on `PATH` only the install's file named like the key. A key named after something else, such as `json: mise://aqua/jqlang/jq@1.7.1`, fails like a missing pin, instead of putting the package's own binary first.
+- **A malformed `mise://` value** (breaking): every `mise://` value is a pin, so an unknown backend, or the mise CLI form inside the URI (`mise://github:owner/repo@1.0.0`), fails and names the URI to write, instead of being exported as a raw value.
+- **The lock plane in a repo**: the plane walk stops at the git root, so a `mise.toml` or `mise.lock` above the repo is no longer its plane, and `.config/mise/config.toml` counts as a plane file.
+- **`lade update` on a narrowed range**: a locked version the yaml's range no longer holds is replaced by the highest listed match, instead of being kept because it is newer.
+- **A mise outside the supported range**: no mise run falls back to it, a wrap's environment lookup and `lade add`'s version queries included. The command fails and says how to get mise.
+- **`LADE_BIN`**: a set `LADE_BIN` names the `lade` that `age-plugin-lade` and the OpenCode plugin run, ahead of the one next to the age plugin, the one the OpenCode plugin was written for, and the one on `PATH`, as in 0.20.2. One that is not a file fails: the age plugin's error says to point it at `lade` or unset it, and the OpenCode plugin names it on stderr, where 0.20.2 passed the line on without a word.
+- **An unknown key in a rule's `.` block** (breaking): the load fails and names the key and the keys the block takes, instead of ignoring it, so a misspelled `disclaimer:` no longer drops the human approval without a word. The old `silence:` fails too: write `silent:`.
+- **`lade eval` of a tunnel or package URI**: it fails without `--ttl` too, instead of printing the URI as its value and recording an access.
+- **`LADE_VAULT_HTTP`**: plain HTTP to Vault, a seam for tests, reaches only `localhost`, `127.0.0.1` and `[::1]`, as `lade mcp` allows, and any other host fails, since the token travels in clear.
+- **A tunnel on port 0** (breaking): a tunnel key `0`, or a `local=` port 0, fails the binding, instead of listening on a port the kernel picks while the tunnel records 0.
+- **mise backends** (breaking): a pin's backend is one `mise backends ls` prints, so `ubi`, `pypi`, `spinel` and `packslip` pins parse, and `pkgx`, which mise refuses, fails with the unknown backend error.
+- **`lade setup` from a shell with no profile hook**: started from tcsh, ksh, `sh` or an IDE task, setup names that shell, skips the shell hook and wires the repo, instead of failing before it wrote anything.
+- **A malformed login shell pin in the pre-tool hook**: a `zsh: mise://foo/zsh@1` on a matched rule sends the line to the wrap, which fails it as `lade --` does, instead of letting the harness run it bare.
+- **`lade log share` and the sender's paths** (breaking for scripts that look for the old name): a pack names your files relative to the repo or home they ran in, in every field: `argv`, `agent`, each binding's URI (`file:///Users/me/s.json` becomes `file://~/s.json`), each match's `file` and `rule`, and `command`. A path under the repo is relative to it, one under the home is `~/...`, any other keeps its last component. The default name is `lade-$FROM-$TO.tar.gz`, without your user name.
+- **The installer and `PATH`**: when `OUT_DIR` is not on `PATH`, the installer adds it to your login shell's profile, the file `lade setup` writes its hook to, on one line marked `# lade-path-do-not-edit`, instead of printing the `export` line. A second run, and a profile that already adds the directory, change nothing, and `lade setup` keeps that line. The GitHub Action leaves the runner's profile as it is.
+- **The hub's security model**: `docs/cache.md` states it: the hub serves the processes of its user and protects their values against other users.
+- **A `lade.yaml` that does not load** (breaking): pre-exec cancels the line and the pre-tool hook answers with the harness's deny (Claude Code and Codex `permissionDecision: "deny"`, Cursor `permission: "deny"`, OpenCode a rewrite to the wrap, which fails), as `lade --` and `lade mcp` already refused it, instead of exiting 1 so the shell or a harness that does not block on a hook error ran the line bare. The message names the file, the error and the way out. Lines that start Lade still run, and the shell hook runs `eval "$(lade off)"` unwrapped, so it pauses Lade while the file is broken. A key that is not a valid regular expression names its file.
+- **The binary a pre-tool rewrite starts**: the rewrite always names bare `lade`, which the harness's shell resolves on its `PATH`, also when the hook ran by an absolute path and no `lade` is on `PATH`, where it named that path. A path invocation no longer rewrites to `current_exe`, as the 0.18.0 entry on the hook bin name said; a hook line `lade hook enable` writes still may.
+- **`lade add`, `lade remove` and comments**: both edit `lade.yaml` line by line, changing only the binding's lines and the rule's key line when they add or drop the whole rule, and keep every comment, blank line and the formatting of every other line, instead of writing the whole file anew through the YAML serializer. Setup's write-back of a `@latest` pin does the same. A rule written in flow style (`^jq: {jq: ...}`), or any edit that would not read back as the file with that one binding changed, fails the verb and leaves the file unchanged.
+- **Requiring Lade on Cursor and OpenCode** (breaking for a clone without Lade): the repo's Cursor hook carries `"failClosed": true`, so a missing or failing Lade blocks the command instead of Cursor running it without Lade, and a refresh adds it to a repo hook an earlier Lade wrote. The OpenCode plugin in a repo's `.opencode/plugins/` blocks the tool call, saying why, when it cannot start Lade, Lade exits non-zero, or its answer is not JSON. Home hooks leave a failure to the harness, and the home OpenCode plugin says why on stderr, an answer it cannot read included. On Codex the harness decides, since its hooks have no failure policy. See the README, Require Lade on Cursor, OpenCode and Codex.
+
+### Fixed
+
+- **A masked command and a job its shell leaves behind**: the command ends with its shell, instead of waiting until that job closes the terminal. Ctrl-C under bash 3.2 left such a job: it interrupted the shell after the command's last step had started.
+- **A shell profile Lade cannot read**: `lade hook enable --shell` and `lade hook disable --shell` fail and name the file, instead of replacing it with Lade's line alone. `lade setup` names the file, writes no shell hook and wires the repo, since it cannot tell whether that profile has the hook, instead of writing a second one or failing. Editing the profile keeps its last newline.
+- **The installer and a release without `age-plugin-lade`**: it says it installs `lade` alone, as `lade upgrade` does, instead of skipping the plugin without a word.
+- **The walk from outside `$HOME`**: a command run in `/tmp` or `/srv` no longer reads a `lade.yaml` in a directory that contains `$HOME`, such as `/`. A `$HOME` with a trailing slash or behind a symlink stops the walk too.
+- **A lookaround key past its bound**: a command regex whose evaluation hits the backtrack bound fails the command and names the key, instead of reading as no match and running without the rule's access. The pre-tool hook hands the line to the wrap, which fails it, instead of failing the hook.
+- **A `.NAME` that holds a tunnel or a package**: the command fails and names the key, instead of dropping it without a word.
+- **A `.NAME` beside a public tunnel, pin or package of its name**: the command fails as for two secrets, instead of exporting the public one while the reference reads the private one.
+- **A broken `${NAME}` reference**: a reference to no secret binding, or a cycle, fails the command when Lade plans it, before a 1Password service-account token is fetched or a tunnel starts.
+- **The `(o)` mark**: a secret that replaces a parent tunnel, pin or package is marked overridden, as one that replaces a secret is.
+- **A reference to a cached binding**: a binding served from the hub feeds `${NAME}` in another binding like a fetched one, instead of failing with a missing dependency.
+- **Private bindings in output and the diary**: the value of a masked `.NAME` is masked in the command's output and scrubbed from the stored command line, even when the command gets it only inside another binding.
+- **1Password at a terminal**: `op inject` gets the terminal while it runs, so it can ask for the account password instead of stopping until its timeout.
+- **A missing CLI in a `lade add` lookup**: the error names the provider and where to install it, as a hydrate does.
+- **A diary row that prepared nothing**: a matched rule that only pins a login shell for another command, or a setup package on `.`, leaves a `seen` row on `lade --`, pre-exec and `lade mcp`, as on the pre-tool hook, instead of `access`. A private `.NAME` secret alone now makes the row `access`.
+- **`log` on a pre-tool `cd`**: a `cd`, `pushd` or `popd` line, and an MCP verb whose plan fails, follow the `log` of the rules that matched them, not every loaded rule's.
+- **A stale lock in the diary**: a row names a package's locked `version` only when that version agrees with the yaml pin, as `docs/observability.md` says.
+- **The count after a broken row**: `lade log` and `lade log verify` say how many rows verify after the break, instead of the rows that follow it by sequence number.
+- **`git_commit` on a branch**: a row in a linked worktree, or in a repo whose refs `git gc` packed, records the branch's commit instead of none.
+- **`lade log prune --keep` in a repo**: rows recorded outside any git root stay, instead of being deleted with the repo's old rows.
+- **`lade upgrade` and `age-plugin-lade`**: the plugin is written beside `lade`, from the release Lade now runs, instead of over the running `lade`, and a missing plugin is installed when Lade is already current.
+- **A failed checksum download in the installer**: only a 404 on the `.sha256` installs unverified with a warning. Any other failure, a 5xx, a timeout or a TLS error, stops the install.
+- **A setup package on a command rule in the pre-tool hook**: the hook hands the line to the wrap, which refuses it, instead of letting the harness run it bare.
+- **An implied CLI pinned on another rule**: a wrap uses the yaml pin of that CLI from any rule of the walk, as setup locks it, instead of the implied range.
+- **`@latest` in a parent `lade.yaml`**: a wrap writes the resolved version into the yaml that holds the pin, instead of looking only at the nearest one.
+- **mise version queries**: `mise latest`, `mise ls-remote` and `mise search` run with the user's mise configs ignored, as installs do, and `.tool-versions` files are ignored too.
+- **The README examples**: the OpenTofu pin's key is `tofu`, its binary, and the `dcg` pin is written `mise://github/...`.
+- **`lade log share` and a home prefix**: a path is cut at the home or git root only at a directory boundary, so `/Users/samantha` is no longer cut to `antha` under home `/Users/sam`.
+- **An env conflict error**: when a secret, a tunnel or a mise pin set one variable to different values, the error names the variable and its two sources, and no longer prints either value.
+- **`lade add` and `lade remove` on failure**: `lade add` checks the edited file loads, a `--rule` that is no regular expression included, before it writes it, and `lade remove` of a binding the file does not hold fails without rewriting the file.
+- **A pre-tool hook without `--harness`**: the payload's event names the harness before any environment variable, so a harness started from another harness's terminal gets its own reply format instead of one it ignores.
+- **The OpenCode plugin**: it shows Lade's stderr, and says when it cannot start `lade`, instead of dropping both. A refresh rewrites a plugin an earlier Lade wrote instead of reporting it as edited by hand.
+- **An unreadable hook file in `lade status --json`**: a hook or committed Claude file Lade cannot read carries an `error` naming the file and why, instead of reading as absent.
+- **`lade mcp` to `http://[::1]`**: plain HTTP to the IPv6 loopback is allowed like `localhost` and `127.0.0.1`.
+- **`lade eval --ttl` under a window**: `lade ttl set` no longer restarts or changes the ttl of a value `lade eval --ttl` cached.
+- **A partial hub hit**: a command whose rule body the hub served in part no longer stores the body again, which restarted the clock of the values it did not fetch.
+- **`lade ttl forget KEY`**: the dropped value is zeroed before it is freed, as a whole row is.
+- **A pre-tool payload that is not UTF-8**: the hook allows the tool call with its "not JSON" warning, instead of failing, which a committed `"onFailure": "block"` turned into a blocked call.
+- **`lade hook enable --global --harness claude` in a repo that commits the hook**: it is refused like a repo hook, even before the local copy is written, instead of adding a home hook that runs beside the committed one.
+- **A harness config Lade cannot read**: a hook file that is not UTF-8, or not readable, fails the write and stays as it is, instead of being replaced by Lade's hook alone.
+- **A home hook from a cargo build**: a `lade` under any cargo target directory, a custom profile or `CARGO_TARGET_DIR` included, is written as `lade`, instead of pinning that build.
+- **A repo hook file that is not valid JSON**: the hourly notice and a harness launch report it, as they do a home file, instead of only `lade status --json`.
+- **An unreadable hook file in `lade status`**: the table says `unreadable`, instead of `missing` or `none`.
+- **`lade mcp` over HTTP**: each server message reaches the client with its own bytes, only joined on one line, so a large or non-canonical number is no longer rewritten.
+- **1Password service accounts in a wrap, pre-exec and pre-tool**: a secret whose rule names no `1password_service_account` gets no token, instead of the last account another matched rule named.
+- **`.file` outputs of a cancelled command**: an env conflict with a mise pin, or a Ctrl-C while tunnels start, leaves no `.file` output behind. The file is written once the secrets and tunnels are all ready.
+- **A command run anyway with a pin**: it gets the `PATH` Lade had before the pin, as it gets no other access.
+- **Ctrl-C while fish's pre-exec hook installs a pin**: the line is cancelled with exit 130, instead of fish running it once the hook died.
+- **A `lade add` lookup that asks**: the provider's list CLI gets the terminal while it runs, so `op item list` can ask for the account password instead of stopping until its timeout.
+- **A pending pre-exec ticket from another directory**: `lade set` takes its secrets without reading or filling the hub cache, as a wrap does.
+- **The line after a withheld disclaimer**: `lade set` replaces the pending ticket without a call to the hub, so a line whose rules only cancel keys connects to no hub. The hub's copy expires on its own.
+- **A corrupted pre-exec snapshot**: `lade unset` also unsets the tunnel variables the ticket names.
+- **A quoted value in front of a command**: the diary drops `TOKEN='a b' cmd`'s assignment whole, instead of storing `b' cmd`.
+- **`age-plugin-lade` without a labels request**: a post-quantum and a classic key are refused in one file even when the client wraps without asking the labels first.
+
+- **A withheld disclaimer in pre-exec**: the line is cancelled like any refusal instead of running without its secrets, and `lade approve <code>` then runs it once, in bash, zsh and fish. Before, the hook's `lade unset` deleted the pending ticket, so approve found nothing.
+- **A ticket for another line**: a wrap or `lade set` uses a ticket only when it holds the same command, so a pending ticket left in `LADE_T` never gives the next line its disclaimer or secrets.
+- **`lade approve` after `cd <dir> &&`**: approve resolves the withheld line's leading `cd` from the directory it runs in, so `cd infra && tofu apply` withheld in the repo root is approved from there.
+- **A pre-tool rule Lade cannot plan**: a matched command whose binding is not a valid env name, or that is declared both public and private, is rewritten to the wrap, which names the error and exits 1, instead of running bare.
+- **`lade mcp` pins**: a stdio server gets its matched rules' package pins, the locked CLI of an `op://` binding included, and plans and acquires its access as `lade --` does.
+- **A hub that cannot guard its memory**: a hub that cannot turn off its core file, or on Linux make itself not dumpable, caches no secret, and `lade status` says `cache off` and why, instead of caching as if guarded.
+- **A Lade that cannot read its own executable**: it reaches no hub, so lookups miss and tunnels fail saying why, instead of sharing one fallback socket with every other such binary and replacing its hub on every call.
+- **The hub socket's mode**: the socket is created owner-only, and a hub that cannot make it `0600` does not serve, instead of serving with the umask's mode.
+- **A busy orphan hub**: a hub whose binary or socket was replaced exits within a minute even while old clients keep calling it.
+- **`CARGO_BIN_EXE_lade` in a release build**: a release Lade starts its hub from its own executable, whatever the environment holds.
+- **A kubefwd tunnel that lost its port**: when a restart finds another process on the port, the tunnel fails and no command reuses it, instead of staying ready and sending the next command to that process. This also holds when the other process listens beside kubefwd on another address, and when kubefwd exits at once because the port is taken, instead of retrying while the tunnel still reads as ready. A first start beside another listener fails the same way.
+- **A failed tunnel start and a retry**: every command that asked for a start that failed gets its error while it holds its lease, even when another command retried the same target in between.
+- **`lade upgrade` checksums**: the release archive of `lade` and of `age-plugin-lade` is checked against the `.sha256` published beside it, and a mismatch replaces nothing. A release with no checksum installs with a warning that names the missing file, as the installer does.
+- **The installer on another 64-bit machine**: `riscv64`, `ppc64` and other machines the release does not build for stop with the list of targets, instead of downloading the x86_64 binary.
+- **The installer's prompt**: `ASSUME_YES=true` skips it like `ASSUME_YES=1`, and `CI=false` or `CI=0` is not CI, as Lade itself reads it. The missing-checksum warning names the `.sha256` file.
+- **The GitHub Action and `latest`**: the Action resolves `latest` to a version before its cache key, so a cached binary no longer stands in for every later release, and it installs again when `age-plugin-lade` is missing.
+- **`lade setup` outside a git repo**: it installs no package and writes no lock beside a `mise.toml` it finds there, except in `$HOME`'s own mise files when it runs in `$HOME`, and its report says which.
+- **`lade teardown` and a pin it cannot parse**: teardown fails with the parse error instead of skipping that pin's `?teardown=`.
+- **`lade upgrade` and the managed mise**: after an update, the managed mise is refreshed without reading the `lade.yaml` walk of the current directory.
+- **An unsealed diary row**: Lade seals rows that have no seal only when it adds the chain to a diary written before 0.19.0. In a chained diary such a row is a break `lade log verify` reports, instead of being sealed on the next open.
+- **`lade log share` and `lade log prune` on a broken chain**: both warn as `lade log` does before they reseal what they read.
+- **A pre-tool hook that cannot write its ticket**: the hook writes no row of its own, so the wrap's row is the only one for that command.
+- **`--source local`**: every source is opened read-only, the live diary included.
+- **Two rows for one MCP call**: when a call's second hook appended a copy because another row came between, `lade log` and `lade usage` count that `tool_use_id` once, its newest row.
+- **A ttl on a failed command's tunnels**: when one tunnel of a command fails, its other tunnels still starting stop with it, as 0.20.0 says, even with a rule `ttl:` or a `lade ttl set` window. A ttl keeps only a tunnel that came up.
+- **`~` beside a value of its name**: in one rule body, `TOKEN: ~` cancels only the parent's `TOKEN`, never the body's own `.TOKEN`, instead of depending on the order Lade read the body in. `.NAME: ~` cancels a public tunnel, pin or package `NAME` too, as it cancels a secret.
+- **A cache lookup while another command starts the hub**: it waits for the start lock only within its deadline and then misses, instead of waiting as long as the other command holds the lock.
+- **A pre-tool wrap that only cancels keys**: it asks the hub for no notice slot, so it starts no hub, like a plain command.
+- **`lade status` and a `config.json` it cannot read or parse**: the max cache row shows the error and the cache as off, and `ok` is false, instead of status failing before it prints.
+- **A `lade ttl set` window in `/`**: it covers every directory, and a command run in `/` shares a child's window, as for any other directory.
+- **The diary `version` of `op`, `cargo` and other CLIs whose lock key is their tool id**: a row names the locked version when the lock keys it as `aqua:1password/cli` or `rust`, as a wrap reads the lock.
+- **`@latest` with a lock entry**: `lade setup` and `lade update` write the version they take into the yaml that holds the pin, instead of leaving `@latest` until a wrap runs it.
+- **`--pretool <id>` with no home**: Lade stops with the box that asks for `HOME` or `LADE_CACHE_DIR`, instead of a panic.
+- **A `.file` output `lade unset` cannot remove**: the shell still gets its previous environment back, then `lade unset` fails and names the file, instead of failing before the restore and leaving the command's values in the shell. The other outputs are still removed.
+- **A hook config Lade cannot read, on removal**: `lade hook disable`, `lade teardown`, and the check for a Lade hook in the other place on `lade hook enable` and `lade setup`, fail and name the file, instead of reading it as a file without a Lade hook.
+- **A hook file that is not UTF-8 in the notice box**: the hourly notice and a harness launch list it, as `lade status` does, instead of skipping it.
+- **An error that ends a harness's invocation**: it is one `lade: error:` line, instead of an `Error:` line and its `Caused by:` lines.
+- **A finished wrap written `lade inject --pretool=<id> ...`**: the pre-tool hook reads `--pretool` after `inject` as the wrap does, and leaves the line as it is instead of wrapping it again.
+- **A `lade mcp` client that leaves while a stdio server restarts**: Lade exits with the server's code instead of 0, and with 1 when the server could not start at all.
+- **A later `.` body over a command rule's setup package**: it replaces the package as any later body does, so the command runs with the `.` binding instead of being refused.
+- **`lade unset` and `.file` outputs**: it deletes the files its line's ticket records, which Lade wrote for that command, instead of every `.file` path the line's rules name when it finds no ticket. A command run anyway after a `.file` path that already existed failed it no longer loses that file to the `lade unset` after it.
+- **`lade unset` and a `lade.yaml` broken while the command ran**: it reads no yaml, so the shell still gets its previous environment back, instead of exiting 1 before the restore.
+- **`lade unset` in a shell started inside a pre-exec command**: when that shell's `lade set` failed before it could unset `LADE_T`, the inner `lade unset` leaves the outer command's ticket, `.file` outputs and tunnels, instead of taking them as its own.
+- **`lade mcp` and a stop signal**: `SIGTERM`, `SIGINT` or `SIGQUIT` deletes its `.file` outputs before it exits, for a remote URL too, and a remote bridge ignores a hangup as a stdio server's does, instead of dying with the files left behind.
+- **`eval "$(lade off)"`**: the hook it removes no longer leaves that line's values in the shell; the `off` code restores them first, in bash, zsh and fish.
+- **A pre-tool line no rule matches, with `log` on and a `config.json` Lade cannot read**: it runs as sent with a warning, as a bare `cd` does, instead of failing the hook, which a blocking harness turned into a blocked command.
+- **An OpenCode plugin of the other API in an interactive `lade setup`**: setup offers it with the other pending harnesses and writes the plugin of the installed `opencode`, as `lade hook enable` and a non-interactive setup do, instead of skipping it.
+- **The providers `lade status` lists beside a `config.json` it cannot parse**: they are those of no Lade user, as every other path resolves none, instead of the OS user's.
+- **`lade set` in a shell Lade cannot name**: it fails before it reads `lade.yaml`, like the other failures that come before a cancel.
+- **A shell started inside a pre-exec command**: its first `lade set` writes a ticket of its own and leaves the outer command's, so its `lade unset` no longer deletes that ticket or releases the tunnels the outer command still uses.
+- **A command `lade approve` runs**: it gets the `LADE_APPROVE` Lade started with, instead of the code `lade approve` set for itself.
+- **A command line Lade cannot parse, from a harness**: the error is one `lade: error:` line, instead of clap's usage text. A cache root Lade cannot use reads the same way.
+- **A bare `cd` the pre-tool hook cannot plan**: with a `config.json` Lade cannot read, a line that is only `cd`, `pushd` or `popd` runs as sent with a warning, instead of being rewritten into a wrap that fails.
+- **An MCP verb the pre-tool hook cannot plan**: the call is allowed with a warning, as MCP verbs always are, instead of failing the hook, which a committed `"onFailure": "block"` turned into a blocked call.
+- **`lade mcp` over HTTP and a response cut in transport**: a body or an event stream that breaks off answers the request with a JSON-RPC error and the bridge goes on, as for a request that cannot be sent, instead of ending the bridge.
+- **A pre-exec `lade set` that only cancels keys**: it sends the hub no ticket and asks for no notice slot, so it starts no hub, as the pre-tool wrap does.
+- **`lade setup` in CI under no known shell**: setup reads `CI` before it looks for the shell that started it, so it wires the repo instead of failing.
+- **`lade upgrade` and a failing mise refresh**: the reload hint prints before the managed mise refresh, so a refresh that fails still tells the user to reload each terminal.
+- **mise config file variables**: every mise run Lade starts drops `MISE_SYSTEM_CONFIG_FILE`, `MISE_OVERRIDE_CONFIG_FILENAMES`, `MISE_DEFAULT_CONFIG_FILENAME` and their `.tool-versions` twins, so a user's mise config cannot change a pin through them.
+- **A nested shell whose `lade set` failed**: `lade unset` restores only the snapshot its own line took, so a shell started inside a pre-exec command keeps the outer command's secrets, pinned `PATH` and mise config when its own line's `lade set` fails before it prints, instead of taking the outer command's previous environment.
+- **A `log`-only pre-tool match and a broken `config.json`**: a line whose matched rules bind nothing and ask no disclaimer runs unchanged with a warning, and its row is lost, as an unmatched line does, instead of going to the wrap that fails it.
+- **An empty `PreToolUse` entry of the user**: removing Lade's Claude Code or Codex hook keeps an entry the user left with no hook, and drops only the entries that removing Lade's hooks emptied.
+
 ## [0.20.2] - 2026-11-09
 
 ### Changed

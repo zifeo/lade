@@ -12,6 +12,7 @@ use super::{
 };
 
 fn migrations() -> Migrations<'static> {
+    // § eqyjmph9x.c@yr5d4
     Migrations::new(vec![
         M::up(EVENTS_DDL),
         M::up(EVENTS_AGENT_DDL),
@@ -35,11 +36,19 @@ fn is_open_race(err: &rusqlite::Error) -> bool {
     }
 }
 
+/// `user_version` once `EVENTS_CHAIN_DDL`, the fourth migration, has run.
+const CHAINED_SCHEMA: i64 = 4;
+
+fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+}
+
 fn open_once(path: &std::path::Path) -> rusqlite::Result<Connection> {
     let mut conn = Connection::open(path)?;
     conn.busy_timeout(Duration::from_millis(BUSY_MS))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    let before = user_version(&conn)?;
     let migrations = migrations();
     if let Err(err) = migrations.to_latest(&mut conn) {
         // Peer already committed the schema. We read user_version=0
@@ -48,7 +57,10 @@ fn open_once(path: &std::path::Path) -> rusqlite::Result<Connection> {
             return Err(map_migrate_err(err));
         }
     }
-    chain::backfill(&mut conn)?;
+    // § eqyjmph9x.e@48yct
+    if before < CHAINED_SCHEMA && user_version(&conn)? >= CHAINED_SCHEMA {
+        chain::backfill(&mut conn)?;
+    }
     Ok(conn)
 }
 
@@ -57,6 +69,7 @@ pub fn open() -> rusqlite::Result<Connection> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    // § mzce8bpjn.d@3neaf
     for attempt in 0..OPEN_ATTEMPTS {
         match open_once(&path) {
             Ok(conn) => return Ok(conn),
@@ -77,6 +90,7 @@ pub fn query(
     kind: Option<&str>,
     repo: Option<&str>,
 ) -> rusqlite::Result<Vec<Event>> {
+    // § ck86fwnt7.b@v3b0a
     let conn = open()?;
     let mut sql = format!("SELECT {} FROM events WHERE 1=1", super::EVENT_COLS);
     if since.is_some() {

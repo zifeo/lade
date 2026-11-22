@@ -64,6 +64,11 @@ A vault edit does not evict RAM. `status` prints a count.
 ### `lade setup`
 
 Wire this repo: locked packages, first-time pre-exec, repo pre-tool.
+Started from a shell with no profile hook (tcsh, ksh, `sh`, an IDE
+task), setup names it, skips the shell hook, and wires the repo. A
+shell profile Lade cannot read leaves it unable to tell whether the
+machine has the hook: setup names the file, writes no hook, and wires
+the repo.
 
 ```bash
 lade setup
@@ -98,11 +103,21 @@ lade teardown --global
 
 ### `lade on` / `lade off`
 
-Print snippets for this shell. `eval "$(lade on)"`.
+Print snippets for this shell. `eval "$(lade on)"`. The hook runs the exact line `eval "$(lade off)"`
+unwrapped, so it still pauses Lade while a `lade.yaml` does not load and every other line is cancelled.
+Another line that evaluates `lade off` goes through the hook, so its code restores that line's
+environment before it removes the hook.
 
 ### `lade add` / `lade remove`
 
 Edit the nearest `lade.yaml`. `add` then runs setup.
+
+Both edit the file line by line: they change the lines of the binding, and the rule's key line
+when they add or drop the whole rule, and keep every comment, blank line and other line as
+written. A new binding goes after the rule's last one at the same indent, a new rule at the end
+of the file. A rule written in flow style, such as `^jq: {jq: mise://aqua/jqlang/jq@1.7.1}`,
+fails the verb and leaves the file unchanged: edit it by hand, or write it as a block. Setup's
+write-back of a `@latest` pin edits the file the same way.
 
 ```bash
 lade add secret --rule 'terraform .*' --key AWS_ACCESS_KEY_ID --uri op://v/i/f
@@ -148,13 +163,18 @@ Hub
 cwd), `tunnels` (`key`, `uri`, `port`, `leases`, `ttl_left_ms`,
 `phase`), and `max_cache_ms`, the cap the hub enforces now. Each
 provider has `timeout_s`. `global_config` adds `max_cache` (raw),
-`max_cache_ms`, and `max_cache_error`. An invalid `max_cache` sets
-`ok` to false: the hub then keeps nothing.
+`max_cache_ms`, and `max_cache_error`. An invalid `max_cache`, or a
+`config.json` Lade cannot read or parse, sets `max_cache_error` and
+`ok` to false: the hub then keeps nothing. A pre-tool hook file Lade
+cannot read adds `error` to its `hooks.pretool.<harness>.global`,
+`.project` or `.claude.committed` entry, naming the file and why.
 
 ### `lade ttl`
 
 This binary's hub: cached secret names and tunnels. Names only.
-Never values. Does not spawn.
+Never values. Does not spawn. It lists the secrets of this cwd, its
+ancestors and its children (`--global`: every directory), and every
+tunnel of the hub.
 
 ```bash
 lade ttl
@@ -168,8 +188,8 @@ lade ttl forget AWS_ACCESS_KEY_ID
 lade ttl forget 15432
 ```
 
-`lade ttl set` marks this cwd on the hub. A parent cwd
-shares it. Secrets and tunnels of matching rules keep that long.
+`lade ttl set` marks this cwd on the hub. Ancestors and
+children share it. Secrets and tunnels of matching rules keep that long.
 Without one, secrets stay in RAM 5m, shell ones only with
 ttl. Tunnels have no default.
 `lade ttl unset` clears this cwd.
@@ -198,6 +218,40 @@ hub: down
 `lade log prune --hub` is an alias of `lade ttl forget` (no
 names). Mechanics: [cache.md](cache.md).
 
+### `lade connect` / `lade detach`
+
+Delegates the resolution of a remote machine's `lade.yaml` to this
+laptop's providers, which hold the sessions and credentials. The laptop
+hub keeps one link per transport up. See `docs/remote.md`.
+
+```bash
+lade connect src/app -- ssh -J bastion me@build-01
+lade connect src/worker -- ssh -J bastion me@build-01
+lade connect src/app -- tsh ssh me@build-02
+lade detach -- ssh -J bastion me@build-01
+lade detach
+```
+
+The path is a directory on the remote, relative to its home. Everything
+after `--` is the transport, `ssh …` or `tsh ssh …`, run as written
+without a remote command. `lade connect` shows the `lade.yaml` files on
+the walk of that path, resolves them on the laptop as a local Lade
+would, provider prompts included, and caches what it resolved. It exits
+0 once the walk is resolved and the link is ready. Run it once per path:
+a later `lade connect` over the same transport adds its walk to the
+running link.
+
+`lade detach -- <transport>` on the laptop stops the link. `lade detach`
+on the remote leaves attached mode. While attached, a command exits 4
+when the link is down or the laptop's provider fails, 5 for a ref or
+tunnel the laptop's resolution does not yield, and 6 for a walk no
+`lade connect` resolved, each with the `lade connect` line to run. A
+tunnel keeps its port on the remote and runs on the laptop, with the
+laptop's credentials; `kubefwd` runs on the remote.
+`lade status --json` reports `remote.upstream` (`none`,
+`attached`, `broken`) and `remote.links`. The laptop records every link
+event as a `remote` row: `lade log --kind remote`.
+
 ### `lade log` / `lade usage`
 
 Diary. [observability.md](observability.md).
@@ -225,7 +279,8 @@ lade eval --ttl 5m op://vault/item/field
 ```
 
 `--ttl` keeps the value in the hub for this cwd. See
-[cache.md](cache.md#lade-eval---ttl).
+[cache.md](cache.md#lade-eval---ttl). `lade eval` takes a secret URI: a
+tunnel or package URI fails, with or without `--ttl`.
 
 ### `lade approve`
 

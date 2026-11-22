@@ -20,6 +20,15 @@ preexec_lade 'echo "test=$TEST"'
 echo "test=$TEST"
 precmd_lade
 
+preexec_lade 'lade status'
+if [ -n "${LADE+x}" ]; then
+  echo "preexec_lade should skip a lade line"
+  exit 1
+fi
+
+# Set last: the hooks fire in this script.
+preexec_other() { :; }
+preexec_functions=(preexec_other preexec_lade)
 echo "test=$TEST"
 eval "$(lade_cli off)"
 echo "test=$TEST"
@@ -36,4 +45,9 @@ if type precmd_lade >/dev/null 2>&1; then
   exit 1
 else
   echo "precmd_lade correctly removed"
+fi
+
+if [ "${preexec_functions[*]}" != "preexec_other" ]; then
+  echo "lade off should keep another hook: ${preexec_functions[*]}"
+  exit 1
 fi

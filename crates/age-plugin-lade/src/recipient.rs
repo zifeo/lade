@@ -66,6 +66,7 @@ fn hydrate_recipients(entries: &[Entry]) -> Natives {
 fn shared_labels(
     natives: &[Box<dyn age::Recipient + Send>],
 ) -> Result<HashSet<String>, recipient::Error> {
+    // § mcf6rtczf.d@1emk9
     let probe = FileKey::new(Box::new([0; 16]));
     let mut shared: Option<HashSet<String>> = None;
     for native in natives {
@@ -143,7 +144,12 @@ impl RecipientPluginV1 for LadeRecipient {
     ) -> io::Result<Result<Vec<Vec<Stanza>>, Vec<recipient::Error>>> {
         let natives = match self.natives.take() {
             Some(natives) => natives,
-            None => hydrate_recipients(&self.entries),
+            // A client that asked no labels: the mix is refused here too.
+            // § mcf6rtczf.d@g16s2
+            None => hydrate_recipients(&self.entries).and_then(|natives| {
+                shared_labels(&natives).map_err(|error| vec![error])?;
+                Ok(natives)
+            }),
         };
         let natives = match natives {
             Ok(natives) => natives,

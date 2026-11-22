@@ -2,7 +2,13 @@ use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// Bin name for hook enable and match rewrites.
+/// What a match rewrite starts: the `lade` the harness shell finds on its
+/// `PATH`, whichever binary ran the hook. A harness may exec the hook by
+/// its resolved absolute path, and that path is not the name to keep.
+// § one yjys1hgbd@mgrsj
+pub(crate) const REWRITE_BIN: &str = "lade";
+
+/// Bin name for a hook line `lade hook enable` writes and the upgrade hint.
 /// Bare `lade` stays `lade`. A path in argv[0] uses current_exe unless `lade`
 /// is already on PATH (Cursor often execs the resolved absolute path).
 pub(crate) fn invoked_lade_bin() -> String {

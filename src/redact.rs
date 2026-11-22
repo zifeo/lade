@@ -20,6 +20,7 @@ impl Redactor {
     /// variable name. Omit `{}` for a static replacement (e.g. `"REDACTED"`).
     /// Returns `None` when there are no non-empty secrets to mask.
     pub fn new(secrets: &HashMap<String, String>, format: &str) -> Option<Self> {
+        // § bjcpdnsd2.c@0yb1f
         let mut by_value: FxHashMap<&str, &str> = FxHashMap::default();
         let mut names: Vec<&str> = secrets.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -29,10 +30,12 @@ impl Redactor {
                 by_value.entry(value).or_insert(name);
             }
         }
+        // § end bjcpdnsd2.c
         if by_value.is_empty() {
             return None;
         }
 
+        // § bjcpdnsd2.a@xgxn5
         // Longer patterns first so LeftmostLongest picks the longer one when
         // a shorter secret is a prefix of a longer one.
         let mut pairs: Vec<(&str, &str)> = by_value.into_iter().collect();
@@ -47,6 +50,7 @@ impl Redactor {
 
         let mut patterns: Vec<Vec<u8>> = Vec::with_capacity(pairs.len());
         let mut replacements: Vec<Vec<u8>> = Vec::with_capacity(pairs.len());
+        // § one bjcpdnsd2.b@hame0
         for (value, name) in pairs {
             patterns.push(value.as_bytes().to_vec());
             replacements.push(format.replace("{}", name).into_bytes());
@@ -56,6 +60,7 @@ impl Redactor {
             .match_kind(MatchKind::LeftmostLongest)
             .build(&patterns)
             .expect("aho-corasick build failed");
+        // § end bjcpdnsd2.a
 
         Some(Self {
             ac,
@@ -65,6 +70,7 @@ impl Redactor {
     }
 
     pub fn stream<R: Read, W: Write>(&self, mut reader: R, mut writer: W) -> io::Result<()> {
+        // § bjcpdnsd2.d@gyxh2
         let mut buf: Vec<u8> = Vec::new();
         let mut chunk = vec![0u8; CHUNK];
 
@@ -83,6 +89,7 @@ impl Redactor {
             let safe_end = buf.len().saturating_sub(self.carry_len);
             let mut pos = 0usize;
 
+            // § bjcpdnsd2.e@zczp9
             for mat in self.ac.find_iter(&buf) {
                 if mat.start() >= safe_end {
                     break;
@@ -94,6 +101,7 @@ impl Redactor {
 
             let commit = pos.max(safe_end);
             writer.write_all(&buf[pos..commit])?;
+            // § end bjcpdnsd2.e
             buf.drain(..commit);
 
             // Defeat Rust's LineWriter on stdout TTYs: an interactive prompt
@@ -106,6 +114,7 @@ impl Redactor {
     }
 
     fn replace_into(&self, data: &[u8], writer: &mut impl Write) -> io::Result<()> {
+        // § bjcpdnsd2.e@7vhg3
         let mut pos = 0;
         for mat in self.ac.find_iter(data) {
             writer.write_all(&data[pos..mat.start()])?;
@@ -213,6 +222,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out, b"x${TOKEN:-REDACTED}x");
+    }
+
+    #[test]
+    fn bytes_outside_a_masked_value_pass_unchanged_in_any_encoding() {
+        let mut input = vec![0xff, 0xfe, 0x00, b'\r', b'\n', 0xc3];
+        input.extend_from_slice(b"s3cr3t");
+        input.extend_from_slice(&[0x80, 0xe2, 0x82]);
+        let mut expected = vec![0xff, 0xfe, 0x00, b'\r', b'\n', 0xc3];
+        expected.extend_from_slice(b"${K:-REDACTED}");
+        expected.extend_from_slice(&[0x80, 0xe2, 0x82]);
+        assert_eq!(redact(&[("K", "s3cr3t")], &input), expected);
+        let binary: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+        assert_eq!(redact(&[("K", "s3cr3t")], &binary), binary);
     }
 
     #[test]

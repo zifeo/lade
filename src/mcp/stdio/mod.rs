@@ -38,13 +38,13 @@ struct Session<R> {
 }
 
 impl<R: AsyncRead + Unpin> Session<R> {
-    fn new(input: R) -> Self {
+    fn new(input: R, startup: Duration) -> Self {
         Self {
             input: BufReader::new(input),
             pending: Vec::new(),
             forwarded_initialize: false,
             backoff: INITIAL_RESTART_BACKOFF,
-            startup_deadline: Instant::now() + STARTUP_TIMEOUT,
+            startup_deadline: Instant::now() + startup,
             client_line: String::new(),
             watch: ChildWatch::new(),
         }
@@ -62,6 +62,7 @@ pub(super) async fn run_stdio(
         current_dir,
         tokio::io::stdin(),
         tokio::io::stdout(),
+        STARTUP_TIMEOUT,
     )
     .await
 }
@@ -71,18 +72,21 @@ pub(super) async fn run_stdio(
 /// `initialize` is not a Unix signal. It is the first JSON-RPC line the MCP
 /// client writes to our stdin (`"method":"initialize"`). We write those same
 /// bytes to the child's stdin. After that the session is the client's.
+/// `startup`: how long the child may keep exiting before `initialize`.
 pub(super) async fn supervise_stdio<R, W>(
     argv: Vec<OsString>,
     env: HashMap<String, String>,
     current_dir: std::path::PathBuf,
     input: R,
     mut output: W,
+    startup: Duration,
 ) -> Result<Option<i32>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut session = Session::new(input);
+    // § hkqw5dexk.a@h2dd6
+    let mut session = Session::new(input, startup);
     loop {
         if session.watch.stop_requested() {
             return Ok(None);
@@ -129,6 +133,7 @@ where
         Ok(child) => Ok(SpawnAttempt::Child(child)),
         Err(error) => {
             if Instant::now() >= session.startup_deadline {
+                // § hkqw5dexk.a@qex3t
                 MessageBox::new()
                     .error()
                     .line("MCP server failed to start before initialize.")
@@ -138,10 +143,14 @@ where
             }
             log::warn!("mcp stdio failed to start: {error}");
             if restart_after_crash(session).await? {
-                Ok(SpawnAttempt::Retry)
-            } else {
-                Ok(SpawnAttempt::Exit(None))
+                return Ok(SpawnAttempt::Retry);
             }
+            MessageBox::new()
+                .error()
+                .line("MCP server failed to start before initialize.")
+                .paragraph(error.to_string())
+                .print_stderr();
+            Ok(SpawnAttempt::Exit(Some(exit_codes::FAILURE)))
         }
     }
 }
@@ -151,6 +160,7 @@ fn spawn_stdio(
     env: &HashMap<String, String>,
     current_dir: &Path,
 ) -> Result<Child> {
+    // § jfxr4rmae.a@1eqaz
     let program = argv
         .first()
         .ok_or_else(|| anyhow::anyhow!("missing MCP stdio command"))?;
@@ -159,6 +169,8 @@ fn spawn_stdio(
         .args(&argv[1..])
         .current_dir(current_dir)
         .envs(std::env::vars());
+    // § one nv6nfbbs2.c@3npm6
+    // silcrow:follow
     crate::preexec::strip_child_protocol_tokio(&mut command);
     command
         .envs(env.clone())
@@ -191,6 +203,7 @@ where
         return Ok(Some(exit_code(status)));
     }
     if session.forwarded_initialize {
+        // § hkqw5dexk.b@46vke
         write_in_flight_exits(output, in_flight).await?;
         MessageBox::new()
             .error()
@@ -202,7 +215,9 @@ where
     if client_eof {
         return Ok(Some(exit_code(status)));
     }
+    // § tk1e8j9nf.b@dayd8
     if Instant::now() >= session.startup_deadline {
+        // § hkqw5dexk.a@7kpr8
         MessageBox::new()
             .error()
             .line("MCP server exited before initialize.")
@@ -212,8 +227,9 @@ where
     }
     log::warn!("mcp stdio exited before initialize (status: {status})");
     if !restart_after_crash(session).await? {
-        return Ok(Some(None));
+        return Ok(Some(exit_code(status)));
     }
+    // § end tk1e8j9nf.b
     Ok(None)
 }
 
@@ -275,7 +291,8 @@ async fn finish_child(child: &mut Child) -> Result<ExitStatus> {
 }
 
 fn exit_code(status: ExitStatus) -> Option<i32> {
-    (!status.success()).then_some(status.code().unwrap_or(1))
+    // § tk1e8j9nf.b@vept1
+    (!status.success()).then(|| crate::wrap::exec::exit_code(status))
 }
 
 async fn write_server_exited<W>(output: &mut W, id: Value) -> Result<()>

@@ -11,7 +11,7 @@ fn usage_without_window_lists_matched_rules() {
     inject(home.path(), dir.path(), &["echo", "hi"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--json"])
+        .args(["usage", "--all", "--json"])
         .assert()
         .success()
         .get_output()
@@ -68,11 +68,137 @@ fn prune_keep_deletes_old_rows() {
     drop(conn);
     common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "prune", "--keep", "1d"])
+        .args(["log", "--all", "prune", "--keep", "1d"])
         .assert()
         .success();
     let rows = log_rows(home.path(), dir.path());
     assert_eq!(rows.as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn prune_warns_on_a_tampered_diary() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "first"]);
+    inject(home.path(), dir.path(), &["echo", "second"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm' WHERE seq = 1", [])
+        .unwrap();
+    drop(conn);
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--all", "prune", "--keep", "1d"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("tampered"), "{stderr}");
+}
+
+#[test]
+fn prune_reseals_a_new_epoch() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["echo", "old"]);
+    inject(home.path(), dir.path(), &["echo", "new"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute(
+        "UPDATE events SET ts = '2020-01-01T00:00:00.000Z' WHERE seq = 1",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--all", "prune", "--keep", "1d"])
+        .assert()
+        .success();
+    let out = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "verify"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("rows=1"), "{stderr}");
+    assert!(stderr.contains("epoch=2"), "{stderr}");
+}
+
+#[test]
+fn prune_keeps_other_repos() {
+    let home = tempdir().unwrap();
+    let a = tempdir().unwrap();
+    let b = tempdir().unwrap();
+    for dir in [a.path(), b.path()] {
+        write_yml(dir, "{}\n");
+        common::init_git(dir);
+    }
+    inject(home.path(), a.path(), &["echo", "a"]);
+    inject(home.path(), b.path(), &["echo", "b"]);
+    let db = home.path().join("events.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("UPDATE events SET ts = '2020-01-01T00:00:00.000Z'", [])
+        .unwrap();
+    drop(conn);
+    common::lade(home.path())
+        .current_dir(a.path())
+        .args(["log", "prune", "--keep", "1d"])
+        .assert()
+        .success();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let left: Vec<String> = conn
+        .prepare("SELECT command FROM events")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(left, vec!["echo".to_string()]);
+    let argv: String = conn
+        .query_row("SELECT json(argv) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert!(argv.contains("\"b\""), "{argv}");
+}
+
+#[test]
+fn prune_in_a_repo_keeps_rows_of_no_repo() {
+    let home = tempdir().unwrap();
+    let repo = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    write_yml(repo.path(), "{}\n");
+    common::init_git(repo.path());
+    write_yml(outside.path(), "{}\n");
+    inject(home.path(), repo.path(), &["echo", "a"]);
+    inject(home.path(), outside.path(), &["echo", "b"]);
+    let db = home.path().join("events.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let no_repo: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE repo IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(no_repo, 1);
+    conn.execute("UPDATE events SET ts = '2020-01-01T00:00:00.000Z'", [])
+        .unwrap();
+    drop(conn);
+    common::lade(home.path())
+        .current_dir(repo.path())
+        .args(["log", "prune", "--keep", "1d"])
+        .assert()
+        .success();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let argv: String = conn
+        .query_row("SELECT json(argv) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert!(argv.contains("\"b\""), "{argv}");
 }
 
 #[test]
@@ -88,7 +214,7 @@ fn usage_lists_matched_rules_by_frequency() {
     inject(home.path(), dir.path(), &["npm", "run", "build"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--json", "--since", "1d"])
+        .args(["usage", "--all", "--json", "--since", "1d"])
         .assert()
         .success()
         .get_output()
@@ -102,7 +228,7 @@ fn usage_lists_matched_rules_by_frequency() {
     inject(home.path(), dir.path(), &["npm", "run", "deploy"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--json", "--since", "1d"])
+        .args(["usage", "--all", "--json", "--since", "1d"])
         .assert()
         .success()
         .get_output()
@@ -122,7 +248,9 @@ fn log_group_command_orders_by_count() {
     inject(home.path(), dir.path(), &["true"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--group", "command", "--since", "1d"])
+        .args([
+            "log", "--all", "--json", "--group", "command", "--since", "1d",
+        ])
         .assert()
         .success()
         .get_output()
@@ -147,7 +275,7 @@ fn usage_empty_window_does_not_dump_catalog() {
     .unwrap();
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--json", "--since", "1d"])
+        .args(["usage", "--all", "--json", "--since", "1d"])
         .assert()
         .success()
         .get_output()
@@ -157,7 +285,7 @@ fn usage_empty_window_does_not_dump_catalog() {
     assert_eq!(rows.as_array().unwrap().len(), 0);
     common::lade(home.path())
         .current_dir(dir.path())
-        .args(["usage", "--since", "1d"])
+        .args(["usage", "--all", "--since", "1d"])
         .assert()
         .success()
         .stderr(predicates::str::contains("no events"));

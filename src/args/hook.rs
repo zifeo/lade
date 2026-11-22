@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum HookAgent {
+    // § mqnfssecp.c@gfkzy
     Claude,
     Cursor,
     Codex,

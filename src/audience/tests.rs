@@ -264,6 +264,77 @@ fn ai_agent_takes_precedence() {
     });
 }
 
+/// `(variable, value, harness)` for each signal of the `docs/env.md` table.
+fn documented_signals() -> Vec<(String, String, String)> {
+    let env_md = include_str!("../../docs/env.md");
+    let section = env_md
+        .split("## Harness detection")
+        .nth(1)
+        .expect("docs/env.md has a Harness detection section");
+    let mut signals = Vec::new();
+    for line in section.lines().filter(|line| line.starts_with("| `")) {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        let (variables, harness) = (cells[1], cells[2]);
+        for variable in variables.split(", ") {
+            let variable = variable.trim_matches('`');
+            let (key, value) = variable.split_once('=').unwrap_or((variable, "1"));
+            let value = if harness == "value of the variable" {
+                "some-harness"
+            } else {
+                value
+            };
+            let harness = if harness == "value of the variable" {
+                value
+            } else {
+                harness
+            };
+            signals.push((key.to_string(), value.to_string(), harness.to_string()));
+        }
+    }
+    assert!(signals.len() >= 13, "{signals:?}");
+    signals
+}
+
+#[test]
+fn each_documented_signal_is_a_harness() {
+    for (key, value, harness) in documented_signals() {
+        assert!(
+            SIGNALS.contains(&key.as_str()),
+            "{key} is not cleared by the tests"
+        );
+        let vars: Vec<(&str, Option<&str>)> = cleared_signals()
+            .into_iter()
+            .map(|(name, set)| match name == key {
+                true => (name, Some(value.as_str())),
+                false => (name, set),
+            })
+            .collect();
+        temp_env::with_vars(vars, || {
+            assert_eq!(agent_signal().as_deref(), Some(harness.as_str()), "{key}");
+            let d = detect(&inject(), false, false, false).unwrap();
+            assert_eq!(d.audience, Audience::Agent, "{key}");
+        });
+    }
+}
+
+#[test]
+fn undocumented_harness_variables_are_human() {
+    for (key, value) in [
+        ("CURSOR_EXTENSION_HOST_ROLE", "other"),
+        ("CODEX_HOME", "/home/me/.codex"),
+        ("OPENCODE_DIR", "/home/me/.opencode"),
+    ] {
+        let mut vars = cleared_signals();
+        vars.retain(|(name, _)| *name != key);
+        vars.push((key, Some(value)));
+        temp_env::with_vars(vars, || {
+            assert_eq!(agent_signal(), None, "{key}");
+            let d = detect(&inject(), false, false, false).unwrap();
+            assert_eq!(d.audience, Audience::Human, "{key}");
+        });
+    }
+}
+
 #[test]
 fn claudecode_non_one_is_ignored() {
     let mut vars = cleared_signals();

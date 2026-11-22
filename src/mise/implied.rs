@@ -32,6 +32,7 @@ fn range_uri(mise: &str, min: &str, max: Option<&str>) -> String {
 }
 
 fn table() -> &'static [Implied] {
+    // § ba4zs2twj.a@dktpg
     static TABLE: OnceLock<Vec<Implied>> = OnceLock::new();
     TABLE.get_or_init(|| {
         let mut out = Vec::new();
@@ -63,6 +64,10 @@ pub fn pins_for(sources: &[String], existing: &[(String, Spec)]) -> Vec<(String,
         let Some(scheme) = source.split_once("://").map(|(scheme, _)| scheme) else {
             continue;
         };
+        // § one ba4zs2twj.e@9b2a1
+        if lade_sdk::upstream::routes(scheme) {
+            continue;
+        }
         let Some(row) = by_scheme(scheme) else {
             continue;
         };
@@ -74,6 +79,7 @@ pub fn pins_for(sources: &[String], existing: &[(String, Spec)]) -> Vec<(String,
             .chain(out.iter())
             .any(|(key, spec)| key == row.key || spec.backend_id() == parsed.backend_id())
         {
+            // § ba4zs2twj.b@97rj0
             continue;
         }
         out.push((row.key.to_string(), parsed));
@@ -83,9 +89,9 @@ pub fn pins_for(sources: &[String], existing: &[(String, Spec)]) -> Vec<(String,
 
 pub fn any_from_sources(sources: &[String]) -> bool {
     sources.iter().any(|source| {
-        source
-            .split_once("://")
-            .is_some_and(|(scheme, _)| by_scheme(scheme).is_some())
+        source.split_once("://").is_some_and(|(scheme, _)| {
+            !lade_sdk::upstream::routes(scheme) && by_scheme(scheme).is_some()
+        })
     })
 }
 

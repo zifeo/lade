@@ -4,7 +4,10 @@
 
 use std::time::Duration;
 
-pub(super) const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+pub(in crate::network) const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+/// A tunnel an attached remote runs through the laptop: the laptop hub gives
+/// up first, at its own start bound, so its error is the one shown.
+pub(crate) const LINKED_STARTUP_TIMEOUT: Duration = Duration::from_secs(100);
 pub(super) const INITIAL_RESTART_BACKOFF: Duration = Duration::from_millis(250);
 pub(super) const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(5);
 
@@ -21,13 +24,15 @@ pub(super) enum Step {
 pub(super) struct Policy {
     reported: bool,
     backoff: Duration,
+    budget: Duration,
 }
 
 impl Policy {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(budget: Duration) -> Self {
         Self {
             reported: false,
             backoff: INITIAL_RESTART_BACKOFF,
+            budget,
         }
     }
 
@@ -35,7 +40,8 @@ impl Policy {
     /// A retry that would start past the startup deadline could not listen
     /// in time, and its empty log would replace this child's error.
     pub(super) fn not_ready(&mut self, now: Duration) -> Step {
-        if !self.reported && now + self.backoff >= STARTUP_TIMEOUT {
+        // § v29epeav2.c@abaqf
+        if !self.reported && now + self.backoff >= self.budget {
             return Step::Fail;
         }
         Step::Retry(self.retry())
@@ -43,6 +49,7 @@ impl Policy {
 
     /// True the first time: the caller hears the tunnel is up.
     pub(super) fn ready(&mut self) -> bool {
+        // § bkmpmswkm.a@y27v2
         self.backoff = INITIAL_RESTART_BACKOFF;
         !std::mem::replace(&mut self.reported, true)
     }
@@ -55,10 +62,11 @@ impl Policy {
     /// How long the next child may take to listen. A restart after
     /// readiness gets a full budget: the startup deadline is long gone.
     pub(super) fn listen_deadline(&self, now: Duration) -> Duration {
+        // § bkmpmswkm.b@y0f0k
         if self.reported {
-            now + STARTUP_TIMEOUT
+            now + self.budget
         } else {
-            STARTUP_TIMEOUT
+            self.budget
         }
     }
 
@@ -69,6 +77,7 @@ impl Policy {
     }
 
     fn retry(&mut self) -> Duration {
+        // § bkmpmswkm.a@kxrsg
         let delay = self.backoff;
         self.backoff = (self.backoff * 2).min(MAX_RESTART_BACKOFF);
         delay
@@ -240,7 +249,7 @@ mod tests {
     #[test]
     fn every_supervisor_history_keeps_the_invariants() {
         let start = State {
-            policy: Policy::new(),
+            policy: Policy::new(STARTUP_TIMEOUT),
             child: Child::Starting,
             now: Duration::ZERO,
             reports: 0,
@@ -269,7 +278,7 @@ mod tests {
 
     #[test]
     fn backoff_doubles_up_to_the_cap() {
-        let mut policy = Policy::new();
+        let mut policy = Policy::new(STARTUP_TIMEOUT);
         let delays = (0..8)
             .map(|_| policy.not_ready(Duration::ZERO))
             .collect::<Vec<_>>();
@@ -280,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_restart_an_hour_in_gets_the_full_startup_budget() {
-        let mut policy = Policy::new();
+        let mut policy = Policy::new(STARTUP_TIMEOUT);
         assert!(policy.ready());
         let hour = Duration::from_secs(3600);
         assert_eq!(policy.exited(), INITIAL_RESTART_BACKOFF);
@@ -289,7 +298,7 @@ mod tests {
 
     #[test]
     fn startup_fails_once_no_retry_can_start_before_the_deadline() {
-        let mut policy = Policy::new();
+        let mut policy = Policy::new(STARTUP_TIMEOUT);
         let last_chance = STARTUP_TIMEOUT - INITIAL_RESTART_BACKOFF - Duration::from_millis(1);
         assert_eq!(
             policy.not_ready(last_chance),

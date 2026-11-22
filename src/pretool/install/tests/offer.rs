@@ -1,5 +1,5 @@
 use super::super::agent::Agent;
-use super::super::offer::{Plan, apply_plan, setup_at};
+use super::super::offer::{Plan, apply_plan, pending_project_for, setup_at};
 use super::super::paths::short_path;
 use super::super::ui::{parse_harnesses, parse_which_harnesses, parse_yes_no, which_prompt};
 use super::super::write::Scope;
@@ -16,6 +16,40 @@ fn short_path_is_repo_relative_then_home() {
         short_path(&home.join(".cursor").join("hooks.json"), home, dest),
         "~/.cursor/hooks.json"
     );
+}
+
+/// The harnesses hooks are written for, `--harness` takes, payloads are
+/// read from, and a shell command starts are the same four.
+#[test]
+fn every_harness_list_names_the_same_four() {
+    use super::super::agent::AGENTS;
+    use crate::args::HookAgent;
+    use crate::pretool::platform::parse_harness;
+    use clap::ValueEnum;
+    let mut written: Vec<&str> = AGENTS.iter().map(|agent| agent.slug()).collect();
+    let mut flags: Vec<&str> = HookAgent::value_variants()
+        .iter()
+        .map(|agent| agent.slug())
+        .collect();
+    written.sort_unstable();
+    flags.sort_unstable();
+    assert_eq!(written, flags);
+    assert_eq!(written, ["claude", "codex", "cursor", "opencode"]);
+    let programs = [
+        (Agent::Cursor, "cursor-agent"),
+        (Agent::Claude, "claude"),
+        (Agent::Codex, "codex"),
+        (Agent::OpenCode, "opencode"),
+    ];
+    for (agent, program) in programs {
+        let slug = agent.slug();
+        assert_eq!(
+            parse_harness(slug).map(|platform| platform.slug()),
+            Some(slug)
+        );
+        assert_eq!(Agent::launched_by(program), Some(agent));
+    }
+    assert_eq!(programs.len(), AGENTS.len());
 }
 
 #[test]
@@ -116,6 +150,7 @@ fn setup_from_nested_cwd_writes_git_root() {
     assert!(
         Agent::Cursor
             .hook_uses_command(
+                Scope::Project,
                 &std::fs::read_to_string(&hook).unwrap(),
                 "lade hook --harness cursor"
             )
@@ -137,7 +172,7 @@ fn setup_in_git_writes_project_hooks_only() {
     let body = std::fs::read_to_string(&hook).unwrap();
     assert!(
         Agent::Cursor
-            .hook_uses_command(&body, "lade hook --harness cursor")
+            .hook_uses_command(Scope::Project, &body, "lade hook --harness cursor")
             .unwrap()
     );
     assert!(!home.path().join(".cursor").join("hooks.json").exists());
@@ -168,6 +203,19 @@ fn setup_flags_home_hooks_and_does_not_stack() {
     let report = setup_at(false, &["cursor"], home.path(), cwd.path()).unwrap();
     assert_eq!(report.rows.len(), 1);
     assert_eq!(report.rows[0].verb, super::super::paths::ItemVerb::Flagged);
+    assert!(!cwd.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn setup_fails_on_a_home_hook_file_it_cannot_read() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    git_dir(cwd.path());
+    let home_config = home.path().join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(home_config.parent().unwrap()).unwrap();
+    std::fs::write(&home_config, b"{\"x\":\"\xff\"}").unwrap();
+    let err = setup_at(false, &["cursor"], home.path(), cwd.path()).unwrap_err();
+    assert!(err.to_string().contains("cannot read"), "{err}");
     assert!(!cwd.path().join(".cursor").join("hooks.json").exists());
 }
 
@@ -218,8 +266,32 @@ fn apply_plan_writes_user_hooks() {
     let body = std::fs::read_to_string(&hook).unwrap();
     assert!(
         Agent::Cursor
-            .hook_uses_command(&body, "lade hook --harness cursor")
+            .hook_uses_command(Scope::User, &body, "lade hook --harness cursor")
             .unwrap()
     );
     assert!(!cwd.path().join(".cursor").join("hooks.json").exists());
+}
+
+#[test]
+fn a_plugin_of_the_other_api_is_offered_with_the_pending_harnesses() {
+    use super::super::opencode::{OpenCodeApi, plugin};
+    use super::super::want::{Want, want};
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    git_dir(cwd.path());
+    let Want::Command(command, _) = want(Agent::OpenCode, Scope::Project, cwd.path()).unwrap()
+    else {
+        panic!("OpenCode wants a command");
+    };
+    let path = cwd
+        .path()
+        .join(".opencode")
+        .join("plugins")
+        .join("lade-pretool.js");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, plugin(OpenCodeApi::V1, &command)).unwrap();
+    let pending =
+        |api| pending_project_for(&[Agent::OpenCode], home.path(), cwd.path(), move || Ok(api));
+    assert_eq!(pending(OpenCodeApi::V2), [Agent::OpenCode]);
+    assert!(pending(OpenCodeApi::V1).is_empty());
 }

@@ -19,10 +19,15 @@ pub(super) fn concrete_for_update(spec: &Spec, current: &str) -> Result<String, 
     if spec::version_is_concrete(&spec.version) {
         return Ok(spec.version.clone());
     }
-    Ok(keep_if_newer(current, &concrete_version(spec)?))
+    Ok(keep_if_newer(
+        &spec.version,
+        current,
+        &concrete_version(spec)?,
+    ))
 }
 
 pub(super) fn select_concrete(spec: &Spec, listed: Option<&str>) -> Result<String, Error> {
+    // § h01jcjwrv.b@wv11h
     if spec::version_is_concrete(&spec.version) {
         return Ok(spec.version.clone());
     }
@@ -41,7 +46,12 @@ pub(super) fn select_concrete(spec: &Spec, listed: Option<&str>) -> Result<Strin
     Err(Error::no_listed_version(&spec.backend_id(), &spec.version))
 }
 
-pub(super) fn keep_if_newer(current: &str, next: &str) -> String {
+/// A locked version newer than what resolved stays, when the range still holds it.
+pub(super) fn keep_if_newer(constraint: &str, current: &str, next: &str) -> String {
+    // § byd2nhybz.d@1yzje
+    if !constraint_matches(constraint, current) {
+        return next.to_string();
+    }
     let prev = Version::parse(current.trim_start_matches('v'));
     let new = Version::parse(next.trim_start_matches('v'));
     match (prev, new) {
@@ -51,6 +61,7 @@ pub(super) fn keep_if_newer(current: &str, next: &str) -> String {
 }
 
 pub(super) fn highest_matching(constraint: &str, versions: &[String]) -> Option<String> {
+    // § h01jcjwrv.b@zprq4
     let mut best: Option<(Version, String)> = None;
     for raw in versions {
         let version = raw.trim();
@@ -142,8 +153,13 @@ mod tests {
 
     #[test]
     fn update_does_not_downgrade() {
-        assert_eq!(keep_if_newer("2.40.0", "2.39.0"), "2.40.0");
-        assert_eq!(keep_if_newer("2.31.1", "2.39.0"), "2.39.0");
+        assert_eq!(keep_if_newer(">=2.18.0", "2.40.0", "2.39.0"), "2.40.0");
+        assert_eq!(keep_if_newer(">=2.18.0", "2.31.1", "2.39.0"), "2.39.0");
+    }
+
+    #[test]
+    fn update_leaves_a_lock_the_range_no_longer_holds() {
+        assert_eq!(keep_if_newer(">=1, <2", "2.5.0", "1.9.0"), "1.9.0");
     }
 
     #[test]

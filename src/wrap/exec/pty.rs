@@ -5,7 +5,7 @@ use crate::redact::Redactor;
 use anyhow::Result;
 use std::{
     fs::File,
-    os::fd::{AsRawFd, OwnedFd},
+    os::fd::{AsFd, AsRawFd, OwnedFd},
     path::Path,
     process::Stdio,
     sync::{
@@ -45,6 +45,7 @@ pub fn run(
             .stderr(Stdio::from(slave_err));
         Ok(())
     });
+    // § mzce8bpjn.a@vyj2s
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
@@ -61,32 +62,71 @@ pub fn run(
     // Cloning the master fd decouples the redactor read loop from the
     // resize thread's own clone of `master`.
     let master_for_read = master.try_clone()?;
-    let mut master_reader = MasterReader(File::from(master_for_read));
+    let child_done = Arc::new(AtomicBool::new(false));
+    let mut master_reader = MasterReader {
+        file: File::from(master_for_read),
+        child_done: Arc::clone(&child_done),
+    };
     // The pump starts before the diary write, so a slow diary never holds
     // the output back.
     let pump = std::thread::spawn(move || {
         let _ = redactor.stream(&mut master_reader, &mut std::io::stdout().lock());
     });
     after_spawn();
+    let status = child.wait();
+    child_done.store(true, Ordering::Release);
     let _ = pump.join();
-
-    let status = child.wait()?;
+    let status = status?;
+    // § end mzce8bpjn.a
     watch.clear_pid();
     drop(_resize);
     drop(master);
-    Ok(status.code().unwrap_or(1))
+    // § one tk1e8j9nf.b@j6xyq
+    Ok(super::exit_code(status))
 }
 
 /// Linux answers `EIO`, not end of file, on a master whose child side has
 /// closed. As an error it would drop the redactor's carry, the last bytes
 /// the command wrote.
-struct MasterReader(File);
+///
+/// Once the child is gone, a quiet master is the end too: a grandchild the
+/// shell left behind, a `sleep` bash 3.2 starts after its SIGINT, holds the
+/// child side open and would keep Lade waiting on it.
+struct MasterReader {
+    file: File,
+    child_done: Arc<AtomicBool>,
+}
+
+/// How long a master stays quiet, once the child is gone, before it ends.
+const QUIET_AFTER_CHILD_MS: u16 = 50;
+/// How often a read waiting on a quiet master looks whether the child is
+/// gone. A master whose child side closes wakes it at once.
+const CHILD_CHECK_MS: u16 = 200;
 
 impl std::io::Read for MasterReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self.0.read(buf) {
-            Err(error) if error.raw_os_error() == Some(nix::libc::EIO) => Ok(0),
-            read => read,
+        // § bjcpdnsd2.d@3x33r
+        loop {
+            let done = self.child_done.load(Ordering::Acquire);
+            let timeout = nix::poll::PollTimeout::from(if done {
+                QUIET_AFTER_CHILD_MS
+            } else {
+                CHILD_CHECK_MS
+            });
+            let mut fds = [nix::poll::PollFd::new(
+                self.file.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            match nix::poll::poll(&mut fds, timeout) {
+                Ok(0) if done => return Ok(0),
+                Ok(0) | Err(nix::errno::Errno::EINTR) => continue,
+                Ok(_) => {}
+                Err(error) => return Err(error.into()),
+            }
+            return match self.file.read(buf) {
+                Err(error) if error.raw_os_error() == Some(nix::libc::EIO) => Ok(0),
+                read => read,
+            };
         }
     }
 }
@@ -177,6 +217,7 @@ impl RawStdinGuard {
         let mut raw = original.clone();
         cfmakeraw(&mut raw);
         // cfmakeraw clears ISIG. Keep Ctrl-C as SIGINT so ChildWatch stops the child.
+        // § one fe8gp3s51.c@zks5g
         raw.local_flags |= LocalFlags::ISIG;
         if tcsetattr(stdin, SetArg::TCSANOW, &raw).is_err() {
             return Self { original: None };

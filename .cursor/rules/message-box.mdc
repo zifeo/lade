@@ -16,8 +16,9 @@ Never use `eprintln!` from command code. User-facing stderr goes through
   current). Bold headings and colour when the terminal allows it. No
   border.
 
-`UiMode` / `is_interactive()` gates prompts, countdowns, and sleeps. It
-must never suppress a `MessageBox`.
+Prompts on stdin stay gated on `UiMode` / `is_interactive()`. The
+run-anyway question and pauses need a human at a terminal (`Keys::enter`,
+`stderr_is_terminal`), never `UiMode`. Nothing suppresses a `MessageBox`.
 
 ```rust
 // ❌ BAD — setup success in a box

@@ -57,7 +57,10 @@ command without Lade after a provider failure gets no row.
 
 Starting an MCP server is not a hook. A row exists only if the
 process is `lade mcp -- …` (or a URL). Each later `tools/call` is a
-separate verb row, whether or not that prefix was used.
+separate verb row, whether or not that prefix was used. When a
+second hook of the same call cannot fill the first row, because
+another row was appended in between, it appends a full copy: `lade
+log` and `lade usage` count a `tool_use_id` once, its newest row.
 
 `via` is `preexec`, `pretool`, `mcp`, `organic`, or `unknown`.
 Audience is `human` or `agent`. Hydrate stays on the child. The diary
@@ -119,7 +122,8 @@ and, when the lock beside that yaml agrees, `version`. Winners only.
 `.NAME` is omitted. `agent` is optional hook metadata (`harness`,
 `tool`, `session`, …). Keys may be absent.
 
-Scrub: leading `NAME=value` is stripped, hydrated values become
+Scrub: leading `NAME=value` words are stripped whole, a quoted value
+with blanks included, hydrated values become
 `${NAME}`, leftover hydrate stores `""`, then needles / prefixes /
 long tokens become `?`. Child stdout and `lade eval` are never
 stored.
@@ -131,6 +135,8 @@ from now (`Ns | Nm | Nh | Nd | Nw | Nmonth`; `m` is minutes).
 `--limit` is an extra cap. Bare `--limit 20` drops the 90-day
 default. Queries stay on the current git root (worktrees count).
 `--all` / `--global` read every repo. `--path` scopes to another tree.
+Outside a git root, `lade log`, `lade usage`, `lade log share` and
+`lade log prune --keep` exit 1 unless `--all` or `--global` is given.
 
 | Command | Meaning |
 |---|---|
@@ -138,18 +144,35 @@ default. Queries stay on the current git root (worktrees count).
 | `lade log --group command` | Frequency by argv0 |
 | `lade log --kind` / `--audience` | Filters |
 | `lade usage` | Matched `lade.yaml` rules in this tree, most frequent first. Warns if the chain is broken |
-| `lade log prune --keep` | The only diary delete. Starts a new chain epoch over what remains |
+| `lade log prune --keep` | The only diary delete. Starts a new chain epoch over what remains. Warns if the chain is broken |
 | `lade log prune --hub` | Alias of `lade ttl forget`. Next hydrate refetches. Does not spawn. Combinable with `--keep` |
-| `lade log share` | Gzipped snapshot (`lade-$USER-$FROM-$TO.tar.gz`) with its own chain |
+| `lade log share` | Gzipped snapshot (`lade-$FROM-$TO.tar.gz`) with its own chain. Holds no user name and no absolute path of your machine ([Share](#share)). Warns if the chain is broken. Not in a harness session |
 | `lade log verify` | Walk the hash chain. `--source` checks a pack |
-| `--source` | Read packs (or `local`) without writing the live db |
+| `--source` | Read packs (or `local`) read-only, without writing the live db |
 | `--json` | Stored fields |
 
-`lade usage` omits unused rules and catch-all `.`. The walk stops at
+`lade usage` omits unused rules and the catch-all rules `.` and `.*`. A rule counts only
+when it owns a winning public binding, so a rule that only sets `log`
+or a disclaimer is not listed. The walk stops at
 `$HOME`. `lade log` and `lade usage` do not write rows. A broken
 chain prints a warning that names the tampered row and how many
 rows still verify before and after it. The listing still prints.
 `lade log verify` exits non-zero.
+
+## Share
+
+A pack is for someone else, so it names your files relative to the
+repo or home they ran in. Each row drops `actor`, keeps `repo` as the
+repo's directory name, and rewrites every absolute path in every other
+field (`command`, `argv`, `agent`, each match's `file`, `rule` and
+binding URIs, `file://` included): a path under the repo becomes
+relative to it (`.` for the repo itself), one under your home becomes
+`~/...`, and any other keeps its last component (`/opt/tools/tf`
+becomes `tf`). A path is a `/` that opens a value or follows a space,
+a quote, `=`, `:` or another separator, and runs to the next one; your
+repo or home also counts inside a word, as in `-I/Users/me/inc`. A
+URL's host part, as in `https://host/path`, stays. The default name
+carries only the time range: `lade-$FROM-$TO.tar.gz`.
 
 ## Store
 
@@ -167,8 +190,11 @@ leave `ok` unchanged. `hub` Pings a live daemon. It does not spawn.
 `PRAGMA table_info` may show `BLOB`. The values are still JSONB.
 
 Each row is HMAC-SHA256 chained to the previous one. The key is
-compiled into this Lade version. A raw `sqlite3` edit of a past
-row breaks `lade log verify`. Parallel writers take an Immediate
+compiled into Lade. Each seal also names the version that wrote it,
+so a newer Lade still verifies older rows. A raw `sqlite3` edit of
+a past row breaks `lade log verify`, and so does a row whose seal
+was removed: Lade seals unsealed rows only once, when it adds the
+chain to a diary written before 0.19.0. Parallel writers take an Immediate
 transaction, so they append one at a time. `lade log share`
 reseals the redacted snapshot. That pack verifies on its own.
 The chain is tamper-evident, not tamper-proof: anyone who runs

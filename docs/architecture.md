@@ -78,7 +78,7 @@ restart, kill).
 `argv0` or `--age-plugin=` selects the
 [C2SP age-plugin](https://c2sp.org/age-plugin) state machines. The
 payload is a Lade URI. The plugin execs `lade eval` (sibling of the
-plugin, then `PATH`, or `LADE_BIN`). Hydrate is the same path as a
+plugin, then `PATH`; a set `LADE_BIN` comes first). Hydrate is the same path as a
 typed `lade eval` (`hydrate_one`, no `lade.yml`). The age crate then
 wraps or unwraps with whatever that URI returned (X25519, SSH, tagged,
 post-quantum `age1tagpq1`). No network providers. No disclaimer.
@@ -112,7 +112,9 @@ the user profile (`fish --no-config`, `zsh -f`, `$BASH_ENV` unset) so
 startup files cannot overwrite a resolved secret. It uses a
 pseudo-terminal (PTY) to capture output and redact secret values on the fly.
 Hangup is ignored. Stop signals end the wrapper. `USR1` / `USR2` / `WINCH`
-are forwarded.
+are forwarded. `lade mcp` watches the same signals once the access is
+ready, for a stdio server and a remote URL alike, so a stop signal still deletes its
+`.file` outputs.
 
 ```mermaid
 sequenceDiagram
@@ -131,7 +133,7 @@ sequenceDiagram
     PTY->>Lade: Read stream
 
     Lade->>Lade: Aho-Corasick Redactor finds secret
-    Lade->>Lade: Replace secret with `REDACTED`
+    Lade->>Lade: Replace secret with `${NAME:-REDACTED}`
 
     Lade->>User: Print sanitized output
     Lade->>Lade: Release network providers + temp files
@@ -156,9 +158,8 @@ Interactive is an output. Callers use `ctx.audience` for `.when` and
   child env. Preexec `set` writes T on every match and exports `LADE_T`.
   See [protocol.md](protocol.md).
 - **Audience** (`.when`): `human` / `agent`. Pretool is agent, preexec is human,
-  unset falls back to env signals (`AI_AGENT`, `AGENT`, `CLAUDECODE`,
-  `CLAUDE_CODE`, `CURSOR_AGENT`, `CURSOR_EXTENSION_HOST_ROLE`,
-  `CURSOR_SANDBOX`, `CODEX_*`, `OPENCODE*`, `COPILOT_MODEL`).
+  unset falls back to the env signals of
+  [env.md](env.md#harness-detection).
   `CURSOR_VERSION` is ignored: Cursor also sets it in human terminals.
   Optional diary metadata (`harness`, `model`, `session`) is collected from
   the hook payload and env (`src/agent_meta.rs`), stored on the T pre-event
@@ -193,8 +194,9 @@ one invocation.
 Keys prefixed with `.` are intermediate bindings. `.NAME` resolves and can be
 referenced as `$NAME` or `${NAME}`, but is never written to the child environment, a
 temporary file, or an MCP header. `.` on its own is still the rule
-configuration block (`file`, `disclaimer`, `when`, `silent`, `log`).
-`silent: true` skips that rule's secret progress lines in a human's
+configuration block (`file`, `1password_service_account`, `disclaimer`,
+`when`, `silent`, `log`, `ttl`), and any other key in it fails the load with
+an error that names it and the keys the block takes. `silent: true` skips that rule's secret progress lines in a human's
 terminal; a pre-tool wrap does not read it. Hydration
 itself is unchanged. A public binding and `.NAME` cannot coexist.
 
@@ -221,9 +223,10 @@ hooks, `lade inject`, file output, and MCP.
 reaches `lade hook` is a verb row. Diary shapes are in
 [observability.md](observability.md).
 
-`lade mcp` uses the same rule matcher and binding resolver as command
-injection, but the output sink depends on the transport. A stdio target is
-spawned directly with public bindings in its environment. An HTTPS target is
+`lade mcp` plans and acquires a server's access as `lade --` does, the
+matched rules' package pins included, but the output sink depends on the
+transport. A stdio target is spawned directly with public bindings and the
+pinned `PATH` in its environment. An HTTPS target is
 exposed locally as stdio and each public binding becomes an upstream HTTP
 header. If a stdio child exits before the client `initialize` line is
 forwarded, Lade respawns it with the already hydrated env. After
@@ -235,11 +238,11 @@ forwards are owned by the invocation and cleaned up when the transport exits.
 
 | Surface | Quiet | Interactive |
 |---------|------|-------------|
-| Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` writes T with `pending` and exports `LADE_T` | box + type `yes` |
+| Disclaimer prompt | fail closed + withhold secrets, single box, exit 3 (`DISCLAIMER_WITHHELD`); shell-hook `set` writes T with `pending`, exports `LADE_T`, and cancels the line | box + type `yes` |
 | Provider warnings | box + 2s wait when stderr is a TTY | box + 2s wait |
 | `Lade loaded` | silent | eprintln |
 | Compat CLI warning | silent | passive box + auto snooze |
-| Release and hook notices | none | from `lade set`: at most one box an hour when the command uses the hub, and the started harness's hooks on every launch |
+| Release and hook notices | pre-tool wrap that uses the hub: at most one `lade: Tell the human:` line an hour | from `lade set`: at most one box an hour when the command uses the hub, and the started harness's hooks on every launch |
 | Loader/network error | error box, command cancelled: exit 1, and pre-exec empties `PATH` for it | error box + 5s to press Enter and run it without Lade, else cancelled |
 | Tunnels | run in the hub; `lade set` leases them under T, `lade unset` releases them | run in the hub, leased to the `lade --` process |
 
@@ -257,13 +260,11 @@ Interactive prompts are forbidden in hook mode due to shell limitations (stdin h
 2. It outputs `unset` of `LADE_RESTORE` so a previous snapshot cannot leak into the next set.
 3. It writes T with `pending: true` and outputs `export LADE_T=<id>`.
 4. It prints the disclaimer text in a single **Warning MessageBox** to stderr and exits with code 3 (`DISCLAIMER_WITHHELD`). It is not a loader failure, so no second error box is shown.
-5. The user's command runs **without secrets** (fail-closed).
+5. The line is cancelled as on a failure: its `PATH` holds nothing to run and the shell says `Lade cancelled <command>.` The cancel erases `LADE`, so no `lade unset` deletes the pending T.
 6. To proceed, the user runs **`lade approve <code>`** with the code shown in the message.
-7. `lade approve` reads T via `LADE_T`, requires `pending: true`, verifies the code against the pending command, and executes it (equivalent to injected execution via `lade <command>` / `lade inject <command>`). The explicit code is the consent, so it proceeds without further prompting.
+7. `lade approve` reads T via `LADE_T`, requires `pending: true`, resolves the line's leading `cd <dir> &&` segments from its own directory and refuses when that is not T's directory, verifies the code against the pending command, and executes it (equivalent to injected execution via `lade <command>` / `lade inject <command>`). The explicit code is the consent, so it proceeds without further prompting.
 
-Alternatively, the user can approve up front by prefixing the command with the per-command code shown in the message: **`LADE_APPROVE=<code>`**. The code is `sha256(command + window)` truncated to 5 hex chars, where `window = unix_time / 300` (5 min); validation accepts the current and previous window. It is intentionally **not** a secret (an agent could recompute it) — its purpose is to break the scriptable `LADE_APPROVE=1` reflex and force a deliberate, fresh copy per command. There is no blanket bypass.
-
-Note: Fish `preexec` cannot cancel the main command. Lade's security model relies on withholding the secrets rather than preventing execution.
+Alternatively, the user can approve up front by prefixing the command with the per-command code shown in the message: **`LADE_APPROVE=<code>`**. The code is the first 5 hex digits of a `sha256` of the command and the 5-minute window (`unix_time / 300`), see [protocol.md](protocol.md); validation accepts the current and previous window. It is intentionally **not** a secret (an agent could recompute it): its purpose is to break the scriptable `LADE_APPROVE=1` reflex and force a deliberate, fresh copy per command. There is no blanket bypass.
 
 ### Pre-exec short-circuit
 
@@ -292,34 +293,50 @@ It does not acquire network.
 |---------|----------------|----------------------|
 | Interactive human | Via organic (both TTYs, no agent signal), inject/approve | prompt, type `yes` |
 | CI / Quiet human | no agent signal, not both TTYs | fail-closed, exit `3` |
-| Agent | Via=pretool, `Command::Hook` with no subcommand, or env signal when Via is unknown | fail-closed with `LADE_APPROVE=<code>` |
+| Agent | Via=pretool, `Command::Hook` with no subcommand, or env signal when Via is unknown | fail-closed, no code: only a human approves |
 
 ### pre-tool path
 
 The **pretool handler** (`src/pretool/`, invoked as `lade hook`) reads
-preToolUse JSON. Envelope comes from the payload first: `PreToolUse`
-and explicit Codex signals use `hookSpecificOutput` +
-`updatedInput`. Cursor's `updated_input` is only for `CURSOR_VERSION`
-or `preToolUse`. OpenCode's plugin sends `{ command, session_id }` and
-reads `{ command }` back. `CURSOR_VERSION` is last because Cursor also
-sets it in other hosts' terminals.
+preToolUse JSON. Every installed hook passes `--harness`. Without it,
+the payload's event names the harness first: `PreToolUse` with
+`turn_id` is Codex, `PreToolUse` is Claude Code, `preToolUse` or
+`beforeMCPExecution` is Cursor, `hook_source: opencode-plugin` is
+OpenCode. A harness started from another's terminal inherits its
+variables, so only a payload whose event names none falls to the env:
+`CODEX_THREAD_ID` / `CODEX_SANDBOX`, then `OPENCODE` / `OPENCODE_DIR`,
+then `CLAUDE_PROJECT_DIR`, then `CURSOR_VERSION`, last because Cursor
+also sets it in other hosts' terminals. Claude Code and Codex get
+`hookSpecificOutput` + `updatedInput`, Cursor `updated_input`.
+OpenCode's plugin sends `{ command, session_id }`, reads `{ command }`
+back, and passes Lade's stderr on.
 
 On match it writes a T pre-event and rewrites to
-`<lade> --pretool=<id> '…' && true`. That wrap **is** inject. On no match it
-allows the original line and may write a `seen` row. Disclaimers are
+`lade --pretool=<id> '…' && true`, a bare `lade` the harness shell resolves
+on its `PATH`, whichever binary ran the hook. That wrap **is** inject. On no match it
+allows the original line and may write a `seen` row. A line the hook
+cannot match or plan, such as a key past its backtrack bound, a
+`config.json` it cannot read, or a binding that is not a valid env name, is
+rewritten to the wrap without a ticket, which names the error and exits
+1. The hook does not fail there, since a harness runs the line bare on a
+hook error unless it blocks on failure. A `lade.yaml` that does not load
+is answered with the harness's deny: Claude Code and Codex
+`permissionDecision: "deny"`, Cursor `permission: "deny"`, and for OpenCode
+a rewrite to the wrap, which fails on the same file. A line that starts
+Lade, such as `lade status`, runs as sent. Disclaimers are
 not special-cased in the handler. Inject is the gate. The rewrite
 re-emits leading `LADE_APPROVE=...` (`platform::split_env_prefix`).
-The wrap runs providers from that file and unlinks it after the child.
+The wrap runs providers from that file and unlinks it once read, before the child.
 The approve code is a 5-hex `sha256` of the command and a 5-minute
 window, not the T id. See [protocol.md](protocol.md).
 
 ### Installing pre-tool (`src/pretool/install/`)
 
-The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to this repo. For Claude Code that is `.claude/settings.local.json` at the git root, which Claude reads from any subdirectory (it reads `.claude/settings.json` only in the directory it starts in). In a linked git worktree, Claude reads the local file at the main checkout's root, so the repo plane writes it there, and removes a Lade hook a worktree's own `settings.local.json` still holds. A Lade hook in the committed `.claude/settings.json` is the repo's requirement: enable, setup, refresh, disable, and teardown never move or strip it. The repo plane writes a verbatim copy of it into `settings.local.json`, `onFailure` included, instead of the snapshot. Refresh writes that copy too, with no prior `lade hook enable`: the committed hook is the decision, unless a home hook for Claude Code is there. Claude runs a command found in both files once, with the fields of the local copy, so a copy without `"onFailure": "block"` would turn off a committed block. With `"onFailure": "block"`, a hook that cannot start (no `lade`) or exits non-zero blocks the tool. `lade status` reports the committed hook (`committed` row, JSON `hooks.pretool.claude.committed` with `path`, `present`, `blocking`), and `project.current` compares the local copy to it. A missing or differing copy is a hook notice. `--global` writes the home config. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The hourly shell check, and a shell that starts a harness, refresh hook files Lade wrote, never an OpenCode plugin edited by hand. OpenCode gets the v1 or v2 plugin from `opencode --version` when Lade writes it, and refresh keeps the API of the file. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
+The binary embeds the repo hook snapshots. `lade setup` is this git repo: locks, pre-tool hooks, setup commands. The first time this profile has no Lade pre-exec, setup writes the shell wrap and asks to reload. Later a missing wrap is a warning (`lade hook enable --shell`). Other shells are listed, not written. `CI` set skips the wrap. Outside git, the repo plane is refused. The first-time wrap may still run when `CI` is unset. `lade teardown` runs teardown commands and removes this repo's pre-tool hooks. The shell wrap stays. `lade hook disable --shell` removes it. Home-directory pre-tool hooks are left alone. `lade hook enable --harness <slug>` defaults to this repo. For Claude Code that is `.claude/settings.local.json` at the git root, which Claude reads from any subdirectory (it reads `.claude/settings.json` only in the directory it starts in). In a linked git worktree, Claude reads the local file at the main checkout's root, so the repo plane writes it there, and removes a Lade hook a worktree's own `settings.local.json` still holds. A Lade hook in the committed `.claude/settings.json` is the repo's requirement: enable, setup, refresh, disable, and teardown never move or strip it. The repo plane writes a verbatim copy of it into `settings.local.json`, `onFailure` included, instead of the snapshot. Refresh writes that copy too, with no prior `lade hook enable`: the committed hook is the decision, unless a home hook for Claude Code is there. Claude runs a command found in both files once, with the fields of the local copy, so a copy without `"onFailure": "block"` would turn off a committed block. With `"onFailure": "block"`, a hook that cannot start (no `lade`) or exits non-zero blocks the tool. The repo hooks of Cursor and OpenCode require Lade the same way: the repo's `.cursor/hooks.json` carries `"failClosed": true`, which a refresh adds to a repo hook without it, and the OpenCode plugin throws when it sits in a `.opencode/plugins/` directory, a repo's. Home hooks leave a failure to the harness, and on Codex, which has no failure policy, the harness always decides. `lade status` reports the committed hook (`committed` row, JSON `hooks.pretool.claude.committed` with `path`, `present`, `blocking`), and `project.current` compares the local copy to it. A missing or differing copy is a hook notice. `--global` writes the home config. Empty targets get the snapshot. Existing JSON is merged. `lade status` reports user (JSON `global`) and project. The hourly shell check, and a shell that starts a harness, refresh hook files Lade wrote, never an OpenCode plugin edited by hand. OpenCode gets the v1 or v2 plugin from `opencode --version` when Lade writes it, and refresh keeps the API of the file. MCP verbs are allow-only. A harness that needs Lade follows the README prompt: install if missing, then `lade setup` from the git repo.
 
 ### Direct path
 
-When Via is not preexec, pretool, or mcp (`lade inject`, `lade git …`), `detect()` promotes to organic if stdin and stderr are TTYs and no agent env signal fired. Otherwise Via stays unknown. `lade mcp` is `Via::Mcp` / Agent. `detect()` then uses env signals: `AI_AGENT` → `AGENT` → `CLAUDECODE=1` → `CURSOR_AGENT` → `COPILOT_MODEL`. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording. Codex isolation is the pretool rewrite (`--pretool`), not an audience env signal.
+When Via is not preexec, pretool, or mcp (`lade inject`, `lade git …`), `detect()` promotes to organic if stdin and stderr are TTYs and no agent env signal fired. Otherwise Via stays unknown. `lade mcp` is `Via::Mcp` / Agent. `detect()` then uses the env signals of [env.md](env.md#harness-detection), first match wins. `CURSOR_VERSION` is ignored because Cursor also sets it in human terminals. That classification selects `.when` rules and the fail-closed disclaimer wording.
 
 ### Exit codes
 
@@ -330,8 +347,12 @@ When Via is not preexec, pretool, or mcp (`lade inject`, `lade git …`), `detec
 | `0` | success |
 | `1` | config / loader / generic error |
 | `3` | `DISCLAIMER_WITHHELD` (direct inject/approve fail-closed) |
+| `4` | `UPSTREAM_ABSENT`: this machine is attached to a laptop and the link is down, or the laptop's provider failed (`docs/remote.md`) |
+| `5` | `UPSTREAM_REFUSED`: the laptop's resolution of the walk yields no such ref or tunnel |
+| `6` | `WALK_UNKNOWN`: no `lade connect` resolved the `lade.yaml` walk of this directory as it is now |
 | `130` | interrupted (Ctrl-C / SIGINT) |
 | child's code | `lade inject` passes the wrapped command's exit code through unchanged |
+| `128 + N` | the wrapped command was ended by signal N, as a shell reports it |
 
 ### MCP: out of scope
 

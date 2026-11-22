@@ -5,6 +5,7 @@ use std::path::Path;
 use super::agent::Agent;
 use super::merge_json::{merge_snapshot_into, snapshot_is_present};
 use super::opencode::{OpenCodeApi, plugin};
+use super::write::Scope;
 
 impl Agent {
     pub(super) fn has_hook(self, existing: &str) -> Result<bool> {
@@ -31,7 +32,12 @@ impl Agent {
         Ok(found)
     }
 
-    pub(super) fn hook_uses_command(self, existing: &str, command: &str) -> Result<bool> {
+    pub(super) fn hook_uses_command(
+        self,
+        scope: Scope,
+        existing: &str,
+        command: &str,
+    ) -> Result<bool> {
         if !self.has_hook(existing)? {
             return Ok(false);
         }
@@ -40,18 +46,20 @@ impl Agent {
             return Ok(existing.trim_end() == plugin(api, command).trim_end());
         }
         let root = parse_root(existing, self)?;
-        let snap = parse_root(&self.instantiate(command), self)?;
+        let snap = parse_root(&self.instantiate(scope, command), self)?;
         Ok(snapshot_is_present(self, &root, &snap))
     }
 
     /// OpenCode keeps the API of `existing`. Writing a new plugin goes
     /// through `write_hook`, which asks `opencode --version`.
-    pub(super) fn merge(self, existing: &str, command: &str) -> Result<String> {
+    pub(super) fn merge(self, scope: Scope, existing: &str, command: &str) -> Result<String> {
+        // § e3ntx7tnt.a@sn4sp
         if matches!(self, Agent::OpenCode) {
+            // § heg7hfveq.b@et0xe
             let api = OpenCodeApi::of(existing).context("not a Lade OpenCode plugin")?;
             return Ok(plugin(api, command));
         }
-        let snapshot = self.instantiate(command);
+        let snapshot = self.instantiate(scope, command);
         if existing.trim().is_empty() {
             return Ok(snapshot);
         }
@@ -62,6 +70,7 @@ impl Agent {
     }
 
     pub(super) fn remove(self, existing: &str) -> Result<String> {
+        // § e3ntx7tnt.a@bqsjz
         let mut root = parse_root(existing, self)?;
         if let Some(obj) = root.as_object_mut() {
             match self {
@@ -98,18 +107,16 @@ impl Agent {
 }
 
 /// Drops every Lade hook from Claude-style `PreToolUse` entries, then the
-/// entries left with no hook.
+/// entries that dropping left with no hook. An entry the user left empty
+/// stays.
 pub(super) fn strip_matcher_hooks(arr: &mut Vec<Value>) {
-    for entry in arr.iter_mut() {
-        if let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) {
-            hooks.retain(|h| !command_is_lade_hook(h));
-        }
-    }
-    arr.retain(|e| {
-        e.get("hooks")
-            .and_then(Value::as_array)
-            .map(|h| !h.is_empty())
-            .unwrap_or(true)
+    arr.retain_mut(|entry| {
+        let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+            return true;
+        };
+        let before = hooks.len();
+        hooks.retain(|h| !command_is_lade_hook(h));
+        hooks.len() == before || !hooks.is_empty()
     });
 }
 
@@ -142,6 +149,7 @@ fn matcher_has_hook(entry: &Value) -> bool {
 }
 
 pub(super) fn parse_root(existing: &str, agent: Agent) -> Result<Value> {
+    // § e3ntx7tnt.b@25nsk
     if existing.trim().is_empty() {
         return Ok(json!({}));
     }

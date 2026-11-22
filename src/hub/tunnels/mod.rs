@@ -57,6 +57,7 @@ pub(super) struct Tunnels {
 /// mid-start and leave its provider behind.
 impl Drop for Tunnels {
     fn drop(&mut self) {
+        // § vdbmtzqtb.d@fvjqn
         for start in self.starting.values() {
             start.stop.stop();
         }
@@ -78,6 +79,7 @@ impl Tunnels {
         match self.machine.open(&ask) {
             Open::Reply(rep) => rep,
             Open::Claim { launch, yielded } => {
+                // § vpxx2dd6c.b@aq80v
                 self.stop(yielded.into_iter().collect());
                 self.claim_and_start(&ask, launch)
             }
@@ -88,6 +90,7 @@ impl Tunnels {
         let outer = match Outer::claim(&ask.host, ask.port) {
             Ok(outer) => outer,
             Err(ClaimError::InUse { port }) => {
+                // § ewd09vh5j.c@7bqnp
                 // The machine forgot a cancelled start at once, but its
                 // thread frees the port only when it ends: wait for it.
                 let holder = self
@@ -104,6 +107,7 @@ impl Tunnels {
                 };
             }
         };
+        // § ewd09vh5j.a@a7jbd
         let port = outer.port;
         let id = self.machine.admit(ask, port);
         let request = request_for(&ask.key, &ask.uri, launch);
@@ -115,6 +119,7 @@ impl Tunnels {
             let result = start_tunnel(outer, &request, cancel).map_err(|e| format!("{e:#}"));
             *done.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
         });
+        // § end ewd09vh5j.a
         let holds = (port, ask.key.clone(), ask.uri.clone());
         self.starting.insert(
             id,
@@ -128,7 +133,8 @@ impl Tunnels {
         TunnelRep::Starting { id, port }
     }
 
-    /// Feeds finished starts to the machine.
+    /// Feeds finished starts, and running tunnels whose provider lost its
+    /// port, to the machine.
     fn settle_starts(&mut self) {
         self.stopping
             .retain(|stopping| !stopping.thread.is_finished());
@@ -157,6 +163,17 @@ impl Tunnels {
                 }
             }
         }
+        // § bkmpmswkm.e@8exqb
+        let lost = self
+            .running
+            .iter()
+            .filter_map(|(id, tunnel)| tunnel.lost().map(|error| (*id, error)))
+            .collect::<Vec<_>>();
+        for (id, error) in lost {
+            self.machine.lost(id, error);
+            self.stop(vec![id]);
+        }
+        // § end bkmpmswkm.e
     }
 
     fn stop(&mut self, ids: Vec<u64>) {
@@ -171,6 +188,7 @@ impl Tunnels {
             // The port is free for the next ask at once. The provider stops
             // off the request loop, which a client gives 20 ms.
             if let Some(tunnel) = self.running.remove(&id) {
+                // § ewd09vh5j.d@d74ms
                 let provider = tunnel.release_port();
                 self.stopping.push(Stopping {
                     thread: std::thread::spawn(move || drop(provider)),
@@ -197,6 +215,7 @@ impl Tunnels {
             .last_check
             .is_none_or(|at| now.saturating_sub(at) >= LEASE_CHECK)
         {
+            // § gv81k6nf4.c@77f53
             self.last_check = Some(now);
             self.machine
                 .drop_dead_leases(|lease| process_started(lease.pid) == Some(lease.started));
@@ -230,6 +249,7 @@ fn request_for(key: &str, uri: &str, launch: TunnelLaunch) -> TunnelRequest {
         key: key.to_string(),
         uri: uri.to_string(),
         context: launch.context,
+        link_walk: launch.link_walk,
         env: Some(
             launch
                 .env

@@ -60,6 +60,7 @@ impl Provider for Shell {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@b8btk
         super::PROVIDER_TIMEOUT
     }
 
@@ -80,6 +81,7 @@ impl Provider for Shell {
     }
 
     fn masks_in_output(&self) -> bool {
+        // § qq076qjq2.a@cymky
         true
     }
 
@@ -114,6 +116,7 @@ impl Provider for Shell {
                 // Never `require_cli_ok`: it falls back to stdout, and here stdout is
                 // the secret.
                 if !output.status.success() {
+                    // § d5fjsqxna.c@28tet
                     bail!(
                         "{name} command failed ({}): {}",
                         output.status,

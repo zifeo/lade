@@ -92,6 +92,22 @@ pub enum Command {
     /// Local command diary.
     #[command(after_help = LOG_AFTER_HELP)]
     Log(LogCommand),
+    /// Link a remote machine to this laptop's providers.
+    Connect(ConnectCommand),
+    /// End a link: `-- <transport>` on the laptop, bare on the remote.
+    Detach(DetachCommand),
+    /// Serve a remote's commands through a laptop. Run by `lade connect`.
+    #[command(hide = true)]
+    Attach(AttachCommand),
+    /// The laptop end of a link. Run by the hub.
+    #[command(name = "__remote", hide = true)]
+    Remote,
+    /// The lade.yaml walk files of remote projects. Run by `lade connect`.
+    #[command(name = "__remote-files", hide = true)]
+    RemoteFiles(RemoteFilesCommand),
+    /// The provider of a tunnel on an attached remote. Run by the hub.
+    #[command(name = "__linked-tunnel", hide = true)]
+    LinkedTunnel(LinkedTunnelCommand),
     /// Matched rules in this tree, most frequent first.
     #[command(after_help = USAGE_AFTER_HELP)]
     Usage(UsageCommand),
@@ -138,7 +154,7 @@ Examples:
 
 Secrets stay in RAM 5m, shell ones only with ttl. Rule `.` ttl: off | 30s | 1h | 24h (max).
 Tunnels stop with their command unless ttl is set.
-This cwd: lade ttl set 2h. Ancestors share it. unset / forget drops it.
+This cwd: lade ttl set 2h. Ancestors and children share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 Next: lade <command> --help. Internal commands: lade --help -v.
 ";
@@ -156,7 +172,7 @@ Examples:
 
 Secrets stay in RAM 5m, shell ones only with ttl. Rule `.` ttl: off | 30s | 1h | 24h (max).
 Tunnels stop with their command unless ttl is set.
-This cwd: lade ttl set 2h. Ancestors share it. unset / forget drops it.
+This cwd: lade ttl set 2h. Ancestors and children share it. unset / forget drops it.
 Progress: (c) cached  (o) overridden  (u) unset.
 
 Protocol verbs (this list):
@@ -195,6 +211,12 @@ fn subcommand_name(command: &Command) -> Option<&'static str> {
         Command::Log(_) => Some("log"),
         Command::Usage(_) => Some("usage"),
         Command::Hub => Some("__hub"),
+        Command::Connect(_) => Some("connect"),
+        Command::Detach(_) => Some("detach"),
+        Command::Attach(_) => Some("attach"),
+        Command::Remote => Some("__remote"),
+        Command::RemoteFiles(_) => Some("__remote-files"),
+        Command::LinkedTunnel(_) => Some("__linked-tunnel"),
         Command::InjectAlias(_) => None,
     }
 }

@@ -72,6 +72,11 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_gets_no_colour_even_at_a_terminal() {
+        assert!(!colors_allowed(true, true));
+    }
+
+    #[test]
     fn warning_box() {
         MessageBox::new()
             .warning()

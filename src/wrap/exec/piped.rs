@@ -22,6 +22,7 @@ pub fn run(
             .stderr(Stdio::piped());
         Ok(())
     });
+    // § mzce8bpjn.a@yycek
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
@@ -50,9 +51,11 @@ pub fn run(
     after_spawn();
 
     let status = child.wait()?;
+    // § end mzce8bpjn.a
     watch.clear_pid();
     stdout_thread.join().ok();
     stderr_thread.join().ok();
 
-    Ok(status.code().unwrap_or(1))
+    // § one tk1e8j9nf.b@3hy7b
+    Ok(super::exit_code(status))
 }

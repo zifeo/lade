@@ -4,6 +4,51 @@ use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use tempfile::tempdir;
 
+/// `lade mcp` pins a stdio server's tool as `lade --` does.
+#[cfg(unix)]
+#[test]
+fn mcp_server_runs_its_locked_bin() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let brew = dir.path().join("brew");
+    let installs = dir.path().join("installs");
+    let pinned = installs.join("jq/1.7.1");
+    fs::create_dir_all(&brew).unwrap();
+    fs::create_dir_all(&pinned).unwrap();
+    write_exec(&brew.join("jq"), "echo BREW");
+    write_exec(&pinned.join("jq"), "echo PINNED; echo \"PATH=$PATH\"");
+    write_cached_env(
+        home.path(),
+        "aqua:jqlang/jq",
+        "aqua-jqlang-jq",
+        "1.7.1",
+        "{}",
+    );
+    fs::write(
+        dir.path().join("lade.yml"),
+        "^jq:\n  jq: mise://aqua/jqlang/jq@1.7.1\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("mise.lock"),
+        "[[tools.jq]]\nversion = \"1.7.1\"\nbackend = \"aqua:jqlang/jq\"\n",
+    )
+    .unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .env("MISE_INSTALLS_DIR", &installs)
+        .env("PATH", prepend_path(&brew))
+        .args(["mcp", "--", "jq"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("PINNED"))
+        .stdout(predicates::str::contains(format!(
+            "PATH={}:",
+            pinned.display()
+        )))
+        .stdout(predicates::str::contains("BREW").not());
+}
+
 #[cfg(unix)]
 #[test]
 fn inject_prefers_locked_bin_over_homebrew() {

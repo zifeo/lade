@@ -21,23 +21,35 @@ pub async fn resolve_uri(
     audience: Audience,
     ttl: Option<&RuleTtl>,
 ) -> Result<String> {
+    // § xrjs58t2q.b@5m0cc
     let started = Instant::now();
+    let user = crate::config::saved_user().await?;
     let cache = match ttl {
-        Some(ttl) => EvalCache::open(cwd, &uri, ttl, &crate::config::saved_user().await?)?,
+        Some(ttl) => EvalCache::open(cwd, &uri, ttl, &user)?,
         None => None,
     };
+    // § one xrjs58t2q.c@zhwh5
+    if crate::family::Family::of_uri(&uri) != crate::family::Family::Secret {
+        anyhow::bail!(
+            "lade eval resolves a secret URI, and {uri} names a tunnel or a package. Bind it in a lade.yaml rule and run the command with lade --."
+        );
+    }
+    // § gb0y44ydb.b@7tmrt
     if let Some(value) = cache.as_ref().and_then(EvalCache::lookup) {
-        emit_fetch(command, &uri, cwd, via, audience, started, true);
+        // § hadg0brg4.a@gtdmx
+        emit_fetch(command, &uri, cwd, via, audience, started, true, &user);
         return Ok(value);
     }
     let value = hydrate_one(uri.clone(), cwd, &HashMap::new()).await?;
     if let Some(cache) = &cache {
         cache.store(&value);
     }
-    emit_fetch(command, &uri, cwd, via, audience, started, false);
+    emit_fetch(command, &uri, cwd, via, audience, started, false, &user);
+    // § end gb0y44ydb.b
     Ok(value)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_fetch(
     command: &str,
     uri: &str,
@@ -46,7 +58,9 @@ fn emit_fetch(
     audience: Audience,
     started: Instant,
     cached: bool,
+    user: &Option<String>,
 ) {
+    // § one cj4kjwcp7.b@634r1, ezvgtge5j.a@1dqty
     let binding = if cached {
         json!({ "uri": uri, "cached": true })
     } else {
@@ -56,7 +70,7 @@ fn emit_fetch(
         kind: Kind::Access,
         via,
         audience,
-        actor: event::actor(&None),
+        actor: event::actor(user),
         cwd: cwd.to_path_buf(),
         command: command.to_string(),
         argv: Some(json!([uri])),

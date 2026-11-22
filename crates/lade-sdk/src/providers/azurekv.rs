@@ -81,6 +81,7 @@ impl Provider for AzureKv {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@sey2p
         super::PROVIDER_TIMEOUT
     }
 
@@ -97,6 +98,7 @@ impl Provider for AzureKv {
             return Ok(Vec::new());
         };
         let output = search_cli_ok(
+            self,
             "az",
             &[
                 "keyvault",
@@ -110,7 +112,6 @@ impl Provider for AzureKv {
                 "tsv",
             ],
             extra_env,
-            self.timeout(),
             "az login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

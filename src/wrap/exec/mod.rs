@@ -37,6 +37,7 @@ pub fn run(
     redactor: Option<Redactor>,
     after_spawn: impl FnOnce(),
 ) -> Result<i32> {
+    // § nv6nfbbs2.c@pn84e
     for key in crate::preexec::CHILD_UNSET {
         env.remove(key);
     }
@@ -78,12 +79,14 @@ fn spawn_child(
     cwd: &Path,
     stdio: impl Fn(&mut std::process::Command) -> std::io::Result<()>,
 ) -> std::io::Result<std::process::Child> {
+    // § jfxr4rmae.a@4sz2s
     let path = env
         .get("PATH")
         .cloned()
         .or_else(|| std::env::var("PATH").ok());
     // A mise shim standing in for the shell drops pinned dirs from PATH
     // before the script runs, so the script sets PATH again first.
+    // § dpky46ff1.c@2fszb
     let script = match &path {
         Some(path) => format!(
             "{}\n{command}",
@@ -91,6 +94,7 @@ fn spawn_child(
         ),
         None => command.to_string(),
     };
+    // § end dpky46ff1.c
     // A bare name with PATH in the child env makes std fork the whole
     // process and search PATH in the child: 20 to 30 ms under load. The
     // same lookup here lets it posix_spawn the path.
@@ -104,6 +108,7 @@ fn spawn_child(
         }
         None => shell.prepare_command(&script),
     };
+    // § one dpky46ff1.b@m9epm
     child_env(&mut cmd, env, cwd);
     stdio(&mut cmd)?;
     let child = cmd.spawn();
@@ -120,10 +125,13 @@ fn log_spawn(how: &str) {
 fn child_env(cmd: &mut std::process::Command, env: HashMap<String, String>, cwd: &Path) {
     cmd.current_dir(cwd);
     cmd.envs(std::env::vars());
+    // § one nv6nfbbs2.c@2xwm0
+    // silcrow:follow
     crate::preexec::strip_child_protocol(cmd);
     cmd.env_remove("BASH_ENV");
     cmd.env_remove("MISE_ENV");
     cmd.env_remove("MISE_SETTINGS");
+    crate::preexec::restore_approve(cmd);
     cmd.envs(env);
 }
 
@@ -138,14 +146,30 @@ fn run_plain(
     // Stay in lade's session. A new session here would let the child take
     // the inherited TTY and hang it up on exit.
     let spawned = spawn_child(shell, command, env, cwd, |_| Ok(()));
+    // § mzce8bpjn.a@472fa
     if let Ok(child) = &spawned {
         watch.set_pid(child.id(), false);
     }
     after_spawn();
     let mut child = spawned?;
     let status = child.wait()?;
+    // § end mzce8bpjn.a
     watch.clear_pid();
-    Ok(status.code().unwrap_or(1))
+    // § one tk1e8j9nf.b@3z03c
+    Ok(exit_code(status))
+}
+
+/// A child a signal ended has no code: report it as a shell does, 128 plus
+/// the signal, never Lade's own 1.
+pub(crate) fn exit_code(status: std::process::ExitStatus) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    // § tk1e8j9nf.b@x3s3t
+    status.code().unwrap_or_else(|| {
+        128 + status
+            .signal()
+            .expect("an exit status with no code comes from a signal")
+    })
+    // § end tk1e8j9nf.b
 }
 
 #[cfg(test)]

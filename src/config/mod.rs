@@ -1,5 +1,6 @@
 mod collect;
 mod hydrate;
+pub(crate) use hydrate::hydrate_bodies;
 mod loader;
 mod patterns;
 mod plan;
@@ -13,13 +14,13 @@ mod walk;
 
 pub use loader::LadeFile;
 pub(crate) use loader::{
-    at_user_home, config_in_dir, parse_lade_yaml, render_lade_yaml, report_load_error,
+    at_user_home, config_in_dir, load_error_box, parse_lade_yaml, report_load_error,
     require_lade_version, yaml_files_on_walk,
 };
-pub(crate) use resolve::{ResolvedEntry, binding_name, resolve_entry};
+pub(crate) use resolve::{ResolvedEntry, binding_name, body_entries, resolve_entry};
 pub use secret::*;
 pub(crate) use ttl::{body_put_ttl_ms, is_shell_uri, tunnel_ttl_ms, uri_is_cacheable};
-pub(crate) use walk::hash_yaml_files;
+pub(crate) use walk::{hash_walk, hash_yaml_files};
 
 use crate::global_config::GlobalConfig;
 use crate::ticket::TicketSecret;
@@ -74,7 +75,6 @@ pub(crate) struct PreEventWork {
     pub secrets: Vec<TicketSecret>,
     pub network: Vec<NetworkBinding>,
     pub matches: Value,
-    pub op_sa: Option<String>,
     pub log: bool,
     pub progress: SecretSources,
 }
@@ -83,6 +83,7 @@ impl PreEventWork {
     /// Secrets, tunnels, or a disclaimer. `log` / `when` / `silent` alone
     /// do not need a wrap.
     pub(crate) fn needs_inject(&self) -> bool {
+        // § hk9h1sqyt.a@dbbbq
         !self.secrets.is_empty() || !self.network.is_empty() || !self.disclaimers.is_empty()
     }
 }
@@ -140,8 +141,8 @@ impl Config {
 /// = one invocation) should resolve it once and pass it down rather than
 /// calling this repeatedly.
 pub(crate) async fn saved_user() -> Result<Option<String>> {
-    let local_config = GlobalConfig::load().await?;
-    Ok(local_config.user.or_else(GlobalConfig::os_user))
+    // § dcrxp986s.b@3s9h6
+    GlobalConfig::resolved_user()
 }
 
 pub(crate) fn is_valid_env_key(key: &str) -> bool {

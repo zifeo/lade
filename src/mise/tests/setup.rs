@@ -190,6 +190,47 @@ fn setup_pins_rewrites_latest_to_an_exact_version() {
 
 #[cfg(unix)]
 #[test]
+fn setup_and_update_rewrite_latest_with_a_lock_entry() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let stub = dir.path().join("stub");
+    std::fs::create_dir_all(&installs).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    write_exec(&stub.join("mise"), isolation_record_stub());
+    git_init(dir.path());
+    let yaml = dir.path().join("lade.yaml");
+    let path = format!("{}:/usr/bin:/bin", stub.display());
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+            ("PATH", Some(path.as_str())),
+            ("LADE_MISE_FETCH", Some("0")),
+        ],
+        || {
+            for (mode, want) in [(PinMode::Locked, "@1.7.0"), (PinMode::Update, "@1.7.1")] {
+                std::fs::write(&yaml, "^jq:\n  jq: mise://aqua/jqlang/jq@latest\n").unwrap();
+                std::fs::write(
+                    dir.path().join("lade.lock"),
+                    "[[tools.jq]]\nversion = \"1.7.0\"\nbackend = \"aqua:jqlang/jq\"\n",
+                )
+                .unwrap();
+                let prev = std::env::current_dir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+                let result = block_on(setup_pins(mode));
+                std::env::set_current_dir(prev).unwrap();
+                result.unwrap();
+                let text = std::fs::read_to_string(&yaml).unwrap();
+                assert!(text.contains(want), "{mode:?}: {text}");
+                assert!(!text.contains("@latest"), "{mode:?}: {text}");
+            }
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn setup_writes_one_lock_at_git_root() {
     let root = tempdir().unwrap();
     let home = tempdir().unwrap();
@@ -299,6 +340,48 @@ exit 0
     );
 }
 
+#[test]
+fn setup_warns_about_a_leftover_lade_lock() {
+    let home = tempdir().unwrap();
+    let proj = home.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join("mise.lock"), "lockfile_version = 1\n").unwrap();
+    std::fs::write(proj.join("lade.lock"), "lockfile_version = 1\n").unwrap();
+    temp_env::with_var("HOME", Some(home.path()), || {
+        let lines = super::super::setup::plane_warnings(&crate::mise::scan(&proj));
+        assert_eq!(
+            lines,
+            vec![format!(
+                "Leftover {} is ignored.",
+                proj.join("lade.lock").display()
+            )]
+        );
+    });
+}
+
+#[test]
+fn setup_warns_when_toml_and_lock_are_split() {
+    let home = tempdir().unwrap();
+    let proj = home.path().join("proj");
+    let app = proj.join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(proj.join("mise.toml"), "[tools]\n").unwrap();
+    std::fs::write(app.join("mise.lock"), "lockfile_version = 1\n").unwrap();
+    temp_env::with_var("HOME", Some(home.path()), || {
+        let lines = super::super::setup::plane_warnings(&crate::mise::scan(&app));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("different directories")),
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("left as-is")),
+            "{lines:?}"
+        );
+    });
+}
+
 #[cfg(unix)]
 #[test]
 fn setup_locked_installs_lock_not_a_newer_store() {
@@ -346,6 +429,97 @@ fn setup_locked_installs_lock_not_a_newer_store() {
             assert!(!args.contains("--upgrade"), "{args}");
         },
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_runs_the_pin_setup_command_at_the_git_root() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let installs = dir.path().join("installs");
+    let bin = installs.join("dcg/1.0.0");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_exec(
+        &bin.join("dcg"),
+        r#"printf '%s|%s\n' "$(pwd -P)" "$*" >> "$MISE_INSTALLS_DIR/dcg-ran""#,
+    );
+    git_init(dir.path());
+    let sub = dir.path().join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(
+        dir.path().join("lade.yaml"),
+        ".:\n  dcg: \"mise://github/owner/dcg@1.0.0?setup=install --yes\"\n",
+    )
+    .unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(home.path().to_str().unwrap())),
+            ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+        ],
+        || {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(&sub).unwrap();
+            let result = block_on(run_lifecycle_commands("setup"));
+            std::env::set_current_dir(prev).unwrap();
+            result.unwrap();
+        },
+    );
+    let ran = std::fs::read_to_string(installs.join("dcg-ran")).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    assert_eq!(ran.trim(), format!("{}|install --yes", root.display()));
+}
+
+#[cfg(unix)]
+#[test]
+fn unlock_ignores_a_fitting_lock_and_rewrites_it() {
+    let run = |mode: PinMode| {
+        let dir = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        let installs = dir.path().join("installs");
+        let stub = dir.path().join("stub");
+        std::fs::create_dir_all(&stub).unwrap();
+        for version in ["1.7.0", "1.7.1"] {
+            std::fs::create_dir_all(installs.join("jq").join(version)).unwrap();
+            write_exec(&installs.join("jq").join(version).join("jq"), "echo JQ");
+        }
+        write_exec(&stub.join("mise"), isolation_record_stub());
+        git_init(dir.path());
+        std::fs::write(
+            dir.path().join("lade.yaml"),
+            "^jq:\n  jq: mise://aqua/jqlang/jq@>=1.7.0\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("lade.lock"),
+            "[[tools.jq]]\nversion = \"1.7.0\"\nbackend = \"aqua:jqlang/jq\"\n",
+        )
+        .unwrap();
+        let path = format!("{}:/usr/bin:/bin", stub.display());
+        temp_env::with_vars(
+            [
+                ("HOME", Some(home.path().to_str().unwrap())),
+                ("MISE_INSTALLS_DIR", Some(installs.to_str().unwrap())),
+                ("PATH", Some(path.as_str())),
+                ("LADE_MISE_FETCH", Some("0")),
+            ],
+            || {
+                let prev = std::env::current_dir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+                let result = block_on(setup_pins(mode));
+                std::env::set_current_dir(prev).unwrap();
+                result.unwrap();
+                let lock = std::fs::read_to_string(dir.path().join("lade.lock")).unwrap();
+                let args = std::fs::read_to_string(installs.join("mise-args")).unwrap_or_default();
+                (lock, args)
+            },
+        )
+    };
+    let (lock, _) = run(PinMode::Locked);
+    assert!(lock.contains("\"1.7.0\""), "{lock}");
+    let (lock, args) = run(PinMode::Unlock);
+    assert!(lock.contains("\"1.7.1\""), "{lock}");
+    assert!(!lock.contains("\"1.7.0\""), "{lock}");
+    assert!(args.lines().any(|line| line.contains("lock")), "{args}");
 }
 
 #[cfg(unix)]

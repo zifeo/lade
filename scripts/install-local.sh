@@ -25,6 +25,8 @@ cargo install --path crates/age-plugin-lade --locked --force
 # Ad hoc, no Apple account: the hub caches secrets only behind hardened
 # runtime, which cargo never sets.
 if [ "$(uname -s)" = Darwin ]; then
-  codesign --force --sign - --options runtime \
-    "${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/lade"
+  # § kgejwr97c.e@1kxrc
+  bin="${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin/lade"
+  codesign --force --sign - --options runtime "$bin"
+  codesign --display --verbose "$bin" 2>&1 | grep -q 'flags=.*runtime'
 fi

@@ -49,6 +49,22 @@ fn test_status_fails_on_an_invalid_max_cache() {
 }
 
 #[test]
+fn status_shows_the_ceiling_of_a_config_json_it_cannot_parse() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(home.path().join("lade-config.json"), "{").unwrap();
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .stdout(
+            predicates::str::is_match(r"max cache +invalid, cache off: .*lade-config\.json")
+                .unwrap(),
+        );
+}
+
+#[test]
 fn test_status_json_is_valid_with_expected_keys() {
     let dir = tempdir().unwrap();
     let home = tempdir().unwrap();
@@ -134,6 +150,31 @@ fn test_status_json_reports_provider_batch_unit() {
     assert_eq!(providers[0]["scheme"], "awssm");
     assert_eq!(providers[0]["transport"], "cli");
     assert_eq!(providers[0]["batch_unit"], "(region, name)");
+}
+
+#[test]
+fn status_resolves_no_user_from_a_config_json_it_cannot_parse() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(
+        dir.path().join("lade.yml"),
+        "\"mycmd\":\n  SECRET:\n    alice: awssm://us-east-1/app/db\n",
+    )
+    .unwrap();
+    fs::write(home.path().join("lade-config.json"), "not json").unwrap();
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("USER", "alice")
+        .args(["status", "--json"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let providers = value["project_config"]["providers"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(providers, 0, "{value}");
 }
 
 #[test]
@@ -289,6 +330,62 @@ fn test_status_reports_project_codex_pretool_hook() {
             .unwrap()
             .ends_with(".codex/hooks.json")
     );
+}
+
+#[test]
+fn status_ok_ignores_hooks_diary_and_age_plugin() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    common::write_yml(dir.path(), "{}\n");
+    common::inject(home.path(), dir.path(), &["echo", "first"]);
+    common::inject(home.path(), dir.path(), &["echo", "second"]);
+    let conn = rusqlite::Connection::open(home.path().join("events.db")).unwrap();
+    conn.execute("UPDATE events SET command = 'rm' WHERE seq = 1", [])
+        .unwrap();
+    drop(conn);
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .env("PATH", "/usr/bin:/bin")
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["hooks"]["preexec"]["installed"], false, "{value}");
+    assert_eq!(value["ok"], true, "{value}");
+}
+
+#[test]
+fn status_fails_on_a_config_error() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    fs::write(dir.path().join("lade.yml"), "\"^echo\": [unclosed\n").unwrap();
+    let output = common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["status", "--json"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["ok"], false, "{value}");
+    assert!(!value["project_config"]["error"].is_null(), "{value}");
+}
+
+#[test]
+fn status_json_preexec_is_null_without_a_shell() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    let mut cmd = common::lade_std(home.path());
+    cmd.current_dir(dir.path())
+        .env_remove("SHELL")
+        .args(["status", "--json"]);
+    let output = cmd.output().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(value["hooks"]["preexec"].is_null(), "{value}");
 }
 
 #[test]

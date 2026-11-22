@@ -110,6 +110,31 @@ fn pretool_without_a_shell_parent_fails() {
         .stderr(contains("shell that started Lade"));
 }
 
+/// A harness started from a fish terminal inherits `SHELL` and
+/// `LADE_SHELL` from it, and neither picks the shell.
+#[test]
+fn an_inherited_shell_variable_never_picks_the_shell() {
+    let (home, dir) = (tempdir().unwrap(), tempdir().unwrap());
+    common::shell_line(home.path(), &["bash"], &idless(IDENTITY))
+        .current_dir(dir.path())
+        .env("SHELL", "/usr/bin/fish")
+        .env("LADE_SHELL", "fish")
+        .assert()
+        .success()
+        .stdout("bash\n");
+
+    let mut cmd = common::lade_std(home.path());
+    cmd.current_dir(dir.path())
+        .env("SHELL", "/bin/bash")
+        .env("LADE_SHELL", "bash")
+        .args(["--pretool", "--", "echo hi"]);
+    assert_cmd::Command::from_std(cmd)
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(contains("shell that started Lade"));
+}
+
 #[test]
 fn a_direct_inject_runs_in_its_parent_shell_too() {
     let (home, dir) = (tempdir().unwrap(), tempdir().unwrap());
@@ -191,4 +216,42 @@ fn hook_rewrite_keeps_the_harness_shell_as_parent() {
             .success()
             .stdout(POSIX[0].1);
     }
+}
+
+#[test]
+fn a_rewritten_line_lade_cannot_plan_does_not_run() {
+    let (home, dir) = (tempdir().unwrap(), tempdir().unwrap());
+    let (home, dir) = (home.path(), dir.path());
+    common::write_yml_raw(dir, "\"^touch\":\n  DB-PASS: x\n");
+    let line = hook_rewrite(home, dir, "touch ran");
+    assert!(line.contains("--pretool -- 'touch ran'"), "{line}");
+    common::shell_line(home, &["bash"], &line)
+        .current_dir(dir)
+        .env("PATH", path_with_built_lade())
+        .assert()
+        .code(1)
+        .stderr(contains("DB-PASS"));
+    assert!(!dir.join("ran").exists());
+}
+
+#[test]
+fn a_malformed_shell_pin_fails_the_line_as_the_wrap_does() {
+    let (home, dir) = (tempdir().unwrap(), tempdir().unwrap());
+    let (home, dir) = (home.path(), dir.path());
+    common::write_yml_raw(dir, ".:\n  zsh: mise://foo/zsh@1\n");
+    common::lade(home)
+        .current_dir(dir)
+        .args(["--", "touch", "ran"])
+        .assert()
+        .failure()
+        .stderr(contains("unknown mise backend"));
+    let line = hook_rewrite(home, dir, "touch ran");
+    assert!(line.contains("--pretool"), "{line}");
+    common::shell_line(home, &["bash"], &line)
+        .current_dir(dir)
+        .env("PATH", path_with_built_lade())
+        .assert()
+        .failure()
+        .stderr(contains("unknown mise backend"));
+    assert!(!dir.join("ran").exists());
 }

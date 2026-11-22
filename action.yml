@@ -19,28 +19,49 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # "latest" is resolved before the cache key, or the first cached binary
+    # would be restored for every later release.
+    - name: Resolve lade version
+      id: version
+      shell: bash
+      env:
+        LADE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$LADE_VERSION" = "latest" ]; then
+          url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/zifeo/lade/releases/latest)
+          version="${url##*/v}"
+        else
+          version="${LADE_VERSION#v}"
+        fi
+        case "$version" in
+        [0-9]*) ;;
+        *)
+          echo "Could not resolve lade version '$LADE_VERSION'." >&2
+          exit 1
+          ;;
+        esac
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
     - name: Cache lade binary
       id: cache
       uses: actions/cache@v6
       with:
         path: ${{ inputs.out-dir }}
-        key: lade-bins-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        key: lade-bins-${{ steps.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Install lade
       shell: bash
       env:
-        LADE_VERSION: ${{ inputs.version }}
+        VERSION: ${{ steps.version.outputs.version }}
         OUT_DIR: ${{ inputs.out-dir }}
       run: |
         set -euo pipefail
         mkdir -p "$OUT_DIR"
-        if [ "$LADE_VERSION" = "latest" ]; then
-          VERSION_ENV=""
-        else
-          VERSION_ENV="${LADE_VERSION#v}"
-        fi
-        if [ ! -x "$OUT_DIR/lade" ]; then
-          CI=1 OUT_DIR="$OUT_DIR" VERSION="$VERSION_ENV" \
+        if [ ! -x "$OUT_DIR/lade" ] || [ ! -x "$OUT_DIR/age-plugin-lade" ]; then
+          # GITHUB_PATH puts OUT_DIR on PATH, so the installer leaves the
+          # runner's shell profile as it is.
+          CI=1 OUT_DIR="$OUT_DIR" VERSION="$VERSION" PATH="$(realpath "$OUT_DIR"):$PATH" \
             bash "$GITHUB_ACTION_PATH/installer.sh"
         fi
         echo "$OUT_DIR" >> "$GITHUB_PATH"

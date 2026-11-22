@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 /// plus its start time names one process even after the pid is reused.
 #[cfg(target_os = "macos")]
 pub(crate) fn process_started(pid: u32) -> Option<u64> {
+    // § gv81k6nf4.c@n5sa9
     // sysctl like `ps`, not proc_pidinfo: that refuses another user's
     // process, and under Terminal, iTerm or Ghostty the session leader is
     // root's `login`. libc has no `kinfo_proc`: it is 648 bytes and opens
@@ -37,6 +38,7 @@ pub(crate) fn process_started(pid: u32) -> Option<u64> {
 /// Start time of `pid` in clock ticks since boot, `None` once it is gone.
 #[cfg(target_os = "linux")]
 pub(crate) fn process_started(pid: u32) -> Option<u64> {
+    // § gv81k6nf4.c@4q02t
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // Field 22; the command in field 2 may hold spaces and parens.
     let (_, rest) = stat.rsplit_once(')')?;
@@ -52,6 +54,7 @@ pub(crate) fn lease_for(id: String, pid: u32) -> Result<crate::hub::Lease> {
 
 /// `lade inject` and harness commands: this process.
 pub(crate) fn own_lease() -> Result<crate::hub::Lease> {
+    // § gv81k6nf4.a@6tz4s
     let pid = std::process::id();
     lease_for(format!("p{pid}"), pid)
 }
@@ -59,6 +62,7 @@ pub(crate) fn own_lease() -> Result<crate::hub::Lease> {
 /// Pre-exec: `lade set` exits right away, so the lease follows the
 /// terminal session leader. Its parent is often a short-lived subshell.
 pub(crate) fn shell_lease(ticket: &str) -> Result<crate::hub::Lease> {
+    // § gv81k6nf4.b@5t8z3
     let sid = nix::unistd::getsid(None)?.as_raw();
     lease_for(ticket.to_string(), u32::try_from(sid)?)
 }

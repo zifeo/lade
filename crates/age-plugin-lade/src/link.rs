@@ -12,13 +12,14 @@ pub fn is_plugin_argv0(argv0: &std::ffi::OsStr) -> bool {
 }
 
 pub fn find_lade() -> Result<PathBuf, String> {
+    // § mcf6rtczf.b@vscsj
     if let Some(explicit) = std::env::var_os("LADE_BIN") {
         let path = PathBuf::from(explicit);
         if path.is_file() {
             return Ok(path);
         }
         return Err(format!(
-            "LADE_BIN is set but {} is not a file. Install lade.",
+            "LADE_BIN is set but {} is not a file. Point LADE_BIN at the lade binary or unset it.",
             path.display()
         ));
     }
@@ -78,10 +79,42 @@ mod tests {
     }
 
     #[test]
+    fn lade_bin_env_wins_over_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let on_path = dir.path().join("lade");
+        std::fs::write(&on_path, "").unwrap();
+        let explicit = dir.path().join("lade-elsewhere");
+        std::fs::write(&explicit, "").unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_BIN", Some(explicit.as_os_str())),
+                ("PATH", Some(dir.path().as_os_str())),
+            ],
+            || {
+                assert_eq!(find_lade().unwrap(), explicit);
+            },
+        );
+    }
+
+    #[test]
     fn lade_bin_env_missing_file_errors() {
-        temp_env::with_var("LADE_BIN", Some("/no/such/lade-bin"), || {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lade"), "").unwrap();
+        let not_a_file = dir.path().join("no-such-lade");
+        temp_env::with_vars(
+            [
+                ("LADE_BIN", Some(not_a_file.as_os_str())),
+                ("PATH", Some(dir.path().as_os_str())),
+            ],
+            || {
+                let err = find_lade().unwrap_err();
+                assert!(err.contains("LADE_BIN"), "{err}");
+                assert!(err.contains("no-such-lade"), "{err}");
+            },
+        );
+        temp_env::with_var("LADE_BIN", Some(dir.path().as_os_str()), || {
             let err = find_lade().unwrap_err();
-            assert!(err.contains("LADE_BIN"), "{err}");
+            assert!(err.contains("is not a file"), "{err}");
         });
     }
 

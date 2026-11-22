@@ -16,6 +16,7 @@ impl Family {
     }
 
     pub fn parse(raw: &str) -> Option<Self> {
+        // § mwtcwjcr2.a@thqgn
         match raw {
             "secret" | "env" => Some(Family::Secret),
             "tunnel" | "net" | "network" | "fwd" => Some(Family::Tunnel),
@@ -26,11 +27,13 @@ impl Family {
 
     pub fn of_uri(uri: &str) -> Self {
         if crate::mise::looks_like_spec(uri) || is_package_uri(uri) {
+            // § q3jn8hjmk.f@7aav6
             return Family::Package;
         }
         if let Some((scheme, _)) = uri.split_once("://")
             && lade_sdk::network::is_network_scheme(scheme)
         {
+            // § q3jn8hjmk.e@79mf0
             return Family::Tunnel;
         }
         Family::Secret
@@ -43,8 +46,9 @@ pub fn is_package_uri(uri: &str) -> bool {
 
 pub const RAW_WARNING: &str = "Raw is a value you typed, not a vault secret.";
 
-/// A secret no provider takes (`https://`, `postgres://`, `file://` without
-/// `?query=`) falls back to the raw provider, so it is a typed value too.
+/// A secret no provider takes (`https://`, `postgres://`, a `!`-escaped value)
+/// falls back to the raw provider, so it is a typed value too. A registered
+/// scheme belongs to its provider even when the value is malformed.
 pub fn is_raw_secret(uri: &str) -> bool {
     Family::of_uri(uri) == Family::Secret && lade_sdk::Providers::claimed_by(uri).is_none()
 }
@@ -57,7 +61,12 @@ mod tests {
     fn aliases_map_to_tokens() {
         assert_eq!(Family::parse("env"), Some(Family::Secret));
         assert_eq!(Family::parse("fwd"), Some(Family::Tunnel));
+        assert_eq!(Family::parse("net"), Some(Family::Tunnel));
+        assert_eq!(Family::parse("network"), Some(Family::Tunnel));
         assert_eq!(Family::parse("pkg"), Some(Family::Package));
+        assert_eq!(Family::parse("cli"), Some(Family::Package));
+        assert_eq!(Family::parse("tool"), Some(Family::Package));
+        assert_eq!(Family::parse("skill"), Some(Family::Package));
         assert_eq!(Family::parse("apm"), Some(Family::Package));
         assert_eq!(Family::parse("package"), Some(Family::Package));
         assert!(Family::parse("bin").is_none());
@@ -92,7 +101,8 @@ mod tests {
         assert!(is_raw_secret("postgres://me@127.0.0.1:5432/app"));
         assert!(!is_raw_secret("op://v/i/f"));
         assert!(!is_raw_secret("sh://printf hi"));
-        assert!(is_raw_secret("file:///tmp/x"));
+        assert!(!is_raw_secret("file:///tmp/x"));
+        assert!(is_raw_secret("!file:///tmp/x"));
         assert!(!is_raw_secret("file:///tmp/x?query=.a"));
         assert!(!is_raw_secret("mise://aqua/jqlang/jq@1.7.1"));
     }

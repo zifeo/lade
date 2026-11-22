@@ -1,5 +1,6 @@
 mod acquire;
 mod approve;
+pub(crate) mod attach;
 pub(crate) mod exec;
 mod keys;
 pub(crate) use keys::{after_lend, before_lend};
@@ -48,10 +49,13 @@ pub(crate) fn log_phase(phase: &str, started: std::time::Instant) {
 }
 
 pub(super) fn refuse_preexec(shell: &Shell, code: i32) -> ! {
+    // § gvtm9gyed.a@rz07e
     println!("{}", shell.block_command());
     std::process::exit(code);
 }
 
+/// Env, files, sources, maskable, warnings, names the hub served, and the
+/// private bindings' values (never exported).
 pub(super) type SecretBundle = (
     HashMap<String, String>,
     HashMap<PathBuf, HashMap<String, String>>,
@@ -59,12 +63,13 @@ pub(super) type SecretBundle = (
     FxHashSet<String>,
     Vec<String>,
     HashSet<String>,
+    HashMap<String, String>,
 );
 
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Acquisition<N> {
     Ready(SecretBundle, N),
     Failed(anyhow::Error),
-    FailedWithFiles(anyhow::Error, HashMap<PathBuf, HashMap<String, String>>),
     FailedWithNetwork(anyhow::Error, N),
 }
 
@@ -76,6 +81,7 @@ pub(crate) fn emit_seen_if_walk_log(
     saved_user: &Option<String>,
     argv: Option<serde_json::Value>,
 ) {
+    // § kk9qxrvgt@ph0yt
     if config.log_on_walk_for(ctx.audience) {
         event::emit(seen_event(ctx, command, current_dir, saved_user, argv));
     }
@@ -89,6 +95,7 @@ pub(crate) fn seen_event(
     saved_user: &Option<String>,
     argv: Option<serde_json::Value>,
 ) -> Emit {
+    // § bvttr6qk1.a@180dp
     Emit {
         kind: Kind::Seen,
         via: ctx.via,
@@ -127,6 +134,23 @@ pub(crate) fn public_hydrate(
         }
         out.insert(key.clone(), value.clone());
     }
+    out
+}
+
+/// The values the diary scrub replaces by `${NAME}`: every public value and
+/// every private binding's. The row's `matches` still never name a private one.
+pub(crate) fn scrub_values(
+    env: &HashMap<String, String>,
+    files: &HashMap<PathBuf, HashMap<String, String>>,
+    private: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut out = public_hydrate(env, files);
+    // § ec0ncyt0n.a@11t3t
+    out.extend(
+        private
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
     out
 }
 
@@ -185,6 +209,7 @@ async fn handle_provider_failure(
     } else {
         loader_error_box(e)
     };
+    // § t7kcndtra.b@496g6
     let Some(mut keys) = keys.or_else(|| Keys::enter(ctx)) else {
         mb.line("")
             .line("The command did not run. `lade status` lists each provider and its timeout, `LADE_LOG=debug` logs each step.")
@@ -201,6 +226,7 @@ async fn handle_provider_failure(
         }
         () = acquire::interrupted() => FailureChoice::Interrupted,
     }
+    // § end t7kcndtra.b
 }
 
 /// True when Ctrl-C, `kill`, or hangup cut the pause short: the command is
@@ -236,11 +262,9 @@ pub(super) fn merge_env_with_conflicts(
     for (key, value) in incoming {
         match env.get(&key) {
             Some(existing) if existing != &value => {
+                // § d5fjsqxna.d@7fam4
                 anyhow::bail!(
-                    "conflicting env '{}' between secret/tunnel providers: '{}' vs '{}'",
-                    key,
-                    existing,
-                    value
+                    "conflicting env '{key}': a secret binding and a tunnel set different values"
                 );
             }
             Some(_) => {}

@@ -57,6 +57,7 @@ impl Shell {
     /// does not use this: it evals `set()` in the already-running
     /// interactive shell.
     pub fn noninteractive_args<'a>(&self, command: &'a str) -> Vec<&'a str> {
+        // § dpky46ff1.b@engbs
         match self {
             Shell::Fish => vec!["--no-config", "-c", command],
             Shell::Zsh => vec!["-f", "-c", command],
@@ -85,11 +86,13 @@ impl Shell {
     /// Never an inherited variable: a harness started from a fish terminal
     /// keeps `SHELL` from it, yet runs its commands in zsh.
     pub fn detect() -> Result<Shell> {
+        // § dpky46ff1.d@rz00r
         let name = parent_process_name()?;
         shell_from_comm(&name)
     }
 
     pub fn set(&self, env: HashMap<String, String>) -> String {
+        // § aknp07yqt@qqqv2
         env.into_iter()
             .map(|(k, v)| match self {
                 Shell::Bash | Shell::Zsh | Shell::Sh => {
@@ -120,6 +123,7 @@ impl Shell {
     /// skip `lade unset`, which would find no `lade` on that `PATH` and has
     /// nothing to undo: a refused `lade set` exported nothing.
     pub fn block_command(&self) -> String {
+        // § one gvtm9gyed.b@53vh8, gvtm9gyed.c@r7w1j
         match self {
             Shell::Zsh => format!(
                 "if [ -z \"${{__lade_path+x}}\" ]; then\n\

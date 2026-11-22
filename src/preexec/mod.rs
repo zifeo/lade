@@ -24,6 +24,32 @@ pub const LADE_T: &str = "LADE_T";
 /// Protocol env the child must not inherit. `LADE_APPROVE` stays.
 pub const CHILD_UNSET: [&str; 3] = [LADE_VIA, LADE_T, LADE_RESTORE];
 
+/// The `LADE_APPROVE` this process started with, once `lade approve` set its
+/// own to let its command through.
+static APPROVE_BEFORE: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
+
+/// Lets this process's disclaimers through with `code`.
+pub fn approve_in_process(code: &str) {
+    let _ = APPROVE_BEFORE.set(std::env::var_os(LADE_APPROVE));
+    unsafe {
+        std::env::set_var(LADE_APPROVE, code);
+    }
+}
+
+/// The child gets the `LADE_APPROVE` Lade started with, not the one
+/// `lade approve` set for itself.
+pub fn restore_approve(cmd: &mut std::process::Command) {
+    match APPROVE_BEFORE.get() {
+        Some(Some(value)) => {
+            cmd.env(LADE_APPROVE, value);
+        }
+        Some(None) => {
+            cmd.env_remove(LADE_APPROVE);
+        }
+        None => {}
+    }
+}
+
 pub fn strip_child_protocol(cmd: &mut std::process::Command) {
     for key in CHILD_UNSET {
         cmd.env_remove(key);
@@ -38,6 +64,9 @@ pub fn strip_child_protocol_tokio(cmd: &mut tokio::process::Command) {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RestorePayload {
+    /// The `LADE_T` of the line that took the snapshot. A nested shell
+    /// inherits the outer line's snapshot, which is not its own to restore.
+    pub ticket: String,
     pub env: HashMap<String, Option<String>>,
 }
 

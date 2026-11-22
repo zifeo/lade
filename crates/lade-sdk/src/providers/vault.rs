@@ -86,6 +86,20 @@ fn vault_scheme(extra_env: &HashMap<String, String>) -> &'static str {
     }
 }
 
+/// Plain HTTP carries the token in clear, so `LADE_VAULT_HTTP` reaches only
+/// the hosts `lade mcp` sends plain HTTP to. A `vault://` host is opaque to
+/// `url`, so an IP literal may come as a domain.
+fn plain_http_allowed(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => {
+            domain == "localhost" || domain.parse() == Ok(std::net::Ipv4Addr::LOCALHOST)
+        }
+        Some(url::Host::Ipv4(ip)) => ip == std::net::Ipv4Addr::LOCALHOST,
+        Some(url::Host::Ipv6(ip)) => ip == std::net::Ipv6Addr::LOCALHOST,
+        None => false,
+    }
+}
+
 fn token_from_home(home: &str) -> Option<String> {
     let raw = std::fs::read_to_string(PathBuf::from(home).join(".vault-token")).ok()?;
     let token = raw.trim();
@@ -155,6 +169,7 @@ impl Provider for Vault {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@65dc5
         super::PROVIDER_TIMEOUT
     }
 
@@ -163,6 +178,7 @@ impl Provider for Vault {
     }
 
     fn transport(&self) -> Transport {
+        // § cbck003hy.a@ta649
         Transport::Sdk
     }
 
@@ -172,10 +188,10 @@ impl Provider for Vault {
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
         let output = search_cli_ok(
+            self,
             "vault",
             &["kv", "list", "-format=json", "secret"],
             extra_env,
-            self.timeout(),
             "vault login required",
         )?;
         let paths: Vec<String> = match serde_json::from_slice::<Vec<String>>(&output.stdout) {
@@ -221,6 +237,12 @@ impl Provider for Vault {
             .urls
             .iter()
             .map(|(url, value)| {
+                if scheme == "http" && !plain_http_allowed(url) {
+                    return Err(anyhow!(
+                        "LADE_VAULT_HTTP sends the Vault token over plain HTTP, so only to localhost, 127.0.0.1 or [::1], and {} is none of them. Unset LADE_VAULT_HTTP to use HTTPS.",
+                        host_with_port(url)
+                    ));
+                }
                 let parts = path_parts(url)?;
                 Ok::<_, anyhow::Error>((url, value, parts))
             })

@@ -132,6 +132,27 @@ fn seq_gap_marks_the_row_after_the_hole() {
 }
 
 #[test]
+fn a_removed_row_counts_the_rows_that_verify_after_the_hole() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        for command in ["echo", "ls", "pwd", "id", "date"] {
+            emit(seen_emit(command));
+        }
+        let conn = rusqlite::Connection::open(db_path()).unwrap();
+        conn.execute("DROP TRIGGER events_no_delete", []).unwrap();
+        conn.execute("DELETE FROM events WHERE command = 'pwd'", [])
+            .unwrap();
+        let status = verify_live().unwrap();
+        assert_eq!(status.breaks.len(), 1, "{status:?}");
+        assert_eq!(status.breaks[0].seq, Some(4));
+        let line = status.report_lines("events.db").join("\n");
+        assert!(line.contains("2 rows before it"), "{line}");
+        assert!(line.contains("1 row after it"), "{line}");
+    });
+}
+
+#[test]
 fn delete_trigger_blocks_raw_sql() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.db");
@@ -172,18 +193,54 @@ fn open_seals_rows_an_older_lade_left_unsealed() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.db");
     temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
-        emit(seen_emit("echo"));
-        emit(seen_emit("ls"));
         let conn = rusqlite::Connection::open(db_path()).unwrap();
-        conn.execute(
-            "UPDATE events SET seq = NULL, prev_hash = NULL, row_hash = NULL, seal_ver = NULL",
-            [],
-        )
+        conn.execute_batch(&format!(
+            "{EVENTS_DDL}; {EVENTS_AGENT_DDL}; {EVENTS_ARGV_DDL}; PRAGMA user_version = 3;"
+        ))
         .unwrap();
-        conn.execute("DELETE FROM chain_head", []).unwrap();
+        for (id, ts, command) in [
+            ("1", "2026-09-05T00:00:00.000Z", "echo"),
+            ("2", "2026-09-05T00:00:01.000Z", "ls"),
+        ] {
+            conn.execute(
+                "INSERT INTO events (id, ts, kind, command, command_truncated, matches)
+                 VALUES (?1, ?2, 'seen', ?3, 0, jsonb('[]'))",
+                rusqlite::params![id, ts, command],
+            )
+            .unwrap();
+        }
+        drop(conn);
         emit(seen_emit("pwd"));
         let status = verify_live().unwrap();
         assert!(status.ok, "{status:?}");
         assert_eq!(status.rows, 3);
+    });
+}
+
+#[test]
+fn an_unsealed_row_in_a_chained_diary_is_a_break() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.db");
+    temp_env::with_var("LADE_EVENTS_PATH", Some(path.to_str().unwrap()), || {
+        emit(seen_emit("echo"));
+        emit(seen_emit("ls"));
+        let conn = rusqlite::Connection::open(db_path()).unwrap();
+        conn.execute(
+            "UPDATE events SET seq = NULL, prev_hash = NULL, row_hash = NULL, seal_ver = NULL
+             WHERE command = 'ls'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        emit(seen_emit("pwd"));
+        let status = verify_live().unwrap();
+        assert!(!status.ok, "{status:?}");
+        assert!(
+            status
+                .breaks
+                .iter()
+                .any(|b| b.command.as_deref() == Some("ls")),
+            "{status:?}"
+        );
     });
 }

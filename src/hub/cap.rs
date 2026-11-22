@@ -16,6 +16,7 @@ type Stamp = (SystemTime, u64, u64);
 /// A tunnel or secret ttl under `max_cache`. `None` caps nothing, `Some(0)`
 /// keeps nothing.
 pub(super) fn capped(ttl_ms: Option<u32>, cap_ms: Option<u32>) -> Option<u32> {
+    // § cfan04ksd.a@nqbmv
     match cap_ms {
         None => ttl_ms,
         Some(0) => None,
@@ -86,6 +87,7 @@ impl CapWatch {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .generation;
+        // § cfan04ksd.d@ghnje
         let background = Arc::clone(&watch);
         std::thread::spawn(move || {
             while !background.stop.load(Ordering::Relaxed) {
@@ -135,6 +137,7 @@ fn stamp(path: &Path) -> Option<Stamp> {
 /// Fails closed: a file the hub cannot read or parse turns the cache off.
 /// The flag is false when the read itself failed, so the watcher retries.
 fn read_cap(path: &Path) -> (Option<u32>, bool) {
+    // § cfan04ksd.c@eyxw0
     match std::fs::read_to_string(path) {
         Ok(text) => (
             crate::global_config::max_cache_from_text(&text).unwrap_or(Some(0)),

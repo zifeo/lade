@@ -17,6 +17,18 @@ fn env_prefix_is_stripped() {
 }
 
 #[test]
+fn quoted_env_prefix_is_stripped_whole() {
+    for raw in [
+        format!("TOKEN='a {SECRET}' curl https://example.com"),
+        format!("TOKEN=\"a \\\" {SECRET}\" curl https://example.com"),
+        format!("A=1 TOKEN=x\\ {SECRET} curl https://example.com"),
+    ] {
+        assert_eq!(seen(&raw), "curl https://example.com", "{raw}");
+    }
+    assert_eq!(seen(&format!("TOKEN='{SECRET} x'")), "");
+}
+
+#[test]
 fn bearer_context() {
     let out = seen(&format!(
         r#"curl -H "Authorization: Bearer {SECRET}" https://example.com"#

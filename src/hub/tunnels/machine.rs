@@ -48,10 +48,15 @@ impl Entry {
     }
 
     fn expired(&self, now: Duration) -> bool {
+        // § jfxr4rmae.c@yj44e
         if !self.leases.is_empty() {
             return false;
         }
         if matches!(self.phase, Phase::Failed(_)) {
+            return true;
+        }
+        // § one kd0fkaw1x.a@r3wj8
+        if self.phase == Phase::Starting {
             return true;
         }
         let Some(since) = self.idle_since else {
@@ -81,6 +86,10 @@ pub(super) enum Open {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub(super) struct Machine {
     entries: BTreeMap<u64, Entry>,
+    /// Failed starts a new ask to the same target replaced. Each stays,
+    /// holding no port, until its askers' leases go, so every one of them
+    /// still gets its error.
+    failed: BTreeMap<u64, Entry>,
     next_id: u64,
     /// `max_cache`: `None` caps nothing, `Some(0)` keeps no tunnel past its
     /// last lease.
@@ -89,12 +98,21 @@ pub(super) struct Machine {
 
 impl Machine {
     pub(super) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.failed.is_empty()
     }
 
     #[cfg(test)]
     pub(super) fn entries(&self) -> &BTreeMap<u64, Entry> {
         &self.entries
+    }
+
+    #[cfg(test)]
+    pub(super) fn failed(&self) -> &BTreeMap<u64, Entry> {
+        &self.failed
+    }
+
+    fn every_entry_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
+        self.entries.values_mut().chain(self.failed.values_mut())
     }
 
     /// Reuse a tunnel to the same target, refuse a port that reaches
@@ -104,27 +122,35 @@ impl Machine {
         if let Some(id) = self.find(ask) {
             let entry = self.entries.get_mut(&id).expect("found entry");
             if matches!(entry.phase, Phase::Failed(_)) {
+                // § v29epeav2.e@py06b
                 // A failed start holds no port; a new ask starts over.
-                self.entries.remove(&id);
+                let failed = self.entries.remove(&id).expect("found entry");
+                if !failed.leases.is_empty() {
+                    self.failed.insert(id, failed);
+                }
             } else if entry.fingerprint != ask.fingerprint {
                 // A ready tunnel no command uses gives way to one a command
                 // needs now, instead of making it wait out the ttl.
                 let idle = entry.leases.is_empty() && matches!(entry.phase, Phase::Ready { .. });
                 if !idle {
+                    // § vpxx2dd6c.a@7zzjs
                     return Open::Reply(TunnelRep::Conflict {
                         port: entry.port,
                         holder: Some((entry.key.clone(), entry.uri.clone())),
                     });
                 }
                 if ask.launch.is_some() {
+                    // § vpxx2dd6c.b@g6taj
                     self.entries.remove(&id);
                     yielded = Some(id);
                 }
             } else {
+                // § gab93p2gf.b@agq9j
                 if !entry.leases.iter().any(|lease| lease.id == ask.lease.id) {
                     entry.leases.push(ask.lease.clone());
                 }
                 entry.idle_since = None;
+                // § one cfan04ksd.a@qv5bh
                 entry.ttl_ms = capped(entry.ttl_ms.max(ask.ttl_ms), self.cap_ms);
                 return Open::Reply(entry.rep(id, true));
             }
@@ -139,6 +165,7 @@ impl Machine {
     }
 
     fn find(&self, ask: &TunnelAsk) -> Option<u64> {
+        // § gab93p2gf.a@r6z2x
         self.entries
             .iter()
             .find(|(_, entry)| match ask.port {
@@ -154,6 +181,7 @@ impl Machine {
     pub(super) fn admit(&mut self, ask: &TunnelAsk, port: u16) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
+        // § cfan04ksd.a@dfj9y
         self.entries.insert(
             id,
             Entry {
@@ -192,23 +220,38 @@ impl Machine {
         }
     }
 
+    /// A ready tunnel's provider lost its port to another process: the
+    /// tunnel fails, so no command reuses it. `false`: it was not ready.
+    pub(super) fn lost(&mut self, id: u64, error: String) -> bool {
+        // § bkmpmswkm.e@f29am
+        match self.entries.get_mut(&id) {
+            Some(entry) if matches!(entry.phase, Phase::Ready { .. }) => {
+                entry.phase = Phase::Failed(error);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// A failure stays until its leases go, so every asker sees the error.
     pub(super) fn poll(&self, id: u64) -> TunnelRep {
+        // § v29epeav2.e@wttft
         self.entries
             .get(&id)
+            .or_else(|| self.failed.get(&id))
             .map_or(TunnelRep::Absent, |entry| entry.rep(id, false))
     }
 
     /// Returns the tunnels to stop.
     pub(super) fn release(&mut self, lease: &str, now: Duration) -> Vec<u64> {
-        for entry in self.entries.values_mut() {
+        for entry in self.every_entry_mut() {
             entry.leases.retain(|held| held.id != lease);
         }
         self.expire(now)
     }
 
     pub(super) fn drop_dead_leases(&mut self, alive: impl Fn(&Lease) -> bool) {
-        for entry in self.entries.values_mut() {
+        for entry in self.every_entry_mut() {
             entry.leases.retain(&alive);
         }
     }
@@ -217,6 +260,7 @@ impl Machine {
     /// stop: failed ones, and idle ones past their ttl, at once without one.
     pub(super) fn expire(&mut self, now: Duration) -> Vec<u64> {
         for entry in self.entries.values_mut() {
+            // § gv81k6nf4.d@7arzr
             if entry.leases.is_empty() {
                 entry.idle_since.get_or_insert(now);
             } else {
@@ -232,15 +276,20 @@ impl Machine {
         for id in &gone {
             self.entries.remove(id);
         }
+        // § v29epeav2.e@4n2rg
+        self.failed.retain(|_, entry| !entry.leases.is_empty());
         gone
     }
 
-    /// `lade ttl forget KEY`. Returns the tunnels to stop.
+    /// `lade ttl forget KEY`. Returns the tunnels to stop. A failed start
+    /// is no tunnel: it stays for its askers.
     pub(super) fn forget(&mut self, names: &[String]) -> Vec<u64> {
         let gone = self
             .entries
             .iter()
-            .filter(|(_, entry)| names.contains(&entry.key))
+            .filter(|(_, entry)| {
+                names.contains(&entry.key) && !matches!(entry.phase, Phase::Failed(_))
+            })
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         for id in &gone {
@@ -252,6 +301,7 @@ impl Machine {
     /// `max_cache` changed: every tunnel no command holds stops now, and the
     /// rest keep at most `cap_ms` once idle. Returns the tunnels to stop.
     pub(super) fn set_cap(&mut self, cap_ms: Option<u32>) -> Vec<u64> {
+        // § cfan04ksd.b@5z15g
         self.cap_ms = cap_ms;
         for entry in self.entries.values_mut() {
             entry.ttl_ms = capped(entry.ttl_ms, cap_ms);

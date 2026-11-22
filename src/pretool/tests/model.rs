@@ -225,7 +225,6 @@ fn finished_ticket_wrap_is_unchanged() {
                 secrets: vec![],
                 network: vec![],
                 matches: json!([]),
-                op_sa: None,
                 agent: json!({}),
                 pending: false,
             };
@@ -233,6 +232,41 @@ fn finished_ticket_wrap_is_unchanged() {
             let command = format!("lade --pretool={id} 'echo hello'");
             let result = handle(&config, &hook(&command), Audience::Agent, None).unwrap();
             assert!(allows(&result), "{result}");
+        });
+    });
+}
+
+#[test]
+fn a_ticket_named_after_inject_is_read_as_the_wrap_reads_it() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let (config, _dir) = test_config("^echo");
+            let pre = PreEvent {
+                command: "echo hello".into(),
+                cwd: std::env::current_dir().unwrap(),
+                via: "pretool".into(),
+                audience: "agent".into(),
+                actor: None,
+                log: false,
+                disclaimers: vec![],
+                secrets: vec![],
+                network: vec![],
+                matches: json!([]),
+                agent: json!({}),
+                pending: false,
+            };
+            let id = ticket::write(&pre).unwrap();
+            let flag = format!("--pretool={id}");
+            let argv = ["lade", "inject", flag.as_str(), "echo"];
+            let (peeled, _) = ticket::peel_pretool(argv.into_iter().map(Into::into).collect());
+            assert_eq!(peeled.as_deref(), Some(id.as_str()));
+            for command in [
+                format!("lade inject --pretool={id} echo hello"),
+                format!("lade inject --pretool {id} echo hello"),
+            ] {
+                let result = handle(&config, &hook(&command), Audience::Agent, None).unwrap();
+                assert!(allows(&result), "{command}: {result}");
+            }
         });
     });
 }

@@ -20,6 +20,7 @@ impl Raw {
 #[async_trait]
 impl Provider for Raw {
     fn masks_in_output(&self) -> bool {
+        // § qq076qjq2.a@htmwf
         false
     }
 
@@ -29,6 +30,7 @@ impl Provider for Raw {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@zjqsa
         super::PROVIDER_TIMEOUT
     }
 
@@ -41,6 +43,7 @@ impl Provider for Raw {
     }
 
     fn transport(&self) -> Transport {
+        // § cbck003hy.a@feb2e
         Transport::Sdk
     }
 
@@ -62,6 +65,7 @@ impl Provider for Raw {
             .values
             .iter()
             .map(|v| {
+                // § q3jn8hjmk.c@28kwc
                 let mut value = v.clone();
                 // escape the first ! if it exists
                 if value.starts_with('!') {

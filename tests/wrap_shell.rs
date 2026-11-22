@@ -108,3 +108,25 @@ fn a_direct_child_keeps_its_exit_code_and_argv0() {
         .code(7)
         .stdout(format!("{}/probe a b\n", bin.path().display()));
 }
+
+/// A startup file that sets a binding must not reach the child shell.
+#[test]
+fn the_child_shell_reads_no_bash_env_or_zshenv() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    common::write_yml_raw(dir.path(), "\"^echo\":\n  SECRET: from-yaml\n");
+    let startup = "export SECRET=overwritten\n";
+    let bash_env = dir.path().join("bash_env");
+    std::fs::write(&bash_env, startup).unwrap();
+    std::fs::write(home.path().join(".zshenv"), startup).unwrap();
+    for shell in ["bash", "zsh"] {
+        common::lade_in(home.path(), shell)
+            .current_dir(dir.path())
+            .env("BASH_ENV", &bash_env)
+            .env("ZDOTDIR", home.path())
+            .args(["inject", "--no-mask", "echo $SECRET"])
+            .assert()
+            .success()
+            .stdout("from-yaml\n");
+    }
+}

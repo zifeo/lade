@@ -15,7 +15,7 @@ fn default_window_is_90d_limit_sees_older() {
     drop(conn);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json"])
+        .args(["log", "--all", "--json"])
         .assert()
         .success()
         .get_output()
@@ -25,7 +25,7 @@ fn default_window_is_90d_limit_sees_older() {
     assert_eq!(rows.as_array().unwrap().len(), 0);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--limit", "10"])
+        .args(["log", "--all", "--json", "--limit", "10"])
         .assert()
         .success()
         .get_output()
@@ -43,7 +43,7 @@ fn until_excludes_recent_rows() {
     inject(home.path(), dir.path(), &["true"]);
     let out = common::lade(home.path())
         .current_dir(dir.path())
-        .args(["log", "--json", "--until", "1d"])
+        .args(["log", "--all", "--json", "--until", "1d"])
         .assert()
         .success()
         .get_output()
@@ -159,4 +159,43 @@ fn usage_and_log_path_scopes_to_that_root() {
     let rows: Vec<serde_json::Value> = serde_json::from_slice(&log).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(row_line(&rows[0]), "echo b");
+}
+
+#[test]
+fn outside_a_git_root_log_fails_and_names_all() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    write_yml(dir.path(), "{}\n");
+    inject(home.path(), dir.path(), &["true"]);
+    let db = home.path().join("events.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("UPDATE events SET ts = '2020-01-01T00:00:00.000Z'", [])
+        .unwrap();
+    drop(conn);
+    for args in [
+        &["log"][..],
+        &["usage"],
+        &["log", "share"],
+        &["log", "prune", "--keep", "1d"],
+    ] {
+        let out = common::lade(home.path())
+            .current_dir(dir.path())
+            .env("USER", "alice")
+            .args(args)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {stderr}");
+        assert!(stderr.contains("--all"), "{args:?}: {stderr}");
+    }
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 1, "prune outside a git root deleted a row");
+    common::lade(home.path())
+        .current_dir(dir.path())
+        .args(["log", "--all", "--json"])
+        .assert()
+        .success();
 }

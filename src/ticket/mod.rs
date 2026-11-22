@@ -9,6 +9,7 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TicketSecret {
+    // § ezvgtge5j.b@7k37f
     pub key: String,
     pub source: String,
     pub private: bool,
@@ -42,10 +43,6 @@ pub struct PreEvent {
     pub secrets: Vec<TicketSecret>,
     pub network: Vec<TicketNetwork>,
     pub matches: Value,
-    /// Resolved 1Password service-account URI, not the token. Absent from the
-    /// protocol table; wrap still needs it to hydrate without YAML.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub op_sa: Option<String>,
     /// Free-form hook metadata. Absent on older tickets.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub agent: Value,
@@ -75,7 +72,6 @@ impl PreEvent {
             secrets: Vec::new(),
             network: Vec::new(),
             matches: Value::Array(Vec::new()),
-            op_sa: None,
             agent: Value::Null,
             pending: false,
         }
@@ -87,6 +83,7 @@ pub const RESERVED: &[&str] = &["eval", "help", "hook", "user"];
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 pub fn is_id(s: &str) -> bool {
+    // § ac9463jhq.b@t1rbm
     s.len() == 4 && s.bytes().all(|b| b.is_ascii_alphanumeric()) && !RESERVED.contains(&s)
 }
 
@@ -94,11 +91,20 @@ pub fn is_id(s: &str) -> bool {
 /// Use the UUID random tail, not the v7 timestamp prefix. Two writes in the
 /// same millisecond must not emit the same id or `create_new` spins.
 pub fn new_id() -> String {
+    id_from_draws(|| {
+        let uuid = uuid::Uuid::now_v7();
+        let bytes = uuid.as_bytes();
+        [bytes[8], bytes[9], bytes[10], bytes[11]]
+    })
+}
+
+/// `draw` gives the random bytes of each try, so a test can draw a verb.
+fn id_from_draws(mut draw: impl FnMut() -> [u8; 4]) -> String {
+    // § ac9463jhq.b@5217c
     loop {
-        let bytes = uuid::Uuid::now_v7();
-        let bytes = bytes.as_bytes();
-        let id: String = (0..4)
-            .map(|i| CHARSET[(bytes[8 + i] as usize) % CHARSET.len()] as char)
+        let id: String = draw()
+            .iter()
+            .map(|byte| CHARSET[*byte as usize % CHARSET.len()] as char)
             .collect();
         if is_id(&id) {
             return id;
@@ -124,10 +130,16 @@ const WRITE_TRIES: u32 = 16;
 
 /// create_new the file. Retry new_id if exists. No fsync. Return id.
 pub fn write(pre: &PreEvent) -> Result<String> {
+    write_drawing(pre, new_id)
+}
+
+/// `draw` gives the ids to try, so a test can draw one that exists.
+fn write_drawing(pre: &PreEvent, mut draw: impl FnMut() -> String) -> Result<String> {
+    // § ac9463jhq.c@gmmny
     let json = serde_json::to_vec(pre).context("failed to serialize pre-event")?;
     for _ in 0..WRITE_TRIES {
         fs::create_dir_all(dir()).context("failed to create ticket directory")?;
-        let id = new_id();
+        let id = draw();
         let file_path = path(&id);
         match OpenOptions::new()
             .write(true)
@@ -176,12 +188,14 @@ pub fn legacy_network_pids(id: &str) -> Vec<u32> {
 /// Missing file is Ok.
 /// A pre-tool ticket nobody read within this long never will be: the
 /// harness denied or dropped its command, or the line never ran Lade.
+// § one gy20cgb72.d@183eb
 pub const PRETOOL_UNREAD: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Deletes pre-tool tickets older than `age`. A wrap that comes later
 /// still runs: it reads the yaml instead. Pre-exec tickets stay, since
 /// `lade unset` needs theirs when a long command ends.
 pub fn sweep_pretool(age: std::time::Duration) {
+    // § gy20cgb72.d@zp7e0
     let Ok(entries) = fs::read_dir(dir()) else {
         return;
     };
@@ -206,7 +220,10 @@ pub fn sweep_pretool(age: std::time::Duration) {
 }
 
 pub fn exists(id: &str) -> bool {
-    is_id(id) && path(id).exists()
+    // § qnn5xnx4z@dtxdy
+    // `peel_pretool` runs before the startup check of the cache root, which
+    // then stops Lade with its box: no root, no ticket.
+    is_id(id) && crate::cache::checked_root().is_ok() && path(id).exists()
 }
 
 /// Overwrite an existing id. Used to add pids or flip `pending`.
@@ -219,15 +236,6 @@ pub fn replace(id: &str, pre: &PreEvent) -> Result<()> {
     crate::cache::write_if_changed(&file_path, &json)
         .with_context(|| format!("failed to write ticket {}", file_path.display()))?;
     Ok(())
-}
-
-/// Keep `existing` when that file is already there. Otherwise `write`.
-pub fn write_or_replace(existing: Option<&str>, pre: &PreEvent) -> Result<String> {
-    if let Some(id) = existing.filter(|id| exists(id)) {
-        replace(id, pre)?;
-        return Ok(id.to_string());
-    }
-    write(pre)
 }
 
 pub fn unlink(id: &str) -> Result<()> {
@@ -246,13 +254,21 @@ pub fn unlink(id: &str) -> Result<()> {
 /// `--pretool=x7Km` -> id Some, argv keeps `--pretool` only.
 /// `--pretool x7Km` (is_id) -> consume x7Km, keep `--pretool`.
 /// `--pretool inject` -> do not consume inject.
+/// Only Lade's own options are read: from `--` or the command's first word
+/// on, `--pretool` belongs to the command.
 pub fn peel_pretool(args: Vec<OsString>) -> (Option<String>, Vec<OsString>) {
+    // § ac9463jhq.a@y4ept
     let mut ticket_id: Option<String> = None;
     let mut out = Vec::with_capacity(args.len());
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
         let arg_str = arg.to_string_lossy();
+        let command_starts = arg_str == "--" || (!arg_str.starts_with('-') && arg_str != "inject");
+        if i > 0 && command_starts {
+            out.extend(args[i..].iter().cloned());
+            break;
+        }
         if arg_str == "--pretool" {
             out.push(arg.clone());
             if i + 1 < args.len() {

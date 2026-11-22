@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use super::spec::Spec;
 
 pub fn data_dir() -> PathBuf {
+    // § kwbgdgf2x.b@vs4qn
     if let Ok(path) = std::env::var("MISE_DATA_DIR")
         && !path.is_empty()
     {
@@ -90,14 +91,12 @@ fn find_bin_dir_walk(dir: &Path, argv0: &str, depth: usize) -> Option<PathBuf> {
 }
 
 fn bin_exists(dir: &Path, argv0: &str) -> bool {
-    if is_executable(&dir.join(argv0)) {
-        return true;
-    }
+    // § aq3qybz6p.a@z5ec1
     #[cfg(windows)]
     if is_executable(&dir.join(format!("{argv0}.exe"))) {
         return true;
     }
-    false
+    is_executable(&dir.join(argv0))
 }
 
 pub fn find_pinned_bin(

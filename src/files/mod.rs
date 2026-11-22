@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::{
@@ -25,18 +25,21 @@ pub struct LoadedSecrets {
     pub maskable: FxHashSet<String>,
     /// Warnings collected during resolution (e.g. provider fallbacks).
     pub warnings: Vec<String>,
+    /// Private binding name → value. Never exported: masking and the diary
+    /// scrub still need it.
+    pub private: HashMap<String, String>,
 }
 
-/// Hydrates ticket secrets from a pre-event. `op_sa` is the resolved
-/// 1Password service-account URI, not the token.
+/// Hydrates ticket secrets from a pre-event. `seed` holds the values the
+/// hub served.
 pub async fn hydrate_secrets_from_ticket_with_progress(
     secrets: &[TicketSecret],
-    op_sa: Option<&str>,
     plan: &SecretSources,
     progress: ProviderProgressSink,
-    cached: &HashSet<String>,
+    seed: &HashMap<String, String>,
 ) -> Result<LoadedSecrets> {
-    let progress_groups = secret_progress_groups(plan, cached);
+    let cached = seed.keys().cloned().collect::<HashSet<_>>();
+    let progress_groups = secret_progress_groups(plan, &cached);
     let mut pending = HashMap::<String, PendingLine>::new();
     for group in &progress_groups {
         if group.fetched {
@@ -63,7 +66,7 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
         }
     }
     let sink = progress.clone();
-    let hydrated = Config::hydrate_work_on_group(secrets, op_sa, |done| {
+    let hydrated = Config::hydrate_work_on_group(secrets, seed, |done| {
         for (id, display, started) in take_finished_lines(&mut pending, done) {
             sink.send(ProviderProgressEvent {
                 id,
@@ -73,7 +76,7 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
         }
     })
     .await;
-    if let Err(e) = &hydrated {
+    if hydrated.is_err() {
         for (id, line) in pending.drain() {
             progress.send(ProviderProgressEvent {
                 id,
@@ -81,7 +84,6 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
                 kind: ProviderProgressKind::Failed,
             });
         }
-        return Err(anyhow::anyhow!(e.to_string()));
     }
     for (id, line) in pending.drain() {
         progress.send(ProviderProgressEvent {
@@ -90,12 +92,13 @@ pub async fn hydrate_secrets_from_ticket_with_progress(
             kind: ProviderProgressKind::Connected,
         });
     }
-    let (vars, sources, maskable, warnings) = hydrated?;
+    let (vars, sources, maskable, warnings, private) = hydrated?;
     Ok(LoadedSecrets {
         vars,
         sources,
         maskable,
         warnings,
+        private,
     })
 }
 
@@ -170,6 +173,7 @@ fn secret_progress_groups(
         }
     }
     for (key, source) in &plan.cancelled {
+        // § sn2x1h4v9.c@qf8mn
         if plan.silent.contains(key) {
             continue;
         }
@@ -197,6 +201,7 @@ fn secret_progress_groups(
 }
 
 fn progress_binding_name(key: &str, overridden: bool, cached: bool) -> String {
+    // § one cj4kjwcp7.a@dbpky, sn2x1h4v9.c@e5dfj
     match (overridden, cached) {
         (true, true) => format!("{key} (o, c)"),
         (true, false) => format!("{key} (o)"),
@@ -211,6 +216,7 @@ enum FileFormat {
 }
 
 fn file_format(path: &Path) -> Result<FileFormat> {
+    // § fz8r6d2ka.a@1mweh
     match path.extension().and_then(OsStr::to_str) {
         Some("json") => Ok(FileFormat::Json),
         Some("yaml" | "yml") => Ok(FileFormat::Yaml),
@@ -246,6 +252,7 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
 
     let mut written = Vec::new();
     for (path, content) in files {
+        // § fz8r6d2ka.c@naa9n
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -257,6 +264,7 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
                 path.display()
             ));
         }
+        // § fz8r6d2ka.b@fzm46
         let mut file = match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -271,6 +279,7 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
                 bail!("cannot write {}: {error}", path.display());
             }
         };
+        // § end fz8r6d2ka.b
         if let Err(error) = file.write_all(content.as_bytes()) {
             let _ = fs::remove_file(path);
             remove_created(&written);
@@ -281,16 +290,19 @@ pub fn write_files(hydration: &HashMap<PathBuf, HashMap<String, String>>) -> Res
     Ok(names)
 }
 
+/// Tries every file, so one that stays keeps no other on disk, and fails
+/// naming the first that stays.
 pub fn remove_files<T>(files: &mut Keys<PathBuf, T>) -> Result<()> {
+    let mut first = None;
     for path in files {
         debug!("removing file: {:?}", path);
         if let Err(error) = fs::remove_file(path)
             && error.kind() != ErrorKind::NotFound
         {
-            return Err(error.into());
+            first.get_or_insert_with(|| anyhow!("cannot remove {}: {error}", path.display()));
         }
     }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 pub fn split_env_files<T: Default>(mut hydration: HashMap<Output, T>) -> (T, HashMap<PathBuf, T>) {
     let env = hydration.remove(&None).unwrap_or_default();

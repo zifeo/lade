@@ -37,6 +37,7 @@ pub(super) async fn apply_pins(
             Ok(out)
         }
         Err(error) => {
+            // § t7kcndtra.a@pes6a
             error.emit();
             match preexec {
                 Some(shell) => super::refuse_preexec(shell, crate::exit_codes::FAILURE),
@@ -46,19 +47,31 @@ pub(super) async fn apply_pins(
     }
 }
 
+/// Puts back the `PATH` Lade had before [`apply_pins`], for a command that
+/// runs without Lade.
+pub(super) fn restore_unpinned_path(path: Option<std::ffi::OsString>) {
+    // § ntr20kvnb.a@9nf97
+    // SAFETY: as in `apply_pins`. The providers and tunnels are done.
+    unsafe {
+        match path {
+            Some(path) => std::env::set_var("PATH", path),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+}
+
 pub(super) fn select_tool_env(
     env: &mut HashMap<String, String>,
     tool: HashMap<String, String>,
 ) -> Result<()> {
+    // A binding named `PATH` conflicts with a pin's `PATH` like any other.
+    // § d5fjsqxna.d@82c6a
     for (key, value) in tool {
-        if key == "PATH" {
-            env.insert(key, value);
-            continue;
-        }
         match env.get(&key) {
             Some(existing) if existing != &value => {
+                // § aq3qybz6p.c@kr6jx
                 anyhow::bail!(
-                    "conflicting env '{key}' between lade.yaml and the mise pin: '{existing}' vs '{value}'"
+                    "conflicting env '{key}': lade.yaml and the mise pin set different values"
                 );
             }
             Some(_) => {}

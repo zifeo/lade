@@ -1,6 +1,6 @@
 use super::super::handle;
 use super::super::platform::{Platform, detect_platform};
-use super::{AGENT_ENV, test_config, with_cursor_env};
+use super::{AGENT_ENV, test_config, with_cursor_env, with_ticket_tmpdir};
 use crate::config::Audience;
 use serde_json::json;
 
@@ -117,4 +117,50 @@ fn test_no_match_allows() {
         let result = handle(&config, input, Audience::Agent, None).unwrap();
         assert!(result.contains("allow"));
     });
+}
+
+#[test]
+fn payload_event_wins_over_inherited_harness_env() {
+    let run = |vars: [(&str, Option<&str>); 7], input: &str| {
+        let mut result = String::new();
+        temp_env::with_vars(vars, || {
+            with_ticket_tmpdir(|| {
+                let (config, _dir) = test_config("^echo");
+                result = handle(&config, input, Audience::Agent, None).unwrap();
+            })
+        });
+        result
+    };
+    let cursor = r#"{"hook_event_name":"preToolUse","tool_name":"Shell","tool_input":{"command":"echo hello"}}"#;
+    let claude = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let inherited = [
+        ("CURSOR_VERSION", None),
+        ("CLAUDE_PROJECT_DIR", None),
+        ("CODEX_THREAD_ID", Some("thr_1")),
+        ("CODEX_SANDBOX", None),
+        ("CODEX_HOME", None),
+        ("OPENCODE", Some("1")),
+        ("OPENCODE_DIR", None),
+    ];
+
+    let result = run(inherited, cursor);
+    assert!(result.contains("updated_input"), "{result}");
+    assert!(!result.contains("hookSpecificOutput"), "{result}");
+
+    let result = run(inherited, claude);
+    assert!(result.contains("hookSpecificOutput"), "{result}");
+    assert!(result.contains("updatedInput"), "{result}");
+
+    let claude_env = [
+        ("CURSOR_VERSION", None),
+        ("CLAUDE_PROJECT_DIR", Some("/tmp")),
+        ("CODEX_THREAD_ID", None),
+        ("CODEX_SANDBOX", None),
+        ("CODEX_HOME", None),
+        ("OPENCODE", None),
+        ("OPENCODE_DIR", None),
+    ];
+    let result = run(claude_env, cursor);
+    assert!(result.contains("updated_input"), "{result}");
+    assert!(!result.contains("hookSpecificOutput"), "{result}");
 }

@@ -25,7 +25,7 @@ mod walk;
 #[cfg(test)]
 mod tests;
 
-pub use ensure::{ensure_for_setup, managed_mise_in_play, mise_program, status_info};
+pub use ensure::{ensure_managed, managed_mise_in_play, status_info};
 pub use error::Error;
 pub use implied::repo_needs_mise;
 pub use lifecycle::run_lifecycle_commands;
@@ -48,8 +48,22 @@ pub fn lock_path_in(start: &Path) -> PathBuf {
     }
 }
 
-pub fn lock_slot(path: &Path, name: &str) -> Option<String> {
-    lock::slot_for(path, &[name]).map(|slot| slot.version)
+/// The version the lock at `path` holds for `name`, only when it agrees with
+/// the pin `uri` names, or with the range a provider URI implies. The lock
+/// is read under every name setup may have keyed it by, as a wrap reads it.
+pub fn agreed_lock_slot(path: &Path, name: &str, uri: &str) -> Option<String> {
+    // § j1mbwadzc.d@w6ajg
+    let pin = match uri
+        .split_once("://")
+        .and_then(|(scheme, _)| implied::by_scheme(scheme))
+    {
+        Some(row) => spec::parse(&row.uri).ok()?,
+        None => spec::parse(uri).ok()?,
+    };
+    let names = store::tool_names(&pin, name, None);
+    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let slot = lock::slot_for(path, &name_refs)?;
+    lock::agrees(&slot, &pin.version, &pin.backend_id()).then_some(slot.version)
 }
 
 pub const LADE_MISE_CONFIG: &str = "LADE_MISE_CONFIG";
@@ -59,6 +73,7 @@ pub fn pin_exact(uri: &str) -> anyhow::Result<String> {
         return Ok(uri.to_string());
     }
     let spec = spec::parse(uri).map_err(Error::invalid_spec)?;
+    // § h01jcjwrv.c@33emw
     if !spec::version_is_floating(&spec.version) {
         return Ok(uri.to_string());
     }
@@ -80,9 +95,7 @@ pub(super) fn latest_matching(spec: &spec::Spec) -> anyhow::Result<String> {
 }
 
 fn mise_lines(args: &[&str]) -> anyhow::Result<Vec<String>> {
-    let output = std::process::Command::new(ensure::mise_program())
-        .args(args)
-        .env("MISE_YES", "1")
+    let output = isolated_mise(args)?
         .output()
         .map_err(|e| Error::missing_mise(e.to_string()))?;
     if !output.status.success() {
@@ -90,6 +103,15 @@ fn mise_lines(args: &[&str]) -> anyhow::Result<Vec<String>> {
         anyhow::bail!("mise {} failed: {stderr}", args.join(" "));
     }
     Ok(version_tokens(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// A mise query, such as `latest` or `ls-remote`, run with no user config.
+pub fn isolated_mise(args: &[&str]) -> anyhow::Result<std::process::Command> {
+    let cwd = std::env::current_dir()?;
+    let mut cmd = std::process::Command::new(ensure::mise_program()?);
+    install::isolate(&mut cmd, &project::isolate_config_paths(&cwd));
+    cmd.args(args);
+    Ok(cmd)
 }
 
 fn version_tokens(stdout: &str) -> Vec<String> {

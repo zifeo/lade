@@ -4,7 +4,8 @@
     "preToolUse": [
       {
         "command": "lade hook --harness cursor",
-        "matcher": "Shell"
+        "matcher": "Shell",
+        "failClosed": true
       }
     ]
   }

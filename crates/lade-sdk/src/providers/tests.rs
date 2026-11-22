@@ -73,10 +73,22 @@ fn test_dispatch_unknown_scheme_to_fallback() {
 }
 
 #[test]
-fn test_dispatch_file_without_query_falls_back_to_raw() {
-    // file:// without ?query= is rejected by File::add and must land on Raw.
-    assert!(fallback_has_work("file:///path/to/config.json"));
-    assert!(!has_work_for("file", "file:///path/to/config.json"));
+fn test_dispatch_file_without_query_fails() {
+    let mut p = Providers::new();
+    let err = p
+        .add("file:///path/to/config.json".to_string())
+        .unwrap_err();
+    assert!(err.to_string().contains("?query="), "{err}");
+    assert!(!p.fallback.has_work());
+    assert_eq!(
+        Providers::claimed_by("file:///path/to/config.json"),
+        Some("File")
+    );
+}
+
+#[test]
+fn test_dispatch_bang_file_to_fallback() {
+    assert!(fallback_has_work("!file:///path/to/config.json"));
 }
 
 #[test]
@@ -268,6 +280,7 @@ fn test_output_within_kills_a_silent_cli() {
         std::process::Command::new(fake_bin.path().join("slow")),
         "slow",
         std::time::Duration::from_millis(200),
+        |e| anyhow::anyhow!("{e}"),
     )
     .unwrap_err();
     assert!(err.to_string().contains("slow did not answer"), "{err}");
@@ -296,6 +309,7 @@ fn test_output_within_bounds_a_pipe_a_grandchild_keeps() {
         std::process::Command::new(fake_bin.path().join("lister")),
         "lister",
         std::time::Duration::from_secs(3),
+        |e| anyhow::anyhow!("{e}"),
     )
     .unwrap_err();
     assert!(err.to_string().contains("lister did not answer"), "{err}");
@@ -320,9 +334,27 @@ fn test_output_within_returns_output() {
         std::process::Command::new(fake_bin.path().join("fast")),
         "fast",
         std::time::Duration::from_secs(5),
+        |e| anyhow::anyhow!("{e}"),
     )
     .unwrap();
     assert_eq!(output.stdout, b"out");
     assert_eq!(output.stderr, b"err");
     assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_search_cli_ok_names_a_missing_cli_and_where_to_install_it() {
+    let provider = raw::Raw::new();
+    let err = search_cli_ok(
+        &provider,
+        "lade-test-no-such-cli",
+        &[],
+        &HashMap::new(),
+        "login required",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("Raw CLI not found"), "{err}");
+    assert!(err.contains(provider.install_url()), "{err}");
 }

@@ -127,6 +127,20 @@ fn test_secret_sources_marks_override_and_cancel() {
 }
 
 #[test]
+fn a_secret_that_replaces_a_parent_tunnel_or_pin_is_marked_overridden() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lade.yml"),
+        ".:\n  DB_PORT: kubectl://k8s.example.com:6443/example-cluster/dev/service/postgres/5432\n  jq: mise://jq@1.7.1\n\"cmd\":\n  DB_PORT: \"5432\"\n  jq: plain\n",
+    )
+    .unwrap();
+    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+    let plan = config.collect_secret_sources("cmd").unwrap();
+    assert!(plan.overridden.contains("DB_PORT"), "{:?}", plan.overridden);
+    assert!(plan.overridden.contains("jq"), "{:?}", plan.overridden);
+}
+
+#[test]
 fn test_secret_sources_cancel_then_reset() {
     let dir = tempdir().unwrap();
     std::fs::write(
@@ -156,16 +170,18 @@ fn test_collect_secret_sources_silent_rule_marks_keys() {
 }
 
 #[test]
-fn test_collect_secret_sources_old_silence_key_is_unread() {
+fn the_old_silence_key_fails_the_load() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("lade.yml"),
         "\"cmd\":\n  \".\":\n    silence: true\n  KEY: val\n",
     )
     .unwrap();
-    let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
-    let plan = config.collect_secret_sources("cmd").unwrap();
-    assert!(!plan.silent.contains("KEY"));
+    let Err(err) = LadeFile::build(dir.path().to_path_buf()) else {
+        panic!("an unknown `.` key loaded");
+    };
+    let err = format!("{err:#}");
+    assert!(err.contains("silence") && err.contains("silent"), "{err}");
 }
 
 #[test]

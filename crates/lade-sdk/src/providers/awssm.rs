@@ -64,6 +64,7 @@ impl Provider for AwsSm {
     }
 
     fn timeout(&self) -> std::time::Duration {
+        // § j5kahfy4q.a@mvvxw
         super::PROVIDER_TIMEOUT
     }
 
@@ -77,6 +78,7 @@ impl Provider for AwsSm {
 
     fn search(&self, extra_env: &HashMap<String, String>) -> Result<Vec<String>> {
         let output = search_cli_ok(
+            self,
             "aws",
             &[
                 "secretsmanager",
@@ -87,7 +89,6 @@ impl Provider for AwsSm {
                 "text",
             ],
             extra_env,
-            self.timeout(),
             "aws login required",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)

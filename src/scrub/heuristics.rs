@@ -35,6 +35,7 @@ pub(super) fn replace_known_values(command: &str, values: &HashMap<String, Strin
 }
 
 pub(super) fn apply_context_needles(command: &str) -> String {
+    // § ec0ncyt0n.c@mgyej
     let bytes = command.as_bytes();
     let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
     let mut spans = Vec::new();
@@ -151,6 +152,7 @@ fn is_token_sep(b: u8) -> bool {
 }
 
 fn prefix_or_len_hit(tok: &str) -> bool {
+    // § ec0ncyt0n.c@cn9z3
     if PREFIXES.iter().any(|p| tok.starts_with(p)) {
         return true;
     }

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use std::env;
 
-mod access;
 mod agent_meta;
 mod args;
 mod audience;
@@ -30,6 +29,7 @@ mod pretool;
 mod prompt;
 mod provider_progress;
 mod redact;
+mod remote;
 mod scrub;
 #[cfg(test)]
 mod test_state;
@@ -69,15 +69,47 @@ pub fn cli_main() -> Result<()> {
         network::run_guard(&argv[2..]);
     }
 
-    tokio::runtime::Builder::new_current_thread()
+    let result = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
-        .block_on(run())
+        .block_on(run());
+    if let Err(e) = &result
+        && let Some((code, message)) = remote::exit_code(e)
+    {
+        message_box::MessageBox::new()
+            .error()
+            .paragraph(message)
+            .print_stderr();
+        std::process::exit(code);
+    }
+    // § one kgqztjzym.d@g6wdc
+    if let Err(e) = &result
+        && message_box::terse()
+    {
+        message_box::MessageBox::new()
+            .error()
+            .paragraph(format!("{e:#}"))
+            .print_stderr();
+        std::process::exit(exit_codes::FAILURE);
+    }
+    result
 }
 
 async fn run() -> Result<()> {
     let (peeled_ticket_id, argv) = ticket::peel_pretool(std::env::args_os().collect());
-    let args = Args::try_parse_from(&argv)?;
+    let args = match Args::try_parse_from(&argv) {
+        Ok(args) => args,
+        Err(error) => {
+            // § kgqztjzym.d@41srh
+            message_box::set_terse(audience::of_unparsed(&argv) == config::Audience::Agent);
+            if message_box::terse() {
+                let summary = error.to_string();
+                let summary = summary.lines().next().unwrap_or_default();
+                anyhow::bail!("{}", summary.trim_start_matches("error: "));
+            }
+            return Err(error.into());
+        }
+    };
 
     let mut builder = env_logger::Builder::new();
     match env::var("LADE_LOG").ok().filter(|s| !s.is_empty()) {
@@ -102,14 +134,6 @@ async fn run() -> Result<()> {
             args::help_lists_internal(&args.verbose),
         )?;
         return Ok(());
-    }
-
-    if let Err(e) = cache::checked_root() {
-        message_box::MessageBox::new()
-            .error()
-            .paragraph(e.to_string())
-            .print_stderr();
-        std::process::exit(exit_codes::FAILURE);
     }
 
     let pretool = args.pretool;
@@ -149,22 +173,46 @@ async fn run() -> Result<()> {
         }
     };
     message_box::set_terse(ctx.audience == config::Audience::Agent);
+    // After the audience: a harness reads this failure as one `lade:` line too.
+    if let Err(e) = cache::checked_root() {
+        // § qnn5xnx4z@pyfm6
+        message_box::MessageBox::new()
+            .error()
+            .paragraph(e.to_string())
+            .print_stderr();
+        std::process::exit(exit_codes::FAILURE);
+    }
     lade_sdk::terminal_hooks(wrap::before_lend, wrap::after_lend);
+    // The laptop end resolves with its own providers.
+    if !matches!(
+        command,
+        Command::Connect(_) | Command::Remote | Command::Attach(_) | Command::Hub
+    ) {
+        remote::install(ctx.audience);
+    }
     let Some(command) = run_standalone(command, &ctx).await? else {
         return Ok(());
     };
 
     let current_dir = env::current_dir()?;
 
+    // The cancel is written in the shell's syntax: without a shell, `lade set`
+    // fails before the yaml, with the failures that precede any cancel.
+    // § one gvtm9gyed.a@hvj7k
+    let preexec_shell = match command {
+        Command::Set(_) => Some(preexec::Shell::detect()?),
+        _ => None,
+    };
+
     let config = match LadeFile::build(current_dir.clone()) {
         Ok(c) => c,
         Err(e) => {
-            crate::config::report_load_error(&e);
-            std::process::exit(exit_codes::FAILURE);
+            return command::run_unloaded(command, &ctx, &e, current_dir, preexec_shell).await;
         }
     };
 
-    let inject_exit_code = run_config_verbs(command, &ctx, &config, current_dir).await?;
+    let inject_exit_code =
+        run_config_verbs(command, &ctx, &config, current_dir, preexec_shell).await?;
 
     if let Some(code) = inject_exit_code {
         std::process::exit(code);

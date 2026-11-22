@@ -11,8 +11,9 @@ static TEMPLATE_VAR: LazyLock<Regex> = LazyLock::new(|| {
 
 /// A source value compiled once for dependency discovery and interpolation.
 ///
-/// Only braced references form graph edges. This intentionally leaves `$NAME`
-/// intact for shell-backed providers, where the shell owns that syntax.
+/// `${NAME}` and a bare `$NAME` that names a binding form graph edges. A bare
+/// `$NAME` that names no binding is left intact for shell-backed providers,
+/// where the shell owns that syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Template {
     parts: Vec<TemplatePart>,
@@ -85,7 +86,22 @@ impl Template {
         Ok(output)
     }
 
+    /// Whether some values of its references render the template as
+    /// `rendered`.
+    pub fn yields(&self, rendered: &str) -> bool {
+        let pattern = self
+            .parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Literal(value) => regex::escape(value),
+                TemplatePart::Reference { .. } => "(?s:.*)".to_string(),
+            })
+            .collect::<String>();
+        Regex::new(&format!("^{pattern}$")).is_ok_and(|re| re.is_match(rendered))
+    }
+
     pub fn shell_source(&self) -> String {
+        // § v3rjmav3z.c@bvabr
         let mut output = String::new();
         for part in &self.parts {
             match part {
@@ -121,21 +137,27 @@ pub struct Dag {
 
 impl Dag {
     pub fn new(templates: HashMap<String, Template>) -> Result<Self> {
+        // § v3rjmav3z.b@g2yjc
         let mut dependents = HashMap::<String, Vec<String>>::new();
         let mut indegrees = HashMap::<String, usize>::new();
         for (name, template) in &templates {
             let mut dependencies = BTreeSet::new();
             for part in &template.parts {
-                let TemplatePart::Reference { name, braced, .. } = part else {
+                let TemplatePart::Reference {
+                    name: dependency,
+                    braced,
+                    ..
+                } = part
+                else {
                     continue;
                 };
-                if !templates.contains_key(name) {
+                if !templates.contains_key(dependency) {
                     if !braced {
                         continue;
                     }
-                    bail!("binding '{name}' references missing dependency '{name}'");
+                    bail!("binding '{name}' references missing dependency '{dependency}'");
                 }
-                dependencies.insert(name.clone());
+                dependencies.insert(dependency.clone());
             }
             indegrees.insert(name.clone(), dependencies.len());
             for dependency in dependencies {
@@ -180,6 +202,7 @@ impl Dag {
     }
 
     fn validate_acyclic(&self) -> Result<()> {
+        // § v3rjmav3z.b@z5rcp
         let mut indegrees = self.indegrees();
         let mut ready = self.initial_ready().into_iter().collect::<VecDeque<_>>();
         let mut visited = 0;

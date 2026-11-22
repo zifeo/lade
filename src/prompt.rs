@@ -37,6 +37,7 @@ fn current_window() -> u64 {
 }
 
 fn code_for_window(command: &str, window: u64) -> String {
+    // § zgydw7q2s.a@bt7jn
     let mut hasher = Sha256::new();
     hasher.update(command.as_bytes());
     hasher.update(b"\n");
@@ -53,12 +54,14 @@ pub fn approval_code(command: &str) -> String {
 /// Whether `candidate` is a valid approval code for `command`. The current and
 /// previous window are accepted so a code copied near a boundary still works.
 pub fn verify_code(command: &str, candidate: &str) -> bool {
+    // § zgydw7q2s.b@tccdc
     let w = current_window();
     candidate == code_for_window(command, w)
         || candidate == code_for_window(command, w.saturating_sub(1))
 }
 
 pub fn is_approved(command: &str) -> bool {
+    // § betd87z6r@brk5k
     if let Ok(val) = std::env::var(LADE_APPROVE)
         && verify_code(command, &val)
     {
@@ -88,9 +91,11 @@ pub async fn resolve_disclaimers(
             .paragraphs(disclaimers.iter().map(|d| format!("> {d}")))
             .line("");
         // The code would let an agent approve on its own: only a human may.
+        // § b5862tcfn@5s669
         mb = if ctx.audience == crate::config::Audience::Agent {
             mb.line("Only a human can approve it: ask them to run this command in their terminal.")
         } else {
+            // § betd87z6r.c@0dvfk
             mb.line(format!(
                 "To approve, re-run the command prefixed with LADE_APPROVE={code}, or run `lade approve {code}`."
             ))
@@ -103,6 +108,7 @@ pub async fn resolve_disclaimers(
 }
 
 pub async fn confirm_disclaimers(disclaimers: &[String]) -> Result<()> {
+    // § betd87z6r.a@481k2
     if disclaimers.is_empty() {
         return Ok(());
     }
@@ -173,5 +179,18 @@ mod tests {
         assert!(verify_code(cmd, &approval_code(cmd)));
         assert!(!verify_code(cmd, "00000"));
         assert!(!verify_code(cmd, "1"));
+    }
+
+    #[test]
+    fn a_code_lives_one_more_window() {
+        let cmd = "deploy prod";
+        let window = current_window();
+        assert!(verify_code(cmd, &code_for_window(cmd, window - 1)));
+        let older = code_for_window(cmd, window - 2);
+        // Five hex digits may collide with a later window's code.
+        let collides = [window, window - 1]
+            .iter()
+            .any(|w| code_for_window(cmd, *w) == older);
+        assert!(collides || !verify_code(cmd, &older));
     }
 }

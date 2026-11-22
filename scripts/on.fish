@@ -1,5 +1,5 @@
 function preexec_lade --on-event fish_preexec
-    if test (string sub -l 5 -- "$argv") = "lade "; or test "$argv" = "lade"; or test "$argv" = "source off.fish"
+    if test (string sub -l 5 -- "$argv") = "lade "; or test "$argv" = "lade"; or test "$argv" = "source off.fish"; or test "$argv" = 'eval "$(lade off)"'
         return
     end
     set --global LADE "$argv[1]"

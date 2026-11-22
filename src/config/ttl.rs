@@ -31,26 +31,32 @@ pub fn tunnel_ttl_ms(body: Option<&RuleTtl>, session: Option<&RuleTtl>) -> Optio
 }
 
 fn put_ttl_ms(ttl: Option<&RuleTtl>, session: Option<&RuleTtl>) -> Option<u32> {
+    // § one fkaa6vap4.b@rvnba
     if matches!(ttl, Some(RuleTtl::Off)) {
         return None;
     }
+    // § zdyc7ggsy.a@336md
     match session {
         Some(RuleTtl::Off) => None,
         Some(window) => window.ttl_ms(),
         None => match ttl {
             Some(body) => body.ttl_ms(),
+            // § one fkaa6vap4.a@6j89r
             None => Some(DEFAULT_VAULT_TTL_MS),
         },
     }
 }
 
 fn cacheable_uri(uri: &str, ttl: Option<&RuleTtl>, session: Option<&RuleTtl>) -> bool {
+    // § one b0wwfx9g0@grjm7
     if is_raw_secret(uri) || Family::of_uri(uri) != Family::Secret {
         return false;
     }
+    // § one fkaa6vap4.b@f81tf
     if matches!(ttl, Some(RuleTtl::Off)) || matches!(session, Some(RuleTtl::Off)) {
         return false;
     }
+    // § b0wwfx9g0.a@atq7x
     if matches!(session, Some(RuleTtl::Window(_))) {
         return true;
     }

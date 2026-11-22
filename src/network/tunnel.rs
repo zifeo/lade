@@ -32,6 +32,8 @@ pub(crate) struct TunnelRequest {
     pub(crate) context: Option<String>,
     /// `None`: inherit this process's env.
     pub(crate) env: Option<Vec<(OsString, OsString)>>,
+    /// The asking command's walk hash on an attached remote.
+    pub(crate) link_walk: Option<String>,
 }
 
 /// What frees the user-facing port on [`Tunnel::release_port`].
@@ -45,7 +47,7 @@ enum Front {
 #[derive(Debug)]
 pub(crate) struct Tunnel {
     front: Front,
-    _forward: RunningForward,
+    forward: RunningForward,
     _socket: Option<SocketFile>,
 }
 
@@ -57,19 +59,26 @@ pub(crate) struct Provider {
 }
 
 impl Tunnel {
+    /// `Some`: its provider lost the port to another process, so the
+    /// tunnel must not be reused.
+    pub(crate) fn lost(&self) -> Option<String> {
+        self.forward.lost()
+    }
+
     /// Frees the local port now. A relayed provider stops later. Direct
     /// listens on that port, so it is stopped here.
     pub(crate) fn release_port(self) -> Provider {
+        // § ewd09vh5j.d@56a6m
         match self.front {
             Front::Relay(relay) => {
                 drop(relay);
                 Provider {
-                    _forward: Some(self._forward),
+                    _forward: Some(self.forward),
                     _socket: self._socket,
                 }
             }
             Front::Direct => {
-                drop(self._forward);
+                drop(self.forward);
                 Provider {
                     _forward: None,
                     _socket: self._socket,
@@ -91,26 +100,53 @@ pub(crate) fn start_tunnel(
         ttl: None,
     })?;
     let mut socket = None;
-    let (inner, outer) = match listen_kind(&parsed.spec) {
-        ListenKind::Printed => (Inner::Printed, Some(outer)),
-        ListenKind::Unix => {
-            let file = SocketFile::create()?;
-            let endpoint = Endpoint::Unix(file.0.clone());
-            socket = Some(file);
-            (Inner::Fixed(endpoint), Some(outer))
-        }
-        ListenKind::Direct => {
-            let host = outer.host.clone();
-            let port = outer.port;
-            (Inner::Direct(Direct::holding(outer, host, port)), None)
-        }
+    let (inner, outer, command) = if let Some(walk) = &request.link_walk {
+        let file = SocketFile::create()?;
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args([
+                "__linked-tunnel",
+                "--uri",
+                &request.uri,
+                "--walk",
+                walk,
+                "--listen",
+            ])
+            .arg(&file.0);
+        let endpoint = Endpoint::Unix(file.0.clone());
+        socket = Some(file);
+        (Inner::Fixed(endpoint), Some(outer), command)
+    } else {
+        let (inner, outer) = match listen_kind(&parsed.spec) {
+            ListenKind::Printed => (Inner::Printed, Some(outer)),
+            ListenKind::Unix => {
+                // § jfg5ews57.b@xz47t
+                let file = SocketFile::create()?;
+                let endpoint = Endpoint::Unix(file.0.clone());
+                socket = Some(file);
+                (Inner::Fixed(endpoint), Some(outer))
+            }
+            ListenKind::Direct => {
+                // § jfg5ews57.c@c92de
+                let host = outer.host.clone();
+                let port = outer.port;
+                (Inner::Direct(Direct::holding(outer, host, port)), None)
+            }
+        };
+        let command = build_command(&parsed.spec, request.context.as_deref(), listen(&inner))?;
+        (inner, outer, command)
     };
-    let command = build_command(&parsed.spec, request.context.as_deref(), listen(&inner))?;
     let template = CommandTemplate::new(&command, request.env.clone())?;
-    let (forward, pid) = RunningForward::supervise(
+    let budget = if request.link_walk.is_some() {
+        crate::network::process::LINKED_STARTUP_TIMEOUT
+    } else {
+        crate::network::process::STARTUP_TIMEOUT
+    };
+    let (forward, pid) = RunningForward::supervise_within(
         provider_label(&parsed.spec).to_string(),
         inner,
         stop,
+        budget,
         move || Ok(template.command()),
     )?;
     let front = match outer {
@@ -120,7 +156,7 @@ pub(crate) fn start_tunnel(
     Ok((
         Tunnel {
             front,
-            _forward: forward,
+            forward,
             _socket: socket,
         },
         pid,
@@ -164,6 +200,7 @@ impl CommandTemplate {
     fn command(&self) -> Command {
         let mut command = match &self.guard {
             Some(guard) => {
+                // § vdbmtzqtb.a@kcvs1
                 let mut command = Command::new(guard);
                 command.args([GUARD_VERB, "--"]).arg(&self.program);
                 command
@@ -171,6 +208,7 @@ impl CommandTemplate {
             None => Command::new(&self.program),
         };
         command.args(&self.args);
+        // § one n6qm5smv5.c@gdmqg
         if let Some(env) = &self.env {
             command.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
         }
@@ -281,6 +319,7 @@ mod tests {
             uri: "kubefwd://kube.example.com:443/acme/default/service/db/5432".to_string(),
             context: Some("acme".to_string()),
             env: Some(vec![(OsString::from("PATH"), OsString::from(path))]),
+            link_walk: None,
         }
     }
 

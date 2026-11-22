@@ -86,6 +86,74 @@ fn user_keyed_secret_skips_wrap_when_os_user_misses() {
 }
 
 #[test]
+fn broken_config_json_hands_the_line_to_the_wrap_that_fails_it() {
+    with_cursor_env(|| {
+        let cfg = tempdir().unwrap();
+        let path = cfg.path().join("config.json");
+        std::fs::write(&path, "{").unwrap();
+        temp_env::with_vars(
+            [
+                ("LADE_CONFIG_PATH", Some(path.to_str().unwrap())),
+                ("USER", Some("owner")),
+                ("USERNAME", None),
+            ],
+            || {
+                let dir = tempdir().unwrap();
+                std::fs::write(
+                    dir.path().join("lade.yml"),
+                    "\"^echo\":\n  KEY:\n    owner: val\n",
+                )
+                .unwrap();
+                let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+                let input = r#"{"tool_input": {"command": "echo hello"}}"#;
+                let result = handle(&config, input, Audience::Agent, None).unwrap();
+                assert!(result.contains("--pretool -- 'echo hello'"), "{result}");
+            },
+        );
+    });
+}
+
+#[test]
+fn a_log_only_match_with_a_broken_config_json_runs_unchanged() {
+    with_cursor_env(|| {
+        with_ticket_tmpdir(|| {
+            let cfg = tempdir().unwrap();
+            let path = cfg.path().join("config.json");
+            std::fs::write(&path, "{").unwrap();
+            temp_env::with_vars([("LADE_CONFIG_PATH", Some(path.to_str().unwrap()))], || {
+                let dir = tempdir().unwrap();
+                std::fs::write(dir.path().join("lade.yml"), ".:\n  .:\n    log: true\n").unwrap();
+                let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+                let input = r#"{"tool_input": {"command": "gcloud auth list"}}"#;
+                let result = handle(&config, input, Audience::Agent, None).unwrap();
+                assert!(result.contains("allow"), "{result}");
+                assert!(!result.contains("--pretool"), "{result}");
+            });
+        });
+    });
+}
+
+#[test]
+fn a_key_past_its_bound_hands_the_line_to_the_wrap_that_fails_it() {
+    with_cursor_env(|| {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("lade.yml"),
+            "'^(?=(a|aa)+\\1$)b':\n  TOKEN: val\n",
+        )
+        .unwrap();
+        let config = LadeFile::build(dir.path().to_path_buf()).unwrap();
+        let command = format!("{}!", "a".repeat(40));
+        let input = json!({"tool_input": {"command": command}}).to_string();
+        let result = handle(&config, &input, Audience::Agent, None).unwrap();
+        assert!(
+            result.contains(&format!("--pretool -- '{command}'")),
+            "{result}"
+        );
+    });
+}
+
+#[test]
 fn test_human_when_does_not_wrap() {
     with_cursor_env(|| {
         let dir = tempdir().unwrap();
