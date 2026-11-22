@@ -52,6 +52,17 @@ while True:
     threading.Thread(target=pipe, args=(upstream, client), daemon=True).start()
 "#;
 
+/// `needle` in the output once its whitespace is collapsed: a message box
+/// wraps a long line wherever its width falls.
+fn says(needle: &'static str) -> impl predicates::Predicate<str> {
+    predicates::function::function(move |text: &str| {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains(needle)
+    })
+}
+
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -241,8 +252,8 @@ fn an_edit_on_the_remote_needs_a_new_connect() {
         .args(["--", "true"])
         .assert()
         .code(6)
-        .stderr(predicates::str::contains("lade connect "))
-        .stderr(predicates::str::contains("src/app -- ssh build-01"));
+        .stderr(says("lade connect "))
+        .stderr(says("src/app -- ssh build-01"));
     machines.connect().success();
     machines
         .on_remote(&machines.app())
@@ -291,8 +302,8 @@ fn past_its_ttl_a_value_resolves_again_on_the_laptop_and_a_failure_exits_4() {
         .args(["--", "true"])
         .assert()
         .code(4)
-        .stderr(predicates::str::contains("you are logged out"))
-        .stderr(predicates::str::contains("src/app -- ssh build-01"));
+        .stderr(says("you are logged out"))
+        .stderr(says("src/app -- ssh build-01"));
 }
 
 #[test]
@@ -302,7 +313,7 @@ fn a_provider_that_fails_at_connect_fails_connect() {
     machines
         .connect()
         .failure()
-        .stderr(predicates::str::contains("you are logged out"));
+        .stderr(says("you are logged out"));
 }
 
 #[test]
@@ -338,8 +349,8 @@ fn a_ref_templated_on_a_remote_file_resolves_on_the_laptop_when_the_remote_asks(
     machines
         .connect()
         .success()
-        .stderr(predicates::str::contains("on first use"))
-        .stderr(predicates::str::contains("DB needs NAME"));
+        .stderr(says("on first use"))
+        .stderr(says("DB needs NAME"));
     assert_eq!(doppler_calls(&machines), 0);
     for _ in 0..2 {
         machines
@@ -358,10 +369,7 @@ fn a_ref_templated_on_another_body_resolves_on_the_laptop_when_the_remote_asks()
         &machines.app(),
         "\".\":\n  NAME: TOKEN\n\"^test\":\n  DB: doppler://api.doppler.com/proj/dev/${NAME}\n",
     );
-    machines
-        .connect()
-        .success()
-        .stderr(predicates::str::contains("DB needs NAME"));
+    machines.connect().success().stderr(says("DB needs NAME"));
     machines
         .on_remote(&machines.app())
         .args(["--", "test \"$(echo \"$DB\" | cksum)\" = \"1515322352 16\""])
@@ -445,7 +453,7 @@ fn the_laptop_resolves_with_the_remote_user_and_a_user_change_needs_a_new_connec
         .args(["--", "true"])
         .assert()
         .code(6)
-        .stderr(predicates::str::contains("src/app -- ssh build-01"));
+        .stderr(says("src/app -- ssh build-01"));
 }
 
 #[test]
@@ -460,7 +468,7 @@ fn a_second_path_shares_the_link() {
         .args(["--", "true"])
         .assert()
         .code(6)
-        .stderr(predicates::str::contains("src/other -- ssh build-01"));
+        .stderr(says("src/other -- ssh build-01"));
     machines.connect_path("src/other").success();
     for dir in [machines.app(), other] {
         machines
@@ -591,8 +599,8 @@ fn a_link_down_fails_with_exit_4_and_the_connect_line() {
         .args(["--", "true"])
         .assert()
         .code(4)
-        .stderr(predicates::str::contains("lade connect "))
-        .stderr(predicates::str::contains("src/app -- ssh build-01"));
+        .stderr(says("lade connect "))
+        .stderr(says("src/app -- ssh build-01"));
 }
 
 #[test]
@@ -603,7 +611,7 @@ fn other_transports_are_refused() {
         .args(["connect", "src/app", "--", "kubectl", "exec", "pod"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("ssh"));
+        .stderr(says("ssh"));
 }
 
 fn attached_marker(machines: &Machines) {
@@ -629,8 +637,8 @@ fn a_tunnel_while_the_link_is_down_fails_with_exit_4() {
         .args(["--", "true"])
         .assert()
         .code(4)
-        .stderr(predicates::str::contains("lade attach is not running"))
-        .stderr(predicates::str::contains("db.internal:5432"));
+        .stderr(says("lade attach is not running"))
+        .stderr(says("db.internal:5432"));
 }
 
 /// A database only the laptop reaches: answers `pong:<line>`.
@@ -880,7 +888,7 @@ fn a_detach_on_the_laptop_without_a_link_ends_attached_mode_on_the_remote() {
         .args(["detach", "--", "ssh", "build-01"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("lade detach ran there"));
+        .stderr(says("lade detach ran there"));
     assert!(!remote_marker(&machines).exists());
 }
 
@@ -910,7 +918,7 @@ fn a_laptop_tunnel_that_fails_fails_the_remote_command_with_its_error() {
         .args(["--", "true"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("Connection refused"));
+        .stderr(says("Connection refused"));
     assert!(
         started.elapsed() < std::time::Duration::from_secs(120),
         "took {:?}",

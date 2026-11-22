@@ -336,7 +336,13 @@ fn the_three_doors_give_the_same_access() {
     let direct = seen(common::lade(home.path()).args(["--", &line]));
     let wrapped = wrap_command(&hook_stdout(home.path(), dir.path(), tmp.path(), &line));
     assert!(wrapped.contains("--pretool="), "{wrapped}");
-    let pretool = seen(&mut common::shell_line(home.path(), &["bash"], &wrapped));
+    // The rewrite names `lade`: the harness finds it on PATH, here this build.
+    let path = format!(
+        "{}:{}",
+        lade.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let pretool = seen(common::shell_line(home.path(), &["bash"], &wrapped).env("PATH", path));
     assert_eq!(preexec, "raw-value from-file\n");
     assert_eq!(direct, preexec);
     assert_eq!(pretool, preexec);
