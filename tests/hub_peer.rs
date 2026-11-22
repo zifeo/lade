@@ -28,13 +28,25 @@ fn hub_sockets(home: &Path) -> Vec<PathBuf> {
 
 /// `exe` with the test Lade env. A debug client would start the hub from
 /// `CARGO_BIN_EXE_lade` if the environment held it.
+///
+/// A copy just written can be busy for an instant on Linux: another test
+/// thread that forks meanwhile holds its write fd until that child execs.
 fn run(exe: &Path, home: &Path, dir: &Path, args: &[&str]) -> std::process::Output {
-    let mut cmd = common::with_lade_env(Command::new(exe), home);
-    cmd.env_remove("CARGO_BIN_EXE_lade")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap()
+    for _ in 0..50 {
+        let mut cmd = common::with_lade_env(Command::new(exe), home);
+        match cmd
+            .env_remove("CARGO_BIN_EXE_lade")
+            .current_dir(dir)
+            .args(args)
+            .output()
+        {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            out => return out.unwrap(),
+        }
+    }
+    panic!("{} stayed busy", exe.display())
 }
 
 fn hub_json(exe: &Path, home: &Path, dir: &Path) -> serde_json::Value {

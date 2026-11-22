@@ -51,6 +51,7 @@ Release notes are also published on [GitHub Releases](https://github.com/zifeo/l
 
 ### Fixed
 
+- **A masked command and a job its shell leaves behind**: the command ends with its shell, instead of waiting until that job closes the terminal. Ctrl-C under bash 3.2 left such a job: it interrupted the shell after the command's last step had started.
 - **A shell profile Lade cannot read**: `lade hook enable --shell` and `lade hook disable --shell` fail and name the file, instead of replacing it with Lade's line alone. `lade setup` names the file, writes no shell hook and wires the repo, since it cannot tell whether that profile has the hook, instead of writing a second one or failing. Editing the profile keeps its last newline.
 - **The installer and a release without `age-plugin-lade`**: it says it installs `lade` alone, as `lade upgrade` does, instead of skipping the plugin without a word.
 - **The walk from outside `$HOME`**: a command run in `/tmp` or `/srv` no longer reads a `lade.yaml` in a directory that contains `$HOME`, such as `/`. A `$HOME` with a trailing slash or behind a symlink stops the walk too.

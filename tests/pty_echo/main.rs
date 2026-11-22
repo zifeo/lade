@@ -329,6 +329,26 @@ fn secret_as_the_last_bytes_is_masked_and_written() {
 // Lade puts the terminal the child reads in raw mode while it masks. Without
 // ISIG kept on it, Ctrl-C reaches the child as a byte on stdin, and a command
 // that reads nothing never stops.
+/// A job the shell leaves behind holds the command's terminal open: the
+/// command still ends with its shell.
+#[test]
+fn a_masked_command_ends_with_its_shell_when_a_background_job_holds_the_terminal() {
+    let dir = tempdir().unwrap();
+    let project = dir.path();
+    write_redactor_yml(project, "x");
+    let lade_bin = assert_cmd::cargo::cargo_bin("lade");
+    let harness = spawn_in(&lade_bin, project, "printf '__left__\\n'; sleep 7 &", true);
+    let started = std::time::Instant::now();
+    let (captured, status) = run_answering(harness, &[]);
+    let text = String::from_utf8_lossy(&captured);
+    assert!(contains(&captured, b"__left__"), "captured:\n{text}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(6),
+        "the command outlived its shell, status={status:?} captured:\n{text}"
+    );
+    assert!(status.success(), "status={status:?}");
+}
+
 #[test]
 fn ctrl_c_interrupts_a_masked_command() {
     let dir = tempdir().unwrap();
