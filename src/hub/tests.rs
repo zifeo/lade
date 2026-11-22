@@ -1501,7 +1501,7 @@ fn hub_socket_is_owner_only() {
 #[test]
 fn a_busy_orphan_still_exits() {
     use std::io::{Read, Write};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     let root = tempfile::tempdir().unwrap();
     let cache = root.path().to_string_lossy().into_owned();
     temp_env::with_vars([("LADE_CACHE_DIR", Some(cache.as_str()))], || {
@@ -1527,9 +1527,10 @@ fn a_busy_orphan_still_exits() {
         std::fs::hard_link(&sock, &alias).unwrap();
         let stop = std::sync::Arc::new(AtomicBool::new(false));
         let pinging = std::sync::Arc::clone(&stop);
+        let answered = std::sync::Arc::new(AtomicU32::new(0));
+        let counted = std::sync::Arc::clone(&answered);
         let pinger = std::thread::spawn(move || {
             let ping = wire::encode_req(&Req::Ping).unwrap();
-            let mut answered = 0u32;
             while !pinging.load(Ordering::Relaxed) {
                 if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&alias) {
                     let mut reply = Vec::new();
@@ -1537,21 +1538,25 @@ fn a_busy_orphan_still_exits() {
                         && stream.read_to_end(&mut reply).is_ok()
                         && !reply.is_empty()
                     {
-                        answered += 1;
+                        counted.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            answered
         });
-        std::thread::sleep(reach / 2);
+        // Busy before the socket moves: counted replies, not a fixed wait a
+        // slow runner fills with fewer of them.
+        let busy = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while answered.load(Ordering::Relaxed) <= 5 {
+            assert!(std::time::Instant::now() < busy, "the hub was not busy");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         std::fs::remove_file(&sock).unwrap();
         std::fs::write(&sock, b"next hub").unwrap();
         let exited = finished.recv_timeout(std::time::Duration::from_secs(2));
         stop.store(true, Ordering::Relaxed);
-        let answered = pinger.join().unwrap();
+        pinger.join().unwrap();
         exited.expect("a busy orphan exits");
-        assert!(answered > 5, "the hub was not busy: {answered} replies");
         assert_eq!(std::fs::read(&sock).unwrap(), b"next hub");
     });
 }

@@ -205,7 +205,10 @@ pub fn spawn_mcp(home: &Path, cwd: &Path, script: &Path, args: &[&str]) -> LadeC
     LadeChild::spawn(cmd.spawn().unwrap())
 }
 
+/// The child is ready: `lade` ends it on drop too, since a SIGKILL to
+/// `lade` leaves the trap script's loop running.
 pub fn wait_ready(work: &Path, lade: &mut LadeChild) {
     wait_exists(&work.join("ready"));
+    lade.extra.push(read_pid(&work.join("pid")));
     assert!(lade.running(), "lade exited before the child was ready");
 }
